@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import {
     BaseIcon,
@@ -7,6 +7,7 @@ import {
     IconChevronDown,
     IconChevronRight,
     IconComment,
+    IconCopy,
     IconDashboard,
     IconGear,
     IconInfo,
@@ -20,7 +21,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import {
+    SettingsBar,
+    SettingsButton,
+    SettingsMenu,
+    SettingsToggle,
+} from 'scenes/session-recordings/components/PanelSettings'
 import { SharedListMiniFilter, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     FilterableInspectorListItemTypes,
@@ -33,6 +39,8 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 
 import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
+import { bulkCopyInspectorItems } from './inspectorCopyActions'
+import { isExportableInspectorItem } from './inspectorItemSerializers'
 
 function sideActionForType({
     miniFilters,
@@ -268,6 +276,60 @@ function CommentsFilterSettingsButton(): JSX.Element {
     )
 }
 
+function ExportSettingsMenu(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { items, start } = useValues(playerInspectorLogic(logicProps))
+    const { searchQuery, miniFiltersByKey } = useValues(miniFiltersLogic)
+
+    const hasExportable = useMemo(() => items.some(isExportableInspectorItem), [items])
+
+    const filterSummary = useMemo(() => {
+        const enabledFilterNames = Object.values(miniFiltersByKey).flatMap((f) =>
+            f?.enabled && f.name ? [f.name] : []
+        )
+        const parts: string[] = []
+        if (enabledFilterNames.length) {
+            parts.push(`filters=${enabledFilterNames.join(',')}`)
+        }
+        if (searchQuery) {
+            parts.push(`search="${searchQuery}"`)
+        }
+        return parts.length ? parts.join(' ') : 'no filters'
+    }, [miniFiltersByKey, searchQuery])
+
+    const menuItems = useMemo(() => {
+        const bulkOpts = {
+            sessionId: logicProps.sessionRecordingId,
+            recordingStart: start?.toISOString(),
+            filterSummary,
+        }
+        return [
+            {
+                label: 'Copy filtered view as text',
+                icon: <IconCopy />,
+                onClick: () => bulkCopyInspectorItems(items, 'text', bulkOpts),
+                'data-attr': 'player-inspector-export-copy-text',
+            },
+            {
+                label: 'Copy filtered view as JSON',
+                icon: <IconCopy />,
+                onClick: () => bulkCopyInspectorItems(items, 'json', bulkOpts),
+                'data-attr': 'player-inspector-export-copy-json',
+            },
+        ]
+    }, [items, logicProps.sessionRecordingId, start, filterSummary])
+
+    return (
+        <SettingsMenu
+            icon={<IconCopy />}
+            label="Export"
+            highlightWhenActive={false}
+            disabledReason={hasExportable ? undefined : 'No items match the current filters'}
+            items={menuItems}
+        />
+    )
+}
+
 function LogsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType, logsLoading, logsLoadError } = useValues(playerInspectorLogic(logicProps))
@@ -329,6 +391,7 @@ export function PlayerInspectorControls(): JSX.Element {
                             onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
                         />
                     )}
+                {mode !== SessionRecordingPlayerMode.Sharing && <ExportSettingsMenu />}
             </SettingsBar>
 
             <div className="flex px-2 py-1">

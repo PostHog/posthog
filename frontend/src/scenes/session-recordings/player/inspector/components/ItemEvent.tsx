@@ -27,6 +27,7 @@ import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesMode
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
+import { inspectorItemCopyMenuItems } from '../inspectorCopyActions'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 
@@ -206,6 +207,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                           targetBlank: true,
                       }
                     : null,
+                ...inspectorItemCopyMenuItems(item),
             ]}
             buttonSize="xsmall"
         >

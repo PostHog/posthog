@@ -10,6 +10,7 @@ import {
     IconChat,
     IconCloud,
     IconCollapse,
+    IconCopy,
     IconCursor,
     IconDashboard,
     IconExpand,
@@ -20,7 +21,7 @@ import {
     IconRedux,
     IconTerminal,
 } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonMenu } from '@posthog/lemon-ui'
 
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
@@ -40,6 +41,8 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
+import { inspectorItemCopyMenuItems } from '../inspectorCopyActions'
+import { SYNTHETIC_INSPECTOR_ITEM_TYPES } from '../inspectorItemSerializers'
 import {
     InspectorListItem,
     InspectorListItemConsole,
@@ -107,8 +110,6 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
         tooltip: 'Log entry',
     },
 }
-
-const notExpandable = ['inspector-summary', 'inactivity', 'session-change']
 
 // TODO @posthog/icons doesn't export the type we need here
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
@@ -209,12 +210,23 @@ function RowItemTitle({
     )
 }
 
-/**
- * Some items show a menu button in the item title bar when expanded.
- * For example to add sharing actions
- */
+function RowItemCopyMenu({ item }: { item: InspectorListItem }): JSX.Element {
+    return (
+        <LemonMenu items={inspectorItemCopyMenuItems(item)} buttonSize="xsmall">
+            <LemonButton size="xsmall" icon={<IconCopy />} data-attr="player-inspector-row-copy-menu" />
+        </LemonMenu>
+    )
+}
+
 function RowItemMenu({ item }: { item: InspectorListItem }): JSX.Element | null {
-    return item.type === 'events' ? <ItemEventMenu item={item} /> : null
+    if (item.type === 'events') {
+        return <ItemEventMenu item={item} />
+    }
+    // offline-status / browser-visibility are state transitions with no payload worth copying
+    if (item.type === 'offline-status' || item.type === 'browser-visibility') {
+        return null
+    }
+    return <RowItemCopyMenu item={item} />
 }
 
 function RowItemDetail({
@@ -340,7 +352,7 @@ const ListItemTitle = memo(function ListItemTitle({
                 </div>
             </div>
             {isExpanded && <RowItemMenu item={item} />}
-            {!notExpandable.includes(item.type) && (
+            {!SYNTHETIC_INSPECTOR_ITEM_TYPES.has(item.type) && (
                 <LemonButton
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     size="small"
