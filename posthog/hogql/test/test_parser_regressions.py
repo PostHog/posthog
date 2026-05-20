@@ -1789,6 +1789,32 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_pivot_group_by_with_empty_list_rejected(self):
+        # cpp's `(GROUP BY columnExprList)?` requires a non-empty list
+        # when GROUP BY is present — `PIVOT(... GROUP BY)` errors at the
+        # trailing `)`. Rust's `parse_expr_list_until_paren` returned an
+        # empty Vec on the immediate `)`, silently accepting the PIVOT
+        # with `group_by: []`.
+        for src in (
+            "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY)",
+            "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY ) AS p",
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_select(src, backend="rust-json")
+        # Guard: the non-empty and trailing-comma forms still parse.
+        for src in (
+            "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY a)",
+            "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY a, c)",
+            "SELECT * FROM t PIVOT(sum(a) FOR b IN (1) GROUP BY a,)",
+            "SELECT * FROM t PIVOT(sum(a) FOR b IN (1))",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_return_expr_prefix_shortening_admits_keyword_head(self):
         # `return <expr> := <rhs>` triggers ANTLR's adaptive prediction:
         # cpp falls back to the shortest expr prefix that leaves the

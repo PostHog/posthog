@@ -1063,12 +1063,23 @@ impl<'a> Parser<'a> {
                     }
                 }
                 // Optional GROUP BY for additional grouping columns.
+                // cpp's `(GROUP BY columnExprList)?` requires the list
+                // to be non-empty when GROUP BY is present — a bare
+                // `GROUP BY)` errors at the trailing paren. Rust's
+                // `parse_expr_list_until_paren` returns an empty Vec on
+                // `)` immediately, silently accepting; reject explicitly
+                // to match cpp.
                 let mut group_by: Option<Vec<Value>> = None;
                 if matches!(self.peek(), TokenKind::Keyword(Kw::Group))
                     && self.peek_next() == TokenKind::Keyword(Kw::By)
                 {
                     self.bump()?;
                     self.bump()?;
+                    if self.peek() == TokenKind::RParen {
+                        return Err(self.err(
+                            "PIVOT GROUP BY must have at least one expression",
+                        ));
+                    }
                     group_by = Some(self.parse_expr_list_until_paren()?);
                 }
                 self.expect(TokenKind::RParen, ")")?;
