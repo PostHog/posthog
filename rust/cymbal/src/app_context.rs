@@ -7,11 +7,11 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
-    issue_resolution::Issue,
     signals::{MaybeSignalClient, SignalClient},
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
@@ -45,10 +45,11 @@ pub struct AppContext {
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     pub signal_client: MaybeSignalClient,
-    // Shared (fingerprint -> issue) cache. Lives on AppContext so it persists across
-    // requests — every batch shares a single LinkingStage cache instead of building a
-    // fresh one. moka caches are cheap to clone (internally Arc'd).
-    pub issue_cache: Cache<(TeamId, String), Issue>,
+    // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
+    // it persists across requests — only the stable mapping is cached, never the Issue
+    // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
+    // moka caches are cheap to clone (internally Arc'd).
+    pub issue_cache: Cache<(TeamId, String), Uuid>,
 }
 
 impl AppContext {

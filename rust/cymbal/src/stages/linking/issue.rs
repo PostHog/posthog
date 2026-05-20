@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use common_types::format::parse_datetime_assuming_utc;
 use sqlx::{Acquire, PgConnection};
 use tracing::warn;
+use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
@@ -73,20 +74,103 @@ impl ValueOperator for IssueLinker {
         ctx: LinkingStage,
     ) -> OperatorResult<Self> {
         let fingerprint = input.fingerprint.clone().unwrap();
+        let key = (input.team_id, fingerprint.clone());
+
+        // The cache holds only the stable `(team_id, fingerprint) -> issue_id` mapping
+        // across requests. We deliberately do NOT cache the Issue itself: status changes
+        // (suppression, resolution) made in PG would otherwise be ignored by
+        // `IssueSuppression` and `maybe_reopen` until the cache TTL expired.
         let cloned_input = input.clone();
-        let issue: Issue = ctx
+        let ctx_for_load = ctx.clone();
+        let issue_id: Uuid = ctx
             .issue_cache
-            .try_get_with((input.team_id, fingerprint), async move {
-                Self::fetch_or_create_issue(cloned_input, ctx.app_context.clone()).await
+            .try_get_with(key.clone(), async move {
+                let issue =
+                    Self::fetch_or_create_issue(cloned_input, ctx_for_load.app_context.clone())
+                        .await?;
+                Ok::<Uuid, UnhandledError>(issue.id)
             })
             .await
             .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+
+        // Always re-read current state. On the cache-miss path this is one redundant PK
+        // lookup; on the cache-hit path it's the whole point — we replace the expensive
+        // fingerprint JOIN with a cheap PK lookup while keeping status fresh.
+        let issue = match load_and_maybe_reopen(
+            ctx.app_context.as_ref(),
+            input.team_id,
+            issue_id,
+            &fingerprint,
+            &input,
+        )
+        .await?
+        {
+            Some(issue) => issue,
+            None => {
+                // The cached id no longer exists in PG (deleted issue). Invalidate and
+                // run the full slow path, which will create a new issue if needed.
+                ctx.issue_cache.invalidate(&key).await;
+                Self::fetch_or_create_issue(input.clone(), ctx.app_context.clone()).await?
+            }
+        };
 
         input.issue_id = Some(issue.id);
         input.issue = Some(issue);
 
         Ok(Ok(input))
     }
+}
+
+// Loads the issue by id (fast PK lookup) and runs the reopen side effects if the issue
+// is currently in a non-active, non-suppressed state. Returns `None` if the cached id
+// is dangling (issue was deleted), so the caller can invalidate and fall back to a full
+// resolve.
+async fn load_and_maybe_reopen(
+    context: &AppContext,
+    team_id: i32,
+    issue_id: Uuid,
+    fingerprint: &str,
+    event_properties: &ExceptionProperties,
+) -> Result<Option<Issue>, UnhandledError> {
+    let mut conn = context.posthog_pool.acquire().await?;
+    let Some(mut issue) = Issue::load(&mut *conn, team_id, issue_id).await? else {
+        return Ok(None);
+    };
+
+    if !issue.maybe_reopen(&mut *conn).await? {
+        return Ok(Some(issue));
+    }
+
+    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
+    let event_timestamp =
+        parse_datetime_assuming_utc(&event_properties.timestamp).unwrap_or_else(|e| {
+            warn!(
+                event = event_properties.uuid.to_string(),
+                "Failed to get event timestamp, using current time, error: {:?}", e
+            );
+            Utc::now()
+        });
+    let assignment =
+        process_assignment(&mut conn, &context.team_manager, &issue, event_properties).await?;
+    // We don't carry a per-fingerprint `first_seen` through this path (we loaded by id,
+    // not by fingerprint), so fall back to the issue's creation time the same way
+    // `resolve_issue` already does when the join returns no first_seen.
+    send_fingerprint_issue_state(
+        context,
+        &issue,
+        fingerprint,
+        assignment.as_ref(),
+        issue.created_at,
+    )
+    .await?;
+    let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+    drop(conn);
+    context
+        .signal_client
+        .emit_issue_reopened(&issue, &output_props);
+    send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp).await?;
+
+    Ok(Some(issue))
 }
 
 async fn resolve_issue(

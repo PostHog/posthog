@@ -5,10 +5,10 @@ pub mod rule_suppression;
 pub mod suppression;
 
 use moka::future::Cache;
+use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
-    issue_resolution::Issue,
     metric_consts::LINKING_STAGE,
     stages::{
         linking::{
@@ -26,7 +26,7 @@ use crate::{
 #[derive(Clone)]
 pub struct LinkingStage {
     pub app_context: Arc<AppContext>,
-    pub issue_cache: Cache<(TeamId, String), Issue>,
+    pub issue_cache: Cache<(TeamId, String), Uuid>,
 }
 
 impl Stage for LinkingStage {
