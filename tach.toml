@@ -585,6 +585,16 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.access_control",
+]
+
+# Legacy leaks — core (posthog/ee) still imports these internals directly.
+[[interfaces]]
+expose = [
     "backend\\.models.*",
     "backend\\.property_access_control.*",
 ]

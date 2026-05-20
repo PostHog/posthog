@@ -32,6 +32,8 @@ class ThrottleResult:
     detail: str = "Rate limit exceeded"
     scope: str | None = None
     retry_after: int | None = None
+    used_usd: float | None = None
+    limit_usd: float | None = None
 
     @classmethod
     def allow(cls) -> ThrottleResult:
@@ -44,8 +46,18 @@ class ThrottleResult:
         detail: str = "Rate limit exceeded",
         scope: str | None = None,
         retry_after: int | None = None,
+        used_usd: float | None = None,
+        limit_usd: float | None = None,
     ) -> ThrottleResult:
-        return cls(allowed=False, status_code=status_code, detail=detail, scope=scope, retry_after=retry_after)
+        return cls(
+            allowed=False,
+            status_code=status_code,
+            detail=detail,
+            scope=scope,
+            retry_after=retry_after,
+            used_usd=used_usd,
+            limit_usd=limit_usd,
+        )
 
 
 class Throttle(ABC):

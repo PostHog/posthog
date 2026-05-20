@@ -32,6 +32,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `read_write` - read_write
+    * `read` - read
+    * `none` - none
+     */
+    export type AccessLevelEnum = typeof AccessLevelEnum[keyof typeof AccessLevelEnum];
+
+
+    export const AccessLevelEnum = {
+      ReadWrite: 'read_write',
+      Read: 'read',
+      None: 'none',
+    } as const;
+
+    /**
      * * `warehouse` - warehouse
     * `direct` - direct
      */
@@ -42,6 +56,53 @@ export namespace Schemas {
       Warehouse: 'warehouse',
       Direct: 'direct',
     } as const;
+
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    export type AccountProperties = {
+      /** @nullable */
+      csm?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_executive?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_owner?: {
+      id: number;
+      email: string;
+    } | null;
+    } | null;
+
+    export interface Account {
+      readonly id: string;
+      /**
+         * Human-readable name of the account.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * @maxLength 400
+         * @nullable
+         */
+      external_id?: string | null;
+      /**
+         * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+         * @nullable
+         */
+      properties?: AccountProperties;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
 
     /**
      * * `event` - event
@@ -4965,7 +5026,28 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface QuarantineSourceRun {
+      id: string;
+      branch: string;
+      commit_sha: string;
+      created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+    }
+
+    export interface BaselineQuarantineSummary {
+      created_by?: UserBasicInfo | null;
+      source_run?: QuarantineSourceRun | null;
+      id: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+    }
+
     export interface BaselineEntry {
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -6833,6 +6915,11 @@ export namespace Schemas {
       settings?: Settings | null;
     }
 
+    /**
+     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+     */
+    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -6890,6 +6977,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
+      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+      resultCustomizations?: ChartSettingsResultCustomizations;
       rightYAxisSettings?: YAxisSettings | null;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
@@ -11493,6 +11582,7 @@ export namespace Schemas {
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
     * `Resend` - Resend
+    * `PgAnalyze` - PgAnalyze
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -11642,6 +11732,7 @@ export namespace Schemas {
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
       Resend: 'Resend',
+      PgAnalyze: 'PgAnalyze',
     } as const;
 
     /**
@@ -11797,7 +11888,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -15919,7 +16011,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -19716,6 +19809,19 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+     */
+    export interface LensResult {
+      /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+    }
+
+    /**
      * * `monitor` - Monitor
     * `classifier` - Classifier
     * `scorer` - Scorer
@@ -19802,6 +19908,12 @@ export namespace Schemas {
       cohorts: LocalEvaluationResponseCohorts;
     }
 
+    export interface LogsAlertFilters {
+      filterGroup?: PropertyGroupFilter | null;
+      serviceNames?: string[] | null;
+      severityLevels?: LogSeverityLevel[] | null;
+    }
+
     /**
      * * `above` - Above
     * `below` - Below
@@ -19875,7 +19987,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
@@ -20046,7 +20158,7 @@ export namespace Schemas {
 
     export interface LogsAlertSimulateRequest {
       /** Filter criteria — same format as LogsAlertConfiguration.filters. */
-      filters: unknown;
+      filters: LogsAlertFilters;
       /**
          * Threshold count to evaluate against.
          * @minimum 1
@@ -20153,7 +20265,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -20508,7 +20620,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `BACKFILL` - Backfill
+     * * `PENDING` - Pending
+    * `BACKFILL` - Backfill
     * `READY` - Ready
     * `ERROR` - Error
      */
@@ -20516,6 +20629,7 @@ export namespace Schemas {
 
 
     export const MaterializedColumnSlotStateEnum = {
+      Pending: 'PENDING',
       Backfill: 'BACKFILL',
       Ready: 'READY',
       Error: 'ERROR',
@@ -20526,18 +20640,18 @@ export namespace Schemas {
       team: number;
       property_definition: string;
       readonly property_definition_details: PropertyDefinition;
-      property_type: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at: string;
@@ -21386,6 +21500,15 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface PaginatedAccountList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Account[];
+    }
 
     export interface PaginatedActionList {
       count: number;
@@ -22593,6 +22716,8 @@ export namespace Schemas {
 
     export interface QuarantinedIdentifierEntry {
       created_by?: UserBasicInfo | null;
+      /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+      source_run?: QuarantineSourceRun | null;
       id: string;
       identifier: string;
       run_type: string;
@@ -22743,7 +22868,9 @@ export namespace Schemas {
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
       /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
-      readonly lens_snapshot: LensSnapshot;
+      readonly lens_snapshot: LensSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly lens_result: LensResult | null;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
@@ -23335,6 +23462,7 @@ export namespace Schemas {
     * `zendesk` - Zendesk
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
+    * `pganalyze` - pganalyze
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -23347,6 +23475,7 @@ export namespace Schemas {
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
+      Pganalyze: 'pganalyze',
     } as const;
 
     /**
@@ -23549,8 +23678,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `hourly` - Hourly
-    * `daily` - Daily
+     * * `daily` - Daily
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly
@@ -23559,7 +23687,6 @@ export namespace Schemas {
 
 
     export const SubscriptionFrequencyEnum = {
-      Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -23617,9 +23744,8 @@ export namespace Schemas {
       target_type: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
-      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+      /** How often to deliver: daily, weekly, monthly, or yearly.
 
-      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -25134,6 +25260,53 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WebExperimentsAPI[];
+    }
+
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    export type PatchedAccountProperties = {
+      /** @nullable */
+      csm?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_executive?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_owner?: {
+      id: number;
+      email: string;
+    } | null;
+    } | null;
+
+    export interface PatchedAccount {
+      readonly id?: string;
+      /**
+         * Human-readable name of the account.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * @maxLength 400
+         * @nullable
+         */
+      external_id?: string | null;
+      /**
+         * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+         * @nullable
+         */
+      properties?: PatchedAccountProperties;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -27420,7 +27593,7 @@ export namespace Schemas {
       /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
-      filters?: unknown;
+      filters?: LogsAlertFilters;
       /**
          * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
          * @minimum 1
@@ -27545,7 +27718,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -27585,18 +27758,18 @@ export namespace Schemas {
       team?: number;
       property_definition?: string;
       readonly property_definition_details?: PropertyDefinition;
-      property_type?: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index?: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at?: string;
@@ -29218,9 +29391,8 @@ export namespace Schemas {
       target_type?: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
-      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+      /** How often to deliver: daily, weekly, monthly, or yearly.
 
-      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -31703,6 +31875,72 @@ export namespace Schemas {
       values: PropertyItem[];
     }
 
+    /**
+     * Serializes a single access control rule DTO.
+     */
+    export interface PropertyAccessControlRule {
+      readonly id: string;
+      /** The access level for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID this rule applies to, if any.
+         * @nullable
+         */
+      organization_member: string | null;
+      /**
+         * The role UUID this rule applies to, if any.
+         * @nullable
+         */
+      role: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * Serializes the aggregate state for a property definition.
+
+    Preserves the existing API shape: ``access_controls`` is the list
+    of rules, plus the available levels and the computed default.
+     */
+    export interface PropertyAccessControlState {
+      /** List of all access control rules for this property definition. */
+      access_controls: PropertyAccessControlRule[];
+      /** Available access levels that can be assigned. */
+      available_access_levels: string[];
+      /** The default access level when no rules match. */
+      default_access_level: string;
+    }
+
+    /**
+     * Request body for upserting a rule (create or update).
+     */
+    export interface PropertyAccessControlUpdate {
+      /** The property definition ID this rule applies to. */
+      property_definition_id: string;
+      /** The access level to set for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID to set an override for.
+         * @nullable
+         */
+      organization_member?: string | null;
+      /**
+         * The role UUID to set an override for.
+         * @nullable
+         */
+      role?: string | null;
+    }
+
     export type PropertyType = typeof PropertyType[keyof typeof PropertyType];
 
 
@@ -31830,10 +32068,21 @@ export namespace Schemas {
     } as const;
 
     export interface QuarantineInput {
-      /** @maxLength 512 */
+      /**
+         * Snapshot identifier to quarantine.
+         * @maxLength 512
+         */
       identifier: string;
-      /** @maxLength 255 */
+      /**
+         * Why this snapshot is being quarantined.
+         * @maxLength 255
+         */
       reason: string;
+      /**
+         * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+         * @nullable
+         */
+      source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
     }
@@ -34232,6 +34481,24 @@ export namespace Schemas {
       stats: SurveyGlobalStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyGlobalStatsResponseRates;
+    }
+
+    export interface SurveyQuestionLabel {
+      /** UUID assigned to the survey question. */
+      question_id: string;
+      /** Untranslated question text as configured by the survey author. */
+      question_text: string;
+      /** Zero-based index of the question within the survey. */
+      question_index: number;
+      /** UUID of the survey this question belongs to. */
+      survey_id: string;
+      /** Display name of the survey. */
+      survey_name: string;
+    }
+
+    export interface SurveyQuestionLabelsResponse {
+      /** One entry per question that has an ID assigned, across all the team's surveys. */
+      labels: SurveyQuestionLabel[];
     }
 
     export interface SurveySerializerCreateUpdateOnly {
@@ -38997,6 +39264,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type AccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ApprovalPoliciesListParams = {
     /**
      * Number of results to return per page.
@@ -39889,6 +40167,28 @@ export namespace Schemas {
      * Filter by recipient target type (e.g. `user`, `team`)
      */
     target_type?: string;
+    };
+
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
     };
 
     export type QuickFiltersListParams = {

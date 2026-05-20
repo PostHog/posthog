@@ -122,7 +122,15 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("main", WebStatsBreakdown.PAGE, False, False, None, "stats_table_main_query"),
+            ("simple_breakdown", WebStatsBreakdown.PAGE, False, False, None, "stats_table_simple_breakdown_query"),
+            (
+                "channel_type",
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                False,
+                False,
+                None,
+                "stats_table_channel_type_query",
+            ),
             ("path_bounce", WebStatsBreakdown.PAGE, True, False, None, "stats_table_path_bounce_query"),
             (
                 "path_bounce_and_avg_time",
