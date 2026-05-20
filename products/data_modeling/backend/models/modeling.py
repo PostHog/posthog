@@ -31,8 +31,8 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 LabelPath = list[str]
 
 
-DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 25
-DEFAULT_RESOLUTION_DEADLINE_SECONDS = 30.0
+DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 100
+DEFAULT_RESOLUTION_DEADLINE_SECONDS = 60.0
 
 
 class BoundedResolverError(QueryError):
