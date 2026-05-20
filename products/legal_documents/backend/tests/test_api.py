@@ -487,7 +487,12 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.kwargs["document_id"], "doc_123")
 
-    def test_draft_event_swallows_pandadoc_send_failure(self) -> None:
+    def test_draft_event_swallows_pandadoc_send_failure_and_schedules_retry(self) -> None:
+        # A transient send failure must not surface as a 5xx — PandaDoc would
+        # then redeliver the draft webhook and we'd re-send on top of the
+        # in-flight envelope. The Celery retry task takes over instead, so the
+        # customer eventually gets the signing email even when PandaDoc has
+        # a network blip during the original draft event.
         from products.legal_documents.backend.logic import pandadoc as pandadoc_client
 
         body = json.dumps(self._draft_payload()).encode("utf-8")
@@ -497,10 +502,16 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.send_document",
                 side_effect=pandadoc_client.PandaDocError("boom"),
             ),
+            patch("products.legal_documents.backend.tasks.tasks.retry_send_pandadoc_envelope.delay") as retry_mock,
+            # APIBaseTest wraps each test in a single transaction that is
+            # rolled back at teardown, so `transaction.on_commit` callbacks
+            # never fire by default. Force them to run inline so we can
+            # observe the Celery dispatch.
+            self.captureOnCommitCallbacks(execute=True),
         ):
             response = self._post_raw(body, self._sign(body))
-        # Endpoint still 2xx — we don't want PandaDoc to retry.
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        retry_mock.assert_called_once_with(str(self.document.id))
 
     def test_draft_event_for_already_signed_document_is_a_noop(self) -> None:
         self.document.status = "signed"

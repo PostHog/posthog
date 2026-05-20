@@ -23,11 +23,48 @@ from django.conf import settings
 
 import requests
 import structlog
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = structlog.get_logger(__name__)
 
 
 DEFAULT_TIMEOUT_SECONDS = 30
+# (connect, read) tuple for streaming PandaDoc -> object-storage downloads.
+# Signed PDFs can be megabytes, and PandaDoc occasionally takes well over the
+# 30s blanket cap to start streaming the body — keep the connect timeout
+# tight, but give the read phase enough headroom that a slow chunk doesn't
+# abort the upload mid-pipe.
+DOWNLOAD_TIMEOUT_SECONDS: tuple[int, int] = (10, 120)
+
+# Bounded retry budget for transient PandaDoc network failures. The most
+# common production failures are short-lived ProxyError / RemoteDisconnected
+# on POST /send and 5xx blips on the streaming GET — both recover on a fresh
+# connection. We allow POST retries because PandaDoc's /send is idempotent
+# (a second send on an already-sent doc is rejected with a 4xx the caller
+# already swallows), so retrying after a dropped response is safe.
+_RETRY_TOTAL = 3
+_RETRY_BACKOFF_FACTOR = 1.0
+_RETRY_STATUS_FORCELIST = frozenset({429, 502, 503, 504})
+_RETRY_ALLOWED_METHODS = frozenset({"GET", "POST"})
+
+
+def _build_session() -> requests.Session:
+    retry = Retry(
+        total=_RETRY_TOTAL,
+        connect=_RETRY_TOTAL,
+        read=_RETRY_TOTAL,
+        status=_RETRY_TOTAL,
+        backoff_factor=_RETRY_BACKOFF_FACTOR,
+        status_forcelist=_RETRY_STATUS_FORCELIST,
+        allowed_methods=_RETRY_ALLOWED_METHODS,
+        raise_on_status=False,
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 class PandaDocError(Exception):
@@ -67,10 +104,14 @@ class PandaDocClient:
         api_key: str | None = None,
         base_url: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SECONDS,
+        download_timeout: tuple[int, int] = DOWNLOAD_TIMEOUT_SECONDS,
+        session: requests.Session | None = None,
     ) -> None:
         self._api_key = api_key if api_key is not None else settings.PANDADOC_API_KEY
         self._base_url = (base_url if base_url is not None else settings.PANDADOC_API_BASE_URL).rstrip("/")
         self._timeout = timeout
+        self._download_timeout = download_timeout
+        self._session = session if session is not None else _build_session()
 
     def _headers(self) -> dict[str, str]:
         if not self._api_key:
@@ -83,7 +124,7 @@ class PandaDocClient:
     def _post(self, path: str, json: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
         try:
-            response = requests.post(url, headers=self._headers(), json=json, timeout=self._timeout)
+            response = self._session.post(url, headers=self._headers(), json=json, timeout=self._timeout)
         except requests.RequestException as exc:
             raise PandaDocError(f"Network error calling PandaDoc {path}: {exc}") from exc
         if response.status_code >= 400:
@@ -105,7 +146,9 @@ class PandaDocClient:
         """
         url = f"{self._base_url}{path}"
         try:
-            with requests.get(url, headers=self._headers(), stream=True, timeout=self._timeout) as response:
+            with self._session.get(
+                url, headers=self._headers(), stream=True, timeout=self._download_timeout
+            ) as response:
                 if response.status_code >= 400:
                     raise PandaDocError(f"PandaDoc {path} returned {response.status_code}: {response.text[:500]}")
                 # Transparently handle gzip/deflate on the wire so consumers

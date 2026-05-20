@@ -10,6 +10,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -268,6 +269,26 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
         return None
 
 
+def send_pandadoc_envelope_now(document: LegalDocument) -> None:
+    """
+    Synchronous send that lets PandaDocError propagate. The webhook path uses
+    `send_pandadoc_envelope` which swallows the error and schedules a Celery
+    retry; the Celery task uses this entry point so Celery's `autoretry_for`
+    can see the raised exception.
+    """
+    client = pandadoc_client.PandaDocClient()
+    client.send_document(
+        document_id=document.pandadoc_document_id,
+        subject=f"Please sign: PostHog {document.document_type}",
+        message=(
+            f"Hi,\n\n"
+            f"Please find attached the {document.document_type} for your review and signature. "
+            f"You can also forward this document to reassign it if needed.\n\n"
+            f"- The PostHog Team"
+        ),
+    )
+
+
 def send_pandadoc_envelope(document: LegalDocument) -> bool:
     """
     Dispatch the signing email for a previously-created PandaDoc envelope.
@@ -275,25 +296,21 @@ def send_pandadoc_envelope(document: LegalDocument) -> bool:
     processing the template and the envelope is actually sendable.
 
     Returns True when the send succeeded, False otherwise. Never re-raises:
-    PandaDoc will also reject a second send on a doc that's already past
-    `document.draft` (duplicate webhook delivery), which we silently swallow.
+    a transient PandaDoc network error (already retried inside the HTTP
+    adapter) schedules a Celery task to keep retrying on a longer cadence
+    rather than dropping the envelope on the floor — the customer can't
+    sign without the email and we have few enough opportunities to send it
+    that silent failure is the worst possible outcome. PandaDoc also
+    rejects a second send on a doc that's already past `document.draft`
+    (duplicate webhook delivery); the task short-circuits on rows that
+    have already moved to signed.
     """
     if not document.pandadoc_document_id:
         logger.warning("legal_document_pandadoc_send_missing_envelope_id", document_id=str(document.id))
         return False
 
-    client = pandadoc_client.PandaDocClient()
     try:
-        client.send_document(
-            document_id=document.pandadoc_document_id,
-            subject=f"Please sign: PostHog {document.document_type}",
-            message=(
-                f"Hi,\n\n"
-                f"Please find attached the {document.document_type} for your review and signature. "
-                f"You can also forward this document to reassign it if needed.\n\n"
-                f"- The PostHog Team"
-            ),
-        )
+        send_pandadoc_envelope_now(document)
         return True
     except pandadoc_client.PandaDocError as exc:
         logger.exception(
@@ -309,7 +326,22 @@ def send_pandadoc_envelope(document: LegalDocument) -> bool:
                 "pandadoc_document_id": document.pandadoc_document_id,
             },
         )
+        _schedule_send_retry(document)
         return False
+
+
+def _schedule_send_retry(document: LegalDocument) -> None:
+    """
+    Enqueue a Celery retry for a transient PandaDoc /send failure. Imported
+    inline to avoid a logic-layer -> tasks-layer module-load cycle (tasks
+    import from logic). `on_commit` runs the dispatch immediately under
+    autocommit but defers correctly if a future caller wraps the send in a
+    transaction.
+    """
+    from ..tasks.tasks import retry_send_pandadoc_envelope
+
+    document_id = str(document.id)
+    transaction.on_commit(lambda: retry_send_pandadoc_envelope.delay(document_id))
 
 
 SUBMITTED_EVENT = "legal document submitted"

@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconBalance, IconDownload, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,7 +15,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { getLegalDocumentsDownloadRetrieveUrl } from '../generated/api'
 import { LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
 
 function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItems {
@@ -76,7 +75,14 @@ export const scene: SceneExport = {
 }
 
 export function LegalDocumentsScene(): JSX.Element {
-    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes } = useValues(legalDocumentsLogic)
+    const {
+        legalDocuments,
+        legalDocumentsLoading,
+        existingDocumentTypes,
+        unavailableSignedPdfIds,
+        pendingSignedPdfIds,
+    } = useValues(legalDocumentsLogic)
+    const { requestSignedPdfDownload } = useActions(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const isEnabled = useFeatureFlag('LEGAL_DOCUMENTS')
@@ -182,21 +188,45 @@ export function LegalDocumentsScene(): JSX.Element {
                     },
                     {
                         title: 'Signed copy',
-                        width: 140,
-                        render: (_: any, row: LegalDocument) =>
-                            row.status === 'signed' && currentOrganizationId ? (
-                                <Link
-                                    to={getLegalDocumentsDownloadRetrieveUrl(currentOrganizationId, row.id)}
-                                    target="_blank"
+                        width: 220,
+                        render: (_: any, row: LegalDocument) => {
+                            if (row.status !== 'signed' || !currentOrganizationId) {
+                                return <span className="text-muted">—</span>
+                            }
+                            const isPending = pendingSignedPdfIds.has(row.id)
+                            const isUnavailable = unavailableSignedPdfIds.has(row.id)
+                            if (isUnavailable) {
+                                return (
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-xs text-muted">
+                                            Signed copy not yet available — try again shortly.
+                                        </span>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            icon={<IconDownload />}
+                                            loading={isPending}
+                                            onClick={() => requestSignedPdfDownload(row.id)}
+                                            data-attr="legal-document-download-retry"
+                                        >
+                                            Retry
+                                        </LemonButton>
+                                    </div>
+                                )
+                            }
+                            return (
+                                <LemonButton
+                                    size="small"
+                                    type="tertiary"
+                                    icon={<IconDownload />}
+                                    loading={isPending}
+                                    onClick={() => requestSignedPdfDownload(row.id)}
+                                    data-attr="legal-document-download"
                                 >
-                                    <span className="inline-flex items-center gap-1">
-                                        <IconDownload />
-                                        Download
-                                    </span>
-                                </Link>
-                            ) : (
-                                <span className="text-muted">—</span>
-                            ),
+                                    Download
+                                </LemonButton>
+                            )
+                        },
                     },
                     {
                         title: 'Submitted',

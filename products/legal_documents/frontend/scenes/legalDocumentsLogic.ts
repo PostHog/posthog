@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
@@ -62,6 +62,62 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
     actions({
         setDocumentType: (documentType: LegalDocumentType) => ({ documentType }),
         setDpaMode: (dpaMode: DPAMode) => ({ dpaMode }),
+        // Open the signed-PDF download in a new tab once we've confirmed the
+        // file actually exists. Probing the redirect endpoint lets us turn a
+        // would-be silent 404-in-new-tab into an inline retry affordance.
+        requestSignedPdfDownload: (documentId: string) => ({ documentId }),
+        markSignedPdfUnavailable: (documentId: string) => ({ documentId }),
+        clearSignedPdfUnavailable: (documentId: string) => ({ documentId }),
+        setSignedPdfDownloadPending: (documentId: string, pending: boolean) => ({ documentId, pending }),
+    }),
+    reducers({
+        // Document ids whose latest download probe came back 404 — surfaced as
+        // an inline "not yet available, try again shortly" hint in the table.
+        unavailableSignedPdfIds: [
+            new Set<string>(),
+            {
+                markSignedPdfUnavailable: (state: Set<string>, { documentId }: { documentId: string }) => {
+                    if (state.has(documentId)) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    next.add(documentId)
+                    return next
+                },
+                clearSignedPdfUnavailable: (state: Set<string>, { documentId }: { documentId: string }) => {
+                    if (!state.has(documentId)) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    next.delete(documentId)
+                    return next
+                },
+            },
+        ],
+        // Per-row loading state, so the Download button stays disabled with a
+        // spinner while we probe — guards against double-clicks generating
+        // duplicate presigned URLs.
+        pendingSignedPdfIds: [
+            new Set<string>(),
+            {
+                setSignedPdfDownloadPending: (
+                    state: Set<string>,
+                    { documentId, pending }: { documentId: string; pending: boolean }
+                ) => {
+                    const has = state.has(documentId)
+                    if (pending === has) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    if (pending) {
+                        next.add(documentId)
+                    } else {
+                        next.delete(documentId)
+                    }
+                    return next
+                },
+            },
+        ],
     }),
     loaders(({ values }) => ({
         legalDocuments: [
@@ -128,6 +184,41 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
         },
         setDpaMode: ({ dpaMode }) => {
             actions.setLegalDocumentValue('dpa_mode', dpaMode)
+        },
+        requestSignedPdfDownload: async ({ documentId }) => {
+            const organizationId = values.currentOrganizationId
+            if (!organizationId) {
+                return
+            }
+            if (values.pendingSignedPdfIds.has(documentId)) {
+                return
+            }
+            actions.clearSignedPdfUnavailable(documentId)
+            actions.setSignedPdfDownloadPending(documentId, true)
+            const url = api.getLegalDocumentsDownloadRetrieveUrl(organizationId, documentId)
+            try {
+                // Probe with `redirect: 'manual'` so we don't actually download
+                // the PDF (and burn S3 egress) just to test that the file
+                // exists — a healthy response is a 302, which fetch surfaces
+                // as an `opaqueredirect`. A 404 means the upload from
+                // PandaDoc hasn't landed in object storage yet.
+                const response = await fetch(url, { credentials: 'same-origin', redirect: 'manual' })
+                if (response.type === 'opaqueredirect' || (response.status >= 200 && response.status < 400)) {
+                    window.open(url, '_blank', 'noopener,noreferrer')
+                    return
+                }
+                if (response.status === 404) {
+                    actions.markSignedPdfUnavailable(documentId)
+                    return
+                }
+                lemonToast.error(
+                    `Couldn't open the signed copy (HTTP ${response.status}). Please try again shortly.`
+                )
+            } catch (_error) {
+                lemonToast.error("Couldn't reach PostHog to fetch the signed copy. Please try again shortly.")
+            } finally {
+                actions.setSignedPdfDownloadPending(documentId, false)
+            }
         },
     })),
     selectors({

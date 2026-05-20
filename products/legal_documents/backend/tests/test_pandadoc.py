@@ -1,7 +1,7 @@
 import hmac
 import hashlib
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.test import TestCase, override_settings
 
@@ -25,22 +25,21 @@ class TestPandaDocClient(TestCase):
         fake_response.status_code = 201
         fake_response.content = b'{"id": "doc_123", "status": "document.uploaded", "name": "PostHog BAA"}'
         fake_response.json.return_value = {"id": "doc_123", "status": "document.uploaded", "name": "PostHog BAA"}
+        session = MagicMock()
+        session.post.return_value = fake_response
 
-        with patch(
-            "products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response
-        ) as mock_post:
-            client = pandadoc.PandaDocClient()
-            result = client.create_document_from_template(
-                template_id="tpl",
-                name="PostHog BAA",
-                recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
-                tokens={"Client.Company": "Acme, Inc.", "Client.StreetAddress": "1 Analytics Way"},
-                metadata={"legal_document_id": "lid-1"},
-                sender_email="privacy@posthog.com",
-            )
+        client = pandadoc.PandaDocClient(session=session)
+        result = client.create_document_from_template(
+            template_id="tpl",
+            name="PostHog BAA",
+            recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
+            tokens={"Client.Company": "Acme, Inc.", "Client.StreetAddress": "1 Analytics Way"},
+            metadata={"legal_document_id": "lid-1"},
+            sender_email="privacy@posthog.com",
+        )
 
-        mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
+        session.post.assert_called_once()
+        args, kwargs = session.post.call_args
         self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents")
         self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
         body = kwargs["json"]
@@ -66,17 +65,16 @@ class TestPandaDocClient(TestCase):
         fake_response.status_code = 201
         fake_response.content = b'{"id": "doc_123", "status": "document.uploaded", "name": "doc"}'
         fake_response.json.return_value = {"id": "doc_123", "status": "document.uploaded", "name": "doc"}
+        session = MagicMock()
+        session.post.return_value = fake_response
 
-        with patch(
-            "products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response
-        ) as mock_post:
-            pandadoc.PandaDocClient().create_document_from_template(
-                template_id="tpl",
-                name="doc",
-                recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
-            )
+        pandadoc.PandaDocClient(session=session).create_document_from_template(
+            template_id="tpl",
+            name="doc",
+            recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
+        )
 
-        body = mock_post.call_args.kwargs["json"]
+        body = session.post.call_args.kwargs["json"]
         self.assertNotIn("sender", body)
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
@@ -86,19 +84,21 @@ class TestPandaDocClient(TestCase):
         fake_response.raw = MagicMock()
         fake_response.__enter__ = MagicMock(return_value=fake_response)
         fake_response.__exit__ = MagicMock(return_value=False)
+        session = MagicMock()
+        session.get.return_value = fake_response
 
-        with patch(
-            "products.legal_documents.backend.logic.pandadoc.requests.get", return_value=fake_response
-        ) as mock_get:
-            client = pandadoc.PandaDocClient()
-            with client.stream_document(document_id="doc_123") as stream:
-                self.assertIs(stream, fake_response.raw)
+        client = pandadoc.PandaDocClient(session=session)
+        with client.stream_document(document_id="doc_123") as stream:
+            self.assertIs(stream, fake_response.raw)
 
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        session.get.assert_called_once()
+        args, kwargs = session.get.call_args
         self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/download")
         self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
         self.assertTrue(kwargs["stream"])
+        # Split (connect, read) timeout so slow PDF streams don't trip the
+        # blanket 30s ceiling used for control-plane calls.
+        self.assertEqual(kwargs["timeout"], pandadoc.DOWNLOAD_TIMEOUT_SECONDS)
         # Transparent decompression so gzip'd responses look like raw bytes.
         self.assertTrue(fake_response.raw.decode_content)
 
@@ -109,23 +109,39 @@ class TestPandaDocClient(TestCase):
         fake_response.text = "not found"
         fake_response.__enter__ = MagicMock(return_value=fake_response)
         fake_response.__exit__ = MagicMock(return_value=False)
+        session = MagicMock()
+        session.get.return_value = fake_response
 
-        with patch("products.legal_documents.backend.logic.pandadoc.requests.get", return_value=fake_response):
-            client = pandadoc.PandaDocClient()
-            with self.assertRaises(pandadoc.PandaDocError):
-                with client.stream_document(document_id="doc_123"):
-                    pass
+        client = pandadoc.PandaDocClient(session=session)
+        with self.assertRaises(pandadoc.PandaDocError):
+            with client.stream_document(document_id="doc_123"):
+                pass
 
     @override_settings(PANDADOC_API_KEY="key")
     def test_non_2xx_response_raises(self) -> None:
         fake_response = MagicMock()
         fake_response.status_code = 500
         fake_response.text = "boom"
+        session = MagicMock()
+        session.post.return_value = fake_response
 
-        with patch("products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response):
-            client = pandadoc.PandaDocClient()
-            with self.assertRaises(pandadoc.PandaDocError):
-                client.send_document(document_id="doc_123", subject="s", message="m")
+        client = pandadoc.PandaDocClient(session=session)
+        with self.assertRaises(pandadoc.PandaDocError):
+            client.send_document(document_id="doc_123", subject="s", message="m")
+
+    def test_build_session_mounts_retry_adapter(self) -> None:
+        # The mounted HTTPAdapter carries the urllib3 Retry policy that lets
+        # transient ProxyError / RemoteDisconnected and 5xx replies recover
+        # without the caller seeing a PandaDocError on the first blip.
+        session = pandadoc._build_session()
+        adapter = session.get_adapter("https://api.pandadoc.com/")
+        retry = adapter.max_retries
+        self.assertEqual(retry.total, pandadoc._RETRY_TOTAL)
+        self.assertEqual(retry.connect, pandadoc._RETRY_TOTAL)
+        self.assertEqual(retry.read, pandadoc._RETRY_TOTAL)
+        self.assertEqual(set(retry.status_forcelist or set()), set(pandadoc._RETRY_STATUS_FORCELIST))
+        self.assertEqual(set(retry.allowed_methods or set()), set(pandadoc._RETRY_ALLOWED_METHODS))
+        self.assertFalse(retry.raise_on_status)
 
     def test_verify_webhook_signature_accepts_valid_hmac(self) -> None:
         secret = "shhh"
