@@ -80,9 +80,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         for table_name, columns in columns_by_table.items():
             incremental_triples = incremental_filter(columns)
             detected_pks = primary_keys.get(table_name) or self._default_primary_key_from_columns(columns)
-            indexed_columns = (
-                indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            )
+            indexed_columns = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
 
             schemas.append(
                 SourceSchema(
