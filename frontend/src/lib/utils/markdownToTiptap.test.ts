@@ -1,4 +1,4 @@
-import { markdownToTiptap } from './markdownToTiptap'
+import { looksLikeMarkdown, markdownToTiptap } from './markdownToTiptap'
 
 describe('markdownToTiptap', () => {
     describe('block elements', () => {
@@ -436,5 +436,27 @@ code()
                 },
             ])
         })
+    })
+})
+
+describe('looksLikeMarkdown', () => {
+    it.each([
+        { input: '', desc: 'empty string', expected: false },
+        { input: '   ', desc: 'whitespace', expected: false },
+        { input: 'Just a paragraph of plain prose.', desc: 'plain prose', expected: false },
+        { input: 'Use ** to emphasize words', desc: 'inline asterisks without block structure', expected: false },
+        { input: 'See foo bar baz.', desc: 'sentence', expected: false },
+        { input: '# Heading', desc: 'atx heading', expected: true },
+        { input: '## Sub heading\n\nbody', desc: 'multi-line with heading', expected: true },
+        { input: '- item one\n- item two', desc: 'bullet list', expected: true },
+        { input: '1. one\n2. two', desc: 'ordered list', expected: true },
+        { input: '> quoted line', desc: 'blockquote', expected: true },
+        { input: '```js\nconst x = 1\n```', desc: 'fenced code block', expected: true },
+        { input: '~~~\ncode\n~~~', desc: 'tilde fenced code block', expected: true },
+        { input: '| h1 | h2 |\n|----|----|\n| a  | b  |', desc: 'markdown table', expected: true },
+        { input: 'See [PostHog](https://posthog.com) for docs.', desc: 'inline link', expected: true },
+        { input: 'Image: ![alt](https://example.com/x.png)', desc: 'image syntax', expected: true },
+    ])('returns $expected for $desc', ({ input, expected }) => {
+        expect(looksLikeMarkdown(input)).toBe(expected)
     })
 })

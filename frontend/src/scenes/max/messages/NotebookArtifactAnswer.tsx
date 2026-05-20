@@ -13,6 +13,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { markdownToTiptap } from 'lib/utils/markdownToTiptap'
 import { NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
 import {
     SessionRecordingPlayer,
@@ -38,7 +39,6 @@ import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { MarkdownMessage } from '../MarkdownMessage'
 import { MessageStatus } from '../maxLogic'
 import { castAssistantQuery, visualizationTypeToQuery } from '../utils'
-import { markdownToTiptap } from '../utils/markdownToTiptap'
 import { MessageTemplate } from './MessageTemplate'
 
 interface NotebookArtifactAnswerProps {

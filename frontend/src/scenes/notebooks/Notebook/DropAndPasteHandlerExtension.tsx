@@ -6,6 +6,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { looksLikeMarkdown, markdownToTiptap } from 'lib/utils/markdownToTiptap'
+
 import { NotebookNodeType } from '../types'
 
 export type TabularFormat = 'tsv' | 'csv'
@@ -57,6 +59,14 @@ export function parseTabularDataToTipTapTable(text: string, delimiter: string = 
     })
 
     return { type: 'table', content: tableRows }
+}
+
+function warnUnsupportedFile(file: File): void {
+    if (file.type.startsWith('video/')) {
+        lemonToast.warning("Video files aren't supported in notebooks yet — only images can be added.")
+    } else {
+        lemonToast.warning('Only images can be added to notebooks at this time.')
+    }
 }
 
 export const DropAndPasteHandlerExtension = Extension.create({
@@ -124,7 +134,7 @@ export const DropAndPasteHandlerExtension = Extension.create({
                                             attrs: { file },
                                         })
                                     } else {
-                                        lemonToast.warning('Only images can be added to Notebooks at this time.')
+                                        warnUnsupportedFile(file)
                                     }
                                 }
 
@@ -174,6 +184,23 @@ export const DropAndPasteHandlerExtension = Extension.create({
                             return true
                         }
 
+                        // Detect markdown — either explicitly via MIME type, or by structural
+                        // heuristics on plain text. Convert to rich tiptap nodes before tiptap's
+                        // default text handler runs, so pasted docs keep their formatting.
+                        const explicitMarkdown = event.clipboardData?.getData('text/markdown')
+                        const markdownSource = explicitMarkdown || (text && looksLikeMarkdown(text) ? text : null)
+                        if (markdownSource) {
+                            const nodes = markdownToTiptap(markdownSource)
+                            if (nodes.length > 0) {
+                                this.editor.chain().focus().insertContent(nodes).run()
+                                posthog.capture('notebook markdown pasted', {
+                                    length: markdownSource.length,
+                                    source: explicitMarkdown ? 'mime' : 'heuristic',
+                                })
+                                return true
+                            }
+                        }
+
                         // Special handling for pasting files such as images
                         if (event.clipboardData && event.clipboardData.files?.length > 0) {
                             // iterate over the clipboard files and add any supported file types
@@ -186,7 +213,7 @@ export const DropAndPasteHandlerExtension = Extension.create({
                                         attrs: { file },
                                     })
                                 } else {
-                                    lemonToast.warning('Only images can be added to Notebooks at this time.')
+                                    warnUnsupportedFile(file)
                                 }
                             }
 
