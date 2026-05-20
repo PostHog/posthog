@@ -68,7 +68,7 @@ impl BlobClient for S3Impl {
     #[allow(dead_code)]
     async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError> {
         let start = common_metrics::timing_guard(S3_PUT, &[]);
-        metrics::histogram!(S3_PUT_BYTES).record(data.len() as f64);
+        let data_len = data.len();
         let res = self
             .inner
             .put_object()
@@ -79,6 +79,13 @@ impl BlobClient for S3Impl {
             .await
             .map_err(|e| S3Error::from(e).into())
             .map(|_| ()); // We don't care about the result as long as it's success
+
+        // Record body size only on success, mirroring `S3_FETCHED_BYTES` which reads from
+        // the GET response. Failed PUTs (auth errors, S3 unavailable, etc.) shouldn't be
+        // counted toward the size distribution.
+        if res.is_ok() {
+            metrics::histogram!(S3_PUT_BYTES).record(data_len as f64);
+        }
 
         start
             .label("outcome", if res.is_ok() { "success" } else { "failure" })
