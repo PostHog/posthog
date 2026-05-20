@@ -1455,6 +1455,16 @@ export namespace Schemas {
       Optimized: 'optimized',
     } as const;
 
+    export type ParserMode = typeof ParserMode[keyof typeof ParserMode];
+
+
+    export const ParserMode = {
+      CppOnly: 'cpp_only',
+      CppWithRustShadow: 'cpp_with_rust_shadow',
+      RustWithCppShadow: 'rust_with_cpp_shadow',
+      RustOnly: 'rust_only',
+    } as const;
+
     export type PersonsArgMaxVersion = typeof PersonsArgMaxVersion[keyof typeof PersonsArgMaxVersion];
 
 
@@ -1525,6 +1535,8 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
+      /** Which HogQL parser backend to use. Absent is treated as `cpp_only`. The `*_shadow` modes return the primary parser's result but, on a small sample of queries, also run the other parser and report any AST divergence to error tracking without failing the request. */
+      parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
