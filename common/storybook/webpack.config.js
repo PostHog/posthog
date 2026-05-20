@@ -124,8 +124,8 @@ function createEntry(entry) {
                     },
                 },
                 {
-                    // Apply rule for .sass, .scss or .css files
-                    test: /\.(sa|sc|c)ss$/,
+                    // Apply rule for .sass or .scss files
+                    test: /\.(sa|sc)ss$/,
 
                     // Set loaders to transform files.
                     // Loaders are applying from right to left(!)
@@ -140,6 +140,13 @@ function createEntry(entry) {
                             },
                         },
                     ].filter((a) => a),
+                },
+                {
+                    // Plain .css files (e.g. Tailwind's prebuilt bundle) skip
+                    // sass-loader — Tailwind v4 output uses modern CSS like
+                    // `min(fit-content, ...)` which sass cannot parse.
+                    test: /\.css$/,
+                    use: commonLoadersForSassAndLess,
                 },
                 {
                     // Apply rule for less files (used to import and override AntD)
