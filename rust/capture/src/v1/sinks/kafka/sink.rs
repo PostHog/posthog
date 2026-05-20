@@ -252,50 +252,49 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             match tokio::time::timeout_at(deadline, pending.next()).await {
                 Ok(Some((uuid, completed_at, ack))) => {
                     resolved_keys.insert(uuid);
-                    match ack {
-                        Ok(()) => {
-                            counter!(
-                                "capture_v1_kafka_publish_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "outcome" => Outcome::Success.as_tag(),
-                                "path" => labels.path.clone(),
-                                "attempt" => labels.attempt.clone(),
-                            )
-                            .increment(1);
-                            let elapsed = completed_at.signed_duration_since(enqueued_at);
-                            if let Ok(secs) = elapsed.to_std() {
-                                histogram!(
-                                    "capture_v1_kafka_ack_duration_seconds",
-                                    "mode" => labels.mode,
-                                    "cluster" => labels.sink,
-                                    "outcome" => Outcome::Success.as_tag(),
-                                    "path" => labels.path.clone(),
-                                    "attempt" => labels.attempt.clone(),
-                                )
-                                .record(secs.as_secs_f64());
-                            }
-                            results.push(Box::new(
-                                KafkaResult::ok(uuid, enqueued_at).with_completed_at(completed_at),
-                            ));
-                        }
+
+                    let outcome_tag = match &ack {
+                        Ok(()) => Outcome::Success.as_tag(),
                         Err(e) => {
-                            let sink_err = KafkaSinkError::Produce(e);
-                            let outcome = sink_err.outcome();
-                            counter!(
-                                "capture_v1_kafka_publish_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "outcome" => outcome.as_tag(),
-                                "path" => labels.path.clone(),
-                                "attempt" => labels.attempt.clone(),
-                            )
-                            .increment(1);
-                            results.push(Box::new(
-                                KafkaResult::err(uuid, sink_err, enqueued_at)
-                                    .with_completed_at(completed_at),
-                            ));
+                            if e.is_retriable() {
+                                Outcome::RetriableError.as_tag()
+                            } else {
+                                Outcome::FatalError.as_tag()
+                            }
                         }
+                    };
+
+                    counter!(
+                        "capture_v1_kafka_publish_total",
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => outcome_tag,
+                        "path" => labels.path.clone(),
+                        "attempt" => labels.attempt.clone(),
+                    )
+                    .increment(1);
+
+                    let elapsed = completed_at.signed_duration_since(enqueued_at);
+                    if let Ok(secs) = elapsed.to_std() {
+                        histogram!(
+                            "capture_v1_kafka_ack_duration_seconds",
+                            "mode" => labels.mode,
+                            "cluster" => labels.sink,
+                            "outcome" => outcome_tag,
+                            "path" => labels.path.clone(),
+                            "attempt" => labels.attempt.clone(),
+                        )
+                        .record(secs.as_secs_f64());
+                    }
+
+                    match ack {
+                        Ok(()) => results.push(Box::new(
+                            KafkaResult::ok(uuid, enqueued_at).with_completed_at(completed_at),
+                        )),
+                        Err(e) => results.push(Box::new(
+                            KafkaResult::err(uuid, KafkaSinkError::Produce(e), enqueued_at)
+                                .with_completed_at(completed_at),
+                        )),
                     }
                 }
                 Ok(None) => break,

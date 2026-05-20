@@ -60,11 +60,13 @@ depends_on = [
     "products.access_control",
     "products.analytics_platform",
     "products.batch_exports",
+    "products.business_knowledge",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.deployments",
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
@@ -84,7 +86,9 @@ depends_on = [
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
+    "products.product_analytics",
     "products.product_tours",
+    "products.replay_vision",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
@@ -119,6 +123,7 @@ path = "products.batch_exports"
 depends_on = [
     "ee",
     "posthog",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -176,6 +181,19 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.deployments"
+depends_on = [
+    "ee",
+    "posthog",
+    # `error_tracking` is not isolated (no contract-check script), so we
+    # import its model directly to upsert an ErrorTrackingRelease row on
+    # successful deploys. If error_tracking later isolates, replace this
+    # raw dep with a facade call (`upsert_release(...)`).
+    "products.error_tracking",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.desktop_recordings"
 depends_on = [
     "posthog",
@@ -221,6 +239,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.event_definitions",
+    "products.notifications",
     "products.product_tours",
     "products.surveys",
 ]
@@ -341,6 +360,8 @@ layer = "modules"
 [[modules]]
 path = "products.platform_features"
 depends_on = [
+    "ee",
+    "posthog",
 ]
 layer = "modules"
 
@@ -358,7 +379,9 @@ layer = "modules"
 
 [[modules]]
 path = "products.product_analytics"
-depends_on = []
+depends_on = [
+    "posthog",
+]
 layer = "modules"
 
 [[modules]]
@@ -379,6 +402,13 @@ layer = "modules"
 path = "products.replay"
 depends_on = [
     "ee",
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.replay_vision"
+depends_on = [
     "posthog",
 ]
 layer = "modules"
@@ -510,6 +540,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
@@ -555,6 +586,16 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.access_control",
+]
+
+# Legacy leaks — core (posthog/ee) still imports these internals directly.
+[[interfaces]]
+expose = [
     "backend\\.models.*",
     "backend\\.property_access_control.*",
 ]
@@ -569,8 +610,10 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
+    "backend\\.api.*",
+    "backend\\.logic.*",
+    "backend\\.constants.*",
+    "backend\\.models.*",
 ]
 from = [
     "products.business_knowledge",

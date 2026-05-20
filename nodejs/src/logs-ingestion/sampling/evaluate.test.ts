@@ -233,4 +233,143 @@ describe('evaluateLogRecord', () => {
             ruleId: 'pd',
         })
     })
+
+    describe('path_drop with config.filter_group', () => {
+        // The drop-rules UI writes the inner group wrapped in an outer AND envelope:
+        //   { type: 'AND', values: [ { type: 'AND'|'OR', values: [<leaves>] } ] }
+        const wrap = (inner: object): object => ({ type: 'AND', values: [inner] })
+
+        it('drops when filter_group matches alone (no patterns)', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'fg',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        patterns: [],
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'service.name', operator: 'exact', value: 'api' }],
+                        }),
+                    },
+                },
+            ])
+            const matching = baseRecord()
+            matching.service_name = 'api'
+            expect(evaluateLogRecord(rules, matching).decision).toBe(SAMPLING_DECISION_DROP)
+
+            const nonMatching = baseRecord()
+            nonMatching.service_name = 'other'
+            expect(evaluateLogRecord(rules, nonMatching).decision).not.toBe(SAMPLING_DECISION_DROP)
+        })
+
+        it('drops when EITHER patterns OR filter_group matches (transition OR semantics)', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'both',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        patterns: ['/healthz'],
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'severity_text', operator: 'exact', value: 'fatal' }],
+                        }),
+                    },
+                },
+            ])
+            // Match via legacy patterns only
+            const patternsOnly = baseRecord()
+            patternsOnly.attributes = { 'http.route': '/healthz' }
+            expect(evaluateLogRecord(rules, patternsOnly).decision).toBe(SAMPLING_DECISION_DROP)
+
+            // Match via filter_group only
+            const filterOnly = baseRecord()
+            filterOnly.attributes = { 'http.route': '/api' }
+            filterOnly.severity_text = 'fatal'
+            expect(evaluateLogRecord(rules, filterOnly).decision).toBe(SAMPLING_DECISION_DROP)
+
+            // Match neither
+            const neither = baseRecord()
+            neither.attributes = { 'http.route': '/api' }
+            neither.severity_text = 'info'
+            expect(evaluateLogRecord(rules, neither).decision).not.toBe(SAMPLING_DECISION_DROP)
+        })
+
+        it('empty filter_group does not drop (conservative)', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'empty',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        patterns: [],
+                        filter_group: wrap({ type: 'AND', values: [] }),
+                    },
+                },
+            ])
+            expect(evaluateLogRecord(rules, baseRecord()).decision).not.toBe(SAMPLING_DECISION_DROP)
+        })
+
+        it('filter_group with too many sibling nodes is dropped at compile time (legacy row above breadth cap)', () => {
+            // Pre-validator rows could have grown beyond the breadth cap. Walking
+            // them per record would amount to O(leaves) per log line, so
+            // parseFilterGroup discards the group entirely — the rule becomes a
+            // patterns-only rule. Matches MAX_FILTER_GROUP_NODES in compile-rules.ts.
+            const tooMany = Array.from({ length: 300 }, (_, i) => ({
+                key: 'service.name',
+                operator: 'exact',
+                value: `svc-${i}`,
+            }))
+            const rules = compileRuleSet([
+                {
+                    id: 'oversize',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        patterns: [],
+                        filter_group: wrap({ type: 'AND', values: tooMany }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'svc-1'
+            // Group was discarded → no patterns → rule never drops.
+            expect(evaluateLogRecord(rules, rec).decision).not.toBe(SAMPLING_DECISION_DROP)
+        })
+
+        it('classifySamplingRecord drops via filter_group match', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'fg',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        patterns: [],
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'severity_text', operator: 'in', value: ['error', 'fatal'] }],
+                        }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.severity_text = 'error'
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: SAMPLING_DECISION_DROP,
+                ruleId: 'fg',
+            })
+        })
+    })
 })

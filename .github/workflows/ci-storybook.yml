@@ -99,13 +99,8 @@ jobs:
                   echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
 
     build-storybook:
-        name: Build Storybook (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Build Storybook (depot-ubuntu-latest)
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 15
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
@@ -148,16 +143,13 @@ jobs:
                   pnpm --filter=@posthog/storybook build --test
 
             - name: Save webpack build cache
-              # Avoid cross-runner pollution
-              if: github.ref == 'refs/heads/master' && !matrix.is_shadow
+              if: github.ref == 'refs/heads/master'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
               with:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
-              # Shadow skips upload, would conflict with storybook-build artifact name
-              if: ${{ !matrix.is_shadow }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-build
@@ -552,7 +544,8 @@ jobs:
         steps:
             - uses: actions/checkout@v6
               with:
-                  fetch-depth: 0
+                  filter: blob:none
+                  fetch-depth: 500
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
@@ -570,6 +563,7 @@ jobs:
 
             - name: Compute affected stories
               id: selection
+              continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
@@ -577,7 +571,7 @@ jobs:
                   # base.sha is captured at webhook time and goes stale if the branch later
                   # merges a newer master, which makes `base.sha...HEAD` balloon to include
                   # every merged-in master change.
-                  git fetch --no-tags --depth=50 origin "$BASE_REF"
+                  git fetch --no-tags origin "$BASE_REF"
                   echo "### Changed files" >&2
                   git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
@@ -590,6 +584,7 @@ jobs:
                   echo "result=$COMPACT" >> "$GITHUB_OUTPUT"
 
             - name: Write summary
+              if: steps.selection.outcome == 'success'
               env:
                   RESULT: ${{ steps.selection.outputs.result }}
                   CURRENT_SHARDS: 20

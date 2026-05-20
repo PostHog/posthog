@@ -1,16 +1,15 @@
 """Tests for the usage report S3 helpers.
 
-Pure key-formatting tests don't touch storage. Roundtrip and writer tests
-hit the real MinIO instance configured for the dev stack — the
+Pure key-formatting tests don't touch storage. Roundtrip tests hit the
+real MinIO instance configured for the dev stack — the
 `minio_workflow_ctx` fixture cleans up its run prefix at teardown so
-the bucket stays tidy. Error-path tests (failed delete, exception
-during stream) stay mocked because MinIO won't naturally trigger them.
+the bucket stays tidy. Error-path tests (failed delete) stay mocked
+because MinIO won't naturally trigger them.
 """
 
 import gzip
 import json
 
-import pytest
 from unittest.mock import patch
 
 from posthog.storage import object_storage
@@ -23,7 +22,6 @@ from posthog.temporal.usage_report.storage import (
     queries_key,
     queries_prefix,
     run_prefix,
-    streamed_jsonl_gzip_writer,
     write_json,
     write_jsonl_chunk_gzip,
 )
@@ -129,42 +127,18 @@ def test_write_jsonl_chunk_gzip_sets_content_headers_via_minio(minio_workflow_ct
     assert head["ContentEncoding"] == "gzip"
 
 
-@pytest.mark.asyncio
-async def test_streamed_jsonl_gzip_writer_uploads_on_clean_exit_via_minio(
-    minio_workflow_ctx: WorkflowContext,
-) -> None:
-    """Async ctx-mgr happy path: lines written, gzip streamed to MinIO."""
+def test_write_jsonl_chunk_gzip_handles_empty_input_via_minio(minio_workflow_ctx: WorkflowContext) -> None:
+    """An empty `lines` iterable still produces a valid (empty-after-decompress)
+    object so the activity can write a chunk for "0 orgs in this batch"
+    without blowing up.
+    """
     key = chunk_key(minio_workflow_ctx, 0)
+    count = write_jsonl_chunk_gzip(key, [])
 
-    async with streamed_jsonl_gzip_writer(key) as w:
-        w.write({"organization_id": "org-1"})
-        w.write_lines([{"organization_id": "org-2"}, {"organization_id": "org-3"}])
-        assert w.line_count == 3
-
+    assert count == 0
     body = object_storage.read_bytes(key, bucket=storage.bucket())
     assert body is not None
-    rows = [json.loads(line) for line in gzip.decompress(body).decode("utf-8").splitlines()]
-    assert rows == [
-        {"organization_id": "org-1"},
-        {"organization_id": "org-2"},
-        {"organization_id": "org-3"},
-    ]
-
-
-@pytest.mark.asyncio
-async def test_streamed_jsonl_gzip_writer_skips_upload_on_exception_via_minio(
-    minio_workflow_ctx: WorkflowContext,
-) -> None:
-    """If the body raises, we must not upload a partial chunk."""
-    key = chunk_key(minio_workflow_ctx, 0)
-
-    with pytest.raises(RuntimeError, match="boom"):
-        async with streamed_jsonl_gzip_writer(key) as w:
-            w.write({"organization_id": "org-1"})
-            raise RuntimeError("boom")
-
-    # head_object swallows NoSuchKey and returns None
-    assert object_storage.head_object(key, bucket=storage.bucket()) is None
+    assert gzip.decompress(body) == b""
 
 
 # ---- mocked error paths --------------------------------------------------
@@ -173,37 +147,24 @@ async def test_streamed_jsonl_gzip_writer_skips_upload_on_exception_via_minio(
 # trigger it against real S3 short of taking the bucket offline.
 
 
-def test_jsonl_gzip_writer_batches_writes_to_gzip_stream() -> None:
-    """Lines should accumulate into the local pending buffer until the
-    flush threshold is crossed, *then* be handed to the gzip stream in
-    one larger chunk — that's what trims the per-line overhead.
+def test_write_jsonl_chunk_gzip_does_one_put_object_call() -> None:
+    """Each chunk should land via a single `object_storage.write` call.
+    Multiple writes per chunk would defeat the whole point of batching the
+    upload — verify that path here so it stays single-shot.
     """
-    from posthog.temporal.usage_report.storage import JsonlGzipWriter
+    with patch("posthog.temporal.usage_report.storage.object_storage.write") as mock_write:
+        write_jsonl_chunk_gzip(
+            "some/key.jsonl.gz",
+            [
+                {"organization_id": "org-1"},
+                {"organization_id": "org-2"},
+            ],
+        )
 
-    # 100-byte threshold so a small test still exercises multiple flushes.
-    writer = JsonlGzipWriter(flush_threshold_bytes=100)
-    gz_write_sizes: list[int] = []
-
-    def record_write(payload: bytes) -> int:
-        gz_write_sizes.append(len(payload))
-        return len(payload)
-
-    with patch.object(writer._gz, "write", side_effect=record_write):
-        # 8 lines of ~38 bytes ≈ 300 bytes → expect at least 2 threshold-driven flushes.
-        for i in range(8):
-            writer.write({"line": i, "padding": "x" * 20})
-        flushes_during_writes = len(gz_write_sizes)
-        assert flushes_during_writes >= 2, "should flush when the pending buffer crosses the threshold"
-        assert all(size >= 100 for size in gz_write_sizes), "every threshold-driven flush must clear the threshold"
-
-        # Final flush should drain whatever's still pending, then a second
-        # flush is a no-op.
-        writer._flush_pending()
-        after_first_finalize = len(gz_write_sizes)
-        writer._flush_pending()
-        assert len(gz_write_sizes) == after_first_finalize, "no extra gzip.write when nothing is pending"
-
-    assert writer.line_count == 8
+    assert mock_write.call_count == 1
+    _, kwargs = mock_write.call_args
+    assert kwargs["extras"]["ContentType"] == "application/x-ndjson"
+    assert kwargs["extras"]["ContentEncoding"] == "gzip"
 
 
 def test_delete_keys_continues_on_failure() -> None:

@@ -132,7 +132,7 @@ export const getAlertsPartialUpdateUrl = (projectId: string, id: string) => {
 export const alertsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedAlertApi: NonReadonly<PatchedAlertApi>,
+    patchedAlertApi?: NonReadonly<PatchedAlertApi>,
     options?: RequestInit
 ): Promise<AlertApi> => {
     return apiMutator<AlertApi>(getAlertsPartialUpdateUrl(projectId, id), {
@@ -154,13 +154,13 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     })
 }
 
-/**
- * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
- */
 export const getAlertsSimulateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/alerts/simulate/`
 }
 
+/**
+ * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ */
 export const alertsSimulateCreate = async (
     projectId: string,
     alertSimulateApi: AlertSimulateApi,

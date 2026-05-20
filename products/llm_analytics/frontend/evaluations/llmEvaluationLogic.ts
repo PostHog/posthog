@@ -648,6 +648,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation || !isTrialLimitReached) {
                     return true
                 }
+                // Hog evals don't call an LLM and never consume trial quota
+                if (evaluation.evaluation_type === 'hog') {
+                    return true
+                }
                 // Can enable if the evaluation has a BYOK key
                 return !!evaluation.model_configuration?.provider_key_id
             },

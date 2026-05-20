@@ -221,6 +221,20 @@ export function formatTokens(tokens: number): string {
     return tokens.toFixed(0)
 }
 
+export function formatAiErrorForDisplay(value: unknown): string {
+    if (typeof value === 'string') {
+        return value || 'Unknown error'
+    }
+    if (value == null) {
+        return 'Unknown error'
+    }
+    try {
+        return JSON.stringify(value)
+    } catch {
+        return String(value)
+    }
+}
+
 export function formatErrorRate(errorRate: number): string {
     const percentage = errorRate * 100
     if (percentage === 0) {

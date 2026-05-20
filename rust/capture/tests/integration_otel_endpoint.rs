@@ -7,8 +7,8 @@ use capture::ai_s3::MockBlobStorage;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
-    EventRestrictionService, Restriction, RestrictionFilters, RestrictionManager, RestrictionScope,
-    RestrictionType,
+    EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
+    RestrictionScope, RestrictionType,
 };
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
@@ -181,6 +181,8 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         Some(10),         // request_timeout_seconds
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         options.overflow_limiter, // overflow_limiter
         None,             // replay_overflow_limiter
     );
@@ -294,9 +296,12 @@ fn make_two_span_request() -> ExportTraceServiceRequest {
 }
 
 async fn make_restriction_service(restrictions: Vec<Restriction>) -> EventRestrictionService {
-    let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+    // OTel runs in the AI capture deployment, so restrictions must be indexed
+    // under Pipeline::Ai — that's the pipeline `otel/filtering.rs` looks up
+    // with for every span.
+    let service = EventRestrictionService::new(vec![Pipeline::Ai], Duration::from_secs(300));
     let mut manager = RestrictionManager::new();
-    manager.restrictions.insert(TOKEN.to_string(), restrictions);
+    manager.insert_restrictions(Pipeline::Ai, TOKEN, restrictions);
     service.update(manager).await;
     service
 }
