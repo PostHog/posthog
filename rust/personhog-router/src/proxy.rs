@@ -107,8 +107,9 @@ impl tonic::server::NamedService for RawProxyService {
 impl Service<http::Request<BoxBody>> for RawProxyService {
     type Response = http::Response<BoxBody>;
     type Error = Infallible;
-    type Future =
-        Pin<Box<dyn std::future::Future<Output = Result<http::Response<BoxBody>, Infallible>> + Send>>;
+    type Future = Pin<
+        Box<dyn std::future::Future<Output = Result<http::Response<BoxBody>, Infallible>> + Send>,
+    >;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -140,9 +141,7 @@ impl RawProxyInner {
         let start = Instant::now();
 
         let (response, backend) = match method_name {
-            "UpdatePersonProperties" => {
-                (self.handle_update_person_properties(req).await, "leader")
-            }
+            "UpdatePersonProperties" => (self.handle_update_person_properties(req).await, "leader"),
             "GetPerson" => {
                 let is_strong = req
                     .headers()
@@ -153,16 +152,10 @@ impl RawProxyInner {
                 if is_strong {
                     (self.handle_get_person_strong(req).await, "leader")
                 } else {
-                    (
-                        self.raw_proxy_to_replica(req, method_name).await,
-                        "replica",
-                    )
+                    (self.raw_proxy_to_replica(req, method_name).await, "replica")
                 }
             }
-            _ => (
-                self.raw_proxy_to_replica(req, method_name).await,
-                "replica",
-            ),
+            _ => (self.raw_proxy_to_replica(req, method_name).await, "replica"),
         };
 
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -232,9 +225,7 @@ impl RawProxyInner {
         for attempt in 0..=self.retry_config.max_retries {
             let channel = self.replica.next_raw_channel();
 
-            let body = BoxBody::new(
-                Full::new(body_bytes.clone()).map_err(|never| match never {}),
-            );
+            let body = BoxBody::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
 
             let mut req = http::Request::new(body);
             *req.method_mut() = parts.method.clone();
@@ -347,6 +338,7 @@ async fn collect_request_body(
         .map_err(|e| grpc_error_response(Code::Internal, &format!("failed to read body: {e}")))
 }
 
+#[allow(clippy::result_large_err)]
 fn decode_grpc_message<M: Message + Default>(body: &Bytes) -> Result<M, http::Response<BoxBody>> {
     if body.len() < 5 {
         return Err(grpc_error_response(Code::Internal, "gRPC frame too short"));

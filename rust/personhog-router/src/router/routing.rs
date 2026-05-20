@@ -79,13 +79,13 @@ pub fn get_consistency(read_options: &Option<ReadOptions>) -> Option<Consistency
 
 /// Extract consistency level from the `x-read-consistency` gRPC metadata header.
 pub fn get_consistency_from_header(metadata: &MetadataMap) -> Option<ConsistencyLevel> {
-    metadata.get("x-read-consistency").and_then(|v| {
-        match v.to_str().ok()? {
+    metadata
+        .get("x-read-consistency")
+        .and_then(|v| match v.to_str().ok()? {
             "strong" => Some(ConsistencyLevel::Strong),
             "eventual" => Some(ConsistencyLevel::Eventual),
             _ => None,
-        }
-    })
+        })
 }
 
 /// Resolve consistency level: prefer the gRPC metadata header, fall back to body read_options.

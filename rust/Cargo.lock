@@ -6750,7 +6750,6 @@ dependencies = [
  "personhog-proto",
  "prost 0.13.5",
  "rand 0.8.5",
- "rstest",
  "rustls 0.23.37",
  "serde_json",
  "tokio",

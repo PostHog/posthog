@@ -170,8 +170,11 @@ impl PersonHogRouter {
         metadata: &MetadataMap,
         read_options: &Option<personhog_proto::personhog::types::v1::ReadOptions>,
     ) -> Result<(), Status> {
-        let decision =
-            route_request(category, OperationType::Read, resolve_consistency(metadata, read_options))?;
+        let decision = route_request(
+            category,
+            OperationType::Read,
+            resolve_consistency(metadata, read_options),
+        )?;
         if decision == RouteDecision::Leader {
             return Err(Status::unimplemented(
                 "strong consistency reads are only supported for get_person",

@@ -37,7 +37,6 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 dashmap = { workspace = true }
-rstest = "0.26"
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"

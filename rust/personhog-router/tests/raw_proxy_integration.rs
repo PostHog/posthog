@@ -438,8 +438,16 @@ async fn parity_get_person_by_distinct_id() {
         read_options: None,
     };
 
-    let t = typed.get_person_by_distinct_id(req()).await.unwrap().into_inner();
-    let r = raw.get_person_by_distinct_id(req()).await.unwrap().into_inner();
+    let t = typed
+        .get_person_by_distinct_id(req())
+        .await
+        .unwrap()
+        .into_inner();
+    let r = raw
+        .get_person_by_distinct_id(req())
+        .await
+        .unwrap()
+        .into_inner();
     assert_eq!(t, r);
 }
 
@@ -471,10 +479,9 @@ async fn parity_get_persons_by_distinct_ids_in_team() {
             person: None,
         },
     ];
-    let (mut typed, mut raw) = parity_replica_fixture(
-        TestReplicaService::new().with_persons_by_distinct_id(persons),
-    )
-    .await;
+    let (mut typed, mut raw) =
+        parity_replica_fixture(TestReplicaService::new().with_persons_by_distinct_id(persons))
+            .await;
 
     let req = || GetPersonsByDistinctIdsInTeamRequest {
         team_id: 1,
@@ -647,10 +654,9 @@ async fn parity_get_hash_key_override_context() {
         }],
         existing_feature_flag_keys: vec!["flag-1".to_string(), "flag-2".to_string()],
     }];
-    let (mut typed, mut raw) = parity_replica_fixture(
-        TestReplicaService::new().with_hash_key_override_contexts(contexts),
-    )
-    .await;
+    let (mut typed, mut raw) =
+        parity_replica_fixture(TestReplicaService::new().with_hash_key_override_contexts(contexts))
+            .await;
 
     let req = || GetHashKeyOverrideContextRequest {
         team_id: 1,
