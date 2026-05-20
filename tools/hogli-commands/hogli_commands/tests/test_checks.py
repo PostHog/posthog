@@ -588,13 +588,15 @@ class TestProductYamlOwnersCheck:
 # FileFolderConflictsCheck — file vs package twin detection
 # ---------------------------------------------------------------------------
 
-# Structure mirrors product_structure.yaml: logic is a package, models can be
-# either a file or folder. Tests exercise both shapes plus a stray-twin case.
+# Structure mirrors product_structure.yaml: subdirs (logic/, tasks/, facade/)
+# are packages regardless of whether they declare an __init__.py in the
+# structure; models can be either a file or folder via can_be_folder.
 _CONFLICT_STRUCTURE = {
     "backend_files": {
         "models.py": {"can_be_folder": True},
         "logic/": {"__init__.py": {}},
-        "tasks/": {"__init__.py": {}},
+        "tasks/": {"tasks.py": {}},  # no __init__.py declared — namespace package
+        "facade/": {"api.py": {}, "contracts.py": {}},
     },
 }
 
@@ -653,6 +655,9 @@ class TestFileFolderConflictsCheck:
             # Pattern B also covers other canonical packages — stray tasks.py is a mistake
             (["tasks/__init__.py"], []),
             (["tasks.py", "tasks/__init__.py"], ["tasks.py"]),
+            # Namespace-package subdir (no __init__.py declared in structure) — stem still detected
+            (["facade/api.py"], []),
+            (["facade.py", "facade/api.py"], ["facade.py"]),
             # Multiple conflicts at once
             (["logic.py", "logic/", "models.py", "models/"], ["logic.py", "models.py"]),
         ],
