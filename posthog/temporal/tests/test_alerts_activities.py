@@ -608,7 +608,7 @@ class TestReportAlertTimeliness:
 
     @freeze_time("2024-06-03T12:00:00Z")
     async def test_emits_success_for_on_time_and_failure_for_late(self, ateam) -> None:
-        now = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
+        now = datetime.now(UTC)
         # Daily grace = 10% of 1 day = 2.4h.
         on_time = await _create_alert(
             ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now + timedelta(hours=1)
@@ -639,7 +639,7 @@ class TestReportAlertTimeliness:
 
     @freeze_time("2024-06-03T12:00:00Z")
     async def test_skips_disabled_deleted_and_never_scheduled_alerts(self, ateam) -> None:
-        now = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
+        now = datetime.now(UTC)
         await _create_alert(ateam, enabled=False, next_check_at=now - timedelta(days=2))  # disabled — excluded by query
         await _create_alert(
             ateam, insight_deleted=True, next_check_at=now - timedelta(days=2)

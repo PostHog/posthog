@@ -1,3 +1,4 @@
+import functools
 import traceback
 from datetime import UTC, datetime
 
@@ -60,6 +61,15 @@ logger = structlog.get_logger(__name__)
 
 # A check is "late" once it is overdue by more than this fraction of its interval.
 ALERT_TIMELINESS_GRACE_FRACTION = 0.10
+
+
+@functools.cache
+def _interval_seconds(interval: AlertCalculationInterval) -> float:
+    # Reuse the canonical scheduling mapping so a new interval (e.g. 15m) is handled
+    # automatically. relativedelta needs a concrete anchor to resolve calendar-variable
+    # units (months); a fixed one is precise enough for a grace window.
+    anchor = datetime(2024, 1, 1, tzinfo=UTC)
+    return ((anchor + alert_calculation_interval_to_relativedelta(interval)) - anchor).total_seconds()
 
 
 @temporalio.activity.defn
@@ -401,26 +411,17 @@ async def report_alert_timeliness() -> None:
     @database_sync_to_async(thread_sensitive=False)
     def _emit() -> None:
         now = datetime.now(UTC)
+        # next_check_at is the due signal; never-scheduled alerts have nothing to judge.
         alerts = (
-            AlertConfiguration.objects.filter(enabled=True, insight__deleted=False)
+            AlertConfiguration.objects.filter(enabled=True, insight__deleted=False, next_check_at__isnull=False)
             .only("id", "team_id", "calculation_interval", "next_check_at")
             .iterator()
         )
-        # ph_scoped_capture().__exit__ joins the SDK flush thread and makes a blocking
-        # HTTP request, so the whole emit loop runs inside this threaded sync helper
-        # rather than directly on the activity's event loop.
+        # ph_scoped_capture().__exit__ blocks on an HTTP flush, so keep the whole loop here.
         with ph_scoped_capture() as capture_ph_event:
             for alert in alerts:
-                if alert.next_check_at is None:
-                    # Never scheduled yet — nothing to judge timeliness against.
-                    continue
-
                 interval = AlertCalculationInterval(alert.calculation_interval or AlertCalculationInterval.HOURLY)
-                # Derive the interval length from the canonical scheduling mapping so a new
-                # interval (e.g. 15m) is picked up automatically once it's added there.
-                interval_delta = alert_calculation_interval_to_relativedelta(interval)
-                interval_seconds = ((alert.next_check_at + interval_delta) - alert.next_check_at).total_seconds()
-                grace_seconds = interval_seconds * ALERT_TIMELINESS_GRACE_FRACTION
+                grace_seconds = _interval_seconds(interval) * ALERT_TIMELINESS_GRACE_FRACTION
                 late_seconds = (now - alert.next_check_at).total_seconds()
                 on_time = late_seconds <= grace_seconds
 
