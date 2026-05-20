@@ -41,13 +41,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type = match (event.event.as_str(), context.historical_migration) {
-        ("$$client_ingestion_warning", _) => DataType::ClientIngestionWarning,
-        ("$exception", _) => DataType::ExceptionErrorTracking,
-        ("$$heatmap", _) => DataType::HeatmapMain,
-        (_, true) => DataType::AnalyticsHistorical,
-        (_, false) => DataType::AnalyticsMain,
-    };
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -177,25 +171,23 @@ pub async fn process_events<'a>(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
 
-    // Apply event restrictions if service is configured.
-    //
-    // The service is scoped to the analytics pipeline (loaded for
-    // `CaptureMode::Events` → pipeline name `"analytics"`), so restrictions
-    // only apply to events routed to the analytics pipeline. Non-analytics
-    // data types (exceptions, heatmaps, client ingestion warnings) flow to
-    // separate topics and separate consumers that own their own restriction
-    // scope — applying analytics restrictions here would cross pipelines
-    // (e.g. a DropEvent restriction would silently drop exception events
-    // before they reach the error tracking topic).
+    // Apply event restrictions, looking each event up under its `DataType`'s
+    // pipeline. The single restriction service holds entries for all
+    // pipelines its host capture deployment serves; the pipeline argument
+    // selects which slice of restrictions applies to each event. A DropEvent
+    // tagged only for `analytics` will never silently drop an exception event
+    // on the way to the error tracking topic, and vice versa. Data types
+    // without a pipeline (heatmaps, ingestion warnings, snapshots) flow
+    // through unrestricted.
     if let Some(ref service) = restriction_service {
         let mut filtered_events = Vec::with_capacity(events.len());
         let now_ts = context.now.timestamp();
 
         for e in events {
-            if !e.metadata.data_type.is_analytics_pipeline() {
+            let Some(pipeline) = e.metadata.data_type.pipeline() else {
                 filtered_events.push(e);
                 continue;
-            }
+            };
 
             let uuid_str = e.event.uuid.to_string();
             let event_ctx = RestrictionEventContext {
@@ -206,7 +198,9 @@ pub async fn process_events<'a>(
                 now_ts,
             };
 
-            let applied = service.get_restrictions(&e.event.token, &event_ctx).await;
+            let applied = service
+                .get_restrictions(&e.event.token, &event_ctx, pipeline)
+                .await;
 
             if applied.should_drop() {
                 report_dropped_events("event_restriction_drop", 1);
@@ -464,9 +458,8 @@ mod tests {
     }
 
     // Mock sink for testing process_events with restrictions
-    use crate::config::CaptureMode;
     use crate::event_restrictions::{
-        EventRestrictionService, Restriction, RestrictionFilters, RestrictionManager,
+        EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
         RestrictionScope, RestrictionType,
     };
     use crate::sinks::test_sink::MockSink;
@@ -490,10 +483,12 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with DropEvent
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
@@ -536,10 +531,12 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with ForceOverflow
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,
                 scope: RestrictionScope::AllEvents,
@@ -583,10 +580,12 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with SkipPersonProcessing
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::SkipPersonProcessing,
                 scope: RestrictionScope::AllEvents,
@@ -630,10 +629,12 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with RedirectToDlq
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::RedirectToDlq,
                 scope: RestrictionScope::AllEvents,
@@ -677,10 +678,12 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with multiple restrictions
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![
                 Restriction {
                     restriction_type: RestrictionType::ForceOverflow,
@@ -770,12 +773,14 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction that only applies to different event name
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         let mut filters = RestrictionFilters::default();
         filters.event_names.insert("$pageview".to_string()); // our event is "test_event"
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::Filtered(filters),
@@ -818,10 +823,12 @@ mod tests {
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::RedirectToTopic,
                 scope: RestrictionScope::AllEvents,
@@ -874,10 +881,12 @@ mod tests {
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
@@ -933,10 +942,12 @@ mod tests {
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![
                 Restriction {
                     restriction_type: RestrictionType::ForceOverflow,
@@ -982,6 +993,146 @@ mod tests {
         assert!(captured[0].metadata.redirect_to_topic.is_none());
     }
 
+    /// With an errortracking service configured, `$exception` events should be
+    /// matched against errortracking-pipeline restrictions and dropped if so
+    /// configured. Co-located analytics events must remain unaffected because
+    /// they're matched against the (separate) analytics service.
+    #[tokio::test]
+    async fn test_process_events_errortracking_drop_only_affects_exceptions() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![
+            create_test_event_with_name(
+                "$exception",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+            create_test_event_with_name(
+                "$pageview",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        // Single service serving both pipelines, with a DropEvent restriction
+        // attached only to the errortracking pipeline.
+        let service = EventRestrictionService::new(
+            vec![Pipeline::Analytics, Pipeline::ErrorTracking],
+            Duration::from_secs(300),
+        );
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::ErrorTracking,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            None,
+            None,
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(
+            captured.len(),
+            1,
+            "exception should be dropped, pageview kept"
+        );
+        assert_eq!(captured[0].metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(captured[0].event.event, "$pageview");
+    }
+
+    /// Mirror image: an analytics-scoped DropEvent must drop analytics events
+    /// while leaving `$exception` events untouched even though the same
+    /// service is responsible for the errortracking pipeline (no entry there).
+    #[tokio::test]
+    async fn test_process_events_analytics_drop_does_not_cross_into_errortracking() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![
+            create_test_event_with_name(
+                "$exception",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+            create_test_event_with_name(
+                "$pageview",
+                Some("2023-01-01T11:00:00Z".to_string()),
+                None,
+                None,
+            ),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let service = EventRestrictionService::new(
+            vec![Pipeline::Analytics, Pipeline::ErrorTracking],
+            Duration::from_secs(300),
+        );
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::DropEvent,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            None,
+            None,
+            &events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(
+            captured.len(),
+            1,
+            "pageview should be dropped, exception kept"
+        );
+        assert_eq!(
+            captured[0].metadata.data_type,
+            DataType::ExceptionErrorTracking
+        );
+        assert_eq!(captured[0].event.event, "$exception");
+    }
+
     #[tokio::test]
     async fn test_process_events_analytics_historical_still_gets_restrictions() {
         // AnalyticsHistorical is part of the analytics pipeline, so restrictions
@@ -1001,10 +1152,12 @@ mod tests {
         let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
@@ -1223,10 +1376,12 @@ mod tests {
         // Even with a limiter that would flag this token, force_overflow wins.
         let limiter = build_limiter(10, 10, Some("test_token".to_string()), false);
 
-        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
-        manager.restrictions.insert(
-            "test_token".to_string(),
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,
                 scope: RestrictionScope::AllEvents,

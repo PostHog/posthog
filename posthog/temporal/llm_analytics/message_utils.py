@@ -72,6 +72,12 @@ def _render_message(msg: dict) -> str | None:
         # Preserve the conversation slot when a message has a role
         # but no body (e.g. a tool that returned nothing).
         return f"{role_label}:"
+    # Dict carries data but doesn't match the chat-message shape — most often
+    # a manually-captured structured-output payload like `{"entities": [...]}`.
+    # JSON-stringify so the judge sees the actual response instead of an empty
+    # `Output:`. Truly-empty dicts still return None so the caller can skip them.
+    if msg:
+        return json.dumps(msg, default=str)
     return None
 
 

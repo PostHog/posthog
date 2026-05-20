@@ -254,6 +254,62 @@ def concepts() -> None:
         click.echo()
 
 
+def _load_env_file(path: os.PathLike[str], only_if_unset: bool = True) -> None:
+    """Load environment variables from a file (KEY=VALUE per line, # comments)."""
+    from pathlib import Path
+
+    env_file = Path(path)
+    if not env_file.exists():
+        return
+
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if only_if_unset and name in os.environ:
+            continue
+        os.environ[name] = value
+
+
+@cli.command(name="run", help="Run a command with resolved environment (1Password + defaults)")
+@click.argument("command", nargs=-1, required=True)
+def run_with_env(command: tuple[str, ...]) -> None:
+    """Run a command with PostHog environment variables.
+
+    Loads .env.development defaults and .env.local overrides.
+    If .env.local contains 1Password references (op://), resolves them via `op run`.
+
+    Note: When using 1Password, op run's .env.local takes precedence over shell env.
+    This is op's design — secrets from 1Password are meant to win.
+
+    Examples:
+        hogli run ./manage.py shell
+        hogli run pytest posthog/api/
+    """
+    env_dev = REPO_ROOT / ".env.development"
+    env_services = REPO_ROOT / ".env.services"
+    env_local = REPO_ROOT / ".env.local"
+
+    has_op_refs = env_local.exists() and "op://" in env_local.read_text()
+
+    if has_op_refs:
+        if not shutil.which("op"):
+            click.echo("⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found", err=True)
+            click.echo("   Install: brew install 1password-cli", err=True)
+            raise SystemExit(1)
+        # Load .env.development and .env.services first (only if not already set in shell).
+        # op run then layers .env.local on top — overriding our files but not shell.
+        _load_env_file(env_dev, only_if_unset=True)
+        _load_env_file(env_services, only_if_unset=True)
+        os.execvp("op", ["op", "run", f"--env-file={env_local}", "--", *command])
+    else:
+        _load_env_file(env_local, only_if_unset=True)
+        _load_env_file(env_dev, only_if_unset=True)
+        _load_env_file(env_services, only_if_unset=True)
+        os.execvp(command[0], list(command))
+
+
 def _register_script_commands() -> None:
     """Dynamically register commands from hogli.yaml.
 
