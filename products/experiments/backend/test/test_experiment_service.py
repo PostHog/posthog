@@ -2260,6 +2260,41 @@ class TestExperimentService(APIBaseTest):
         metadata = completed_call.args[2]
         assert "significant" not in metadata
 
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_includes_conclusion_and_comment_flag(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="End With Conclusion", feature_flag_key="end-with-conclusion-flag"
+        )
+
+        self._service().end_experiment(
+            experiment,
+            conclusion="won",
+            conclusion_comment="Test variant outperformed control on the primary metric.",
+            request=self._make_request(),
+        )
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert metadata["conclusion"] == "won"
+        assert metadata["has_conclusion_comment"] is True
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_end_experiment_completed_event_marks_missing_conclusion_comment(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="End Without Comment", feature_flag_key="end-without-comment-flag"
+        )
+
+        self._service().end_experiment(experiment, conclusion="lost", request=self._make_request())
+
+        completed_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment completed"
+        )
+        metadata = completed_call.args[2]
+        assert metadata["conclusion"] == "lost"
+        assert metadata["has_conclusion_comment"] is False
+
     @patch("products.experiments.backend.experiment_service.create_notification")
     def test_end_experiment_dispatches_realtime_to_creator(self, mock_create_notification):
         creator = self._create_user("creator-end@test.com")
@@ -2811,6 +2846,49 @@ class TestExperimentService(APIBaseTest):
             call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
         )
         assert shipped_call.args[2]["release_to_everyone"] is True
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_ship_variant_default_kept_variant_was_recommended_is_null(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="Ship Analytics Recommended Default", feature_flag_key="ship-analytics-recommended-default-flag"
+        )
+
+        self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+
+        shipped_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
+        )
+        assert shipped_call.args[2]["kept_variant_was_recommended"] is None
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_ship_variant_kept_variant_was_recommended_recorded_when_true(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="Ship Analytics Recommended True", feature_flag_key="ship-analytics-recommended-true-flag"
+        )
+
+        self._service().ship_variant(
+            experiment, variant_key="test", kept_variant_was_recommended=True, request=self._make_request()
+        )
+
+        shipped_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
+        )
+        assert shipped_call.args[2]["kept_variant_was_recommended"] is True
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_ship_variant_kept_variant_was_recommended_recorded_when_false(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="Ship Analytics Recommended False", feature_flag_key="ship-analytics-recommended-false-flag"
+        )
+
+        self._service().ship_variant(
+            experiment, variant_key="test", kept_variant_was_recommended=False, request=self._make_request()
+        )
+
+        shipped_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
+        )
+        assert shipped_call.args[2]["kept_variant_was_recommended"] is False
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_ship_variant_stopped_reports_only_shipped_event(self, mock_report_user_action):
