@@ -187,7 +187,15 @@ impl<'a> Parser<'a> {
         let mut children: Vec<Value> = Vec::new();
         loop {
             let text = self.consume_hogqlx_text()?;
-            if !text.is_empty() {
+            // cpp's `VISIT(HogqlxTagElementNested)` drops child text
+            // runs that contain a newline AND are entirely whitespace —
+            // any pretty-printed multi-line HOGQLX literal lands here.
+            // Pure-space / pure-tab runs (no newline) are kept. Mixed
+            // whitespace-with-content runs are also kept verbatim.
+            let drop_for_newline_ws = !text.is_empty()
+                && text.bytes().all(|b| b.is_ascii_whitespace())
+                && text.bytes().any(|b| b == b'\n' || b == b'\r');
+            if !text.is_empty() && !drop_for_newline_ws {
                 children.push(emit::constant(Value::String(text)));
             }
             match self.peek() {

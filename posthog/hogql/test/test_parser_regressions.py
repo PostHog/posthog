@@ -1789,6 +1789,39 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_hogqlx_drops_whitespace_only_children_containing_newline(self):
+        # cpp's `VISIT(HogqlxTagElementNested)` filters out child text
+        # runs that are entirely whitespace AND contain a newline (or
+        # carriage return). Any pretty-printed multi-line HOGQLX literal
+        # lands here. Rust used to keep every non-empty text run, so
+        # `<a>\n</a>` round-tripped a `Constant("\n")` child that cpp
+        # would have dropped. Pure-space / pure-tab runs (no newline) are
+        # kept by both; mixed whitespace-with-content runs are too.
+        for src in (
+            "<a>\n</a>",
+            "<a>\r\n</a>",
+            "<a>{x}\n</a>",
+            "<a>\n  <b/>\n</a>",
+        ):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: single-space / single-tab without newline is preserved
+        # by both; mixed content with whitespace is preserved too.
+        for src in (
+            "<a> </a>",
+            "<a>\t</a>",
+            "<a>hello world</a>",
+            "<a>\n hello \n</a>",
+            "<a></a>",
+            "<a/>",
+        ):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_interval_combined_string_validates_count_and_unit(self):
         # cpp's `visitColumnExprIntervalString` only accepts a count
         # made of ASCII digits and matches the unit against a literal-
