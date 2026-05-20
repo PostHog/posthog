@@ -11,6 +11,8 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -1895,66 +1897,75 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    def test_sortable_semver_output(self):
-        # Strict X.Y.Z versions (optionally with 'v' prefix or pre-release/build suffix)
-        # parse to their numeric components.
-        query = "SELECT sortableSemVer('1.2.3'), sortableSemVer('v1.2.3'), sortableSemVer('1.2.3-alpha.1'), sortableSemVer('0.0.0')"
-        response = execute_hogql_query(query, team=self.team)
-        self.assertEqual(response.results, [([1, 2, 3], [1, 2, 3], [1, 2, 3], [0, 0, 0])])
+    @parameterized.expand(
+        [
+            ("plain", "1.2.3", [1, 2, 3]),
+            ("v_prefix", "v1.2.3", [1, 2, 3]),
+            ("prerelease_suffix", "1.2.3-alpha.1", [1, 2, 3]),
+            ("build_metadata_suffix", "1.2.3+build.42", [1, 2, 3]),
+            ("all_zero", "0.0.0", [0, 0, 0]),
+            ("large_minor", "1.1000.0", [1, 1000, 0]),
+            ("whitespace_padded", "  1.2.3  ", [1, 2, 3]),
+        ]
+    )
+    def test_sortable_semver_output_valid(self, _name: str, version: str, expected: list[int]) -> None:
+        response = execute_hogql_query(f"SELECT sortableSemVer({version!r})", team=self.team)
+        self.assertEqual(response.results, [(expected,)])
 
-    def test_sortable_semver_rejects_invalid(self):
-        # These all match the Rust `semver` crate's rejection behavior, so blast
-        # radius mirrors what flag evaluation will actually do at runtime.
-        # Each invalid value compared against a real version is NULL, which is
-        # falsy in WHERE — so invalid versions are excluded from semver filters.
-        query = (
-            "SELECT semver, sortableSemVer(semver) IS NULL AS is_invalid FROM "
-            "(SELECT arrayJoin(["
-            "'3.07',"  # leading zero in minor (the bug that motivated this)
-            " '01.02.03',"  # leading zeros in all components
-            " '3.7',"  # 2-part, not valid semver
-            " '3.0',"  # 2-part, not valid semver
-            " '1.2.3.4',"  # 4 parts
-            " '2.2.0.betabac',"  # trailing garbage
-            " '1.9.233434.10',"  # 4 parts
-            " '0.9',"  # 2-part
-            " '0.0.0.0.1000',"  # 5 parts
-            " '1..2.3',"  # empty component
-            " '.1.2.3',"  # leading dot
-            " '1.2.3.',"  # trailing dot
-            " '1.-2.3',"  # negative
-            " 'not-a-version',"
-            " '',"
-            " '1.2.3',"  # valid - sanity check
-            " 'v1.2.3'"  # valid with v prefix
-            "]) AS semver) ORDER BY semver"
+    @parameterized.expand(
+        [
+            ("leading_zero_in_minor", "3.07"),  # the user-reported bug
+            ("leading_zero_in_major", "01.2.3"),
+            ("leading_zero_in_patch", "1.2.03"),
+            ("leading_zeros_all_components", "01.02.03"),
+            ("two_part_simple", "3.7"),
+            ("two_part_with_zero", "3.0"),
+            ("two_part_large", "0.9"),
+            ("four_parts", "1.2.3.4"),
+            ("four_parts_large", "1.9.233434.10"),
+            ("five_parts", "0.0.0.0.1000"),
+            ("trailing_garbage", "2.2.0.betabac"),
+            ("empty_component", "1..2.3"),
+            ("leading_dot", ".1.2.3"),
+            ("trailing_dot", "1.2.3."),
+            ("negative_component", "1.-2.3"),
+            ("non_numeric", "not-a-version"),
+            ("empty_string", ""),
+        ]
+    )
+    def test_sortable_semver_rejects_invalid(self, _name: str, version: str) -> None:
+        # All inputs match the Rust `semver` crate's rejection behavior — blast
+        # radius now mirrors what flag evaluation does at runtime. Invalid input
+        # becomes NULL, which is falsy in WHERE, so the row is excluded from any
+        # semver comparison filter.
+        response = execute_hogql_query(
+            f"SELECT sortableSemVer({version!r}) IS NULL AS is_invalid",
+            team=self.team,
         )
-        response = execute_hogql_query(query, team=self.team)
-        valid_versions = {row[0] for row in response.results if not row[1]}
-        invalid_versions = {row[0] for row in response.results if row[1]}
-        self.assertEqual(valid_versions, {"1.2.3", "v1.2.3"})
-        self.assertIn("3.07", invalid_versions)
-        self.assertIn("3.7", invalid_versions)
-        self.assertIn("3.0", invalid_versions)
-        self.assertIn("01.02.03", invalid_versions)
-        self.assertIn("1.2.3.4", invalid_versions)
-        self.assertIn("2.2.0.betabac", invalid_versions)
+        self.assertEqual(response.results, [(True,)], f"expected {version!r} to parse as NULL")
 
-    def test_sortable_semver_invalid_excluded_from_comparisons(self):
-        # The user-visible bug: "3.07" was treated as [3, 7] and matched
-        # "version >= 3.7" filters in blast radius, but never matched at flag
-        # evaluation time (Rust rejects it). Now the HogQL path also rejects it,
-        # so both sides of "version >= 3.7" return NULL/false for "3.07".
-        query = (
-            "SELECT "
-            "sortableSemVer('3.07') >= sortableSemVer('3.7.0') AS gte_match, "
-            "sortableSemVer('3.07') <  sortableSemVer('3.7.0') AS lt_match,  "
-            "sortableSemVer('3.7.1') >= sortableSemVer('3.7.0') AS valid_gte"
+    @parameterized.expand(
+        [
+            # The user-visible bug: "3.07" was treated as [3, 7] in HogQL and matched
+            # "version >= 3.7" filters in blast radius, but Rust rejected it at flag
+            # evaluation time. Now both sides return NULL → row excluded from any operator.
+            ("gte", ">=", "3.07", "3.7.0", None),
+            ("lt", "<", "3.07", "3.7.0", None),
+            ("gt", ">", "3.07", "3.7.0", None),
+            ("lte", "<=", "3.07", "3.7.0", None),
+            ("eq", "=", "3.07", "3.7.0", None),
+            # Sanity check: valid versions still compare normally.
+            ("valid_gte_true", ">=", "3.7.1", "3.7.0", True),
+            ("valid_gte_false", ">=", "3.6.9", "3.7.0", False),
+            ("valid_lt_true", "<", "3.6.9", "3.7.0", True),
+        ]
+    )
+    def test_sortable_semver_comparison(self, _name: str, op: str, lhs: str, rhs: str, expected: bool | None) -> None:
+        response = execute_hogql_query(
+            f"SELECT sortableSemVer({lhs!r}) {op} sortableSemVer({rhs!r})",
+            team=self.team,
         )
-        response = execute_hogql_query(query, team=self.team)
-        # Both gte and lt are NULL for the invalid "3.07", so both WHERE comparisons
-        # would exclude the row — matching Rust's behavior of returning false.
-        self.assertEqual(response.results, [(None, None, True)])
+        self.assertEqual(response.results, [(expected,)])
 
     def test_exchange_rate_table(self):
         query = "SELECT DISTINCT currency FROM exchange_rate LIMIT 500"
