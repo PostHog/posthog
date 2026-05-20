@@ -1,0 +1,49 @@
+sync:
+    defaults:
+        mode: one-way-safe
+        ignore:
+            vcs: true
+            paths:
+                # Per-language deps -- OS-incompatible, prewarmed on remote AMI.
+                - 'node_modules'
+                - '.venv'
+                - '**/__pycache__'
+                - '*.pyc'
+                - '*.egg-info'
+                - '.pnpm-store'
+                - 'target'
+                - 'rust/target'
+                - 'funnel-udf/target'
+
+                # Generated source (don't round-trip).
+                - 'posthog/hogql/grammar/HogQLLexer.py'
+                - 'posthog/hogql/grammar/HogQLLexer.interp'
+                - 'posthog/hogql/grammar/HogQLLexer.tokens'
+                - 'posthog/hogql/grammar/HogQLParser.py'
+                - 'posthog/hogql/grammar/HogQLParser.interp'
+                - 'posthog/hogql/grammar/HogQLParser.tokens'
+                - 'posthog/hogql/grammar/HogQLParserVisitor.py'
+                - 'common/hogql_parser'
+                - 'frontend/types'
+                - 'frontend/dist'
+                - 'frontend/.cache'
+
+                # Build outputs.
+                - '.next'
+                - 'dist'
+                - 'build'
+                - '.turbo'
+                - '.parcel-cache'
+
+                # Runtime / user-local state.
+                - '.posthog/.generated'
+                - '.dagster_home'
+                - 'mprocs.log'
+                - 'bin/start.lock'
+                - '.env.local'
+
+                # Editor / OS.
+                - '.idea'
+                - '.vscode'
+                - '.cursor'
+                - '.DS_Store'
