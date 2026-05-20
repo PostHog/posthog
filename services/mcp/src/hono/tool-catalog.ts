@@ -2,7 +2,6 @@ import { hasScopes } from '@/lib/api'
 import {
     type ToolDefinition,
     type ToolFilterOptions,
-    getToolDefinition,
     getToolDefinitions,
     getToolsForFeatures,
 } from '@/tools/toolDefinitions'
