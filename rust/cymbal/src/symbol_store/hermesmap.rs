@@ -3,7 +3,7 @@ use bytes::Bytes;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, HermesMap};
 
 use crate::{
-    error::{HermesError, ResolveError},
+    error::{HermesError, ResolveError, UnhandledError},
     langs::hermes::HermesRef,
     symbol_store::{caching::Countable, Fetcher, Parser},
 };
@@ -40,9 +40,15 @@ impl Parser for HermesMapProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Bytes) -> Result<ParsedHermesMap, Self::Err> {
-        let (map, decompressed_bytes): (HermesMap, usize) =
-            read_symbol_data_with_byte_count(&source).map_err(HermesError::DataError)?;
-        Ok(ParsedHermesMap::parse(map, decompressed_bytes)?)
+        // zstd decompress + Hermes sourcemap parse are both CPU-bound; offload from the
+        // tokio runtime so a large bundle doesn't block other in-flight requests.
+        tokio::task::spawn_blocking(move || -> Result<ParsedHermesMap, ResolveError> {
+            let (map, decompressed_bytes): (HermesMap, usize) =
+                read_symbol_data_with_byte_count(&source).map_err(HermesError::DataError)?;
+            Ok(ParsedHermesMap::parse(map, decompressed_bytes)?)
+        })
+        .await
+        .map_err(|e| UnhandledError::Other(format!("hermes map parse task failed: {e}")))?
     }
 }
 

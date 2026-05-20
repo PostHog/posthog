@@ -13,7 +13,7 @@ use zip::ZipArchive;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
 
 use crate::{
-    error::{AppleError, ResolveError},
+    error::{AppleError, ResolveError, UnhandledError},
     symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
@@ -64,18 +64,25 @@ impl Parser for AppleProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<ParsedAppleSymbols, ResolveError> {
-        // Try to unwrap symbol_data container first (new format),
-        // fall back to raw ZIP for backward compatibility with existing uploads.
-        // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
-        let (zip_data, decompressed_bytes) =
-            match read_symbol_data_with_byte_count::<AppleDsym>(&source) {
-                Ok((dsym, bytes)) => (dsym.data, bytes),
-                Err(_) => {
-                    let len = source.len();
-                    (source.to_vec(), len)
-                }
-            };
-        ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)
+        // dSYM parsing is the heaviest CPU work in the system: zstd decompress, ZIP
+        // expansion, DWARF parse, and symcache conversion. Always offload from the tokio
+        // runtime.
+        tokio::task::spawn_blocking(move || -> Result<ParsedAppleSymbols, ResolveError> {
+            // Try to unwrap symbol_data container first (new format),
+            // fall back to raw ZIP for backward compatibility with existing uploads.
+            // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
+            let (zip_data, decompressed_bytes) =
+                match read_symbol_data_with_byte_count::<AppleDsym>(&source) {
+                    Ok((dsym, bytes)) => (dsym.data, bytes),
+                    Err(_) => {
+                        let len = source.len();
+                        (source.to_vec(), len)
+                    }
+                };
+            ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)
+        })
+        .await
+        .map_err(|e| UnhandledError::Other(format!("apple dSYM parse task failed: {e}")))?
     }
 }
 

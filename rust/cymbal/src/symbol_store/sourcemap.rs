@@ -11,7 +11,7 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    error::{JsResolveErr, ResolveError},
+    error::{JsResolveErr, ResolveError, UnhandledError},
     metric_consts::{
         CHUNK_ID_RESCUED_FROM_BODY, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND,
         SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
@@ -259,10 +259,18 @@ impl Parser for SourcemapProvider {
     type Err = ResolveError;
     async fn parse(&self, data: Bytes) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let (sam, decompressed_bytes): (SourceAndMap, usize) =
-            read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
-        let smc = OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
-            .map_err(|_| JsResolveErr::InvalidSourceAndMap)?;
+        // `read_symbol_data_with_byte_count` zstd-decompresses a potentially large blob, and
+        // `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
+        // worker blocks the runtime; offload to a blocking thread instead.
+        let smc =
+            tokio::task::spawn_blocking(move || -> Result<OwnedSourceMapCache, ResolveError> {
+                let (sam, decompressed_bytes): (SourceAndMap, usize) =
+                    read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
+                OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
+                    .map_err(|_| JsResolveErr::InvalidSourceAndMap.into())
+            })
+            .await
+            .map_err(|e| UnhandledError::Other(format!("sourcemap parse task failed: {e}")))??;
 
         start.label("success", "true").fin();
         Ok(smc)

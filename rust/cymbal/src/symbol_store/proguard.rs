@@ -5,7 +5,7 @@ use bytes::Bytes;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, ProguardMapping};
 
 use crate::{
-    error::{ProguardError, ResolveError},
+    error::{ProguardError, ResolveError, UnhandledError},
     symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
@@ -47,9 +47,15 @@ impl Parser for ProguardProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<FetchedMapping, ResolveError> {
-        let (map, decompressed_bytes): (ProguardMapping, usize) =
-            read_symbol_data_with_byte_count(&source).map_err(ProguardError::DataError)?;
-        Ok(FetchedMapping::new(map, decompressed_bytes)?)
+        // zstd decompress + ProguardCache::write are CPU-bound; offload from the tokio
+        // runtime so a large mapping doesn't block other in-flight requests.
+        tokio::task::spawn_blocking(move || -> Result<FetchedMapping, ResolveError> {
+            let (map, decompressed_bytes): (ProguardMapping, usize) =
+                read_symbol_data_with_byte_count(&source).map_err(ProguardError::DataError)?;
+            Ok(FetchedMapping::new(map, decompressed_bytes)?)
+        })
+        .await
+        .map_err(|e| UnhandledError::Other(format!("proguard parse task failed: {e}")))?
     }
 }
 
