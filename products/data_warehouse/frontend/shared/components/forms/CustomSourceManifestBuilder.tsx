@@ -35,7 +35,7 @@ interface StreamForm {
     start_param: string
 }
 
-interface ManifestState {
+export interface ManifestState {
     base_url: string
     auth_type: AuthType
     auth_token: string
@@ -91,7 +91,7 @@ function defaultState(): ManifestState {
     }
 }
 
-function buildManifest(state: ManifestState): Record<string, unknown> {
+export function buildManifest(state: ManifestState): Record<string, unknown> {
     const headerEntries = state.headers.filter((h) => h.key.trim().length > 0)
     const headerMap: Record<string, string> = {}
     for (const entry of headerEntries) {
@@ -184,7 +184,7 @@ function serializePaginator(paginator: Paginator): Record<string, unknown> {
     }
 }
 
-function parseManifestIntoState(rawJson: string | undefined): ManifestState {
+export function parseManifestIntoState(rawJson: string | undefined): ManifestState {
     if (!rawJson) {
         return defaultState()
     }
