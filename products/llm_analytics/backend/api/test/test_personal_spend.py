@@ -149,6 +149,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             properties={"email": self.user.email},
         )
+        flush_persons_and_events()
 
     def _create_generation(
         self,

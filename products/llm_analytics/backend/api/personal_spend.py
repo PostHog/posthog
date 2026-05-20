@@ -13,6 +13,7 @@ Endpoint:
 
 from __future__ import annotations
 
+import re
 import datetime
 from typing import Any, cast
 from urllib.parse import urlencode
@@ -43,6 +44,7 @@ MAX_DATE_STRING_LENGTH = 32
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
+_RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
 MIN_LIMIT = 1
 MAX_LIMIT = 200
@@ -63,19 +65,27 @@ def _cache_key(email: str, date_from: str, date_to: str | None, product: str | N
     return f"personal_spend:{email}:{date_from}:{to_slot}:{product_slot}:{limit}"
 
 
+def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
+    """Accepts either an ISO date / datetime or a relative shorthand like `-7d`. Rejects garbage."""
+    looks_relative = _RELATIVE_DATE_RE.match(value) is not None
+    looks_iso = value[:1].isdigit()
+    if not (looks_relative or looks_iso):
+        raise exceptions.ValidationError(
+            {
+                field: f"Could not parse `{value}`. Use an ISO date (e.g. `2026-04-23`) or relative shorthand (e.g. `-7d`)."
+            }
+        )
+    try:
+        return relative_date_parse(value, UTC, now=now)
+    except Exception as exc:
+        raise exceptions.ValidationError({field: f"Could not parse `{value}`: {exc}"})
+
+
 def _resolve_window(date_from: str, date_to: str | None) -> tuple[datetime.datetime, datetime.datetime]:
     """Resolve relative or absolute date strings to UTC datetimes, capped at MAX_WINDOW_DAYS."""
-    try:
-        from_dt = relative_date_parse(date_from, UTC)
-    except Exception as exc:
-        raise exceptions.ValidationError({"date_from": f"Could not parse `{date_from}`: {exc}"})
-    if date_to:
-        try:
-            to_dt = relative_date_parse(date_to, UTC)
-        except Exception as exc:
-            raise exceptions.ValidationError({"date_to": f"Could not parse `{date_to}`: {exc}"})
-    else:
-        to_dt = datetime.datetime.now(UTC)
+    now = datetime.datetime.now(UTC)
+    from_dt = _parse_date_param(date_from, "date_from", now)
+    to_dt = _parse_date_param(date_to, "date_to", now) if date_to else now
 
     if to_dt <= from_dt:
         raise exceptions.ValidationError({"date_to": "Must be later than `date_from`."})
