@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -10,6 +10,7 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -349,6 +350,11 @@ class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
     def test_flag_off_returns_404_on_create(self, _flag_mock) -> None:
         resp = self.client.post(self.scanners_url, data={"name": "x"}, format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
+    def test_flag_off_returns_404_on_estimate(self, _flag_mock) -> None:
+        resp = self.client.post(f"{self.lenses_url}estimate/", data={}, format="json")
         self.assertEqual(resp.status_code, 404)
 
 
@@ -702,3 +708,59 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.session_observations_url}{observation.id}/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["id"], str(observation.id))
+
+
+class TestReplayLensEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
+    @property
+    def estimate_url(self) -> str:
+        return f"{self.lenses_url}estimate/"
+
+    def _ingest_session(self, session_id: str, days_ago: float) -> None:
+        first_timestamp = timezone.now() - timedelta(days=days_ago)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=session_id,
+            distinct_id="estimate-distinct-id",
+            first_timestamp=first_timestamp,
+            last_timestamp=first_timestamp + timedelta(minutes=5),
+        )
+
+    @parameterized.expand(
+        [
+            ("sampling_rate_above_one", {"sampling_rate": 1.5}),
+            ("sampling_rate_negative", {"sampling_rate": -0.1}),
+            ("window_days_zero", {"window_days": 0}),
+            ("window_days_above_max", {"window_days": 91}),
+        ]
+    )
+    def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
+        resp = self.client.post(self.estimate_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_estimate_counts_only_in_window_sessions(self) -> None:
+        for index in range(3):
+            self._ingest_session(f"in-window-{index}", days_ago=index + 1)
+        self._ingest_session("out-of-window", days_ago=20)
+
+        resp = self.client.post(self.estimate_url, data={"window_days": 7}, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+        body = resp.json()
+        self.assertEqual(body["matched_sessions_in_window"], 3)
+        self.assertAlmostEqual(body["estimated_sessions_per_day"], 3 / body["window_days"])
+        self.assertEqual(body["estimated_observations_per_month"], round(body["estimated_sessions_per_day"] * 30))
+
+    def test_estimate_applies_sampling(self) -> None:
+        for index in range(4):
+            self._ingest_session(f"sampled-{index}", days_ago=index + 1)
+
+        resp = self.client.post(self.estimate_url, data={"window_days": 7, "sampling_rate": 0.5}, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+        body = resp.json()
+        self.assertEqual(body["matched_sessions_in_window"], 4)
+        self.assertEqual(body["sampling_rate"], 0.5)
+        self.assertEqual(
+            body["estimated_observations_per_month"],
+            round(body["estimated_sessions_per_day"] * 30 * 0.5),
+        )
