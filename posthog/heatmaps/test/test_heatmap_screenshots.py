@@ -8,7 +8,9 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import HeatmapSnapshot, SavedHeatmap, Team
+from posthog.models import Team
+
+from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 
 class TestHeatmapsAPI(APIBaseTest):

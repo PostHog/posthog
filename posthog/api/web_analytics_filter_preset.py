@@ -13,7 +13,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.utils import UUIDT
-from posthog.models.web_analytics_filter_preset import WebAnalyticsFilterPreset
+
+from products.web_analytics.backend.models import WebAnalyticsFilterPreset
 
 
 def log_preset_activity(

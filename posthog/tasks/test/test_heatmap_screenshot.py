@@ -1,8 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
+
+from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 
 class TestHeatmapScreenshotTask(APIBaseTest):
