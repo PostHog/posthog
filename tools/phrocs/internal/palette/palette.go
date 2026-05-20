@@ -46,12 +46,13 @@ var (
 	ColorBrightCyan    color.Color = sgrFallback(lipgloss.BrightCyan, lipgloss.Cyan)       // ANSI 14: (unused)
 	ColorBrightWhite   color.Color = sgrFallback(lipgloss.BrightWhite, lipgloss.White)     // ANSI 15: subtle text/borders (light)
 
-	// Selection backgrounds use explicit RGB everywhere so the highlight is
-	// visible regardless of how a terminal maps ANSI 0/7. TrueColor
-	// (SGR 48;2;r;g;b) is unaffected by the SGR 100-107 bug, so it doesn't
-	// need a fallback like the bright 4-bit palette above.
-	SelectionDark  color.Color = lipgloss.Color("#3a3a3a")
-	SelectionLight color.Color = lipgloss.Color("#d4d4d4")
+	// Selection backgrounds: ANSI 0/7 in normal terminals (theme-aware so
+	// the highlight blends with the user's color scheme), with an explicit
+	// RGB fallback in Cursor/Zed where ANSI 0/7 maps to the default
+	// terminal background and the selection paints invisibly. TrueColor
+	// (SGR 48;2;r;g;b) is unaffected by the SGR 100-107 bug.
+	SelectionDark  color.Color = sgrFallback(lipgloss.Black, lipgloss.Color("#3a3a3a"))
+	SelectionLight color.Color = sgrFallback(lipgloss.White, lipgloss.Color("#d4d4d4"))
 )
 
 const (
