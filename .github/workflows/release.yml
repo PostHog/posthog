@@ -57,7 +57,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   submodules: recursive
             - name: Install dist
@@ -120,7 +120,7 @@ jobs:
             - name: enable windows longpaths
               run: |
                   git config --global core.longpaths true
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   submodules: recursive
             - name: Install Rust non-interactively if not already installed
@@ -180,7 +180,7 @@ jobs:
             BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   submodules: recursive
             - name: Install cached dist
@@ -235,7 +235,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
 
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   submodules: recursive
                   token: ${{ steps.app-token.outputs.token }}
@@ -301,7 +301,7 @@ jobs:
         permissions:
             id-token: write
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .nvmrc
                   sparse-checkout-cone-mode: false
