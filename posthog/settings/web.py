@@ -399,7 +399,27 @@ SPECTACULAR_SETTINGS = {
         "posthog.api.documentation.lint_spec_consistency_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        # Overrides fall into two categories depending on how drf-spectacular hashes them:
+        # If CI is failing with "enum naming encountered a non-optimally resolvable
+        # collision" / "Format5eaEnum"-style warnings from `hogli build:openapi-schema`,
+        # this is the dict you need to add an entry to. The warning fails CI because
+        # `--fail-on-warn` is set on the `spectacular` invocation in hogli.yaml.
+        #
+        # Workflow to resolve a collision:
+        #   1. Run `python manage.py find_enum_collisions` — it prints the field name,
+        #      the auto-generated name (e.g. `Format5eaEnum`), the enum values, which
+        #      components share the hash, and a ready-to-paste override line.
+        #   2. Add the suggested entry below (pick the right category — see "hash trap"
+        #      note below).
+        #   3. Re-run `hogli build:openapi-schema` locally to confirm the warning is gone.
+        #
+        # Full guide (when to use which pattern, anti-patterns, MCP/typegen implications):
+        #   .agents/skills/improving-drf-endpoints/SKILL.md
+        # Detailed override patterns and the hash-trap explanation:
+        #   .agents/skills/improving-drf-endpoints/references/viewset-annotations.md
+        #
+        # Hash trap — overrides fall into two categories depending on how drf-spectacular
+        # hashes them, and using the wrong format silently fails (the override is ignored
+        # and the warning persists):
         #
         # 1. Model class paths — used for ChoiceField-backed enums where drf-spectacular
         #    injects x-spec-enum-id from (value, label) tuples.  The override must point
@@ -409,8 +429,6 @@ SPECTACULAR_SETTINGS = {
         #    return types) where there is NO x-spec-enum-id.  Postprocessing hashes these
         #    as (value, value) tuples, so the override must also be a plain value list
         #    (which _load_enum_name_overrides normalizes to (value, value)).
-        #
-        # Getting this wrong means the override hash doesn't match and the warning persists.
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",

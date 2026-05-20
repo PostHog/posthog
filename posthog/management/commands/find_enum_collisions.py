@@ -3,6 +3,14 @@
 Replicates the collision detection logic from drf_spectacular.hooks.postprocess_schema_enums
 but prints actionable output instead of opaque warnings.
 
+Run this when `hogli build:openapi-schema` fails with messages like
+"enum naming encountered a non-optimally resolvable collision" / "Format5eaEnum" — it
+prints a ready-to-paste entry for ENUM_NAME_OVERRIDES in posthog/settings/web.py.
+
+See also:
+    posthog/settings/web.py — ENUM_NAME_OVERRIDES (where the fix goes)
+    .agents/skills/improving-drf-endpoints/SKILL.md — full DRF/OpenAPI guide
+
 Usage:
     python manage.py find_enum_collisions
 """
