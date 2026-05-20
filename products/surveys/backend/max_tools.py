@@ -593,11 +593,11 @@ def _resolve_date_window(
     if last_n_days is not None:
         if last_n_days <= 0:
             raise ValueError(f"'last_n_days' must be a positive integer; got {last_n_days}")
-        end = django.utils.timezone.now()
-        return end - timedelta(days=last_n_days), end
+        relative_end = django.utils.timezone.now()
+        return relative_end - timedelta(days=last_n_days), relative_end
 
-    start = _parse_user_supplied_datetime(date_from, field_name="date_from") if date_from else None
-    end = _parse_user_supplied_datetime(date_to, field_name="date_to") if date_to else None
+    start: datetime | None = _parse_user_supplied_datetime(date_from, field_name="date_from") if date_from else None
+    end: datetime | None = _parse_user_supplied_datetime(date_to, field_name="date_to") if date_to else None
     if start is not None and end is not None and start > end:
         raise ValueError("'date_from' must be earlier than or equal to 'date_to'")
     return start, end
