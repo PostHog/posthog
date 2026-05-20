@@ -24,7 +24,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -795,30 +798,41 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
+    # Use the type-aware operator (`>=` for Date) only for single-shot scans. Windowed
+    # scans (upper_bound_inclusive set) must keep `>` because consecutive windows use the
+    # previous window's hi as the next window's lo — `>=` would re-fetch every row at the
+    # boundary value, duplicating each window's hi inside a single run.
+    operator = (
+        sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")
+    )
+
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value} AND random() < 0.01"
+                "SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
+                op=operator,
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} > {last_value}"
+                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} {op} {last_value}"
             ).format(
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
+                op=operator,
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
+            op=operator,
             last_value=sql.Literal(db_incremental_field_last_value),
         )
 
@@ -857,10 +871,12 @@ def _build_count_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
+    return sql.SQL("SELECT COUNT(*) FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
         incremental_field=sql.Identifier(incremental_field),
+        op=operator,
         last_value=sql.Literal(db_incremental_field_last_value),
     )
 

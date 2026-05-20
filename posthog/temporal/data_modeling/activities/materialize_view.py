@@ -35,6 +35,7 @@ from products.data_modeling.backend.models import Node, NodeType
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
+from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 
@@ -420,6 +421,9 @@ def _get_matview_input_objects(
         .exclude(deleted=True)
         .get(id=node.saved_query.id, team_id=inputs.team_id)
     )
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        prepare_executable_query(saved_query)
+
     job = DataModelingJob.objects.get(id=inputs.job_id, team_id=inputs.team_id)
     return (team, node, saved_query, job)
 

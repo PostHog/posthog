@@ -16,7 +16,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
@@ -509,9 +512,10 @@ def _get_query(
         if isinstance(last_value, datetime) or isinstance(last_value, date):
             last_value = f"'{last_value.isoformat()}'"
 
+        operator = incremental_type_to_operator(incremental_field_type)
         return f"""
             SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
-            WHERE `{incremental_field}` > {last_value}
+            WHERE `{incremental_field}` {operator} {last_value}
             ORDER BY `{incremental_field}` ASC
             """
 
