@@ -18,15 +18,19 @@ from toolbox.kubernetes import select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
 from toolbox.user import get_current_user
 
-# Extra label selectors ANDed onto the base `app.kubernetes.io/name=<app_label>`
-# selector. Keyed by namespace because the legacy and golden-chart deployments
-# share the same `app_label` but live in different namespaces with different
-# co-tenants (pgbouncer pods in the golden chart's per-app namespace also carry
-# `app.kubernetes.io/name=posthog-toolbox-django`, so we need `component=app` to
-# pick out only the main pool). The legacy `posthog` namespace doesn't need a
-# discriminator because its pgbouncers have a different `name` label.
+# `default_namespace` is where the pool lives when KUBE_NAMESPACE isn't set.
+#
+# `extra_selectors_by_namespace` ANDs onto the base
+# `app.kubernetes.io/name=<app_label>` selector. Keyed by namespace because the
+# golden-chart deployment co-locates the toolbox release's own pgbouncer pods
+# under the same `name` label, so we need `component=app` there to pick only
+# the main pool pods. The legacy `posthog` namespace doesn't need a
+# discriminator because its pgbouncers carry a different `name`.
 POOLS = {
     "toolbox-django": {
+        # Golden-chart deployment in the per-app namespace; the legacy `posthog`
+        # namespace is still available via `KUBE_NAMESPACE=posthog`.
+        "default_namespace": "posthog-toolbox-django",
         "app_label": "posthog-toolbox-django",
         "claimed_label_key": "toolbox-claimed",
         "extra_selectors_by_namespace": {
@@ -34,6 +38,7 @@ POOLS = {
         },
     },
     "flags-cache-jumphost": {
+        "default_namespace": "posthog",
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",
     },
@@ -92,7 +97,10 @@ def main():
         pool = POOLS[args.pool]
         app_label = pool["app_label"]
         claimed_label_key = pool["claimed_label_key"]
-        namespace = os.environ.get("KUBE_NAMESPACE", "posthog")
+        # Each pool advertises its own default namespace; `KUBE_NAMESPACE`
+        # remains the escape hatch (e.g. to point the toolbox-django pool back
+        # at the legacy `posthog` namespace during migration).
+        namespace = os.environ.get("KUBE_NAMESPACE", pool["default_namespace"])
         # The base selector is `app.kubernetes.io/name=<app_label>`. Some
         # namespaces also host other workloads that share that label (e.g. the
         # golden chart deploys a per-app pgbouncer under the same name in the

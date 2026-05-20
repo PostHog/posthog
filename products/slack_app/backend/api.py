@@ -674,9 +674,13 @@ def _collect_thread_messages(
         return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
 
     messages = []
-    for msg in raw_messages:
+    for index, msg in enumerate(raw_messages):
         # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
-        if our_bot_id and msg.get("bot_id") == our_bot_id:
+        # Never skip the thread root: the agent only ever posts as a reply, so msg 0 is
+        # always the originating message (e.g. a PostHog alert) that's the actual context
+        # for the task. Filtering it by bot_id breaks workspaces where the alerting Slack
+        # app and the `@PostHog` code app share an installation identity.
+        if index > 0 and our_bot_id and msg.get("bot_id") == our_bot_id:
             continue
 
         user_id = msg.get("user")
