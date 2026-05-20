@@ -133,7 +133,7 @@ export const loginLogic = kea<loginLogicType>([
         devUsers: [
             [] as DevUser[],
             {
-                // Not on a loader because we only need this on the login page, and it's not used anywhere else.
+                // Not fired on an `onMount` because we don't always need it.
                 loadDevUsers: async (_, breakpoint) => {
                     breakpoint()
                     try {
