@@ -12,18 +12,11 @@
  *                            //   appear exactly once in the serialization
  *   }
  *
- * Why this exists alongside `notebooks-collab-edit`:
- *   - apply_patch is fiddly for LLMs (line prefixes, EOL handling, fuzzy
- *     hunk matching), and tends to produce more rejections in practice.
- *   - str_replace is the same shape agents already use for code files
- *     elsewhere — same instincts, same failure modes (uniqueness, exact
- *     whitespace match), same recovery strategy ("widen the match string").
- *
  * Internally the tool operates on `JSON.stringify(content, null, 2)`. The
  * agent constructs `old_string` against that pretty-printed form. After
  * applying the replacement we re-parse the JSON, recompute steps via a
  * top-level block diff (so the broadcast SSE payload stays small), and
- * POST through the same rebase loop as `notebooks-collab-edit`.
+ * POST through `saveLoop` which handles rebase-on-409 and stale-on-410.
  *
  * For brand-new notebooks the agent should use `notebooks-create` instead;
  * this tool requires an existing notebook with content to edit.

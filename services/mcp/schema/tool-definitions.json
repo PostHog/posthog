@@ -243,22 +243,6 @@
             "readOnlyHint": false
         }
     },
-    "notebooks-collab-edit": {
-        "description": "Apply a patch to a notebook using collaborative editing. Unlike `notebooks-partial-update` (which uses a legacy PATCH that doesn't notify other clients), this tool routes through the collab/save endpoint so each edit is streamed live to anyone else viewing or editing the notebook over SSE. The patch format is apply_patch-style: each rendered line of the notebook is one top-level block (paragraph, heading, list item, atomic widget). Hunks start with `@@`; lines inside a hunk start with ` ` (context, unchanged), `-` (remove the block) or `+` (add a new paragraph block). Always call `notebooks-retrieve` first to see the current content — context lines must match exactly. Atomic widgets (rendered as `<atom:type>`) can be kept as context or removed but cannot be added via `+`. On 409 (concurrent edits) the tool transparently rebases and retries up to 3 times. On 410 or rebase failure, returns a structured error explaining what to do.",
-        "category": "Notebooks",
-        "feature": "notebooks",
-        "summary": "Apply an apply_patch-style diff to a notebook with live streaming to other clients.",
-        "title": "Edit notebook (collab)",
-        "required_scopes": ["notebook:write"],
-        "new_mcp": true,
-        "feature_flag": "notebooks-collaboration",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false
-        }
-    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "LLM analytics",

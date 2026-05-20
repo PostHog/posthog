@@ -13,8 +13,7 @@ import { GENERATED_TOOL_MAP } from './generated'
 import queryInsight from './insights/query'
 // LLM Analytics
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-// Notebooks (collab-edit + edit are hand-written — generated CRUD lives in generated/notebooks.ts)
-import notebooksCollabEdit from './notebooks/collabEdit'
+// Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
@@ -80,7 +79,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'get-llm-total-costs-for-project': getLLMCosts,
 
     // Notebooks
-    'notebooks-collab-edit': notebooksCollabEdit,
     'notebook-edit': notebookEdit,
 
     // Search

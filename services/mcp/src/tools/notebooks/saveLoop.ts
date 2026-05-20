@@ -1,17 +1,14 @@
 /**
- * Shared "POST collab/save with rebase-and-retry" pipeline used by every
- * notebook editing tool that targets the streaming endpoint.
+ * Shared "POST collab/save with rebase-and-retry" pipeline. Used by
+ * `notebook-edit` today; kept generic so any future notebook editing tool
+ * that produces PM steps + a target doc can route through it without
+ * duplicating the retry semantics.
  *
- * The two MCP tools (`notebooks-collab-edit` and `notebook-edit`) differ on
- * how they turn the agent's input into PM steps, but once steps exist the
- * server interaction is identical:
+ * Once steps + target doc exist, the server interaction is:
  *   - POST steps + resulting content + version
  *   - 200 → done
  *   - 409 → rebase pending steps over the missed range, retry (cap 3)
  *   - 410 → stale_buffer error
- *
- * Keeping this in one place stops the two tools from drifting on retry
- * semantics, body shape, or analytics.
  */
 import { type Node as PMNode, type Schema } from 'prosemirror-model'
 import type { Step } from 'prosemirror-transform'
