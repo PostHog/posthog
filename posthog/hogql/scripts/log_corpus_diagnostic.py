@@ -33,7 +33,7 @@ paginated download, parity grind and failure report are shared via
 
 ## Usage
 
-    # Default — auto-discover, download, run cpp-vs-python parity:
+    # Default — auto-discover, download, run cpp-vs-rust parity:
     PYTHONPATH=. python posthog/hogql/scripts/log_corpus_diagnostic.py
 
     # Iterate on a candidate parser without re-pulling the corpus:
@@ -197,8 +197,8 @@ def main() -> int:
     )
     p.add_argument(
         "--candidate",
-        default=os.environ.get("CANDIDATE_BACKEND", "python"),
-        help="Backend under test (default: python; override for forks)",
+        default=os.environ.get("CANDIDATE_BACKEND", "rust-json"),
+        help="Backend under test (default: rust-json; override for forks)",
     )
     p.add_argument(
         "--write-failures",
