@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -8,6 +8,16 @@ from temporalio.exceptions import ApplicationError
 from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.temporal.lenses.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.lenses.indexer import IndexerOutput
+from products.replay_vision.backend.temporal.lenses.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.lenses.scorer import ScorerOutput
+from products.replay_vision.backend.temporal.lenses.summarizer import SummarizerOutput
+
+AnyLensOutput = Annotated[
+    ClassifierOutput | IndexerOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    Field(discriminator="lens_type"),
+]
 
 
 class LensSnapshot(BaseModel, frozen=True):
@@ -30,6 +40,13 @@ class LensSnapshot(BaseModel, frozen=True):
             raise ApplicationError(
                 f"ReplayObservation {observation_id} has malformed lens_snapshot: {exc}", non_retryable=True
             ) from exc
+
+
+class LensResult(BaseModel, frozen=True):
+    """Result data of a completed observation, persisted into `ReplayObservation.lens_result`."""
+
+    model_output: AnyLensOutput
+    signals_count: int = Field(default=0, ge=0)
 
 
 class ApplyLensInputs(BaseModel, frozen=True):
@@ -126,9 +143,9 @@ class CallLensProviderInputs(BaseModel, frozen=True):
 
 
 class LensCallOutput(BaseModel, frozen=True):
-    """Result of one `call_lens_provider` invocation; `model_output` is the lens-specific dict (shape varies per `LensType`)."""
+    """Result of one `call_lens_provider` invocation."""
 
-    model_output: dict[str, Any]
+    model_output: AnyLensOutput
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
@@ -137,10 +154,11 @@ class CleanupGeminiFileInputs(BaseModel, frozen=True):
 
 class MarkObservationSucceededInputs(BaseModel, frozen=True):
     observation_id: UUID
+    lens_result: LensResult
 
 
 class EmitObservationEventInputs(BaseModel, frozen=True):
-    """Payload for the `$recording_observed` capture; this is the only place lens output lives outside of ClickHouse."""
+    """Payload for the `$recording_observed` capture."""
 
     observation_id: UUID
-    model_output: dict[str, Any]
+    model_output: AnyLensOutput

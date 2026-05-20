@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { setupJsdom } from 'lib/hog-charts/testing'
+import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -19,13 +19,16 @@ import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
+let cleanupRaf: () => void
 
 beforeEach(() => {
     cleanupJsdom = setupJsdom()
+    cleanupRaf = setupSyncRaf()
 })
 
 afterEach(() => {
     personsModal.cleanupAll()
+    cleanupRaf()
     cleanupJsdom()
     cleanup()
 })
