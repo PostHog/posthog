@@ -241,9 +241,7 @@ impl<'a> Parser<'a> {
                         self.bump()?;
                         Ok(emit::constant_special_number("NaN"))
                     }
-                    _ => {
-                        Err(self.err("unary `+` only applies to a number literal"))
-                    }
+                    _ => Err(self.err("unary `+` only applies to a number literal")),
                 }
             }
             TokenKind::Keyword(Kw::Not) => {
