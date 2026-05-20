@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CopyExperimentToProjectApi,
+    CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
@@ -17,6 +18,7 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentsListParams,
+    ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
@@ -752,6 +754,32 @@ export const experimentsUnarchiveCreate = async (
     })
 }
 
+export const getExperimentsCreateFromPromptCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/create_from_prompt/`
+}
+
+/**
+ * Create an experiment that compares N versions of an LLM prompt using a metric template.
+
+The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+(cost / latency / eval_pass_rate). The endpoint builds the matching variants
+(control + test-N, each named after its prompt version) and attaches one
+metric per selected template, each scoped to the prompt's $ai_prompt_name.
+Resulting experiment is in draft state.
+ */
+export const experimentsCreateFromPromptCreate = async (
+    projectId: string,
+    createFromPromptInputApi: CreateFromPromptInputApi,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsCreateFromPromptCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createFromPromptInputApi),
+    })
+}
+
 export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/eligible_feature_flags/`
 }
@@ -781,6 +809,26 @@ export const experimentsEligibleFeatureFlagsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getExperimentsPromptTemplatesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/prompt_templates/`
+}
+
+/**
+ * List the LLM metric templates that can be passed to `create_from_prompt`.
+ */
+export const experimentsPromptTemplatesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExperimentsPromptTemplatesRetrieve200Item[]> => {
+    return apiMutator<ExperimentsPromptTemplatesRetrieve200Item[]>(
+        getExperimentsPromptTemplatesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsRequiresFlagImplementationRetrieveUrl = (projectId: string) => {
