@@ -1789,6 +1789,43 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_cast_type_compound_loop_stops_at_non_identifier_keyword(self):
+        # cpp's `columnTypeExpr` compound alt is `identifier identifier+`,
+        # routed through the `identifier` rule that omits NULL / INF /
+        # NAN. So `cast(x as Int NULL)` doesn't form a 2-token type — cpp
+        # parses `Int` and then chokes on the trailing `NULL` at the
+        # outer `)`. The Rust compound loop used to admit any Keyword,
+        # silently eating the trailing `NULL` and emitting `int null` as
+        # the type name.
+        # `Array(Int NULL)` deliberately omitted: it routes through the
+        # parametric-type Param fallback (cpp's `ColumnTypeExprParam`'s
+        # raw-text `getText()` render), and bare-keyword recovery there
+        # is its own separate problem.
+        for src in (
+            "cast(x as Int NULL)",
+            "cast(x as Int NOT NULL)",
+            "cast(x as Int32 NULL)",
+            "cast(x as UInt64 NOT NULL)",
+            "try_cast(x as Int NULL)",
+        ):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="rust-json")
+        # Guards: the valid compound and nested forms must still parse.
+        for src in (
+            "cast(x as Int)",
+            "cast(x as Decimal(10, 2))",
+            "cast(x as Array(Int))",
+            "cast(x as Time With Time Zone)",
+            "cast(x as Foo Bar Baz)",
+            "cast(x as Foo Not Bar)",
+        ):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_call_arg_select_releases_when_followed_by_keyword_infix(self):
         # `f((SELECT 1) IN [1, 2])` is a call whose first arg is the
         # comparison `(SELECT 1) IN [1, 2]`, not the SELECT alone. The

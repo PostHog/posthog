@@ -2781,10 +2781,12 @@ impl<'a> Parser<'a> {
         }
 
         let head = self.bump()?;
+        // cpp's `columnTypeExpr` routes through `identifier`, which
+        // excludes NULL / INF / NAN — so a bare `NULL` is not a type
+        // name. Use `kw_valid_as_identifier` to gate the keyword arm.
         let mut head_name = match head.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
-                token_text(self, head)
-            }
+            TokenKind::Ident | TokenKind::QuotedIdent => token_text(self, head),
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => token_text(self, head),
             _ => return Err(self.err(format!("expected type identifier, got {:?}", head.kind))),
         };
 
@@ -2826,10 +2828,17 @@ impl<'a> Parser<'a> {
         }
 
         // Compound form: `IDENT IDENT+` (e.g. `TIME WITH TIME ZONE`).
-        while matches!(
-            self.peek(),
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-        ) && !matches!(self.peek(), TokenKind::Keyword(Kw::As))
+        // cpp's `ColumnTypeExprCompound: identifier identifier+` routes
+        // through the grammar's `identifier` rule, which omits NULL /
+        // INF / NAN — so trailing `Int NULL` / `Int NOT NULL` does NOT
+        // form a compound type in cpp (it errors at the outer `)`). The
+        // Rust loop used to admit any Keyword, silently eating the
+        // trailing `NULL` and emitting `int null` as the type name.
+        while {
+            let p = self.peek();
+            matches!(p, TokenKind::Ident | TokenKind::QuotedIdent)
+                || matches!(p, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw))
+        } && !matches!(self.peek(), TokenKind::Keyword(Kw::As))
         {
             // Stop at LPAREN / LBRACKET / RPAREN / comma — those are
             // structural separators rather than parts of the type name.
@@ -3373,13 +3382,16 @@ impl<'a> Parser<'a> {
         // through to the heuristic + speculative-type-expr branches
         // below, which route the expression form to spaceless raw
         // text.
-        if matches!(
-            self.peek(),
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-        ) && matches!(
-            self.peek_next(),
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-        ) && self.peek_next() != TokenKind::LParen
+        // The nested-struct heuristic (`field type`) routes through cpp's
+        // `identifier identifier+` grammar, which excludes NULL / INF /
+        // NAN from the keyword alternative. Filter both peek positions.
+        let is_type_ident_kind = |k: TokenKind| -> bool {
+            matches!(k, TokenKind::Ident | TokenKind::QuotedIdent)
+                || matches!(k, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw))
+        };
+        if is_type_ident_kind(self.peek())
+            && is_type_ident_kind(self.peek_next())
+            && self.peek_next() != TokenKind::LParen
         {
             let cp = self.checkpoint();
             let name_tok = self.bump()?;
