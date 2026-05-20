@@ -38,28 +38,22 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         config = SignalScoutConfig.objects.create(
             team=self.team,
             enabled=True,
-            shadow_mode=False,
             enabled_skill_names=["signals-scout-errors", "signals-scout-llm"],
-            limit_overrides={"max_runtime_s": 900},
             created_by=self.user,
         )
 
         loaded = SignalScoutConfig.objects.get(pk=config.pk)
         assert loaded.team_id == self.team.id
         assert loaded.enabled is True
-        assert loaded.shadow_mode is False
         assert loaded.enabled_skill_names == ["signals-scout-errors", "signals-scout-llm"]
-        assert loaded.limit_overrides == {"max_runtime_s": 900}
         assert loaded.created_by_id == self.user.id
 
     def test_signal_scout_config_defaults(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team)
         loaded = SignalScoutConfig.objects.get(pk=config.pk)
-        # Defaults: disabled, shadow on, no skill narrowing, empty overrides.
+        # Defaults: disabled, no skill narrowing.
         assert loaded.enabled is False
-        assert loaded.shadow_mode is True
         assert loaded.enabled_skill_names is None
-        assert loaded.limit_overrides == {}
 
     def test_signal_scout_config_one_per_team(self) -> None:
         SignalScoutConfig.objects.create(team=self.team)

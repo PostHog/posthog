@@ -31,7 +31,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("enabled", models.BooleanField(default=False)),
-                ("shadow_mode", models.BooleanField(default=True)),
                 (
                     "enabled_skill_names",
                     django.contrib.postgres.fields.ArrayField(
@@ -42,7 +41,6 @@ class Migration(migrations.Migration):
                         size=None,
                     ),
                 ),
-                ("limit_overrides", models.JSONField(blank=True, default=dict)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (

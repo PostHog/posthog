@@ -401,9 +401,6 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
         related_name="signal_scout_config",
     )
     enabled = models.BooleanField(default=False)
-    # When true, runs persist findings to `signal_scout_run.findings` but the emit
-    # adapter no-ops. Defaults to true so a freshly-bound team starts in shadow.
-    shadow_mode = models.BooleanField(default=True)
     # null = run all `signals-scout-*` skills the team has access to. A list narrows
     # the set; the harness still intersects with what's available in PHS.
     enabled_skill_names = ArrayField(
@@ -412,10 +409,6 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
         blank=True,
         default=None,
     )
-    # Per-team overrides for harness `RunLimits` (max_runtime_s, max_findings).
-    # Defaults come from the harness when absent. Keys this dict doesn't set fall
-    # back to harness defaults; keys it sets that aren't recognised are ignored.
-    limit_overrides = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
