@@ -159,7 +159,24 @@ impl<'a> Parser<'a> {
             let mut cols = Vec::new();
             loop {
                 let t = self.bump()?;
-                cols.push(identifier_text(self.text(t), t.kind));
+                // Grammar's CTE column-name list elements are
+                // `identifier` (`IDENTIFIER | QUOTED_IDENTIFIER |
+                // interval | keyword`); exclude reserved keywords.
+                let col_name = match t.kind {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(t), t.kind)
+                    }
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
+                        identifier_text(self.text(t), t.kind)
+                    }
+                    _ => {
+                        return Err(self.err(format!(
+                            "expected identifier in CTE column-list, got {:?}",
+                            t.kind
+                        )));
+                    }
+                };
+                cols.push(col_name);
                 if !self.eat(TokenKind::Comma)? {
                     break;
                 }

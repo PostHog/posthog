@@ -809,6 +809,70 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_reserved_keywords_rejected_as_identifiers(self):
+        # Grammar's `identifier` rule (`IDENTIFIER | QUOTED_IDENTIFIER |
+        # interval | keyword`) excludes NULL_SQL / INF / NAN_SQL /
+        # EXCEPT / INTERSECT and the Hog-statement keywords (FN / FUN /
+        # LET / WHILE / THROW / TRY / CATCH / FINALLY) — `keyword` lists
+        # them out. cpp therefore rejects these as Field-chain links,
+        # aliases, table identifiers, CTE column names, etc. Rust's
+        # dotted-chain / alias / table-ident / columnAliases handlers
+        # were accepting any `Keyword(_)` token without gating, so all
+        # of these slipped through as identifiers.
+        from posthog.hogql.errors import BaseHogQLError
+
+        expr_invalid = (
+            # Postfix DOT
+            "a.except", "a.intersect", "a.null", "a.inf", "a.nan",
+            "a.fn", "a.fun", "a.let", "a.while",
+            "a.throw", "a.try", "a.catch", "a.finally",
+            "a.b.except",
+            # Postfix `?.`
+            "a?.except", "a?.null", "a?.inf",
+        )
+        for src in expr_invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_expr(src, backend=backend)
+
+        select_invalid = (
+            # Alias position
+            "SELECT a AS except FROM t",
+            "SELECT a AS intersect FROM t",
+            "SELECT a AS inf FROM t",
+            "SELECT a AS nan FROM t",
+            "SELECT a AS fn FROM t",
+            "SELECT a AS let FROM t",
+            # Table identifier
+            "SELECT * FROM except.x",
+            "SELECT * FROM x.except",
+            "SELECT * FROM null.x",
+            "SELECT * FROM fn.x",
+            # WHERE / columnExpr position
+            "SELECT 1 FROM t WHERE a.except",
+            # CTE column-name list
+            "WITH x (except, intersect) AS (SELECT 1, 2) SELECT * FROM x",
+            "WITH x (a, null) AS (SELECT 1, 2) SELECT * FROM x",
+            # columnAliases on subquery
+            "SELECT a FROM (SELECT 1) AS x (except)",
+        )
+        for src in select_invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        # Guard: keywords that ARE valid identifiers per cpp's grammar
+        # (interval units, plain keywords like CASE/DAY) still parse.
+        for src in (
+            "a.case", "a.day", "day.minute", "select.from",
+            "SELECT a AS case FROM t",
+            "SELECT a AS day FROM t",
+        ):
+            for backend in ("cpp-json", "rust-json", "python"):
+                if "SELECT" in src:
+                    self.assertIsNotNone(parse_select(src, backend=backend), msg=f"{backend}: {src!r}")
+                else:
+                    self.assertIsNotNone(parse_expr(src, backend=backend), msg=f"{backend}: {src!r}")
+
     def test_bare_asterisk_replace_only_inside_parens(self):
         # `ColumnExprAsterisk` (grammar line 289) admits ONLY an optional
         # trailing EXCLUDE on a bare `*`. `REPLACE` after `*` is valid

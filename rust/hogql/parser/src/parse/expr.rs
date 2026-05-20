@@ -13,10 +13,10 @@ use serde_json::{json, Value};
 use super::template::parse_template_body;
 use super::{
     build_infix, fold_call_or_exprcall, identifier_text, infix_bp, interval_call_name,
-    is_reserved_alias_name, kw_acts_as_ident_in_primary, kw_valid_type_cast_ident,
-    parse_number_literal, postfix_bp, unquote_single_string, Parser, BP_ADDITIVE, BP_ALIAS,
-    BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_OR,
-    BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
+    is_reserved_alias_name, kw_acts_as_ident_in_primary, kw_valid_as_identifier,
+    kw_valid_type_cast_ident, parse_number_literal, postfix_bp, unquote_single_string, Parser,
+    BP_ADDITIVE, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS, BP_IS_DISTINCT_FROM,
+    BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
 };
 use crate::emit;
 use crate::error::ParseError;
@@ -2389,7 +2389,10 @@ impl<'a> Parser<'a> {
             let part = self.bump()?;
             match part.kind {
                 TokenKind::Ident | TokenKind::QuotedIdent => {}
-                TokenKind::Keyword(_) => {}
+                // Grammar's `identifier` rule excludes NULL/INF/NAN/
+                // EXCEPT/INTERSECT and Hog-statement keywords; gate
+                // chain links through `kw_valid_as_identifier`.
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {}
                 TokenKind::Asterisk => {
                     // cpp's grammar splits `a.b.*.c` into
                     // ColumnExprAsterisk(tableIdentifier=a.b) followed by
@@ -3735,7 +3738,22 @@ impl<'a> Parser<'a> {
                         })?;
                         Ok(emit::tuple_access(lhs, n, false))
                     }
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        let name = identifier_text(self.text(part), part.kind);
+                        Ok(emit::array_access(
+                            lhs,
+                            emit::constant(Value::String(name)),
+                            false,
+                        ))
+                    }
+                    // Grammar (`identifier: IDENTIFIER | QUOTED_IDENTIFIER |
+                    // interval | keyword`) — `keyword` excludes NULL/INF/
+                    // NAN/EXCEPT/INTERSECT and the Hog-statement keywords
+                    // (FN/FUN/LET/WHILE/THROW/TRY/CATCH/FINALLY). Gate
+                    // every chain-link keyword through `kw_valid_as_identifier`
+                    // so e.g. `a.null` / `a.fn` reject instead of becoming
+                    // `ArrayAccess(a, "null")`.
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         let name = identifier_text(self.text(part), part.kind);
                         Ok(emit::array_access(
                             lhs,
@@ -3769,7 +3787,15 @@ impl<'a> Parser<'a> {
                         })?;
                         Ok(emit::tuple_access(lhs, n, true))
                     }
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        let name = identifier_text(self.text(part), part.kind);
+                        Ok(emit::array_access(
+                            lhs,
+                            emit::constant(Value::String(name)),
+                            true,
+                        ))
+                    }
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         let name = identifier_text(self.text(part), part.kind);
                         Ok(emit::array_access(
                             lhs,
@@ -4006,18 +4032,25 @@ impl<'a> Parser<'a> {
                     return Ok(None);
                 }
                 // The alias-target slot is restricted to identifier /
-                // quoted-identifier / string literal (per grammar). If
-                // the next token isn't one of those, AS isn't valid as
-                // an alias here — leave it in the stream for an outer
-                // construct (e.g. INTERPOLATE's `expr AS value`) that
-                // takes an arbitrary columnExpr on the right.
-                if !matches!(
-                    self.peek_next(),
-                    TokenKind::Ident
-                        | TokenKind::QuotedIdent
-                        | TokenKind::Keyword(_)
-                        | TokenKind::String
-                ) {
+                // quoted-identifier / string literal (per grammar). The
+                // grammar's `identifier` rule excludes a set of reserved
+                // keywords (NULL/INF/NAN/EXCEPT/INTERSECT and the Hog-
+                // statement keywords) which `kw_valid_as_identifier`
+                // mirrors. TRUE/FALSE are also excluded but the existing
+                // `is_reserved_alias_name` check inside the fold raises
+                // a more specific "cannot be an alias" error for them,
+                // so we admit them through the gate and let the inner
+                // check produce that error. NULL is in both sets but the
+                // gate yields a useful error too.
+                let next_is_alias_target = match self.peek_next() {
+                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::String => true,
+                    TokenKind::Keyword(kw) => {
+                        kw_valid_as_identifier(kw)
+                            || matches!(kw, Kw::True | Kw::False | Kw::Null)
+                    }
+                    _ => false,
+                };
+                if !next_is_alias_target {
                     return Ok(None);
                 }
                 // `LAMBDA` after `AS` always starts a `lambdaExpr`

@@ -474,7 +474,24 @@ impl<'a> Parser<'a> {
         let mut cols = Vec::new();
         loop {
             let t = self.bump()?;
-            cols.push(identifier_text(self.text(t), t.kind));
+            // `columnAliases` elements are `identifier` per the grammar
+            // (`IDENTIFIER | QUOTED_IDENTIFIER | interval | keyword`);
+            // exclude the same reserved keywords as elsewhere.
+            let name = match t.kind {
+                TokenKind::Ident | TokenKind::QuotedIdent => {
+                    identifier_text(self.text(t), t.kind)
+                }
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
+                    identifier_text(self.text(t), t.kind)
+                }
+                _ => {
+                    return Err(self.err(format!(
+                        "expected identifier in column-alias list, got {:?}",
+                        t.kind
+                    )));
+                }
+            };
+            cols.push(name);
             if !self.eat(TokenKind::Comma)? {
                 break;
             }
@@ -575,10 +592,16 @@ impl<'a> Parser<'a> {
             return self.parse_brace_dict_or_placeholder();
         }
         // Identifier-led: either a Field chain (plain table reference) or
-        // a tableFunction (`name(args)`).
+        // a tableFunction (`name(args)`). Grammar's `tableIdentifier` →
+        // `nestedIdentifier` admits `identifier` (`IDENTIFIER |
+        // QUOTED_IDENTIFIER | interval | keyword`); the `keyword` rule
+        // excludes the same set as `kw_valid_as_identifier`.
         let head = self.bump()?;
         let name = match head.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+            TokenKind::Ident | TokenKind::QuotedIdent => {
+                identifier_text(self.text(head), head.kind)
+            }
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(head), head.kind)
             }
             TokenKind::Eof => {
@@ -616,7 +639,10 @@ impl<'a> Parser<'a> {
             self.bump()?;
             let part = self.bump()?;
             match part.kind {
-                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                TokenKind::Ident | TokenKind::QuotedIdent => {
+                    chain.push(Value::String(identifier_text(self.text(part), part.kind)));
+                }
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                     chain.push(Value::String(identifier_text(self.text(part), part.kind)));
                 }
                 _ => {
