@@ -190,6 +190,7 @@ export function Annotations(): JSX.Element {
                         action={() => openModalToCreateAnnotation()}
                         isEmpty={shouldShowEmptyState}
                         customHog={MicrophoneHog}
+                        mcpSurfaceKey="annotations.create"
                     />
                 </div>
                 {!shouldShowEmptyState && (
