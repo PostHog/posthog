@@ -97,31 +97,23 @@ class SignalScoutRunAdmin(admin.ModelAdmin):
         "team_link",
         "skill_name",
         "skill_version",
-        "status",
-        "started_at",
-        "completed_at",
+        "created_at",
     )
     list_display_links = ("id",)
-    list_filter = ("status", "skill_name")
-    search_fields = ("id", "team__name", "team__organization__name", "skill_name", "summary")
-    raw_id_fields = ("team", "scout_config")
-    ordering = ("-started_at",)
+    list_filter = ("skill_name",)
+    search_fields = ("id", "team__name", "team__organization__name", "skill_name")
+    raw_id_fields = ("team", "scout_config", "task_run")
+    ordering = ("-created_at",)
     readonly_fields = (
         "id",
         "team",
         "scout_config",
+        "task_run",
         "skill_name",
         "skill_version",
-        "status",
-        "started_at",
-        "completed_at",
-        "summary",
-        "findings",
-        "hypotheses_considered",
-        "run_metrics",
-        "metadata",
+        "created_at",
     )
-    list_select_related = ("team", "team__organization", "scout_config")
+    list_select_related = ("team", "team__organization", "scout_config", "task_run")
     show_full_result_count = False
 
     @admin.display(description="Team")

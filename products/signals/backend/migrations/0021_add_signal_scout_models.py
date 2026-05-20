@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1129_userintegration"),
         ("signals", "0020_add_signals_scout_source"),
+        ("tasks", "0032_task_origin_product_signals_scout"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -85,27 +86,15 @@ class Migration(migrations.Migration):
                 ),
                 ("skill_name", models.CharField(max_length=200)),
                 ("skill_version", models.IntegerField()),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
-                    "status",
-                    models.CharField(
-                        choices=[
-                            ("scheduled", "Scheduled"),
-                            ("running", "Running"),
-                            ("completed", "Completed"),
-                            ("failed", "Failed"),
-                            ("abandoned", "Abandoned"),
-                        ],
-                        default="scheduled",
-                        max_length=20,
+                    "task_run",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="signal_scout_run",
+                        to="tasks.taskrun",
                     ),
                 ),
-                ("started_at", models.DateTimeField(auto_now_add=True)),
-                ("completed_at", models.DateTimeField(blank=True, null=True)),
-                ("summary", models.TextField(blank=True, default="")),
-                ("findings", models.JSONField(blank=True, default=list)),
-                ("hypotheses_considered", models.JSONField(blank=True, default=list)),
-                ("run_metrics", models.JSONField(blank=True, default=dict)),
-                ("metadata", models.JSONField(blank=True, default=dict)),
                 (
                     "scout_config",
                     models.ForeignKey(
@@ -212,11 +201,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="signalscoutrun",
-            index=models.Index(fields=["team", "-started_at"], name="signal_scout_run_recent_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="signalscoutrun",
-            index=models.Index(fields=["team", "status"], name="signal_scout_run_status_idx"),
+            index=models.Index(fields=["team", "skill_name"], name="signal_scout_run_team_skill_idx"),
         ),
         migrations.AddIndex(
             model_name="signalscratchpad",

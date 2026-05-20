@@ -10,6 +10,7 @@ from django.utils import timezone
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.tasks.backend.models import Task, TaskRun
 
 
 class _ScoutTeamScopedTestMixin:
@@ -60,36 +61,52 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         with pytest.raises(IntegrityError):
             SignalScoutConfig.objects.create(team=self.team)
 
+    def _make_task_run(self) -> TaskRun:
+        """Minimal Task + TaskRun pair scoped to this test's team."""
+        task = Task.objects.create(
+            team=self.team,
+            title="scout run",
+            description="scout run",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        )
+        return TaskRun.objects.create(task=task, team=self.team)
+
     def test_signal_scout_run_round_trip(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, enabled=True)
+        task_run = self._make_task_run()
         run = SignalScoutRun.objects.create(
+            task_run=task_run,
             team=self.team,
             scout_config=config,
             skill_name="signals-scout-errors",
             skill_version=3,
-            status=SignalScoutRun.Status.RUNNING,
-            summary="Looked at 4 issues, surfaced 1 finding.",
-            findings=[{"finding_id": "f1", "severity": "P2"}],
-            hypotheses_considered=[{"text": "spike on /checkout", "pursued": True}],
-            run_metrics={"runtime_s": 380, "findings": 1},
         )
 
         loaded = SignalScoutRun.objects.get(pk=run.pk)
+        assert loaded.task_run_id == task_run.id
         assert loaded.team_id == self.team.id
         assert loaded.scout_config_id == config.id
         assert loaded.skill_name == "signals-scout-errors"
         assert loaded.skill_version == 3
-        assert loaded.status == SignalScoutRun.Status.RUNNING
-        assert loaded.findings == [{"finding_id": "f1", "severity": "P2"}]
-        assert loaded.hypotheses_considered == [{"text": "spike on /checkout", "pursued": True}]
-        assert loaded.run_metrics == {"runtime_s": 380, "findings": 1}
-        assert loaded.started_at is not None  # auto_now_add
-        assert loaded.completed_at is None
+        assert loaded.created_at is not None  # auto_now_add
+
+    def test_signal_scout_run_one_per_task_run(self) -> None:
+        # OneToOneField: a given TaskRun can only have a single scout-bridge row.
+        task_run = self._make_task_run()
+        SignalScoutRun.objects.create(
+            task_run=task_run, team=self.team, skill_name="signals-scout-errors", skill_version=1
+        )
+        with pytest.raises(IntegrityError):
+            SignalScoutRun.objects.create(
+                task_run=task_run, team=self.team, skill_name="signals-scout-llm", skill_version=1
+            )
 
     def test_signal_scout_run_survives_config_deletion(self) -> None:
         # SET_NULL on scout_config: deleting the config row keeps run history intact for audit.
         config = SignalScoutConfig.objects.create(team=self.team)
+        task_run = self._make_task_run()
         run = SignalScoutRun.objects.create(
+            task_run=task_run,
             team=self.team,
             scout_config=config,
             skill_name="signals-scout-errors",
@@ -102,6 +119,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
 
     def test_signal_scratchpad_round_trip(self) -> None:
         run = SignalScoutRun.objects.create(
+            task_run=self._make_task_run(),
             team=self.team,
             skill_name="signals-scout-errors",
             skill_version=1,

@@ -376,12 +376,12 @@ class SignalReportTask(UUIDModel):
 #
 # Three tables back the v1 Signals scout:
 #   - SignalScoutConfig: per-team binding (one row per team).
-#   - SignalScoutRun:    run diary, one row per scheduled scout run.
+#   - SignalScoutRun:    bridge from a `tasks.TaskRun` to its scout-domain context.
+#                        Mirrors `SignalReportTask` (1:1 to TaskRun instead of N:1
+#                        to Task because scout runs are per-execution, not per-task).
+#                        Status, timing, error, chat-log all live on `TaskRun`;
+#                        findings live on emitted `Signal`/`SignalReport` rows.
 #   - SignalScratchpad:  working notes the scout reads in future runs.
-#
-# These are Postgres-only and never written by non-Django systems, so no
-# table-level DEFAULT clauses are needed for the jsonb columns with `default=list`
-# / `default=dict` (Django applies the default Python-side on every INSERT).
 
 
 class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
@@ -426,18 +426,29 @@ class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
-    """Run diary — one row per scheduled scout run. Holds everything per-run."""
+    """Bridge from a Tasks `TaskRun` to the scout skill that ran inside it.
+
+    Mirrors `SignalReportTask` (the bridge used by the SignalReport research flow):
+    a thin row that links a `tasks.TaskRun` to its scout-domain context. Status,
+    timing, error, and chat-log live on the `TaskRun`; emitted findings are
+    `Signal` / `SignalReport` rows created by `emit_signal`. This row carries only
+    the scout-specific fields that need to be queryable as real columns
+    (`skill_name` for the per-team running-check, `scout_config` for audit lineage).
+    """
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
 
-    class Status(models.TextChoices):
-        SCHEDULED = "scheduled", "Scheduled"
-        RUNNING = "running", "Running"
-        COMPLETED = "completed", "Completed"
-        FAILED = "failed", "Failed"
-        ABANDONED = "abandoned", "Abandoned"
-
+    # 1:1 with the TaskRun the scout span ran inside. CASCADE: if the TaskRun is
+    # purged (data retention), the scout-side bridge row goes with it.
+    task_run = models.OneToOneField(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_run",
+    )
+    # Denormalised tenant boundary. Canonical via `task_run.task.team`, but kept
+    # on this row so per-team queries (e.g. running-check) avoid the join and the
+    # `TeamScopedRootMixin` fail-closed manager has a column to filter on.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
@@ -454,30 +465,14 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     )
     skill_name = models.CharField(max_length=200)
     skill_version = models.IntegerField()
-    status = models.CharField(max_length=20, choices=Status, default=Status.SCHEDULED)
-    started_at = models.DateTimeField(auto_now_add=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    # Prose: what I looked at, what I found, what I skipped. Used by future runs
-    # for best-effort dedupe via ILIKE search.
-    summary = models.TextField(default="", blank=True)
-    # Structured findings emitted via emit_signal during the run.
-    findings = models.JSONField(default=list, blank=True)
-    # Hypotheses considered (including the ones the scout decided not to chase),
-    # with reasoning.
-    hypotheses_considered = models.JSONField(default=list, blank=True)
-    # Measured quantities about how the run went, e.g. {"runtime_s": float, "findings": int}.
-    # Populated at finalize from real sources (timer, len(findings)). Token / cost data
-    # arrives later via the LLM analytics join — see metadata.task_run_id.
-    run_metrics = models.JSONField(default=dict, blank=True)
-    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Signal scout run"
         verbose_name_plural = "Signal scout runs"
         default_manager_name = "all_teams"
         indexes = [
-            models.Index(fields=["team", "-started_at"], name="signal_scout_run_recent_idx"),
-            models.Index(fields=["team", "status"], name="signal_scout_run_status_idx"),
+            models.Index(fields=["team", "skill_name"], name="signal_scout_run_team_skill_idx"),
         ]
 
 
