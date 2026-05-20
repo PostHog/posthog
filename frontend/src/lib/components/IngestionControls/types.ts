@@ -73,3 +73,48 @@ export interface ErrorTrackingAutoCaptureControls {
     url_triggers: UrlTriggerConfig[]
     url_blocklist: UrlTriggerConfig[]
 }
+
+// V2: Session Recording Trigger Groups
+
+export type TriggerPropertyFilterOperator =
+    | 'exact'
+    | 'is_not'
+    | 'icontains'
+    | 'not_icontains'
+    | 'regex'
+    | 'not_regex'
+    | 'gt'
+    | 'lt'
+
+export interface TriggerPropertyFilter {
+    key: string
+    type: 'event' | 'person'
+    operator?: TriggerPropertyFilterOperator
+    value?: string | number | boolean | string[]
+}
+
+export interface EventTriggerConfig {
+    name: string
+    properties?: TriggerPropertyFilter[]
+}
+
+export interface SessionRecordingTriggerGroup {
+    id: string
+    name?: string
+    sampleRate: number // 0-1
+    minDurationMs?: number // 0-30000
+    conditions: SessionRecordingTriggerConditions
+}
+
+export interface SessionRecordingTriggerConditions {
+    matchType: 'any' | 'all'
+    events?: (string | EventTriggerConfig)[]
+    urls?: UrlTriggerConfig[]
+    flag?: string | LinkedFeatureFlag | null
+    properties?: TriggerPropertyFilter[]
+}
+
+export interface SessionRecordingTriggerGroupsConfig {
+    version: 2
+    groups: SessionRecordingTriggerGroup[]
+}

@@ -183,7 +183,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
             self.source_query_runner.source_runner, FunnelsQueryRunner
         ):
-            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
+            settings = HogQLGlobalSettings(enable_analyzer=True)
 
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
@@ -255,6 +255,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             return self._calculate_internal()
         finally:
             self.calculating = False
+
+    def validate(self) -> None:
+        super().validate()
+        if self.source_query_runner is not None:
+            self.source_query_runner.validate()
 
     def input_columns(self) -> list[str]:
         strategy_input_cols = self.strategy.input_columns()

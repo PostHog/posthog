@@ -12,10 +12,12 @@ use serde_json::{json, Value};
 
 use crate::common::*;
 
-use feature_flags::config::DEFAULT_TEST_CONFIG;
+use feature_flags::cohorts::cohort_models::CohortType;
+use feature_flags::config::{AggregatorModeConfig, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
-    insert_config_in_hypercache, insert_flags_for_team_in_redis, insert_new_team_in_redis,
-    setup_pg_reader_client, setup_redis_client, TestContext,
+    insert_config_in_hypercache, insert_flags_for_team_in_redis,
+    insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
+    setup_redis_client, TestContext,
 };
 
 pub mod common;
@@ -4009,7 +4011,24 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    // Dependency chain: parent(3) -> intermediate(2) -> leaf(1), independent(4) has no deps.
+    // Mirrors Django's precomputed metadata: stages ordered by depth, transitive deps resolved.
+    let evaluation_metadata = json!({
+        "dependency_stages": [
+            [LEAF_FLAG_ID, INDEPENDENT_FLAG_ID],
+            [INTERMEDIATE_FLAG_ID],
+            [PARENT_FLAG_ID]
+        ],
+        "flags_with_missing_deps": [],
+        "transitive_deps": {
+            LEAF_FLAG_ID.to_string(): [],
+            INTERMEDIATE_FLAG_ID.to_string(): [LEAF_FLAG_ID],
+            PARENT_FLAG_ID.to_string(): [INTERMEDIATE_FLAG_ID, LEAF_FLAG_ID],
+            INDEPENDENT_FLAG_ID.to_string(): []
+        }
+    });
+    insert_flags_with_metadata_for_team_in_redis(client, team.id, flag_json, evaluation_metadata)
+        .await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5605,9 +5624,8 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
     #[case] skip_writes: bool,
 ) -> Result<()> {
     use feature_flags::config::FlexBool;
-    use feature_flags::flags::flag_analytics::get_team_request_key;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.skip_writes = FlexBool(skip_writes);
@@ -5653,19 +5671,17 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
         "distinct_id": distinct_id,
     });
 
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Compute the same time bucket used by increment_request_count
-    let time_bucket = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        / 120; // CACHE_BUCKET_SIZE = 60 * 2
-
-    let counter = client.hget(billing_key, time_bucket.to_string()).await;
+    // Synchronous path writes inline before the response returns, so we can
+    // read back without polling.
+    let counter = client.hget(billing_key, bucket_field).await;
 
     if skip_writes {
         assert!(
@@ -5679,6 +5695,279 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
             "billing counter should be incremented when skip_writes=false"
         );
     }
+
+    Ok(())
+}
+
+/// Verifies that an SDK request lands counts at the team-level and the
+/// library-level Redis hashes in the production keyspace — the load-bearing
+/// invariant readers (`calculate_decide_usage`) consume.
+///
+/// In `Shadow` mode the production keys are written by the synchronous
+/// `record_usage` path and the aggregator tees the same counts to the
+/// `:shadow` keyspace for offline reconciliation. In `Authoritative` mode
+/// the synchronous path is skipped — the aggregator's flush *is* the
+/// production write, and the shadow keyspace must stay silent (any write
+/// there is a double-count).
+///
+/// Pinning both modes here means the cutover from shadow to authoritative
+/// is observable as a swap of *who* writes the production keys, with the
+/// same end state from the reader's perspective.
+#[rstest]
+#[case::shadow(AggregatorModeConfig::Shadow, Some("1"))]
+#[case::authoritative(AggregatorModeConfig::Authoritative, None)]
+#[tokio::test]
+async fn test_billing_increments_land_in_production_keyspace_per_mode(
+    #[case] mode: AggregatorModeConfig,
+    #[case] expected_shadow: Option<&str>,
+) -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{
+        current_bucket, get_team_request_key, get_team_request_library_key,
+        get_team_request_library_shadow_key, get_team_request_shadow_key,
+    };
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::handler::types::Library;
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(false);
+    config.billing_aggregator_mode = mode;
+    // Tight flush interval so the aggregator lands its write within the
+    // polling window. In authoritative mode the production key has no
+    // synchronous fallback, so this interval bounds the test latency.
+    config.billing_flush_interval_ms = 100;
+
+    let distinct_id = format!("billing_lib_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [],
+                "rollout_percentage": 100
+            }],
+        },
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let team_key = get_team_request_key(team.id, FlagRequestType::Decide);
+    let library_key =
+        get_team_request_library_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
+    let team_shadow_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
+    let library_shadow_key =
+        get_team_request_library_shadow_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
+    client.del(team_key.clone()).await.unwrap();
+    client.del(library_key.clone()).await.unwrap();
+    client.del(team_shadow_key.clone()).await.unwrap();
+    client.del(library_shadow_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
+    // Direct reqwest call so we can set the SDK user-agent that drives
+    // Library::from_headers → Library::PosthogNode.
+    let http = reqwest::Client::new();
+    let res = http
+        .post(format!("http://{}/flags?v=2", server.addr))
+        .header("content-type", "application/json")
+        .header("user-agent", "posthog-node/3.1.0")
+        .body(payload.to_string())
+        .send()
+        .await?;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Production keyspace — the load-bearing invariant. In shadow mode
+    // it's written synchronously; in authoritative it lands via the next
+    // aggregator flush. Polling absorbs both timings.
+    let team_counter = poll_for_billing_counter(&client, &team_key, &bucket_field).await;
+    assert_eq!(team_counter, "1", "team key should reflect one request");
+
+    let library_counter = poll_for_billing_counter(&client, &library_key, &bucket_field).await;
+    assert_eq!(
+        library_counter, "1",
+        "library key should reflect one request"
+    );
+
+    // Shadow keyspace — populated only in shadow mode. In authoritative
+    // mode the same write must NOT appear here, or we've double-counted
+    // the request once the per-request HINCRBY is removed.
+    match expected_shadow {
+        Some(expected) => {
+            let team_shadow_counter =
+                poll_for_billing_counter(&client, &team_shadow_key, &bucket_field).await;
+            assert_eq!(
+                team_shadow_counter, expected,
+                "shadow team key should reflect the aggregator's tee"
+            );
+
+            let library_shadow_counter =
+                poll_for_billing_counter(&client, &library_shadow_key, &bucket_field).await;
+            assert_eq!(
+                library_shadow_counter, expected,
+                "shadow library key should reflect the aggregator's tee"
+            );
+        }
+        None => {
+            // The production write has already landed (we polled for it
+            // above). Wait one more flush window so any erroneous shadow
+            // write would have landed too, then assert it didn't.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let team_shadow = client
+                .hget(team_shadow_key.clone(), bucket_field.clone())
+                .await;
+            assert!(
+                team_shadow.is_err(),
+                "authoritative mode must not write the shadow team key, got {team_shadow:?}"
+            );
+            let library_shadow = client
+                .hget(library_shadow_key.clone(), bucket_field.clone())
+                .await;
+            assert!(
+                library_shadow.is_err(),
+                "authoritative mode must not write the shadow library key, got {library_shadow:?}"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// End-to-end shutdown-flush path. Sets a flush interval much longer than
+/// the test's runtime so the periodic flusher cannot fire — the only way
+/// the aggregator's target counter can land in Redis is via
+/// `BillingAggregator::shutdown()` after axum's graceful drain. Catches a
+/// regression that drops the `billing_aggregator.shutdown().await` call in
+/// `serve()`, swaps in `for_tests()`, or wires up the lifecycle ordering
+/// wrong (flushing before axum drains).
+///
+/// The aggregator's target keyspace differs by mode:
+///
+/// - **Shadow**: target = `:shadow` keys. The synchronous production-
+///   keyspace write is unaffected by the aggregator's lifecycle and is
+///   verified by `test_skip_writes_suppresses_billing_redis_counter`.
+/// - **Authoritative**: target = production keys. The synchronous path is
+///   gone, so the shutdown flush is the *only* path the production key
+///   has — making this case strictly stronger than the shadow one.
+#[rstest]
+#[case::shadow(AggregatorModeConfig::Shadow)]
+#[case::authoritative(AggregatorModeConfig::Authoritative)]
+#[tokio::test]
+async fn test_shutdown_flush_lands_aggregator_target_keyspace_in_redis(
+    #[case] mode: AggregatorModeConfig,
+) -> Result<()> {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{
+        current_bucket, get_team_request_key, get_team_request_shadow_key,
+    };
+    use feature_flags::flags::flag_request::FlagRequestType;
+
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.skip_writes = FlexBool(false);
+    // The aggregator must be on for this test to mean anything.
+    config.billing_aggregator_mode = mode;
+    // Long enough that no periodic flush can fire during the test. If the
+    // counter shows up in Redis, the shutdown path is what put it there.
+    config.billing_flush_interval_ms = 60_000;
+
+    let distinct_id = format!("billing_shutdown_test_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "billable-flag",
+        "name": "Billable Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{ "properties": [], "rollout_percentage": 100 }],
+        },
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // The aggregator's target key is the only one the test asserts
+    // against. In authoritative mode that's the production key; in
+    // shadow mode it's the `:shadow` mirror.
+    let billing_key = match mode {
+        AggregatorModeConfig::Shadow => {
+            get_team_request_shadow_key(team.id, FlagRequestType::Decide)
+        }
+        AggregatorModeConfig::Authoritative => {
+            get_team_request_key(team.id, FlagRequestType::Decide)
+        }
+        AggregatorModeConfig::Off => unreachable!("test cases set the mode explicitly"),
+    };
+    let bucket_field = current_bucket().to_string();
+    client.del(billing_key.clone()).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({ "token": token, "distinct_id": distinct_id });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    // Confirm the periodic flusher has NOT yet landed the aggregator's
+    // write — sanity check that we're really exercising the shutdown
+    // path. With a 60s flush interval and immediate-after-request
+    // lookup, the target counter should still be missing.
+    let pre_shutdown = client.hget(billing_key.clone(), bucket_field.clone()).await;
+    assert!(
+        pre_shutdown.is_err(),
+        "billing counter at {billing_key} should NOT be in Redis before \
+         shutdown — the aggregator's periodic flusher is set to 60s and \
+         the test is faster than that. Got {pre_shutdown:?}, which means \
+         the flush window collapsed and this test no longer proves what \
+         it claims."
+    );
+
+    // Trigger graceful shutdown. axum drains in-flight requests, then
+    // `serve()` calls `billing_aggregator.shutdown().await` which performs
+    // the final flush to the aggregator's target keyspace.
+    server.shutdown_now();
+
+    // Poll for the counter to land. The helper polls for ~1s
+    // (40 × 25ms) — the graceful-drain window plus a single shutdown
+    // flush against a healthy local Redis is well under that.
+    let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
+    assert_eq!(
+        counter, "1",
+        "billing counter must reach Redis via the shutdown flush path"
+    );
 
     Ok(())
 }
@@ -5858,6 +6147,116 @@ async fn test_api_cohort_flag_integration_no_match() -> Result<()> {
     );
     assert_eq!(flag_result["key"], "api-cohort-flag-no-match");
     assert_eq!(flag_result["reason"]["code"], "no_condition_match");
+
+    Ok(())
+}
+
+/// A Realtime cohort without a backfill timestamp should fall through to dynamic
+/// filter evaluation rather than querying the cohort_membership table. This test
+/// inserts such a cohort with person-property filters, a person whose properties
+/// match, and a flag targeting that cohort, then verifies the flag evaluates to true.
+#[tokio::test]
+async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+
+    let distinct_id = "user_realtime_fallback".to_string();
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // Insert a Realtime cohort with person-property filters but NO backfill timestamp.
+    // Without last_backfill_person_properties_at, the cohort should not be treated as
+    // realtime and should instead fall through to dynamic filter evaluation.
+    let cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "plan",
+                        "type": "person",
+                        "value": ["enterprise"],
+                        "operator": "exact",
+                        "negation": false
+                    }
+                ]
+            }]
+        }
+    });
+
+    let cohort = context
+        .insert_cohort_with_type(
+            team.id,
+            Some("Realtime No Backfill".to_string()),
+            cohort_filters,
+            false,
+            Some(CohortType::Realtime),
+            None, // no backfill timestamp
+        )
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "realtime-fallback-flag",
+        "name": "Realtime Fallback Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({ "plan": "enterprise" })),
+        )
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "realtime-fallback-flag": {
+                    "key": "realtime-fallback-flag",
+                    "enabled": true
+                }
+            }
+        })
+    );
 
     Ok(())
 }

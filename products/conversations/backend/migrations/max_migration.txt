@@ -1,1 +1,1 @@
-0024_ticket_channel_detail
+0036_github_issues_channel

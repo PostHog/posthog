@@ -1,7 +1,6 @@
-import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
 
-import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
+import { Chart, ChartType, DeepPartial, LegendOptions, defaults } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -56,7 +55,7 @@ export function ActionsLineGraph({
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
-    const { alertThresholdLines } = useValues(
+    const { alertThresholdLines, alertAnomalyPoints } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
     )
 
@@ -198,6 +197,7 @@ export function ActionsLineGraph({
                     : {
                           groupTypeLabel: context?.groupTypeLabel,
                           filter: (s) => !s.hideTooltip,
+                          formatCompareLabel: context?.formatCompareLabel,
                       }
             }
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
@@ -206,6 +206,7 @@ export function ActionsLineGraph({
             legend={legend}
             hideAnnotations={inSharedMode}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
+            anomalyPoints={alertAnomalyPoints}
             onDateRangeZoom={context?.onDateRangeZoom}
             onClick={
                 context?.onDataPointClick || (showPersonsModal && hasPersonsModal)

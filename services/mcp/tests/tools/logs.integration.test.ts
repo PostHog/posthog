@@ -11,9 +11,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import logsListAttributesTool from '@/tools/logs/listAttributes'
-import logsListAttributeValuesTool from '@/tools/logs/listAttributeValues'
-import logsQueryTool from '@/tools/logs/query'
+import { GENERATED_TOOLS } from '@/tools/generated/logs'
 import type { Context } from '@/tools/types'
 
 describe('Logs', { concurrent: false }, () => {
@@ -38,22 +36,19 @@ describe('Logs', { concurrent: false }, () => {
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
-    describe('logs-query tool', () => {
-        const queryTool = logsQueryTool()
+    describe('query-logs tool', () => {
+        const queryTool = GENERATED_TOOLS['query-logs']!()
 
         it('should query logs with date range', async () => {
             const dateFrom = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
             const dateTo = new Date().toISOString()
 
             const result = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
+                query: { dateRange: { date_from: dateFrom, date_to: dateTo } },
             })
             const logsData = parseToolResponse(result)
 
             expect(logsData).toHaveProperty('results')
-            expect(logsData).toHaveProperty('hasMore')
-            expect(logsData).toHaveProperty('nextCursor')
             expect(Array.isArray(logsData.results)).toBe(true)
         })
 
@@ -62,9 +57,10 @@ describe('Logs', { concurrent: false }, () => {
             const dateTo = new Date().toISOString()
 
             const result = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
-                severityLevels: ['error', 'warn'],
+                query: {
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                    severityLevels: ['error', 'warn'],
+                },
             })
             const logsData = parseToolResponse(result)
 
@@ -77,9 +73,10 @@ describe('Logs', { concurrent: false }, () => {
             const dateTo = new Date().toISOString()
 
             const result = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
-                limit: 10,
+                query: {
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                    limit: 10,
+                },
             })
             const logsData = parseToolResponse(result)
 
@@ -92,21 +89,25 @@ describe('Logs', { concurrent: false }, () => {
             const dateFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
             const dateTo = new Date().toISOString()
 
-            // Fetch one log to get a real body value to search for
-            const seed = await queryTool.handler(context, { dateFrom, dateTo, limit: 1 })
+            const seed = await queryTool.handler(context, {
+                query: {
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                    limit: 1,
+                },
+            })
             const seedData = parseToolResponse(seed)
 
             if (seedData.results.length === 0) {
-                // No logs in the test environment for the last 7 days — skip gracefully
                 return
             }
 
             const snippet = seedData.results[0].body.slice(0, 20)
 
             const result = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
-                filters: [{ key: 'message', operator: 'icontains', type: 'log', value: snippet }],
+                query: {
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                    filterGroup: [{ key: 'message', operator: 'icontains', type: 'log', value: snippet }],
+                },
             })
             const logsData = parseToolResponse(result)
 
@@ -121,16 +122,17 @@ describe('Logs', { concurrent: false }, () => {
             const dateTo = new Date().toISOString()
 
             const result = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
-                filters: [
-                    {
-                        key: 'message',
-                        operator: 'exact',
-                        type: 'log',
-                        value: 'IMPOSSIBLE_f47ac10b-58cc-4372-a567-0e02b2c3d479',
-                    },
-                ],
+                query: {
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                    filterGroup: [
+                        {
+                            key: 'message',
+                            operator: 'exact',
+                            type: 'log',
+                            value: ['IMPOSSIBLE_f47ac10b-58cc-4372-a567-0e02b2c3d479'],
+                        },
+                    ],
+                },
             })
             const logsData = parseToolResponse(result)
 
@@ -142,9 +144,10 @@ describe('Logs', { concurrent: false }, () => {
             const dateTo = new Date().toISOString()
 
             const result = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
-                orderBy: 'earliest',
+                query: {
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                    orderBy: 'earliest',
+                },
             })
             const logsData = parseToolResponse(result)
 
@@ -153,8 +156,8 @@ describe('Logs', { concurrent: false }, () => {
         })
     })
 
-    describe('logs-list-attributes tool', () => {
-        const attributesTool = logsListAttributesTool()
+    describe('logs-attributes-list tool', () => {
+        const attributesTool = GENERATED_TOOLS['logs-attributes-list']!()
 
         it('should list log attributes', async () => {
             const result = await attributesTool.handler(context, {})
@@ -177,7 +180,7 @@ describe('Logs', { concurrent: false }, () => {
 
         it('should list resource attributes', async () => {
             const result = await attributesTool.handler(context, {
-                attributeType: 'resource',
+                attribute_type: 'resource',
             })
             const attributesData = parseToolResponse(result)
 
@@ -199,8 +202,8 @@ describe('Logs', { concurrent: false }, () => {
         })
     })
 
-    describe('logs-list-attribute-values tool', () => {
-        const valuesTool = logsListAttributeValuesTool()
+    describe('logs-attribute-values-list tool', () => {
+        const valuesTool = GENERATED_TOOLS['logs-attribute-values-list']!()
 
         it('should list attribute values for a key', async () => {
             const result = await valuesTool.handler(context, {
@@ -208,34 +211,34 @@ describe('Logs', { concurrent: false }, () => {
             })
             const valuesData = parseToolResponse(result)
 
-            expect(Array.isArray(valuesData)).toBe(true)
+            expect(valuesData).toHaveProperty('results')
         })
 
         it('should list attribute values with search', async () => {
             const result = await valuesTool.handler(context, {
                 key: 'level',
-                search: 'error',
+                value: 'error',
             })
             const valuesData = parseToolResponse(result)
 
-            expect(Array.isArray(valuesData)).toBe(true)
+            expect(valuesData).toHaveProperty('results')
         })
 
         it('should list resource attribute values', async () => {
             const result = await valuesTool.handler(context, {
                 key: 'k8s.container.name',
-                attributeType: 'resource',
+                attribute_type: 'resource',
             })
             const valuesData = parseToolResponse(result)
 
-            expect(Array.isArray(valuesData)).toBe(true)
+            expect(valuesData).toHaveProperty('results')
         })
     })
 
     describe('Logs workflow', () => {
         it('should support attribute discovery and query workflow', async () => {
-            const attributesTool = logsListAttributesTool()
-            const queryTool = logsQueryTool()
+            const attributesTool = GENERATED_TOOLS['logs-attributes-list']!()
+            const queryTool = GENERATED_TOOLS['query-logs']!()
 
             const attributesResult = await attributesTool.handler(context, {})
             const attributesData = parseToolResponse(attributesResult)
@@ -247,9 +250,10 @@ describe('Logs', { concurrent: false }, () => {
             const dateTo = new Date().toISOString()
 
             const queryResult = await queryTool.handler(context, {
-                dateFrom,
-                dateTo,
-                limit: 10,
+                query: {
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                    limit: 10,
+                },
             })
             const queryData = parseToolResponse(queryResult)
 

@@ -35,16 +35,70 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub statement_timeout_ms: u64,
 
+    /// Max connections for the bulk pool (large batch reads, deletes).
+    /// Kept small so bulk queries can't starve the fast pool.
+    #[envconfig(default = "5")]
+    pub bulk_max_pg_connections: u32,
+
+    /// Statement timeout for bulk queries (ms). Longer than the fast pool
+    /// because batch reads over thousands of IDs legitimately take seconds.
+    #[envconfig(default = "30000")]
+    pub bulk_statement_timeout_ms: u64,
+
+    /// Acquire timeout for bulk pool (seconds).
+    #[envconfig(default = "10")]
+    pub bulk_acquire_timeout_secs: u64,
+
+    /// Maximum number of server-side (PgBouncer → Postgres) connections to
+    /// warm at startup via SELECT 1. Clamped to min_pg_connections. Set to 0
+    /// to skip server-side warming entirely.
+    #[envconfig(default = "3")]
+    pub warmup_server_connections: u32,
+
     #[envconfig(default = "10")]
     pub pool_monitor_interval_secs: u64,
 
     #[envconfig(default = "9100")]
     pub metrics_port: u16,
+
+    /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
+    #[envconfig(default = "30")]
+    pub grpc_keepalive_interval_secs: u64,
+
+    /// Timeout for a keepalive ping ack before considering the connection dead
+    #[envconfig(default = "10")]
+    pub grpc_keepalive_timeout_secs: u64,
+
+    /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_send_message_size: usize,
+
+    /// Maximum gRPC message size to decode (receive), in bytes.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_recv_message_size: usize,
+
+    /// Maximum age of a gRPC connection in seconds before the server sends GOAWAY.
+    /// Clients reconnect transparently, naturally staggering across pods.
+    /// 0 = disabled (connections live indefinitely).
+    #[envconfig(default = "300")]
+    pub grpc_max_connection_age_secs: u64,
 }
 
 impl Config {
     pub fn acquire_timeout(&self) -> Duration {
         Duration::from_secs(self.acquire_timeout_secs)
+    }
+
+    pub fn bulk_acquire_timeout(&self) -> Duration {
+        Duration::from_secs(self.bulk_acquire_timeout_secs)
+    }
+
+    pub fn bulk_statement_timeout(&self) -> Option<u64> {
+        if self.bulk_statement_timeout_ms == 0 {
+            None
+        } else {
+            Some(self.bulk_statement_timeout_ms)
+        }
     }
 
     pub fn idle_timeout(&self) -> Option<Duration> {
@@ -60,6 +114,30 @@ impl Config {
             None
         } else {
             Some(self.statement_timeout_ms)
+        }
+    }
+
+    pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
+        if self.grpc_keepalive_interval_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_interval_secs))
+        }
+    }
+
+    pub fn grpc_keepalive_timeout(&self) -> Option<Duration> {
+        if self.grpc_keepalive_timeout_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
+        }
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
         }
     }
 

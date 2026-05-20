@@ -6,23 +6,32 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    ResumableSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PinterestAdsSourceConfig
-from posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads import pinterest_ads_source
+from posthog.temporal.data_imports.sources.pinterest_ads.pinterest_ads import (
+    PinterestAdsResumeConfig,
+    pinterest_ads_source,
+)
 from posthog.temporal.data_imports.sources.pinterest_ads.settings import PINTEREST_ADS_CONFIG
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
+class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PINTERESTADS
@@ -41,9 +50,7 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.PINTEREST_ADS,
             label="Pinterest Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Pinterest Ads. Ensure you have granted PostHog access to your Pinterest Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/pinterest-ads).",
-            betaSource=True,
-            unreleasedSource=True,
-            featureFlag="pinterest-ads-source",
+            releaseStatus="beta",
             iconPath="/static/services/pinterest_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pinterest-ads",
             fields=cast(
@@ -55,6 +62,7 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Pinterest Ads ad account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="pinterest_ads_integration_id",
@@ -64,6 +72,16 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_analytics",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_credentials(
@@ -85,6 +103,7 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -102,7 +121,15 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
 
         return schemas
 
-    def source_for_pipeline(self, config: PinterestAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PinterestAdsResumeConfig]:
+        return ResumableSourceManager[PinterestAdsResumeConfig](inputs, PinterestAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: PinterestAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[PinterestAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.pinterest_ads_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -112,6 +139,8 @@ class PinterestAdsSource(SimpleSource[PinterestAdsSourceConfig], OAuthMixin):
             ad_account_id=config.ad_account_id,
             endpoint=inputs.schema_name,
             access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
+            source_logger=inputs.logger,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

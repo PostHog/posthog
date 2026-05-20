@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+test-utils = []
+
 [lints]
 workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+async-compression = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
@@ -21,6 +25,7 @@ lifecycle = { path = "../common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+common-metrics = { path = "../common/metrics" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
@@ -57,14 +62,19 @@ futures = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+capture = { path = ".", features = ["test-utils"] }
 assert-json-diff = { workspace = true }
+brotli = "8"
+zstd = "0.13"
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }
 httparse = "1.8"
+metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
+rstest = "0.26"
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }

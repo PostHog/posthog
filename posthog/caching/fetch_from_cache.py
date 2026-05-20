@@ -20,7 +20,7 @@ insight_cache_read_counter = Counter(
 
 
 def fetch_cached_response_by_key(cache_key: str, team_id: int) -> Optional[dict]:
-    query_cache = get_query_cache(team_id)
+    query_cache = get_query_cache()
     try:
         cached_response_bytes = query_cache.get(cache_key)
     except Exception:

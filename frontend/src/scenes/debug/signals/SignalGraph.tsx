@@ -1,6 +1,8 @@
 import * as d3 from 'd3'
 import { useMemo } from 'react'
 
+import { errorTrackingTypeLabel } from 'lib/signals/errorTracking'
+
 import { rectEdgePoint, sourceProductColor } from './helpers'
 import { GraphEdge, LayoutPosition, NODE_H, NODE_W, SignalNode } from './types'
 
@@ -205,7 +207,11 @@ export function SignalGraph({
                                         />
                                     )}
                                     <div className="truncate leading-snug">
-                                        <div className="font-medium text-[13px] truncate">{signal.source_type}</div>
+                                        <div className="font-medium text-[13px] truncate">
+                                            {signal.source_product === 'error_tracking'
+                                                ? errorTrackingTypeLabel(signal.source_type)
+                                                : signal.source_type}
+                                        </div>
                                         <div className="text-muted truncate text-xs">
                                             {signal.source_product}
                                             {signal.weight !== undefined ? ` · w${signal.weight}` : ''}

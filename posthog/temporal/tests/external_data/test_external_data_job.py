@@ -264,7 +264,10 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     ExternalDataSchema.objects.create(
@@ -281,6 +284,40 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
     all_schemas = get_all_schemas_for_source_id(str(new_source.pk), team.id)
 
     assert len(all_schemas) == len(STRIPE_ENDPOINTS)
+
+
+@pytest.mark.parametrize("source_state", ["never_existed", "soft_deleted"])
+@pytest.mark.django_db(transaction=True)
+def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(
+    activity_environment, team, source_state, **kwargs
+):
+    if source_state == "never_existed":
+        source_id = str(uuid.uuid4())
+    else:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
+        )
+        source.soft_delete()
+        source_id = str(source.pk)
+
+    inputs = SyncNewSchemasActivityInputs(source_id=source_id, team_id=team.id)
+
+    with mock.patch(
+        "posthog.temporal.data_imports.workflow_activities.sync_new_schemas.delete_discover_schemas_schedule"
+    ) as mock_delete_schedule:
+        with pytest.raises(Exception, match="Source no longer exists"):
+            activity_environment.run(sync_new_schemas_activity, inputs)
+
+    mock_delete_schedule.assert_called_once_with(source_id)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -526,7 +563,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -559,7 +599,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         charge_schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
@@ -644,7 +687,10 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -713,7 +759,10 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(

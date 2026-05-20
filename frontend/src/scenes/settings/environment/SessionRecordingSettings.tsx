@@ -397,8 +397,22 @@ export function ReplayDataRetentionSettings(): JSX.Element {
     }
 
     const handleRetentionChange = (retention_period: SessionRecordingRetentionPeriod): void => {
-        updateCurrentTeam({
-            session_recording_retention_period: retention_period,
+        if (retention_period === currentRetention) {
+            return
+        }
+        const label = renderOptions(false).find((o) => o.value === retention_period)?.label ?? retention_period
+        LemonDialog.open({
+            title: 'Change recording retention period?',
+            description:
+                'Changing retention only affects recordings that start from this point forwards. Existing recordings will keep their original retention period.',
+            primaryButton: {
+                children: `Change retention to ${label}`,
+                onClick: () =>
+                    updateCurrentTeam({
+                        session_recording_retention_period: retention_period,
+                    }),
+            },
+            secondaryButton: { children: 'Cancel' },
         })
     }
 

@@ -40,12 +40,12 @@ function CollapsibleRoot({ variant = 'menu', children, ...rest }: CollapsiblePro
 /* --------------------------------- Trigger -------------------------------- */
 
 const triggerVariants = cva({
-    base: 'flex items-center w-full cursor-pointer',
+    base: 'flex items-center w-full cursor-pointer disabled:cursor-not-allowed aria-disabled:cursor-not-allowed',
     variants: {
         variant: {
             menu: 'py-1 group pl-2',
             container:
-                'relative justify-start rounded-none h-full overflow-hidden disabled:opacity-60 text-xs p-0 px-2',
+                'relative justify-start rounded-none h-full overflow-hidden disabled:opacity-60 aria-disabled:opacity-60 text-xs p-0 px-2',
         },
     },
     defaultVariants: {
@@ -81,7 +81,10 @@ const CollapsibleTrigger = forwardRef<HTMLButtonElement, CollapsibleTriggerProps
                         {children}
                     </Label>
                     {!hideChevron && (
-                        <IconChevronRight className="size-3 text-tertiary opacity-0 group-hover:opacity-100 transition-all duration-150 group-data-[panel-open]:rotate-90" />
+                        <IconChevronRight
+                            aria-hidden={true}
+                            className="size-3 text-tertiary opacity-50 group-hover:opacity-100 transition-all duration-150 group-data-[panel-open]:rotate-90"
+                        />
                     )}
                 </CollapsiblePrimitiveTrigger>
             )

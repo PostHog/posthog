@@ -47,6 +47,15 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
             exit 1
         fi
     fi
+
+    if run_scope "flags-read-store"; then
+        echo "Running flags read store migrations via external non-django migrator..."
+        bash $SCRIPT_DIR/../rust/bin/migrate-flags-read-store
+        if [ $? -ne 0 ]; then
+            echo "Error in rust/bin/migrate-flags-read-store, exiting."
+            exit 1
+        fi
+    fi
 fi
 
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
@@ -144,6 +153,17 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         exit 1
     fi
     
+fi
+
+# Product database migrations via Django.
+# When product routes are configured, run each routed app's migrations against
+# its target writer database alias.
+if run_scope "postgres"; then
+    python manage.py migrate_product_databases
+    if [ $? -ne 0 ]; then
+        echo "Error in migrate_product_databases, exiting."
+        exit 1
+    fi
 fi
 
 # Persons migrations via Django management command.

@@ -3,11 +3,11 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -34,7 +34,12 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         return ExternalDataSourceType.VITALLY
 
     def get_schemas(
-        self, config: VitallySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: VitallySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -101,9 +106,10 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     SourceFieldInputConfig(
                         name="secret_token",
                         label="Secret token",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="sk_live_...",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="region",
@@ -111,8 +117,8 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                         required=True,
                         defaultValue="EU",
                         options=[
-                            Option(label="EU", value="EU"),
-                            Option(
+                            SourceFieldSelectConfigOption(label="EU", value="EU"),
+                            SourceFieldSelectConfigOption(
                                 label="US",
                                 value="US",
                                 fields=cast(
@@ -124,6 +130,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="",
+                                            secret=False,
                                         )
                                     ],
                                 ),

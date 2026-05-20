@@ -21,6 +21,7 @@ import {
     ExperimentTrendsQuery,
     GroupNode,
     NodeKind,
+    ProductKey,
     TrendsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -33,7 +34,6 @@ import {
     Experiment,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
-    FeatureFlagFilters,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -48,12 +48,22 @@ import {
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
-const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
 
 export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
     return variants.filter(
         (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_WARNING_THRESHOLD
     )
+}
+
+/**
+ * Resolves the effective multi-variant handling, applying the backend default when unset.
+ * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ */
+export function resolveMultipleVariantHandling(
+    handling: 'exclude' | 'first_seen' | undefined
+): 'exclude' | 'first_seen' {
+    return handling ?? 'exclude'
 }
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
@@ -93,33 +103,6 @@ export function percentageDistribution(variantCount: number): number[] {
 export function isEvenlyDistributed(variants: MultivariateFlagVariant[]): boolean {
     const evenPercentages = percentageDistribution(variants.length)
     return variants.every((variant, index) => variant.rollout_percentage === evenPercentages[index])
-}
-
-export function transformFiltersForWinningVariant(
-    currentFlagFilters: FeatureFlagFilters,
-    selectedVariant: string
-): FeatureFlagFilters {
-    return {
-        aggregation_group_type_index: currentFlagFilters?.aggregation_group_type_index || null,
-        payloads: currentFlagFilters?.payloads || {},
-        multivariate: {
-            variants: (currentFlagFilters?.multivariate?.variants || []).map(({ key, name }) => ({
-                key,
-                rollout_percentage: key === selectedVariant ? 100 : 0,
-                ...(name && { name }),
-            })),
-        },
-        groups: [
-            {
-                properties: [],
-                rollout_percentage: 100,
-                description: 'Added automatically when the experiment was ended to keep only one variant.',
-            },
-            // Preserve existing groups so that users can roll back this action
-            // by deleting the newly added release condition
-            ...(currentFlagFilters?.groups || []),
-        ],
-    }
 }
 
 function seriesToFilterLegacy(
@@ -828,6 +811,12 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         return null
     }
 
+    // Data warehouse tables don't support test account filters — those filters
+    // reference the events table (e.g. events.properties.*), which doesn't exist
+    // on a DW table and causes "Unable to resolve field: events". This matches
+    // product analytics behavior, where the toggle is disabled for DW sources.
+    const isDWQuery = series.some((s) => s.kind === NodeKind.DataWarehouseNode)
+
     return {
         kind: NodeKind.TrendsQuery,
         series,
@@ -841,7 +830,10 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
             explicitDate: false,
         },
         interval: 'day',
-        filterTestAccounts,
+        filterTestAccounts: isDWQuery ? false : filterTestAccounts,
+        tags: {
+            productKey: ProductKey.PRODUCT_ANALYTICS,
+        },
     }
 }
 
@@ -958,4 +950,15 @@ export function getOrderedMetricsWithResults(
             displayIndex: index,
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
+}
+
+export function matchesSharedMetricSearch(
+    metric: { name: string; description?: string; tags?: string[] },
+    searchLower: string
+): boolean {
+    return (
+        metric.name.toLowerCase().includes(searchLower) ||
+        (metric.description?.toLowerCase().includes(searchLower) ?? false) ||
+        (metric.tags?.some((tag) => tag.toLowerCase().includes(searchLower)) ?? false)
+    )
 }

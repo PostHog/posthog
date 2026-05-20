@@ -1,0 +1,185 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Visual review
+feature: visual_review
+url_prefix: /visual_review
+ui_apps: {}
+tools:
+    visual-review-repos-baselines-retrieve:
+        operation: visual_review_repos_baselines_retrieve
+        enabled: false
+    visual-review-repos-create:
+        operation: visual_review_repos_create
+        enabled: false
+    visual-review-repos-list:
+        operation: visual_review_repos_list
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List visual review repos
+        description: >
+            List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository
+            and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full
+            name, baseline file paths, and pr-comment configuration.
+        feature_flag: visual-review
+    visual-review-repos-partial-update:
+        operation: visual_review_repos_partial_update
+        enabled: false
+    visual-review-repos-quarantine-create:
+        operation: visual_review_repos_quarantine_create
+        enabled: false
+    visual-review-repos-quarantine-expire-create:
+        operation: visual_review_repos_quarantine_expire_create
+        enabled: false
+    visual-review-repos-quarantine-list:
+        operation: visual_review_repos_quarantine_list
+        enabled: false
+    visual-review-repos-retrieve:
+        operation: visual_review_repos_retrieve
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get visual review repo
+        description: >
+            Get a visual review repo by id. Returns baseline file paths keyed by run_type (e.g. storybook → baseline
+            YAML path in the repo), pr-comment setting, and repo metadata.
+        feature_flag: visual-review
+    visual-review-repos-runs-counts-retrieve:
+        operation: visual_review_repos_runs_counts_retrieve
+        enabled: false
+    visual-review-repos-runs-list:
+        operation: visual_review_repos_runs_list
+        enabled: false
+    visual-review-repos-snapshots-list:
+        operation: visual_review_repos_snapshots_list
+        enabled: false
+    visual-review-repos-thumbnails-retrieve:
+        operation: visual_review_repos_thumbnails_retrieve
+        enabled: false
+    visual-review-runs-add-snapshots-create:
+        operation: visual_review_runs_add_snapshots_create
+        enabled: false
+    visual-review-runs-approve-create:
+        operation: visual_review_runs_approve_create
+        enabled: false
+    visual-review-runs-complete-create:
+        operation: visual_review_runs_complete_create
+        enabled: false
+    visual-review-runs-counts-retrieve:
+        operation: visual_review_runs_counts_retrieve
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Visual review run counts
+        description: >
+            Return review state counts across all runs for the current project: `needs_review`, `clean`, `processing`,
+            `stale`. Useful as a single call to show reviewer workload before drilling into the list.
+        feature_flag: visual-review
+    visual-review-runs-create:
+        operation: visual_review_runs_create
+        enabled: false
+    visual-review-runs-list:
+        operation: visual_review_runs_list
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: runs/{id}
+        list: true
+        title: List visual review runs
+        description: >
+            List visual review runs for the current project. Each run represents a single CI execution that captured
+            screenshots for a commit. Filter by `review_state` (e.g. `needs_review`, `clean`, `processing`, `stale`) to
+            triage workload, or by `pr_number` / `commit_sha` / `branch` to find the specific run(s) blocking a PR.
+            Returns status, review decision, commit sha, branch, pr number, and a summary of changed / new / removed /
+            unchanged snapshots.
+        feature_flag: visual-review
+    visual-review-runs-recompute-create:
+        operation: visual_review_runs_recompute_create
+        enabled: false
+    visual-review-runs-retrieve:
+        operation: visual_review_runs_retrieve
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: runs/{id}
+        title: Get visual review run
+        description: >
+            Get a visual review run by id. Returns run status, review decision, commit/branch/pr context, a summary
+            (total, changed, new, removed, unchanged, tolerated-matched snapshot counts), and staleness info if a newer
+            run supersedes this one. Use `visual-review-runs-snapshots-list` for per-snapshot diff details.
+        feature_flag: visual-review
+    visual-review-runs-snapshot-history-list:
+        operation: visual_review_runs_snapshot_history_list
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Snapshot change history
+        description: >
+            List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for
+            diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a
+            candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.
+        feature_flag: visual-review
+    visual-review-runs-snapshots-list:
+        operation: visual_review_runs_snapshots_list
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List run snapshots
+        description: >
+            List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g.
+            Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional
+            `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and
+            `review_state` (`pending`, `approved`). Paginated.
+        feature_flag: visual-review
+    visual-review-runs-tolerate-create:
+        operation: visual_review_runs_tolerate_create
+        enabled: false
+    visual-review-runs-tolerated-hashes-list:
+        operation: visual_review_runs_tolerated_hashes_list
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tolerated hashes
+        description: >
+            List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes
+            catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes.
+            Requires `identifier` query parameter.
+        feature_flag: visual-review

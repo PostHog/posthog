@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { IconBook } from '@posthog/icons'
 
@@ -10,7 +11,8 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, uuid } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene, SceneTab } from 'scenes/sceneTypes'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -114,6 +116,21 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
 
     if (parsed.question !== '') {
         actions.setQuestion(parsed.question)
+    }
+}
+
+const CHAT_TITLE_NEW = 'New chat'
+const CHAT_TITLE_HISTORY = 'Chat history'
+
+function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
+    const scene = sceneLogic.findMounted()
+    if (!scene) {
+        return
+    }
+    const { tabs } = scene.values
+    const tab = tabs.find((t) => t.id === tabId)
+    if (tab && !tab.active) {
+        scene.actions.setTabs(tabs.map((t) => (t.id === tabId ? { ...t, ...props } : t)))
     }
 }
 
@@ -298,6 +315,13 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
+        messagesLoading: [
+            (s) => [s.conversation, s.conversationId],
+            (conversation, conversationId) => {
+                return !!conversationId && !!conversation && conversation.messages === undefined
+            },
+        ],
+
         threadVisible: [(s) => [s.conversationId], (conversationId) => !!conversationId],
 
         backButtonDisabled: [
@@ -311,12 +335,12 @@ export const maxLogic = kea<maxLogicType>([
             (s) => [s.conversationId, s.conversation, s.conversationHistoryVisible],
             (conversationId, conversation, conversationHistoryVisible) => {
                 if (conversationHistoryVisible) {
-                    return 'Chat history'
+                    return CHAT_TITLE_HISTORY
                 }
 
                 // Existing conversation or the first generation is in progress
                 if (conversationId || conversation) {
-                    return conversation?.title ?? 'New chat'
+                    return conversation?.title ?? CHAT_TITLE_NEW
                 }
 
                 return null
@@ -343,12 +367,26 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.conversationId, s.chatTitle, s.conversationHistoryVisible, s.searchParams],
-            (conversationId, chatTitle, conversationHistoryVisible, searchParams): Breadcrumb[] => {
+            (s) => [
+                s.conversationId,
+                s.chatTitle,
+                s.conversationHistoryVisible,
+                s.searchParams,
+                s.activeStreamingThreads,
+            ],
+            (
+                conversationId,
+                chatTitle,
+                conversationHistoryVisible,
+                searchParams,
+                activeStreamingThreads
+            ): Breadcrumb[] => {
+                const isStreaming = activeStreamingThreads > 0
+                const hasConversationBreadcrumb = !conversationHistoryVisible && conversationId
                 return [
                     {
                         key: Scene.Max,
-                        name: 'AI',
+                        name: hasConversationBreadcrumb ? 'AI' : CHAT_TITLE_NEW,
                         path: urls.ai(),
                         iconType: 'chat',
                     },
@@ -356,19 +394,19 @@ export const maxLogic = kea<maxLogicType>([
                         ? [
                               {
                                   key: Scene.Max,
-                                  name: 'Chat history',
+                                  name: CHAT_TITLE_HISTORY,
                                   path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
                           ]
                         : []),
-                    ...(!conversationHistoryVisible && conversationId
+                    ...(hasConversationBreadcrumb
                         ? [
                               {
                                   key: Scene.Max,
                                   name: chatTitle || 'Chat',
                                   path: urls.ai(conversationId),
-                                  iconType: 'chat' as const,
+                                  iconType: isStreaming ? ('loading' as const) : ('chat' as const),
                               },
                           ]
                         : []),
@@ -377,7 +415,18 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        incrActiveStreamingThreads: () => {
+            updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
+        },
+        decrActiveStreamingThreads: () => {
+            // Reducer runs before listener, so activeStreamingThreads is already decremented.
+            // If still > 0, other streams are active — don't show badge yet.
+            if (values.activeStreamingThreads > 0) {
+                return
+            }
+            updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
+        },
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
@@ -501,6 +550,16 @@ export const maxLogic = kea<maxLogicType>([
         },
     })),
 
+    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
+    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
+    subscriptions(({ props }) => ({
+        chatTitle: (title: string | null) => {
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY) {
+                updateInactiveTab(props.tabId, { title })
+            }
+        },
+    })),
+
     afterMount(({ actions, values }) => {
         // Restore pending prompt from sessionStorage (e.g., after OAuth redirect during consent flow)
         if (!values.question) {
@@ -542,6 +601,11 @@ export const maxLogic = kea<maxLogicType>([
         },
         [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
+                // Clear any existing conversation so the tab title updates
+                if (values.conversationId && values.activeStreamingThreads === 0) {
+                    actions.startNewConversation()
+                }
+
                 let uiContext: Partial<MaxUIContext> | undefined = undefined
                 try {
                     const stored = sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)
@@ -606,16 +670,17 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     if (!element) {
         return null
     }
+    // Walk up the DOM and find the nearest ancestor that is actually scrollable.
+    // This is more robust than checking for specific tags or attributes, because
+    // wrapper components like ScrollableShadows place attributes on a non-scrollable
+    // root while the actual scrollable element is a child (ScrollArea.Viewport).
     let current = element.parentElement
     while (current) {
-        if (current.tagName === 'MAIN') {
-            return current
-        }
-        if (current instanceof HTMLElement && current.dataset.attr === 'side-panel-content') {
-            return current
-        }
-        if (current instanceof HTMLElement && current.dataset.attr === 'max-scrollable') {
-            return current
+        if (current instanceof HTMLElement) {
+            const { overflowY } = getComputedStyle(current)
+            if (overflowY === 'auto' || overflowY === 'scroll') {
+                return current
+            }
         }
         current = current.parentElement
     }
@@ -726,6 +791,9 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Create a beta testing flag for…',
                 requiresUserInput: true,
             },
+            {
+                content: 'Audit my feature flags for issues',
+            },
         ],
     },
     {
@@ -740,6 +808,9 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             {
                 content: 'Set up an A/B test with a 70/30 split between control and test for…',
                 requiresUserInput: true,
+            },
+            {
+                content: 'Check if my running experiments are set up correctly',
             },
         ],
     },
@@ -885,8 +956,8 @@ export function mergeConversationHistory(
 }
 
 /**
- * Stream returns a `Conversation` object, which doesn't have a `messages` property.
- * However, when we load the conversation history, we get `ConversationDetail` objects.
+ * Streaming and history list responses return `Conversation` objects, which don't have a `messages` property.
+ * Full thread loads return `ConversationDetail` objects.
  * This function merges the two types so that we can use the same logic for both.
  */
 export function mergeConversations(
@@ -898,7 +969,8 @@ export function mergeConversations(
     }
 
     return {
+        ...oldObj,
         ...newObj,
-        messages: oldObj?.messages ?? [],
+        messages: oldObj?.messages,
     }
 }

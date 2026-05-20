@@ -1,7 +1,6 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
@@ -10,11 +9,9 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { parseTagsFilter } from 'lib/utils'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
 import {
     DEFAULT_ORDER_BY,
@@ -33,12 +30,26 @@ import {
     isValidSeverityLevel,
     logsViewerFiltersLogic,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 
 import type { logsSceneLogicType } from './logsSceneLogicType'
 
-export type LogsSceneActiveTab = 'viewer' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'configuration']
-const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
+export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${id}`
+
+export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
+export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
+
+const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
+    if (typeof params.alertId === 'string' && params.alertId.length > 0) {
+        return 'alerts'
+    }
+    if (typeof params.activeTab === 'string' && VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab)) {
+        return params.activeTab as LogsSceneActiveTab
+    }
+    return null
+}
 
 export interface LogsLogicProps {
     tabId: string
@@ -50,16 +61,18 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
     tabAwareScene(),
     connect((props: LogsLogicProps) => ({
         actions: [
-            teamLogic,
-            ['addProductIntent'],
             logsViewerFiltersLogic({ id: props.tabId }),
-            ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
+            ['setFilters'],
+            logsFilterHistoryLogic({ id: props.tabId }),
+            ['pushToFilterHistory'],
             logsViewerConfigLogic({ id: props.tabId }),
             ['setOrderBy'],
             logsViewerDataLogic({ id: props.tabId }),
-            ['setInitialLogsLimit', 'runQuery', 'clearLogs', 'fetchLogsSuccess'],
-            logsFilterHistoryLogic({ id: props.tabId }),
-            ['pushToFilterHistory'],
+            ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
+            logsViewerLogic({ id: props.tabId }),
+            ['setLinkToLogId', 'clearLinkToLogId'],
+            logDetailsModalLogic({ id: props.tabId }),
+            ['closeLogDetails'],
         ],
         values: [
             logsViewerFiltersLogic({ id: props.tabId }),
@@ -67,17 +80,19 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             logsViewerConfigLogic({ id: props.tabId }),
             ['orderBy'],
             logsViewerDataLogic({ id: props.tabId }),
-            ['initialLogsLimit', 'hasRunQuery'],
+            ['initialLogsLimit'],
+            logsViewerLogic({ id: props.tabId }),
+            ['linkToLogId'],
         ],
     })),
-    tabAwareUrlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values, cache }) => {
         const urlToAction = (_: any, params: Params): void => {
-            if (
-                typeof params.activeTab === 'string' &&
-                VALID_ACTIVE_TABS.includes(params.activeTab as LogsSceneActiveTab) &&
-                params.activeTab !== values.activeTab
-            ) {
-                actions.setActiveTab(params.activeTab as LogsSceneActiveTab)
+            if (cache.isSyncingUrl) {
+                return
+            }
+            const requestedTab = resolveActiveTabFromParams(params)
+            if (requestedTab && requestedTab !== values.activeTab) {
+                actions.setActiveTab(requestedTab)
             }
 
             const filtersFromUrl: Partial<LogsViewerFilters> = {}
@@ -148,14 +163,19 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
                 actions.setInitialLogsLimit(+params.initialLogsLimit)
             }
+
+            const linkToLogId = params.linkToLogId as string | undefined
+            if (linkToLogId && linkToLogId !== values.linkToLogId) {
+                actions.setLinkToLogId(linkToLogId)
+            }
         }
         return {
             '*': urlToAction,
         }
     }),
 
-    tabAwareActionToUrl(({ actions, values }) => {
-        const buildUrlAndRunQuery = (): [
+    tabAwareActionToUrl(({ values, cache }) => {
+        const syncUrl = (): [
             string,
             Params,
             Record<string, any>,
@@ -163,14 +183,25 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 replace: boolean
             },
         ] => {
-            return syncSearchParams(router, (params: Params) => {
+            cache.isSyncingUrl = true // to prevent an infinite loop between actionToUrl and urlToAction
+            const result = syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'searchTerm', values.filters.searchTerm, '')
                 updateSearchParams(params, 'filterGroup', values.filters.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
                 updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
                 updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
                 updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
-                actions.runQuery()
+                return params
+            })
+            queueMicrotask(() => {
+                cache.isSyncingUrl = false
+            })
+            return result
+        }
+
+        const clearLinkToLogId = (): ReturnType<typeof syncSearchParams> => {
+            return syncSearchParams(router, (params: Params) => {
+                delete params.linkToLogId
                 return params
             })
         }
@@ -201,16 +232,19 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             // It ensures the first fetch loads enough logs to include the linked log,
             // then resets to null so subsequent queries use the default page size.
             fetchLogsSuccess: () => clearInitialLogsLimit(),
-            syncUrlAndRunQuery: () => buildUrlAndRunQuery(),
+            closeLogDetails: () => clearLinkToLogId(),
+            clearLinkToLogId: () => clearLinkToLogId(),
+            syncUrl: () => syncUrl(),
             setActiveTab: () => syncActiveTab(),
         }
     }),
 
     actions({
         setActiveTab: (activeTab: LogsSceneActiveTab) => ({ activeTab }),
-        syncUrlAndRunQuery: true,
+        syncUrl: true,
         toggleAttributeBreakdown: (key: string) => ({ key }),
         setExpandedAttributeBreaksdowns: (expandedAttributeBreaksdowns: string[]) => ({ expandedAttributeBreaksdowns }),
+        keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
     }),
 
     reducers({
@@ -232,127 +266,29 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
     }),
 
-    listeners(({ values, actions }) => ({
-        setSearchTerm: ({ searchTerm }) => {
-            if (values.hasRunQuery) {
-                posthog.capture('logs filter changed', {
-                    filter_type: 'search',
-                    search_term_length: searchTerm?.length ?? 0,
-                })
-                actions.addProductIntent({
-                    product_type: ProductKey.LOGS,
-                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
-                })
-                actions.pushToFilterHistory(values.filters)
-            }
-            actions.syncUrlAndRunQuery()
-        },
-        setFilterGroup: () => {
-            // Don't run query if there's a filter without a value (user is still selecting)
-            const hasIncompleteUniversalFilterValue = (filterValue: UniversalFiltersGroupValue): boolean => {
-                if (!filterValue || typeof filterValue !== 'object') {
-                    return false
-                }
-
-                // If this is a nested UniversalFiltersGroup, recursively check its values
-                if ('type' in filterValue && 'values' in filterValue) {
-                    const groupValues = (filterValue as UniversalFiltersGroup).values ?? []
-                    return groupValues.some((child) => hasIncompleteUniversalFilterValue(child))
-                }
-
-                // ActionFilter: check for missing id
-                if ('id' in filterValue) {
-                    return (filterValue as { id: unknown }).id == null
-                }
-
-                // Property filter: check for missing or empty value
-                if ('value' in filterValue) {
-                    const val = (filterValue as { value: unknown }).value
-                    return val == null || (Array.isArray(val) && val.length === 0)
-                }
-
-                return false
-            }
-
-            const rootGroup = values.filters.filterGroup?.values?.[0] as UniversalFiltersGroup | undefined
-            const hasIncompleteFilter =
-                rootGroup?.values?.some((filterValue) => hasIncompleteUniversalFilterValue(filterValue)) ?? false
-
-            if (hasIncompleteFilter) {
-                return
-            }
-
-            if (values.hasRunQuery) {
-                posthog.capture('logs filter changed', { filter_type: 'attributes' })
-                actions.addProductIntent({
-                    product_type: ProductKey.LOGS,
-                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
-                })
-                actions.pushToFilterHistory(values.filters)
-            }
-            actions.syncUrlAndRunQuery()
-        },
-        setSeverityLevels: ({ severityLevels }) => {
-            if (values.hasRunQuery) {
-                posthog.capture('logs filter changed', {
-                    filter_type: 'severity',
-                    severity_levels: severityLevels ?? [],
-                })
-                actions.addProductIntent({
-                    product_type: ProductKey.LOGS,
-                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
-                })
-                actions.pushToFilterHistory(values.filters)
-            }
-            actions.syncUrlAndRunQuery()
-        },
-        setServiceNames: ({ serviceNames }) => {
-            if (values.hasRunQuery) {
-                posthog.capture('logs filter changed', {
-                    filter_type: 'service',
-                    service_count: serviceNames?.length ?? 0,
-                })
-                actions.addProductIntent({
-                    product_type: ProductKey.LOGS,
-                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
-                })
-                actions.pushToFilterHistory(values.filters)
-            }
-            actions.syncUrlAndRunQuery()
-        },
-        setDateRange: () => {
-            if (values.hasRunQuery) {
-                posthog.capture('logs filter changed', { filter_type: 'date_range' })
-                actions.addProductIntent({
-                    product_type: ProductKey.LOGS,
-                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
-                })
-                actions.pushToFilterHistory(values.filters)
-            }
-            actions.syncUrlAndRunQuery()
-        },
-        setFilters: ({ pushToHistory }) => {
-            if (values.hasRunQuery) {
-                posthog.capture('logs filter changed', { filter_type: 'bulk' })
-                actions.addProductIntent({
-                    product_type: ProductKey.LOGS,
-                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
-                })
-                if (pushToHistory) {
-                    actions.pushToFilterHistory(values.filters)
-                }
-            }
-            actions.syncUrlAndRunQuery()
-        },
-        setOrderBy: ({ orderBy, source }) => {
-            posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
-            actions.syncUrlAndRunQuery()
-        },
+    listeners(({ values, actions, cache }) => ({
         toggleAttributeBreakdown: ({ key }) => {
             const breakdowns = [...values.expandedAttributeBreaksdowns]
             const index = breakdowns.indexOf(key)
             index >= 0 ? breakdowns.splice(index, 1) : breakdowns.push(key)
             actions.setExpandedAttributeBreaksdowns(breakdowns)
+        },
+        handleQueryChange: () => {
+            actions.pushToFilterHistory(values.filters)
+            actions.syncUrl()
+        },
+        setOrderBy: () => {
+            actions.syncUrl()
+        },
+        keepSqlEditorMounted: ({ editorTabId }) => {
+            if (cache.sqlEditorTabId === editorTabId) {
+                return
+            }
+            cache.unmountSqlEditor?.()
+            cache.sqlEditorTabId = editorTabId
+            // Intentionally not cleaned up in beforeUnmount: keeps the embedded sqlEditorLogic
+            // alive across navigation so the user's query survives leaving and re-entering /logs.
+            cache.unmountSqlEditor = sqlEditorLogic({ tabId: editorTabId, mode: SQLEditorMode.Embedded }).mount()
         },
     })),
 ])

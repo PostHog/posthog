@@ -2,6 +2,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+GATEWAY_ONLY_FIELDS = {"provider", "use_bedrock_fallback"}
+
 
 class AnthropicMessagesRequest(BaseModel):
     model_config = ConfigDict(extra="allow")

@@ -338,7 +338,6 @@ class TestToolAccessControlDeclarations(BaseTest):
         "switch_mode",
         "session_summarization",
         "manage_memories",  # Manages per-team/user memories, no protected resources
-        "recommend_products",  # Returns product recommendations, no protected resources
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
         "list_data",  # Lists entities with pagination, no protected resources modified
@@ -362,6 +361,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         "fix_hogql_query",
         "analyze_user_interviews",
         "call_mcp_server",  # Scoped to user's own MCP installations (team + user filtered) but no protected resources modified
+        "diagnose_proxy",  # Explicit OrganizationMembership.Level >= ADMIN check inside _arun_impl; resource-level RBAC doesn't recognize membership level so we can't use get_required_resource_access here
     }
 
     def test_all_tools_have_access_control_or_are_exempt(self):

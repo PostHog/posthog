@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
@@ -46,79 +46,85 @@ const meta: Meta = {
 }
 export default meta
 
-export const AccessRevoked = (): JSX.Element => {
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+type Story = StoryObj<{}>
 
-    useStorybookMocks({
-        get: {
-            '/api/users/@me/': () => [
-                200,
-                {
-                    email: 'test@posthog.com',
-                    first_name: 'Test PostHog',
-                    organization: {
+export const AccessRevoked: Story = {
+    render: () => {
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
+        useStorybookMocks({
+            get: {
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        email: 'test@posthog.com',
+                        first_name: 'Test PostHog',
+                        organization: {
+                            name: 'Test org',
+                            teams: [],
+                            projects: [],
+                        },
+                        team: {
+                            id: 1,
+                            name: 'Test team',
+                        },
+                    },
+                ],
+                'api/organizations/@current/': () => [
+                    200,
+                    {
+                        membership_level: 15,
                         name: 'Test org',
                         teams: [],
                         projects: [],
                     },
-                    team: {
-                        id: 1,
-                        name: 'Test team',
-                    },
-                },
-            ],
-            'api/organizations/@current/': () => [
-                200,
-                {
-                    membership_level: 15,
-                    name: 'Test org',
-                    teams: [],
-                    projects: [],
-                },
-            ],
-        },
-    })
+                ],
+            },
+        })
 
-    useEffect(() => {
-        loadCurrentTeamSuccess(null)
-    }, [loadCurrentTeamSuccess])
+        useEffect(() => {
+            loadCurrentTeamSuccess(null)
+        }, [loadCurrentTeamSuccess])
 
-    return <App />
+        return <App />
+    },
 }
 
-export const NoSelectableProjects = (): JSX.Element => {
-    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+export const NoSelectableProjects: Story = {
+    render: () => {
+        const { loadCurrentTeamSuccess } = useActions(teamLogic)
 
-    useStorybookMocks({
-        get: {
-            '/api/users/@me/': () => [
-                200,
-                {
-                    email: 'test@posthog.com',
-                    first_name: 'Test PostHog',
-                    organization: {
+        useStorybookMocks({
+            get: {
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        email: 'test@posthog.com',
+                        first_name: 'Test PostHog',
+                        organization: {
+                            name: 'Test org',
+                            teams: [],
+                            projects: [],
+                        },
+                        team: null,
+                    },
+                ],
+                'api/organizations/@current/': () => [
+                    200,
+                    {
+                        membership_level: 1,
                         name: 'Test org',
                         teams: [],
                         projects: [],
                     },
-                    team: null,
-                },
-            ],
-            'api/organizations/@current/': () => [
-                200,
-                {
-                    membership_level: 1,
-                    name: 'Test org',
-                    teams: [],
-                    projects: [],
-                },
-            ],
-        },
-    })
+                ],
+            },
+        })
 
-    useEffect(() => {
-        loadCurrentTeamSuccess(null)
-    }, [loadCurrentTeamSuccess])
+        useEffect(() => {
+            loadCurrentTeamSuccess(null)
+        }, [loadCurrentTeamSuccess])
 
-    return <App />
+        return <App />
+    },
 }

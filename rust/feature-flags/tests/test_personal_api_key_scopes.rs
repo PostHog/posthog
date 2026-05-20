@@ -55,7 +55,7 @@ async fn test_personal_api_key_scoped_teams_allowed() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team1 (allowed)
@@ -110,7 +110,7 @@ async fn test_personal_api_key_scoped_organizations_allowed() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team in allowed organization
@@ -159,7 +159,7 @@ async fn test_personal_api_key_unrestricted_teams_null() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team1 (should be allowed - NULL means all teams)
@@ -232,7 +232,7 @@ async fn test_personal_api_key_unrestricted_teams_empty_array() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team1 (should be allowed - empty array means all teams)
@@ -305,7 +305,7 @@ async fn test_personal_api_key_unrestricted_organizations_null() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team1 (should be allowed - NULL means all orgs)
@@ -378,7 +378,7 @@ async fn test_personal_api_key_mixed_scopes_both_valid() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team (should be allowed - both scopes match)
@@ -439,7 +439,7 @@ async fn test_personal_api_key_mixed_scopes_team_valid_org_invalid() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team1 (should be denied - org doesn't match)
@@ -495,7 +495,7 @@ async fn test_personal_api_key_user_without_current_team() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test authentication succeeds but cache miss returns 503
@@ -560,7 +560,7 @@ async fn test_personal_api_key_user_member_of_multiple_orgs() {
 
     // Start server
     let server = common::ServerHandle::for_config(config.clone()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    server.wait_until_ready().await;
     let client = reqwest::Client::new();
 
     // Test accessing team2 in org2

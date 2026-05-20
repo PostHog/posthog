@@ -16,7 +16,10 @@ export enum MaxContextType {
     NOTEBOOK = 'notebook',
 }
 
-export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
+export type InsightWithQuery = Pick<
+    Partial<QueryBasedInsightModel>,
+    'query' | 'short_id' | 'name' | 'derived_name' | 'description' | 'id'
+>
 
 export interface MaxInsightContext {
     type: MaxContextType.INSIGHT
@@ -24,7 +27,6 @@ export interface MaxInsightContext {
     name?: string | null
     description?: string | null
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
-    result?: any // Pre-calculated query results, avoids re-execution on the backend
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
 }
@@ -113,7 +115,7 @@ type MaxInsightContextInput = {
 }
 type MaxDashboardContextInput = {
     type: MaxContextType.DASHBOARD
-    data: DashboardType<QueryBasedInsightModel>
+    data: DashboardType<InsightWithQuery>
 }
 type MaxEventContextInput = {
     type: MaxContextType.EVENT
@@ -150,6 +152,17 @@ export type MaxContextInput =
     | MaxEvaluationContextInput
     | MaxNotebookContextInput
 
+function pickInsightFields(insight: Partial<QueryBasedInsightModel>): InsightWithQuery {
+    return {
+        id: insight.id,
+        short_id: insight.short_id,
+        name: insight.name,
+        derived_name: insight.derived_name,
+        description: insight.description,
+        query: insight.query,
+    }
+}
+
 /**
  * Helper functions to create maxContext items safely
  * These ensure proper typing and consistent patterns across scene logics
@@ -157,7 +170,13 @@ export type MaxContextInput =
 export const createMaxContextHelpers = {
     dashboard: (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContextInput => ({
         type: MaxContextType.DASHBOARD,
-        data: dashboard,
+        data: {
+            ...dashboard,
+            tiles: dashboard.tiles.map((tile) => ({
+                ...tile,
+                insight: tile.insight ? pickInsightFields(tile.insight) : tile.insight,
+            })),
+        },
     }),
 
     insight: (
@@ -173,7 +192,7 @@ export const createMaxContextHelpers = {
         } = {}
     ): MaxInsightContextInput => ({
         type: MaxContextType.INSIGHT,
-        data: insight,
+        data: pickInsightFields(insight),
         filtersOverride,
         variablesOverride,
         revenueAnalyticsQuery,

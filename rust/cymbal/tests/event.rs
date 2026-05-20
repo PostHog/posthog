@@ -95,6 +95,7 @@ fn make_frame_js(name: &str) -> Frame {
         resolved: true,
         lang: "javascript".to_string(),
         resolve_failure: None,
+
         synthetic: false,
         suspicious: false,
         junk_drawer: None,
@@ -117,6 +118,7 @@ fn make_frame_ts(name: &str) -> Frame {
         resolved: true,
         lang: "typescript".to_string(),
         resolve_failure: None,
+
         synthetic: false,
         suspicious: false,
         junk_drawer: None,

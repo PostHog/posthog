@@ -1,11 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { ComponentProps } from 'react'
 
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
-import { TablePreview } from './TablePreview'
+import { TablePreview, TablePreviewProps } from './TablePreview'
 
-type Story = StoryObj<typeof TablePreview>
+type Story = StoryObj<TablePreviewProps>
 
 const mockTable: DatabaseSchemaTable = {
     type: 'data_warehouse',
@@ -41,7 +40,7 @@ const mockTable: DatabaseSchemaTable = {
     },
 }
 
-type PreviewData = NonNullable<ComponentProps<typeof TablePreview>['previewData']>
+type PreviewData = NonNullable<TablePreviewProps['previewData']>
 
 const mockPreviewData: PreviewData = [
     {
@@ -64,7 +63,7 @@ const mockPreviewData: PreviewData = [
     },
 ]
 
-const meta: Meta<typeof TablePreview> = {
+const meta: Meta<TablePreviewProps> = {
     title: 'Components/Table preview',
     component: TablePreview,
     decorators: [

@@ -92,6 +92,7 @@ impl From<&RawPythonFrame> for Frame {
             lang: "python".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             context: raw.get_context(),
             release: None,

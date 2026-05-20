@@ -35,7 +35,7 @@ describe('ExperimentForm Integration', () => {
                 },
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': () => [200, {}],
+                '/api/environments/:team_id/add_product_intent/': () => [200, {}],
             },
         })
         initKeaTests()

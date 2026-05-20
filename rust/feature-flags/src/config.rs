@@ -3,13 +3,15 @@ use common_cookieless::CookielessConfig;
 use common_types::TeamId;
 use envconfig::Envconfig;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::Level;
+
+use crate::billing::AggregatorMode;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
@@ -62,6 +64,42 @@ impl FromStr for ServiceMode {
     }
 }
 
+/// Tristate selector for the in-process billing aggregator. Encoded as one
+/// enum so `(authoritative=true, enabled=false)` is unrepresentable — the
+/// previous two-boolean form allowed it and `server.rs` had to panic on it.
+/// See `AggregatorMode` for what each non-`Off` variant does at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregatorModeConfig {
+    Off,
+    Shadow,
+    Authoritative,
+}
+
+impl FromStr for AggregatorModeConfig {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Ok(AggregatorModeConfig::Off),
+            "shadow" => Ok(AggregatorModeConfig::Shadow),
+            "authoritative" => Ok(AggregatorModeConfig::Authoritative),
+            _ => Err(format!(
+                "Invalid FLAGS_BILLING_AGGREGATOR_MODE: '{s}'. Expected 'off', 'shadow', or 'authoritative'"
+            )),
+        }
+    }
+}
+
+impl AggregatorModeConfig {
+    pub fn into_runtime(self) -> Option<AggregatorMode> {
+        match self {
+            AggregatorModeConfig::Off => None,
+            AggregatorModeConfig::Shadow => Some(AggregatorMode::Shadow),
+            AggregatorModeConfig::Authoritative => Some(AggregatorMode::Authoritative),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamIdCollection {
     All,
@@ -85,6 +123,16 @@ impl std::fmt::Display for ParseTeamIdsError {
 }
 
 impl std::error::Error for ParseTeamIdsError {}
+
+impl TeamIdCollection {
+    pub fn includes_team(&self, team_id: i32) -> bool {
+        match self {
+            TeamIdCollection::All => true,
+            TeamIdCollection::None => false,
+            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
+        }
+    }
+}
 
 impl FromStr for TeamIdCollection {
     type Err = ParseTeamIdsError;
@@ -165,6 +213,35 @@ impl FromStr for FlagDefinitionsRateLimits {
     }
 }
 
+/// Comma-separated list of team IDs that bypass rate limiting.
+/// Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS setting.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RateLimitingAllowList(pub HashSet<TeamId>);
+
+impl FromStr for RateLimitingAllowList {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Ok(RateLimitingAllowList::default());
+        }
+
+        let mut team_ids = HashSet::new();
+        for part in s.split(',').map(|p| p.trim()) {
+            if part.is_empty() {
+                continue;
+            }
+            let team_id = part.parse::<TeamId>().map_err(|e| {
+                format!("Invalid team ID '{part}' in RATE_LIMITING_ALLOW_LIST_TEAMS: {e}")
+            })?;
+            team_ids.insert(team_id);
+        }
+
+        Ok(RateLimitingAllowList(team_ids))
+    }
+}
+
 /// Per-token rate limit overrides for the /flags endpoint.
 /// Parses JSON from FLAGS_TOKEN_RATE_LIMIT_OVERRIDES environment variable.
 /// Format: {"token_string": "rate_string", ...}
@@ -225,12 +302,13 @@ pub struct Config {
     #[envconfig(default = "")]
     pub behavioral_cohorts_read_database_url: String,
 
-    // Feature gate for realtime cohort evaluation. When false (default), the realtime
-    // cohort block in prepare_flag_evaluation_state is skipped entirely, even if the
-    // behavioral cohorts DB is configured and cohorts with CohortType::Realtime exist.
-    // Set to true to enable realtime cohort membership lookups on the hot path.
-    #[envconfig(from = "ENABLE_REALTIME_COHORT_EVALUATION", default = "false")]
-    pub enable_realtime_cohort_evaluation: bool,
+    // Team-scoped gate for realtime cohort evaluation. When "none" (default), the
+    // realtime cohort block in prepare_flag_evaluation_state is skipped entirely, even
+    // if the behavioral cohorts DB is configured and cohorts with CohortType::Realtime
+    // exist. Set to "all", specific team IDs, or ranges to enable realtime cohort
+    // membership lookups on the hot path for those teams.
+    #[envconfig(from = "REALTIME_COHORT_EVALUATION_TEAM_IDS", default = "none")]
+    pub realtime_cohort_evaluation_team_ids: TeamIdCollection,
 
     // Cache TTL for realtime cohort membership lookups (seconds).
     #[envconfig(from = "COHORT_MEMBERSHIP_CACHE_TTL_SECONDS", default = "60")]
@@ -368,6 +446,12 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub cohort_cache_monitor_interval_secs: u64,
 
+    // How often to report flag definitions cache metrics (seconds)
+    // - Decrease for more granular monitoring (e.g., 10-15)
+    // - Increase to reduce metric volume (e.g., 60-120)
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_MONITOR_INTERVAL_SECS", default = "30")]
+    pub flag_definitions_cache_monitor_interval_secs: u64,
+
     // Pool utilization percentage that triggers warnings (0.0-1.0)
     // - Lower values (e.g., 0.7) provide earlier warnings
     // - Higher values (e.g., 0.9) reduce alert noise
@@ -379,12 +463,6 @@ pub struct Config {
     // - Higher values reduce Redis queries but may allow brief overages
     #[envconfig(default = "5")]
     pub billing_limiter_cache_ttl_secs: u64,
-
-    // Health check registration interval (seconds)
-    // - Should be less than your orchestrator's liveness probe timeout
-    // - Common values: 10-30 for Kubernetes environments
-    #[envconfig(default = "30")]
-    pub health_check_interval_secs: u64,
 
     // OpenTelemetry exporter timeout (seconds)
     // - Increase if OTEL endpoint is slow or remote
@@ -424,6 +502,23 @@ pub struct Config {
 
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
+
+    /// Maximum memory for the in-memory flag definitions cache (deserialized + regex-compiled).
+    /// Default: 134217728 bytes (128 MB)
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_CAPACITY_BYTES", default = "134217728")]
+    pub flag_definitions_cache_capacity_bytes: u64,
+
+    /// TTL for in-memory flag definitions cache entries.
+    /// Etag-keyed entries ensure correctness, so TTL is purely for memory reclamation.
+    /// Default: 90 seconds
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_TTL_SECONDS", default = "90")]
+    pub flag_definitions_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_TTL_SECONDS", default = "300")]
+    pub group_type_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "GROUP_TYPE_CACHE_MAX_ENTRIES", default = "50000")]
+    pub group_type_cache_max_entries: u64,
 
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
@@ -470,6 +565,11 @@ pub struct Config {
     // Example: {"123": "1200/minute", "456": "2400/hour"}
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
+
+    // Teams that bypass rate limiting entirely (comma-separated team IDs)
+    // Matches Django's RATE_LIMITING_ALLOW_LIST_TEAMS behavior
+    #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
+    pub rate_limiting_allow_list_teams: RateLimitingAllowList,
 
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
@@ -555,6 +655,11 @@ pub struct Config {
     #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "true")]
     pub optimize_experience_continuity_lookups: FlexBool,
 
+    // Internal request token for non-billable requests
+    // When provided via Authorization header and matches this token, the request is not billed
+    #[envconfig(from = "INTERNAL_REQUEST_TOKEN")]
+    pub internal_request_token: Option<String>,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -605,11 +710,59 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_CAPACITY", default = "10000")]
     pub team_negative_cache_capacity: u64,
 
-    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
+
+    // TTL for the Redis-backed per-token auth cache (positive hits).
+    // Starts at 5 minutes as a conservative default; increase once invalidation
+    // signals are proven reliable in production.
+    #[envconfig(from = "AUTH_TOKEN_CACHE_TTL_SECONDS", default = "300")]
+    pub auth_token_cache_ttl_seconds: u64,
+
+    // When true, skip the PostgreSQL fallback for team token lookups.
+    // HyperCache (Redis/S3) is treated as the source of truth — a cache
+    // miss means the token is invalid. Transient errors (Redis/S3 timeouts)
+    // bypass the fallback entirely and are not negative-cached.
+    // Gated for safe rollout.
+    #[envconfig(from = "SKIP_PG_TEAM_FALLBACK", default = "false")]
+    pub skip_pg_team_fallback: FlexBool,
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
+
+    // Selects the in-process billing aggregator mode. See `AggregatorModeConfig`.
+    // Defaults to `shadow` to match what's deployed in dev/prod-eu/prod-us today,
+    // so swapping the old `FLAGS_BILLING_AGGREGATOR_ENABLED=true` env var for
+    // unsetting it leaves runtime behavior unchanged. `default_test_config` keeps
+    // `Off` so tests that don't opt in don't start the aggregator.
+    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_MODE", default = "shadow")]
+    pub billing_aggregator_mode: AggregatorModeConfig,
+
+    // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
+    // rejects zero values at boot — see the module docs on
+    // `src/billing/aggregator.rs` for the durability trade-offs that hang
+    // off these knobs.
+    //
+    // How often the flusher drains the in-memory map (milliseconds). Must
+    // stay well below `CACHE_BUCKET_SIZE` (120s) so bucket rollover doesn't
+    // collapse counts. Also directly bounds the worst-case crash-loss
+    // window: a SIGKILL or OOM-kill past the shutdown grace period loses
+    // up to one interval of records per pod.
+    #[envconfig(from = "FLAGS_BILLING_FLUSH_INTERVAL_MS", default = "10000")]
+    pub billing_flush_interval_ms: u64,
+
+    // Safety cap on pending entries — tripwire, not a working-set estimate.
+    #[envconfig(from = "FLAGS_BILLING_MAX_PENDING_ENTRIES", default = "500000")]
+    pub billing_max_pending_entries: usize,
+
+    // Maximum `HIncrBy` commands per pipeline round-trip during a flush.
+    #[envconfig(from = "FLAGS_BILLING_PER_FLUSH_BATCH_SIZE", default = "200")]
+    pub billing_per_flush_batch_size: usize,
+
+    // Upper bound on the graceful-shutdown flush (milliseconds). Should stay
+    // comfortably within the pod's `terminationGracePeriodSeconds`.
+    #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
+    pub billing_shutdown_flush_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -744,7 +897,7 @@ impl Config {
                 .to_string(),
             behavioral_cohorts_read_database_url:
                 "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
-            enable_realtime_cohort_evaluation: false,
+            realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
@@ -762,15 +915,19 @@ impl Config {
             writer_statement_timeout_ms: 3000,
             db_monitor_interval_secs: 30,
             cohort_cache_monitor_interval_secs: 30,
+            flag_definitions_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
-            health_check_interval_secs: 30,
             otel_export_timeout_secs: 3,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdCollection::All,
             cohort_cache_capacity_bytes: 268_435_456, // 256 MB
+            flag_definitions_cache_capacity_bytes: 134_217_728, // 128 MB
+            flag_definitions_cache_ttl_seconds: 90,
             cache_ttl_seconds: 300,
+            group_type_cache_ttl_seconds: 300,
+            group_type_cache_max_entries: 50_000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 345600,
@@ -784,6 +941,7 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
@@ -811,8 +969,16 @@ impl Config {
             skip_writes: FlexBool(false),
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
-            team_negative_cache_ttl_seconds: 300,
+            team_negative_cache_ttl_seconds: 30,
+            skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
+            auth_token_cache_ttl_seconds: 300,
+            internal_request_token: None,
+            billing_aggregator_mode: AggregatorModeConfig::Off,
+            billing_flush_interval_ms: 10_000,
+            billing_max_pending_entries: 500_000,
+            billing_per_flush_batch_size: 200,
+            billing_shutdown_flush_timeout_ms: 15_000,
         }
     }
 
@@ -880,14 +1046,6 @@ impl Config {
         }
     }
 
-    pub fn is_team_excluded(&self, team_id: i32, teams_to_exclude: &TeamIdCollection) -> bool {
-        match teams_to_exclude {
-            TeamIdCollection::All => true,
-            TeamIdCollection::None => false,
-            TeamIdCollection::TeamIds(ids) => ids.contains(&team_id),
-        }
-    }
-
     /// Check if persons database routing is enabled
     pub fn is_persons_db_routing_enabled(&self) -> bool {
         !self.persons_read_database_url.is_empty() && !self.persons_write_database_url.is_empty()
@@ -921,6 +1079,7 @@ pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_co
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn test_default_config() {
@@ -958,6 +1117,7 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert_eq!(config.skip_writes, FlexBool(false));
+        assert_eq!(config.billing_aggregator_mode, AggregatorModeConfig::Shadow);
     }
 
     #[test]
@@ -1017,6 +1177,40 @@ mod tests {
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
+        );
+    }
+
+    #[rstest]
+    #[case::off("off", AggregatorModeConfig::Off)]
+    #[case::shadow("shadow", AggregatorModeConfig::Shadow)]
+    #[case::authoritative("authoritative", AggregatorModeConfig::Authoritative)]
+    #[case::trim_and_lowercase("  SHADOW  ", AggregatorModeConfig::Shadow)]
+    fn aggregator_mode_config_parses_valid_values(
+        #[case] input: &str,
+        #[case] expected: AggregatorModeConfig,
+    ) {
+        assert_eq!(input.parse::<AggregatorModeConfig>().unwrap(), expected);
+    }
+
+    #[test]
+    fn aggregator_mode_config_rejects_invalid_value() {
+        let err = "yes".parse::<AggregatorModeConfig>().unwrap_err();
+        assert!(
+            err.contains("Invalid FLAGS_BILLING_AGGREGATOR_MODE"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn aggregator_mode_config_into_runtime_maps_correctly() {
+        assert_eq!(AggregatorModeConfig::Off.into_runtime(), None);
+        assert_eq!(
+            AggregatorModeConfig::Shadow.into_runtime(),
+            Some(AggregatorMode::Shadow)
+        );
+        assert_eq!(
+            AggregatorModeConfig::Authoritative.into_runtime(),
+            Some(AggregatorMode::Authoritative)
         );
     }
 
@@ -1125,6 +1319,52 @@ mod tests {
         let limits: FlagDefinitionsRateLimits = json.parse().unwrap();
         assert_eq!(limits.0.len(), 1);
         assert_eq!(limits.0.get(&123), Some(&"600/minute".to_string()));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_empty() {
+        let list: RateLimitingAllowList = "".parse().unwrap();
+        assert!(list.0.is_empty());
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_single_id() {
+        let list: RateLimitingAllowList = "23047".parse().unwrap();
+        assert_eq!(list.0.len(), 1);
+        assert!(list.0.contains(&23047));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_multiple_ids() {
+        let list: RateLimitingAllowList = "23047,12345,67890".parse().unwrap();
+        assert_eq!(list.0.len(), 3);
+        assert!(list.0.contains(&23047));
+        assert!(list.0.contains(&12345));
+        assert!(list.0.contains(&67890));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_whitespace() {
+        let list: RateLimitingAllowList = " 23047 , 12345 ".parse().unwrap();
+        assert_eq!(list.0.len(), 2);
+        assert!(list.0.contains(&23047));
+        assert!(list.0.contains(&12345));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_trailing_comma() {
+        let list: RateLimitingAllowList = "23047,".parse().unwrap();
+        assert_eq!(list.0.len(), 1);
+        assert!(list.0.contains(&23047));
+    }
+
+    #[test]
+    fn test_rate_limiting_allow_list_invalid_id() {
+        let result: Result<RateLimitingAllowList, _> = "23047,abc".parse();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Invalid team ID 'abc' in RATE_LIMITING_ALLOW_LIST_TEAMS"));
     }
 
     #[test]

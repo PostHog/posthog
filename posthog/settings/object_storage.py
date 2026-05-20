@@ -6,7 +6,7 @@ from posthog.settings.base_variables import DEBUG, TEST
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
-    OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://localhost:19000")
+    OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")
     OBJECT_STORAGE_ACCESS_KEY_ID: Optional[str] = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "object_storage_root_user")
     OBJECT_STORAGE_SECRET_ACCESS_KEY: Optional[str] = os.getenv(
         "OBJECT_STORAGE_SECRET_ACCESS_KEY", "object_storage_root_password"
@@ -33,6 +33,7 @@ OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
 )
 OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER = os.getenv("OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER", "query_cache")
 OBJECT_STORAGE_TASKS_FOLDER = os.getenv("OBJECT_STORAGE_TASKS_FOLDER", "tasks")
+OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER = os.getenv("OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER", "legal_documents")
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
 # Query cache specific bucket - falls back to general object storage bucket if not set
@@ -40,3 +41,8 @@ QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUC
 
 # Video segment clustering workflow bucket - should have a 24h lifecycle rule for automatic cleanup
 VIDEO_SEGMENT_CLUSTERING_S3_BUCKET = os.getenv("VIDEO_SEGMENT_CLUSTERING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+
+# Billing usage report bucket — holds the daily JSONL chunks the billing
+# service consumes. Falls back to the general bucket if not set so dev /
+# self-hosted continue to work without extra configuration.
+BILLING_USAGE_REPORTS_S3_BUCKET = os.getenv("BILLING_USAGE_REPORTS_S3_BUCKET") or OBJECT_STORAGE_BUCKET

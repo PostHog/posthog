@@ -80,7 +80,9 @@ export interface InsightCardProps extends Resizeable {
     rename?: () => void
     duplicate?: () => void
     setOverride?: () => void
-    moveToDashboard?: (dashboard: DashboardBasicType) => void
+    moveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    /** Copy this insight tile to another dashboard (same insight; requires editor on destination). */
+    copyToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
     placement: DashboardPlacement | 'SavedInsightGrid'
@@ -134,6 +136,7 @@ function InsightCardInternal(
         duplicate,
         setOverride,
         moveToDashboard,
+        copyToDashboard,
         className,
         moreButtons,
         placement,
@@ -269,6 +272,7 @@ function InsightCardInternal(
                         duplicate={duplicate}
                         setOverride={setOverride}
                         moveToDashboard={moveToDashboard}
+                        copyToDashboard={copyToDashboard}
                         areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}
                         showEditingControls={showEditingControls}

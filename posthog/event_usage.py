@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from django.contrib.auth.models import AnonymousUser
 
 import posthoganalytics
+from opentelemetry import trace
 from rest_framework.authentication import SessionAuthentication
 
 from posthog.models import Organization, User
@@ -311,16 +312,18 @@ _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
-    user_agent = request.META.get("HTTP_USER_AGENT", "") or ""
+    user_agent = request.headers.get("user-agent", "") or ""
     if not isinstance(user_agent, str):
         user_agent = ""
+    # Wizard, posthog-code etc. all wrap MCP — their UA tokens must win over the
+    # X-PostHog-Client header so the source reflects the outer caller.
     if "posthog/terraform-provider" in user_agent:
         return EventSource.TERRAFORM
     if "posthog/wizard" in user_agent:
         return EventSource.WIZARD
     if _POSTHOG_CODE_UA_RE.search(user_agent):
         return EventSource.POSTHOG_CODE
-    if "posthog/mcp-server" in user_agent:
+    if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return EventSource.MCP
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
@@ -374,6 +377,9 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
     }
 
 
+_tracer = trace.get_tracer(__name__)
+
+
 def report_user_action(
     user: User | AnonymousUser,
     event: str,
@@ -383,6 +389,7 @@ def report_user_action(
     organization: Optional[Organization] = None,
     request: Optional["Request"] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    send_feature_flags: bool = False,
 ):
     # isinstance works through Django's SimpleLazyObject because it proxies __class__
     if not isinstance(user, User) or not user.distinct_id:
@@ -397,12 +404,14 @@ def report_user_action(
         properties = {**analytics_props, **properties}
     if user.email:
         properties["$set_once"] = {"email": user.email}
-    posthoganalytics.capture(
-        distinct_id=user.distinct_id,
-        event=event,
-        properties=properties,
-        groups=groups(organization or user.current_organization, team or user.current_team),
-    )
+    with _tracer.start_as_current_span("report_user_action"):
+        posthoganalytics.capture(
+            distinct_id=user.distinct_id,
+            event=event,
+            properties=properties,
+            groups=groups(organization or user.current_organization, team or user.current_team),
+            send_feature_flags=send_feature_flags,
+        )
 
 
 def report_user_or_team_action(
@@ -451,6 +460,33 @@ def report_organization_deleted(user: User, organization: Organization):
         properties=organization.get_analytics_metadata(),
         groups=groups(organization),
     )
+
+
+def report_organization_deletion_initiated(user: User, organization: Organization):
+    if not user.distinct_id:
+        return
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="organization deletion initiated",
+        properties=organization.get_analytics_metadata(),
+        groups=groups(organization),
+    )
+
+
+def report_organization_deletion_completed(user_id: int, organization_id: str) -> None:
+    from posthog.models import User as UserModel
+    from posthog.ph_client import ph_scoped_capture
+
+    user = UserModel.objects.filter(id=user_id).first()
+    if not user or not user.distinct_id:
+        return
+    with ph_scoped_capture() as capture_ph_event:
+        capture_ph_event(
+            distinct_id=user.distinct_id,
+            event="organization deletion completed",
+            properties={"organization_id": organization_id},
+            groups={"instance": SITE_URL, "organization": organization_id},
+        )
 
 
 def report_user_deleted_account(user: User):

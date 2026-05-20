@@ -6,9 +6,8 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::CommonFrameMetadata,
-    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
@@ -178,7 +177,6 @@ impl RawJSFrame {
 impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
     fn from(src: (&RawJSFrame, SourceLocation)) -> Self {
         let (raw_frame, token) = src;
-        metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         let resolved_name = match token.scope() {
             // The `$async$` prefix is a Dart/Flutter compiler artifact that appears in
@@ -221,6 +219,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&token),
@@ -240,8 +239,6 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
 // mark it as a failed resolve and emit an "unresolved" frame
 impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
     fn from((raw_frame, err, location): (&RawJSFrame, JsResolveErr, &FrameLocation)) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
-
         // TODO - extremely rough
         let was_minified = match err {
             JsResolveErr::NoSourceUrl | JsResolveErr::NoUrlOrChunkId => false, // This frame's `source` didn't exist
@@ -250,11 +247,23 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             _ => true,
         };
 
+        let resolved = !was_minified;
+
+        // Only record a frame-resolution-failure when the frame is actually unresolved —
+        // for `NoUrlOrChunkId` / `NoSourceUrl` (and short-line `NoSourcemap`) the heuristic
+        // above keeps the original function name and marks the frame `resolved: true`, so the
+        // dispatcher will already emit `FRAME_RESOLVED`. Firing here too would double-count.
+        if !resolved {
+            record_frame_resolution_failure("javascript", err.metric_reason(), &err);
+        }
+
         let resolved_name = if was_minified {
             None
         } else {
             Some(raw_frame.fn_name.clone())
         };
+
+        let resolve_failure = Some(err.to_string());
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -265,11 +274,11 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
-            resolved: !was_minified,
+            resolved,
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
-            resolve_failure: Some(err.to_string()),
+            resolve_failure,
             junk_drawer: None,
             code_variables: None,
             context: None,
@@ -289,8 +298,6 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
 // probably a native function or something else weird
 impl From<&RawJSFrame> for Frame {
     fn from(raw_frame: &RawJSFrame) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
-
         // If this is a source_url: <anonymous> frame, we always assume it's not in_app
         let is_anon = raw_frame
             .source_url
@@ -311,6 +318,7 @@ impl From<&RawJSFrame> for Frame {
             lang: "javascript".to_string(),
             resolved: true, // Without location information, we're assuming this is not minified
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: None,

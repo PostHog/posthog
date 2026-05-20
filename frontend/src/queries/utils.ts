@@ -71,6 +71,7 @@ import {
     TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTrendsQuery,
@@ -165,6 +166,44 @@ export function isDataVisualizationNode(node?: Record<string, any> | null): node
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
+export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
+    if (!isDataTableNodeWithHogQLQuery(node)) {
+        return node
+    }
+
+    const {
+        kind: _kind,
+        source,
+        columns,
+        hiddenColumns: legacyHiddenColumns,
+        pinnedColumns: legacyPinnedColumns,
+        ...rest
+    } = node
+    const hiddenColumns = new Set(legacyHiddenColumns ?? [])
+    const visibleColumns = columns?.filter((column) => !hiddenColumns.has(column))
+    const tableSettingsColumns = visibleColumns?.length ? visibleColumns.map((column) => ({ column })) : undefined
+    const pinnedColumns = legacyPinnedColumns?.filter((column) => !hiddenColumns.has(column))
+    const mappedTableSettings =
+        tableSettingsColumns || pinnedColumns?.length
+            ? {
+                  ...(tableSettingsColumns ? { columns: tableSettingsColumns } : {}),
+                  ...(pinnedColumns?.length ? { pinnedColumns } : {}),
+              }
+            : undefined
+    const tableSettings = {
+        ...(rest as Partial<DataVisualizationNode>).tableSettings,
+        ...mappedTableSettings,
+    }
+
+    return {
+        ...rest,
+        kind: NodeKind.DataVisualizationNode,
+        source: source as HogQLQuery,
+        display: ChartDisplayType.ActionsTable,
+        ...(Object.keys(tableSettings).length ? { tableSettings } : {}),
+    } as DataVisualizationNode
+}
+
 export function isSavedInsightNode(node?: Record<string, any> | null): node is SavedInsightNode {
     return node?.kind === NodeKind.SavedInsightNode
 }
@@ -251,6 +290,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isWebNotableChangesQuery(node?: Record<string, any> | null): node is WebNotableChangesQuery {
+    return node?.kind === NodeKind.WebNotableChangesQuery
 }
 
 export function isWebTrendsQuery(node?: Record<string, any> | null): node is WebTrendsQuery {
@@ -381,7 +424,7 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
         isActorsQuery(query) &&
         isInsightActorsQuery(query.source) &&
         isRetentionQuery(query.source.source) &&
-        query.source.source.aggregation_group_type_index !== undefined
+        query.source.source.aggregation_group_type_index != null
     )
 }
 
@@ -393,8 +436,9 @@ export function shouldQueryBeAsync(query: Node): boolean {
     return (
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
-        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
-        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+        isTracesQuery(query) ||
+        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
+        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
     )
 }
 
@@ -660,6 +704,18 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
 }
 
+/** Quote each segment of a dotted HogQL reference independently. */
+export function escapeDottedHogQLIdentifier(identifier: string): string {
+    if (isQuoted(identifier) || !identifier.includes('.')) {
+        return escapePropertyAsHogQLIdentifier(identifier)
+    }
+
+    return identifier
+        .split('.')
+        .map((segment) => escapePropertyAsHogQLIdentifier(segment))
+        .join('.')
+}
+
 export function taxonomicEventFilterToHogQL(
     groupType: TaxonomicFilterGroupType,
     value: TaxonomicFilterValue
@@ -811,15 +867,28 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQue
 hogql.identifier = hogQLIdentifier
 hogql.raw = hogQLRaw
 
-/**
- * Wether we have a valid `breakdownFilter` or not.
- */
-export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
-    return !!(
-        breakdownFilter &&
-        ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
-            (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
-    )
+type SingleBreakdownFilter = BreakdownFilter & {
+    breakdown: NonNullable<BreakdownFilter['breakdown']>
+}
+
+type MultiBreakdownFilter = BreakdownFilter & {
+    breakdowns: NonNullable<BreakdownFilter['breakdowns']>
+}
+
+type PopulatedBreakdownFilter = SingleBreakdownFilter | MultiBreakdownFilter
+
+export function hasSingleBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is SingleBreakdownFilter {
+    return breakdownFilter?.breakdown != null
+}
+
+export function hasMultiBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is MultiBreakdownFilter {
+    return (breakdownFilter?.breakdowns?.length ?? 0) > 0
+}
+
+export function hasBreakdownFilter(
+    breakdownFilter?: BreakdownFilter | null
+): breakdownFilter is PopulatedBreakdownFilter {
+    return hasSingleBreakdown(breakdownFilter) || hasMultiBreakdown(breakdownFilter)
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {

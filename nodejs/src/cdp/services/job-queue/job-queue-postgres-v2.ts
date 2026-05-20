@@ -1,5 +1,7 @@
 import { chunk } from 'lodash'
+import { Gauge } from 'prom-client'
 
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/utils/json-parse'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
@@ -8,6 +10,11 @@ import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
+
+const pendingJobsGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_pending_jobs',
+    help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
+})
 
 /**
  * State blob stored in the single `state` BYTEA column.
@@ -74,9 +81,11 @@ export class CyclotronJobQueuePostgresV2 {
                 invocations.push(v2JobToInvocation(job))
             }
 
+            pendingJobsGauge.set(this.pendingJobs.size)
+
             await consumeBatch(invocations)
 
-            // TODO: Some sanity check that all pending jobs are acked or failed
+            pendingJobsGauge.set(this.pendingJobs.size)
         })
     }
 
@@ -112,10 +121,28 @@ export class CyclotronJobQueuePostgresV2 {
         try {
             const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
             if (this.config.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-                await Promise.all(chunked.map((batch) => this.manager!.bulkCreateJobs(batch)))
+                await Promise.all(
+                    chunked.map((batch) =>
+                        instrumentFn(
+                            {
+                                key: 'cyclotron_v2.bulk_create_jobs',
+                                sendException: false,
+                                getLoggingContext: () => ({ batchSize: batch.length, parallel: true }),
+                            },
+                            () => this.manager!.bulkCreateJobs(batch)
+                        )
+                    )
+                )
             } else {
                 for (const batch of chunked) {
-                    await this.manager.bulkCreateJobs(batch)
+                    await instrumentFn(
+                        {
+                            key: 'cyclotron_v2.bulk_create_jobs',
+                            sendException: false,
+                            getLoggingContext: () => ({ batchSize: batch.length, parallel: false }),
+                        },
+                        () => this.manager!.bulkCreateJobs(batch)
+                    )
                 }
             }
         } catch (e) {
@@ -146,7 +173,13 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.ack()
                 } else {
                     const stateBuffer = serializeState(result.invocation)
-                    await job.retry({ state: stateBuffer })
+                    await job.reschedule({
+                        state: stateBuffer,
+                        scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                        distinctId: extractDistinctId(result.invocation),
+                        personId: extractPersonId(result.invocation),
+                        actionId: extractActionId(result.invocation),
+                    })
                 }
             })
         )
@@ -202,6 +235,7 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
+
     return {
         id: invocation.id,
         teamId: invocation.teamId,
@@ -211,7 +245,32 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
         scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
         parentRunId: invocation.parentRunId ?? null,
         state,
+        distinctId: extractDistinctId(invocation),
+        personId: extractPersonId(invocation),
+        actionId: extractActionId(invocation),
     }
+}
+
+type LookupColumnSource = {
+    person?: { id?: string }
+    state?: {
+        event?: { distinct_id?: string }
+        personId?: string
+        currentAction?: { id?: string }
+    } | null
+}
+
+export function extractDistinctId(invocation: CyclotronJobInvocation): string | null {
+    return (invocation as LookupColumnSource).state?.event?.distinct_id || null
+}
+
+export function extractPersonId(invocation: CyclotronJobInvocation): string | null {
+    const inv = invocation as LookupColumnSource
+    return inv.person?.id || inv.state?.personId || null
+}
+
+export function extractActionId(invocation: CyclotronJobInvocation): string | null {
+    return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
 function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {

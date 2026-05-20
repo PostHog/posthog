@@ -1,15 +1,21 @@
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use posthog_symbol_data::{read_symbol_data, ProguardMapping};
+use posthog_symbol_data::{read_symbol_data_with_byte_count, ProguardMapping};
 
 use crate::{
     error::{ProguardError, ResolveError},
-    symbol_store::{Fetcher, Parser},
+    symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
 pub struct FetchedMapping {
-    inner: ProguardMapping,
+    cache_bytes: Vec<u8>,
+}
+
+impl Countable for FetchedMapping {
+    fn byte_count(&self) -> usize {
+        self.cache_bytes.len()
+    }
 }
 
 pub struct ProguardProvider {}
@@ -40,31 +46,75 @@ impl Parser for ProguardProvider {
     type Err = ResolveError;
 
     async fn parse(&self, source: Self::Source) -> Result<FetchedMapping, ResolveError> {
-        let map: ProguardMapping = read_symbol_data(source).map_err(ProguardError::DataError)?;
-        Ok(FetchedMapping::new(map)?)
+        let (map, decompressed_bytes): (ProguardMapping, usize) =
+            read_symbol_data_with_byte_count(source).map_err(ProguardError::DataError)?;
+        Ok(FetchedMapping::new(map, decompressed_bytes)?)
     }
 }
 
 impl FetchedMapping {
-    pub fn new(inner: ProguardMapping) -> Result<Self, ProguardError> {
-        // Map construction is basically free, so we hold onto the underlying data
-        // and re-construct it as needed
+    pub fn new(inner: ProguardMapping, _decompressed_bytes: usize) -> Result<Self, ProguardError> {
         let mapping = proguard::ProguardMapping::new(inner.content.as_bytes());
         if !mapping.is_valid() {
             return Err(ProguardError::InvalidMapping);
         }
-        Ok(Self { inner })
+
+        let mut cache_bytes = Vec::new();
+        proguard::ProguardCache::write(&mapping, &mut cache_bytes)
+            .map_err(|_| ProguardError::InvalidMapping)?;
+        proguard::ProguardCache::parse(&cache_bytes).map_err(|_| ProguardError::InvalidMapping)?;
+
+        Ok(Self { cache_bytes })
     }
 
-    pub fn get_mapper<'a>(&'a self) -> proguard::ProguardMapper<'a> {
-        let mapping = proguard::ProguardMapping::new(self.inner.content.as_bytes());
-        let mapper = proguard::ProguardMapper::new(mapping);
-        mapper
+    pub fn get_cache<'a>(&'a self) -> Result<proguard::ProguardCache<'a>, ProguardError> {
+        proguard::ProguardCache::parse(&self.cache_bytes).map_err(|_| ProguardError::InvalidMapping)
+    }
+
+    pub fn remap_class(&self, class: &str) -> Result<Option<String>, ProguardError> {
+        Ok(self
+            .get_cache()?
+            .remap_class(class)
+            .map(ToString::to_string))
     }
 }
 
 impl Display for ProguardRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ProguardRef")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use posthog_symbol_data::write_symbol_data;
+
+    use super::*;
+
+    const PROGUARD_MAP: &str = include_str!("../../tests/static/proguard/mapping_example.txt");
+
+    #[test]
+    fn fetched_mapping_uses_proguard_cache_for_lookups() {
+        let source = write_symbol_data(ProguardMapping {
+            content: PROGUARD_MAP.to_string(),
+        })
+        .unwrap();
+        let (mapping, byte_count): (ProguardMapping, usize) =
+            read_symbol_data_with_byte_count(source).unwrap();
+        let fetched = FetchedMapping::new(mapping, byte_count).unwrap();
+
+        assert_eq!(
+            fetched.remap_class("a1.c").unwrap(),
+            Some("com.posthog.android.sample.MyCustomException3".to_string())
+        );
+
+        let cache = fetched.get_cache().unwrap();
+        let frame = proguard::StackFrame::with_file("a1.d", "onClick", 14, "SourceFile");
+        let remapped: Vec<_> = cache.remap_frame(&frame).collect();
+
+        assert!(remapped.iter().any(|frame| {
+            frame.class() == "com.posthog.android.sample.MyCustomException3"
+                && frame.method() == "<init>"
+        }));
     }
 }

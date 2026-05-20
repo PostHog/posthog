@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
+import { createMockPipeline } from '../../../tests/helpers/mock-pipeline'
 import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from './filter-map-batch-pipeline'
-import { createContext, createNewBatchPipeline } from './helpers'
-import { dlq, drop, ok, redirect } from './results'
+import { createContext, createNewBatchPipeline, createOkContext } from './helpers'
+import { dlq, drop, ok } from './results'
 
 describe('FilterMapBatchPipeline', () => {
     let message1: Message
@@ -35,7 +36,7 @@ describe('FilterMapBatchPipeline', () => {
             const subPipeline = createNewBatchPipeline<string>().build()
 
             const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
-            const testBatch = [createContext(ok('test'), context1)]
+            const testBatch = [createOkContext('test', context1)]
 
             pipeline.feed(testBatch)
 
@@ -58,7 +59,7 @@ describe('FilterMapBatchPipeline', () => {
             const subPipeline = createNewBatchPipeline<string>().build()
 
             const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
-            pipeline.feed([createContext(ok('hello'), context1), createContext(ok('world'), context2)])
+            pipeline.feed([createOkContext('hello', context1), createOkContext('world', context2)])
 
             const result = await pipeline.next()
 
@@ -71,13 +72,11 @@ describe('FilterMapBatchPipeline', () => {
         it.each([
             ['dlq', dlq<string>('test error', new Error('test'))],
             ['drop', drop<string>('test drop')],
-            ['redirect', redirect<string>('test redirect', 'other-topic')],
         ])('should pass %s results through unchanged', async (_name, nonOkResult) => {
-            const previousPipeline = createNewBatchPipeline<string>().build()
+            const mockPrevious = createMockPipeline<string>([createContext(nonOkResult, context1)])
             const subPipeline = createNewBatchPipeline<string>().build()
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
-            pipeline.feed([createContext(nonOkResult, context1)])
+            const pipeline = new FilterMapBatchPipeline(mockPrevious, identityMapping, subPipeline)
 
             const result = await pipeline.next()
 
@@ -85,16 +84,16 @@ describe('FilterMapBatchPipeline', () => {
         })
 
         it('should return non-OK results first, then subpipeline results on next call', async () => {
-            const previousPipeline = createNewBatchPipeline<string>().build()
             const subPipeline = createNewBatchPipeline<string>().build()
             const dlqResult = dlq<string>('test error', new Error('test'))
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
-            pipeline.feed([
-                createContext(ok('hello'), context1),
+            const mockPrevious = createMockPipeline<string>([
+                createOkContext('hello', context1),
                 createContext(dlqResult, context2),
-                createContext(ok('world'), context3),
+                createOkContext('world', context3),
             ])
+
+            const pipeline = new FilterMapBatchPipeline(mockPrevious, identityMapping, subPipeline)
 
             const result1 = await pipeline.next()
             expect(result1).toEqual([{ result: dlqResult, context: expect.objectContaining({ message: message2 }) }])
@@ -122,7 +121,7 @@ describe('FilterMapBatchPipeline', () => {
             })
 
             const pipeline = new FilterMapBatchPipeline(previousPipeline, uppercaseMapping, subPipeline)
-            pipeline.feed([createContext(ok('hello'), context1)])
+            pipeline.feed([createOkContext('hello', context1)])
 
             const result = await pipeline.next()
 
@@ -148,7 +147,7 @@ describe('FilterMapBatchPipeline', () => {
             })
 
             const pipeline = new FilterMapBatchPipeline(previousPipeline, contextEnrichingMapping, subPipeline)
-            pipeline.feed([createContext(ok({ value: 'test', extra: 42 }), context1)])
+            pipeline.feed([createOkContext({ value: 'test', extra: 42 }, context1)])
 
             const result = await pipeline.next()
 
@@ -160,7 +159,6 @@ describe('FilterMapBatchPipeline', () => {
         it('should preserve original context for non-OK results', async () => {
             type InputValue = { value: string; extra: number }
 
-            const previousPipeline = createNewBatchPipeline<InputValue>().build()
             const subPipeline = createNewBatchPipeline<InputValue, { message: Message; extra: number }>().build()
             const dlqResult = dlq<InputValue>('test error', new Error('test'))
             const contextEnrichingMapping: FilterMapMappingFunction<
@@ -176,8 +174,9 @@ describe('FilterMapBatchPipeline', () => {
                 },
             })
 
-            const pipeline = new FilterMapBatchPipeline(previousPipeline, contextEnrichingMapping, subPipeline)
-            pipeline.feed([createContext(dlqResult, context1)])
+            const mockPrevious = createMockPipeline<InputValue>([createContext(dlqResult, context1)])
+
+            const pipeline = new FilterMapBatchPipeline(mockPrevious, contextEnrichingMapping, subPipeline)
 
             const result = await pipeline.next()
 
@@ -193,13 +192,13 @@ describe('FilterMapBatchPipeline', () => {
 
             const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
 
-            pipeline.feed([createContext(ok('batch1-item'), context1)])
+            pipeline.feed([createOkContext('batch1-item', context1)])
             const result1 = await pipeline.next()
             expect(result1).toEqual([
                 { result: ok('batch1-item'), context: expect.objectContaining({ message: message1 }) },
             ])
 
-            pipeline.feed([createContext(ok('batch2-item'), context2)])
+            pipeline.feed([createOkContext('batch2-item', context2)])
             const result2 = await pipeline.next()
             expect(result2).toEqual([
                 { result: ok('batch2-item'), context: expect.objectContaining({ message: message2 }) },
@@ -222,7 +221,7 @@ describe('FilterMapBatchPipeline', () => {
             }
 
             const pipeline = new FilterMapBatchPipeline(previousPipeline, throwingMapping, subPipeline)
-            pipeline.feed([createContext(ok('hello'), context1)])
+            pipeline.feed([createOkContext('hello', context1)])
 
             await expect(pipeline.next()).rejects.toThrow('mapping failed')
         })
@@ -295,7 +294,7 @@ describe('FilterMapBatchPipeline', () => {
             }
 
             const pipeline = new FilterMapBatchPipeline(previousPipeline, identityMapping, subPipeline)
-            pipeline.feed([createContext(ok('item1'), context1), createContext(ok('item2'), context2)])
+            pipeline.feed([createOkContext('item1', context1), createOkContext('item2', context2)])
 
             const result1 = await pipeline.next()
             expect(result1).toHaveLength(1)

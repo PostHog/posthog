@@ -1,8 +1,14 @@
 import { ReactNode, createElement, useMemo } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCommit, IconGitBranch, IconGitRepository, IconShare } from '@posthog/icons'
-import { IconComponent, IconProps } from '@posthog/icons/dist/src/types/icon-types'
+import {
+    IconCommit,
+    IconGitBranch,
+    IconGitRepository,
+    IconShare,
+    type IconComponent,
+    type IconProps,
+} from '@posthog/icons'
 import { LemonTag, LemonTagProps, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRelease, ReleaseGitMetadata } from 'lib/components/Errors/types'
@@ -26,10 +32,34 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
                         <th className="pb-1">Project</th>
                         <td className="pb-1 text-right">{release.project ?? 'Unknown'}</td>
                     </tr>
-                    <tr>
-                        <th>Version</th>
-                        <td className="text-right">{release.version.slice(0, 10)}</td>
-                    </tr>
+                    {(() => {
+                        const [displayVersion, build] = release.version.includes('+')
+                            ? release.version.split('+', 2)
+                            : [release.version, null]
+                        const v = versionDisplay(displayVersion)
+                        return (
+                            <>
+                                <tr>
+                                    <th>Version</th>
+                                    <td className="text-right">
+                                        {v.truncated ? (
+                                            <Tooltip title={displayVersion}>
+                                                <span>{v.display}</span>
+                                            </Tooltip>
+                                        ) : (
+                                            v.display
+                                        )}
+                                    </td>
+                                </tr>
+                                {build && (
+                                    <tr>
+                                        <th>Build</th>
+                                        <td className="text-right">{build}</td>
+                                    </tr>
+                                )}
+                            </>
+                        )
+                    })()}
                 </table>
             </div>
             {match(release?.metadata?.git)
@@ -117,6 +147,13 @@ function PropertyDisplay({
     }
 
     return maybeWrapWithTooltip(renderContent(), tooltip)
+}
+
+function versionDisplay(version: string): { display: string; truncated: boolean } {
+    const MAX_LENGTH = 10
+    return version.length > MAX_LENGTH
+        ? { display: version.slice(0, MAX_LENGTH) + '…', truncated: true }
+        : { display: version, truncated: false }
 }
 
 function commitDisplay(commit: string): string {

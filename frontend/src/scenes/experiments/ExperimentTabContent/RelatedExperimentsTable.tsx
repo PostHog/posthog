@@ -13,12 +13,7 @@ import { urls } from 'scenes/urls'
 import type { Experiment, FeatureFlagType } from '~/types'
 import { ExperimentStatus } from '~/types'
 
-import {
-    getExperimentStatus,
-    getShippedVariantKey,
-    isExperimentPaused,
-    isSingleVariantShipped,
-} from '../experimentsLogic'
+import { getExperimentStatus, getShippedVariantKey, isSingleVariantShipped } from '../experimentsLogic'
 import { StatusTag } from '../ExperimentView/components'
 import { isLegacyExperiment } from '../utils'
 import { featureFlagRelatedExperimentsLogic } from './featureFlagRelatedExperimentsLogic'
@@ -181,12 +176,7 @@ export const RelatedExperimentsTable = ({
                         title: 'Status',
                         key: 'status',
                         render: function Render(_, experiment: Experiment) {
-                            return (
-                                <StatusTag
-                                    status={getExperimentStatus(experiment)}
-                                    isPaused={isExperimentPaused(experiment)}
-                                />
-                            )
+                            return <StatusTag status={getExperimentStatus(experiment)} />
                         },
                         align: 'center',
                         sorter: (a, b) => {
@@ -196,7 +186,8 @@ export const RelatedExperimentsTable = ({
                             const score: Record<ExperimentStatus, number> = {
                                 [ExperimentStatus.Draft]: 1,
                                 [ExperimentStatus.Running]: 2,
-                                [ExperimentStatus.Stopped]: 3,
+                                [ExperimentStatus.Paused]: 3,
+                                [ExperimentStatus.Stopped]: 4,
                             }
                             return score[statusA] > score[statusB] ? 1 : -1
                         },

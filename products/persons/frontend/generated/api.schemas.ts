@@ -61,10 +61,6 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `event` - event
  * `event_metadata` - event_metadata
@@ -87,13 +83,16 @@ export const NullEnumApi = {} as const
  * `log` - log
  * `log_attribute` - log_attribute
  * `log_resource_attribute` - log_resource_attribute
+ * `span` - span
+ * `span_attribute` - span_attribute
+ * `span_resource_attribute` - span_resource_attribute
  * `revenue_analytics` - revenue_analytics
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type Type19aEnumApi = (typeof Type19aEnumApi)[keyof typeof Type19aEnumApi]
+export type PropertyFilterTypeEnumApi = (typeof PropertyFilterTypeEnumApi)[keyof typeof PropertyFilterTypeEnumApi]
 
-export const Type19aEnumApi = {
+export const PropertyFilterTypeEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -115,97 +114,180 @@ export const Type19aEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const
 
+export const PropertyItemApiType = { ...PropertyFilterTypeEnumApi, ...BlankEnumApi } as const
 export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string | number | boolean | (string | number)[]
-    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: Type19aEnumApi | BlankEnumApi
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | null
+    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 export interface PropertyApi {
     /**
- You can use a simplified version:
-```json
-{
-    "properties": [
-        {
-            "key": "email",
-            "value": "x@y.com",
-            "operator": "exact",
-            "type": "event"
-        }
-    ]
-}
-```
+   You can use a simplified version:
+  ```json
+  {
+      "properties": [
+          {
+              "key": "email",
+              "value": "x@y.com",
+              "operator": "exact",
+              "type": "event"
+          }
+      ]
+  }
+  ```
 
-Or you can create more complicated queries with AND and OR:
-```json
-{
-    "properties": {
-        "type": "AND",
-        "values": [
-            {
-                "type": "OR",
-                "values": [
-                    {"key": "email", ...},
-                    {"key": "email", ...}
-                ]
-            },
-            {
-                "type": "AND",
-                "values": [
-                    {"key": "email", ...},
-                    {"key": "email", ...}
-                ]
-            }
-        ]
-    ]
-}
-```
+  Or you can create more complicated queries with AND and OR:
+  ```json
+  {
+      "properties": {
+          "type": "AND",
+          "values": [
+              {
+                  "type": "OR",
+                  "values": [
+                      {"key": "email", ...},
+                      {"key": "email", ...}
+                  ]
+              },
+              {
+                  "type": "AND",
+                  "values": [
+                      {"key": "email", ...},
+                      {"key": "email", ...}
+                  ]
+              }
+          ]
+      ]
+  }
+  ```
 
 
-* `AND` - AND
-* `OR` - OR */
+  * `AND` - AND
+  * `OR` - OR */
     type?: PropertyGroupOperatorApi
     values: PropertyItemApi[]
 }
 
-export interface PersonApi {
+export interface PersonRecordApi {
+    /** Numeric person ID. */
     readonly id: number
+    /** Display name derived from person properties (email, name, or username). */
     readonly name: string
     readonly distinct_ids: readonly string[]
+    /** Key-value map of person properties set via $set and $set_once operations. */
     properties?: unknown
+    /** When this person was first seen (ISO 8601). */
     readonly created_at: string
+    /** Unique identifier (UUID) for this person. */
     readonly uuid: string
-    /** @nullable */
+    /**
+     * Timestamp of the last event from this person, or null.
+     * @nullable
+     */
     readonly last_seen_at: string | null
 }
 
-export interface PaginatedPersonListApi {
+export interface PaginatedPersonRecordListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
     count?: number
-    results?: PersonApi[]
+    results?: PersonRecordApi[]
 }
 
-export interface PatchedPersonApi {
+export interface PatchedPersonRecordApi {
+    /** Numeric person ID. */
     readonly id?: number
+    /** Display name derived from person properties (email, name, or username). */
     readonly name?: string
     readonly distinct_ids?: readonly string[]
+    /** Key-value map of person properties set via $set and $set_once operations. */
     properties?: unknown
+    /** When this person was first seen (ISO 8601). */
     readonly created_at?: string
+    /** Unique identifier (UUID) for this person. */
     readonly uuid?: string
-    /** @nullable */
+    /**
+     * Timestamp of the last event from this person, or null.
+     * @nullable
+     */
     readonly last_seen_at?: string | null
+}
+
+export interface PersonDeletePropertyRequestApi {
+    /** The property key to remove from this person. */
+    $unset: string
+}
+
+export interface PersonUpdatePropertyRequestApi {
+    /** The property key to set. */
+    key: string
+    /** The property value. Can be a string, number, boolean, or object. */
+    value: unknown
+}
+
+export interface PersonBulkDeleteRequestApi {
+    /** A list of PostHog person UUIDs to delete (max 1000). */
+    ids?: string[]
+    /** A list of distinct IDs whose associated persons will be deleted (max 1000). */
+    distinct_ids?: string[]
+    /** If true, queue deletion of all events associated with these persons. */
+    delete_events?: boolean
+    /** If true, queue deletion of all recordings associated with these persons. */
+    delete_recordings?: boolean
+    /** If true, keep the person records but delete their events and recordings. */
+    keep_person?: boolean
+}
+
+export type PersonBulkDeleteResponseApiDeletionErrorsItem = { [key: string]: unknown }
+
+export interface PersonBulkDeleteResponseApi {
+    /** Number of persons matched by the provided IDs or distinct IDs. */
+    persons_found: number
+    /** Number of person records deleted from the database. 0 if keep_person was true. */
+    persons_deleted: number
+    /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+    events_queued_for_deletion: boolean
+    /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+    recordings_queued_for_deletion: boolean
+    /** Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists. */
+    deletion_errors?: PersonBulkDeleteResponseApiDeletionErrorsItem[]
+}
+
+export interface AsyncDeletionStatusApi {
+    /** The UUID of the person whose events are queued for deletion. */
+    person_uuid: string
+    /** When the deletion was requested. */
+    created_at: string
+    /** Current status: 'pending' or 'completed'. */
+    readonly status: string
+    /**
+     * When the deletion was verified complete. Null if still pending.
+     * @nullable
+     */
+    delete_verified_at: string | null
+}
+
+export interface PaginatedAsyncDeletionStatusListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    count?: number
+    results?: AsyncDeletionStatusApi[]
 }
 
 /**
@@ -240,29 +322,6 @@ export interface PersonPropertiesAtTimeMetadataApi {
 }
 
 /**
- * The parameters passed to the query
- */
-export type PersonPropertiesAtTimeDebugApiParams = { [key: string]: unknown }
-
-export type PersonPropertiesAtTimeDebugApiEventsItem = { [key: string]: unknown }
-
-/**
- * Serializer for the debug information (only available to staff users).
- */
-export interface PersonPropertiesAtTimeDebugApi {
-    /** The ClickHouse query that was executed */
-    query: string
-    /** The parameters passed to the query */
-    params: PersonPropertiesAtTimeDebugApiParams
-    /** Number of events found */
-    events_found: number
-    /** Raw events that were used to build the properties */
-    events: PersonPropertiesAtTimeDebugApiEventsItem[]
-    /** Error message if debug query failed */
-    error?: string
-}
-
-/**
  * Serializer for the point-in-time person properties response.
  */
 export interface PersonPropertiesAtTimeResponseApi {
@@ -285,8 +344,6 @@ export interface PersonPropertiesAtTimeResponseApi {
     last_seen_at: string | null
     /** Metadata about the point-in-time query */
     point_in_time_metadata: PersonPropertiesAtTimeMetadataApi
-    /** Debug information (only available when debug=true and DEBUG=True) */
-    debug?: PersonPropertiesAtTimeDebugApi
 }
 
 export type PersonsListParams = {
@@ -357,23 +414,19 @@ export const PersonsPartialUpdateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieve2Params = {
-    format?: PersonsActivityRetrieve2Format
+export type PersonsActivityRetrieveParams = {
+    format?: PersonsActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieve2Format =
-    (typeof PersonsActivityRetrieve2Format)[keyof typeof PersonsActivityRetrieve2Format]
+export type PersonsActivityRetrieveFormat =
+    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
 
-export const PersonsActivityRetrieve2Format = {
+export const PersonsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
 
 export type PersonsDeletePropertyCreateParams = {
-    /**
-     * Specify the property key to delete
-     */
-    $unset: string
     format?: PersonsDeletePropertyCreateFormat
 }
 
@@ -410,14 +463,6 @@ export const PersonsSplitCreateFormat = {
 
 export type PersonsUpdatePropertyCreateParams = {
     format?: PersonsUpdatePropertyCreateFormat
-    /**
-     * Specify the property key
-     */
-    key: string
-    /**
-     * Specify the property value
-     */
-    value: unknown
 }
 
 export type PersonsUpdatePropertyCreateFormat =
@@ -428,14 +473,14 @@ export const PersonsUpdatePropertyCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsActivityRetrieveParams = {
-    format?: PersonsActivityRetrieveFormat
+export type PersonsAllActivityRetrieveParams = {
+    format?: PersonsAllActivityRetrieveFormat
 }
 
-export type PersonsActivityRetrieveFormat =
-    (typeof PersonsActivityRetrieveFormat)[keyof typeof PersonsActivityRetrieveFormat]
+export type PersonsAllActivityRetrieveFormat =
+    (typeof PersonsAllActivityRetrieveFormat)[keyof typeof PersonsAllActivityRetrieveFormat]
 
-export const PersonsActivityRetrieveFormat = {
+export const PersonsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -452,28 +497,20 @@ export const PersonsBatchByDistinctIdsCreateFormat = {
     Json: 'json',
 } as const
 
+export type PersonsBatchByUuidsCreateParams = {
+    format?: PersonsBatchByUuidsCreateFormat
+}
+
+export type PersonsBatchByUuidsCreateFormat =
+    (typeof PersonsBatchByUuidsCreateFormat)[keyof typeof PersonsBatchByUuidsCreateFormat]
+
+export const PersonsBatchByUuidsCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
 export type PersonsBulkDeleteCreateParams = {
-    /**
-     * If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_events?: boolean
-    /**
-     * If true, a task to delete all recordings associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday
-     */
-    delete_recordings?: boolean
-    /**
-     * A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.
-     */
-    distinct_ids?: { [key: string]: unknown }
     format?: PersonsBulkDeleteCreateFormat
-    /**
-     * A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.
-     */
-    ids?: { [key: string]: unknown }
-    /**
-     * If true, the person record itself will not be deleted. This is useful if you want to keep the person record for auditing purposes but remove events and recordings associated with them
-     */
-    keep_person?: boolean
 }
 
 export type PersonsBulkDeleteCreateFormat =
@@ -486,6 +523,10 @@ export const PersonsBulkDeleteCreateFormat = {
 
 export type PersonsCohortsRetrieveParams = {
     format?: PersonsCohortsRetrieveFormat
+    /**
+     * The person ID or UUID to get cohorts for.
+     */
+    person_id: string
 }
 
 export type PersonsCohortsRetrieveFormat =
@@ -494,6 +535,43 @@ export type PersonsCohortsRetrieveFormat =
 export const PersonsCohortsRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
+} as const
+
+export type PersonsDeletionStatusListParams = {
+    format?: PersonsDeletionStatusListFormat
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by a specific person UUID.
+     */
+    person_uuid?: string
+    /**
+     * Filter by deletion status: 'pending', 'completed', or 'all'.
+     */
+    status?: PersonsDeletionStatusListStatus
+}
+
+export type PersonsDeletionStatusListFormat =
+    (typeof PersonsDeletionStatusListFormat)[keyof typeof PersonsDeletionStatusListFormat]
+
+export const PersonsDeletionStatusListFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsDeletionStatusListStatus =
+    (typeof PersonsDeletionStatusListStatus)[keyof typeof PersonsDeletionStatusListStatus]
+
+export const PersonsDeletionStatusListStatus = {
+    All: 'all',
+    Completed: 'completed',
+    Pending: 'pending',
 } as const
 
 export type PersonsFunnelRetrieveParams = {
@@ -556,10 +634,6 @@ export const PersonsLifecycleRetrieveFormat = {
 
 export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
-     * Whether to include debug information with raw events (only works when DEBUG=True, default: false)
-     */
-    debug?: boolean
-    /**
      * The distinct_id of the person (mutually exclusive with person_id)
      */
     distinct_id?: string
@@ -598,18 +672,6 @@ export const PersonsResetPersonDistinctIdCreateFormat = {
     Json: 'json',
 } as const
 
-export type PersonsStickinessRetrieveParams = {
-    format?: PersonsStickinessRetrieveFormat
-}
-
-export type PersonsStickinessRetrieveFormat =
-    (typeof PersonsStickinessRetrieveFormat)[keyof typeof PersonsStickinessRetrieveFormat]
-
-export const PersonsStickinessRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type PersonsTrendsRetrieveParams = {
     format?: PersonsTrendsRetrieveFormat
 }
@@ -623,6 +685,14 @@ export const PersonsTrendsRetrieveFormat = {
 
 export type PersonsValuesRetrieveParams = {
     format?: PersonsValuesRetrieveFormat
+    /**
+     * The person property key to get values for (e.g., 'email', 'plan', 'role').
+     */
+    key: string
+    /**
+     * Optional search string to filter values (case-insensitive substring match).
+     */
+    value?: string
 }
 
 export type PersonsValuesRetrieveFormat = (typeof PersonsValuesRetrieveFormat)[keyof typeof PersonsValuesRetrieveFormat]

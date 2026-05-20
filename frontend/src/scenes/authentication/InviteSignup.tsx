@@ -26,6 +26,7 @@ import { PrevalidatedInvite } from '~/types'
 
 import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 import { loginLogic } from './loginLogic'
+import { TurnstileChallenge } from './signup/signupForm/TurnstileChallenge'
 import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
@@ -70,6 +71,17 @@ function ErrorView(): JSX.Element | null {
                 <>
                     {error?.detail} If you believe this is a mistake, please contact whoever created this invite and{' '}
                     <b>ask them for a new invite</b>.
+                </>
+            ),
+            actions: user ? <BackToPostHog /> : <HelperLinks />,
+        },
+        [ErrorCodes.UserAlreadyMember]: {
+            title: "You're already a member of this organization",
+            detail: (
+                <>
+                    {error?.detail || 'You already are a member of this organization.'} You can't accept this invitation
+                    because your account ({user?.email}) already belongs to it. If you meant to join a different
+                    organization, ask the inviter to send a new invite to a different email address.
                 </>
             ),
             actions: user ? <BackToPostHog /> : <HelperLinks />,
@@ -143,23 +155,23 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
             <div className="deprecated-space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
-                    You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
+                    You will accept the invite under your <b>existing PostHog account</b>:
                 </div>
                 {user && (
                     <div
                         className="border rounded-lg border-dashed flex items-center gap-2 px-2 py-1"
-                        data-attr="top-navigation-whoami"
+                        data-attr="accept-invite-whoami"
                     >
                         <ProfilePicture user={user} />
-                        <div className="">
+                        <div>
                             <div className="font-bold">{user.first_name}</div>
-                            <div>{user.organization?.name}</div>
+                            <div>{user.email}</div>
                         </div>
                     </div>
                 )}
                 <div>
-                    You can change organizations at any time by clicking on the organization selector at the top left
-                    corner of the navigation bar.
+                    Accepting will add <b>{invite.organization_name}</b> to your account. You can switch between
+                    organizations at any time using the organization selector in the top-left of the navigation bar.
                 </div>
                 <div>
                     {!acceptedInvite ? (
@@ -205,8 +217,11 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
         isPasskeyRegistering,
         passkeyError,
         passkeySignupEnabled,
+        challengeRequired,
+        turnstileSiteKey,
+        turnstileToken,
     } = useValues(inviteSignupLogic)
-    const { registerPasskey } = useActions(inviteSignupLogic)
+    const { registerPasskey, setTurnstileToken } = useActions(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -327,7 +342,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                     data-attr="password"
                                     placeholder="••••••••••"
                                     autoComplete="new-password"
-                                    autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
+                                    autoFocus={!passkeySignupEnabled}
                                     disabled={isSignupSubmitting || passkeyRegistered}
                                 />
                             </LemonField>
@@ -350,20 +365,28 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 )}
 
                 {/* Show regular login button if SSO is not enforced */}
-                {!precheckResponse.sso_enforcement && (
-                    <LemonButton
-                        type="primary"
-                        status="alt"
-                        htmlType="submit"
-                        data-attr="password-signup"
-                        fullWidth
-                        center
-                        loading={isSignupSubmitting || precheckResponseLoading}
-                        size="large"
-                    >
-                        Continue
-                    </LemonButton>
-                )}
+                {!precheckResponse.sso_enforcement &&
+                    (challengeRequired && turnstileSiteKey ? (
+                        <TurnstileChallenge
+                            siteKey={turnstileSiteKey}
+                            onSuccess={setTurnstileToken}
+                            tokenReceived={!!turnstileToken}
+                            email={invite.target_email}
+                        />
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            status="alt"
+                            htmlType="submit"
+                            data-attr="password-signup"
+                            fullWidth
+                            center
+                            loading={isSignupSubmitting || precheckResponseLoading}
+                            size="large"
+                        >
+                            Continue
+                        </LemonButton>
+                    ))}
 
                 {/* Show enforced SSO button if required */}
                 {precheckResponse.sso_enforcement && (

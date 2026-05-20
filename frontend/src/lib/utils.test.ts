@@ -827,6 +827,25 @@ describe('lib/utils', () => {
             ).toEqual('/bye')
         })
 
+        it('handles screen events using $screen_name', () => {
+            expect(
+                eventToDescription({ ...baseEvent, event: '$screen', properties: { $screen_name: 'CartScreen' } })
+            ).toEqual('CartScreen')
+        })
+
+        it('falls back to event name when the primary property is missing', () => {
+            // Old behaviour fell back to $current_url for $pageview without $pathname; the new
+            // single-property contract returns the event name instead so the change is explicit
+            // and consistent with $screen / $feature_flag_called.
+            expect(
+                eventToDescription({
+                    ...baseEvent,
+                    event: '$pageview',
+                    properties: { $current_url: 'https://example.com/' },
+                })
+            ).toEqual('$pageview')
+        })
+
         it('handles no text autocapture as expected', () => {
             expect(
                 eventToDescription({
@@ -860,6 +879,19 @@ describe('lib/utils', () => {
                     true
                 )
             ).toEqual('clicked "hello"')
+        })
+
+        it.each([
+            ['with a flag key', { $feature_flag: 'my-flag-key' }, 'my-flag-key'],
+            ['without the flag key property', {}, '$feature_flag_called'],
+        ])('handles feature flag called events %s', (_, properties, expected) => {
+            expect(
+                eventToDescription({
+                    ...baseEvent,
+                    event: '$feature_flag_called',
+                    properties,
+                })
+            ).toEqual(expected)
         })
 
         it('handles unknown event/action', () => {

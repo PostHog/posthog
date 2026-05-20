@@ -23,7 +23,10 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
-use crate::event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext};
+use crate::event_restrictions::{
+    AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
+};
+use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::report_dropped_events;
@@ -216,7 +219,9 @@ pub async fn ai_handler(
             now_ts: state.timesource.current_time().timestamp(),
         };
 
-        let applied = service.get_restrictions(token, &event_ctx).await;
+        let applied = service
+            .get_restrictions(token, &event_ctx, Pipeline::Ai)
+            .await;
 
         if applied.should_drop() {
             report_dropped_events("event_restriction_drop", 1);
@@ -346,8 +351,20 @@ pub async fn ai_handler(
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    let (accepted_parts, processed_event) =
+    let (accepted_parts, mut processed_event) =
         build_kafka_event(parsed, token, &client_ip, &state, &applied_restrictions)?;
+
+    // Step 8b: Apply the in-process OverflowLimiter governor. The analytics
+    // pipeline stamps overflow reasons inside `process_events`, but AI
+    // bypasses that path, so we invoke the shared helper here to preserve
+    // OverflowLimiter parity on `capture-ai-*` deploys (where
+    // `OVERFLOW_ENABLED=true`). `force_overflow` already stamped on
+    // `processed_event.metadata` by `build_kafka_event` is honored by the
+    // helper's short-circuit.
+    stamp_overflow_reason(
+        std::slice::from_mut(&mut processed_event),
+        state.overflow_limiter.as_ref(),
+    );
 
     // Step 9: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
@@ -493,7 +510,8 @@ fn build_kafka_event(
         sent_at_utc,
         ignore_sent_at,
         now,
-    );
+    )
+    .timestamp;
 
     // Serialize the event to JSON (this is what goes in the "data" field)
     let data = serde_json::to_string(&parsed.event).map_err(|e| {
@@ -541,6 +559,7 @@ fn build_kafka_event(
         skip_person_processing: restrictions.skip_person_processing(),
         redirect_to_dlq: restrictions.redirect_to_dlq(),
         redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
+        overflow_reason: None,
     };
 
     // Create ProcessedEvent

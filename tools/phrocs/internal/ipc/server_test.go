@@ -6,8 +6,11 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
@@ -31,7 +34,13 @@ func testManager(t *testing.T, names ...string) *process.Manager {
 // cleaned up via t.Cleanup. Returns the socket path.
 func startServe(t *testing.T, mgr *process.Manager) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.sock")
+	// Use /tmp directly to keep socket paths under macOS's 104-byte limit
+	dir, err := os.MkdirTemp("/tmp", "phrocs-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "t.sock")
 	ln, err := Listen(path)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
@@ -84,6 +93,59 @@ func sendRaw(t *testing.T, path string, raw string) map[string]any {
 	return resp
 }
 
+func TestRemoveOwnedSocket_guardAgainstReplacedFile(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "phrocs-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s.sock")
+
+	ln, err := Listen(path)
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	actualInode := SocketInode(path)
+	if actualInode == 0 {
+		t.Fatal("SocketInode returned 0 for bound socket")
+	}
+
+	// Simulate a crashed detached phrocs's stale defer calling RemoveOwnedSocket
+	// with an inode that doesn't match the file currently at `path` (a replacement
+	// bound by a later detached phrocs). The guard must refuse to remove the file.
+	// We pass actualInode+1 directly rather than rebind-at-same-path, because
+	// on Linux tmpfs the freed inode often gets reused, which would defeat
+	// the simulation (the "replacement" would have the same inode).
+	RemoveOwnedSocket(path, actualInode+1)
+
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("expected socket to survive RemoveOwnedSocket with mismatched inode, got error %v", err)
+	}
+}
+
+func TestRemoveOwnedSocket_removesOwnSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "phrocs-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	path := filepath.Join(dir, "s.sock")
+
+	ln, err := Listen(path)
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	inode := SocketInode(path)
+	_ = ln.Close()
+
+	RemoveOwnedSocket(path, inode)
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected socket removed; Lstat err=%v", err)
+	}
+}
+
 func TestServe_list(t *testing.T) {
 	mgr := testManager(t, "web", "worker")
 	path := startServe(t, mgr)
@@ -116,7 +178,7 @@ func TestServe_statusUnknown(t *testing.T) {
 		t.Fatal("error: expected non-empty error message")
 	}
 	const wantSubstr = "process not found"
-	if !containsSubstr(errMsg, wantSubstr) {
+	if !strings.Contains(errMsg, wantSubstr) {
 		t.Errorf("error %q does not contain %q", errMsg, wantSubstr)
 	}
 }
@@ -268,7 +330,7 @@ func TestServe_unknownCommand(t *testing.T) {
 	}
 	errMsg, _ := resp["error"].(string)
 	const wantSubstr = "unknown command"
-	if !containsSubstr(errMsg, wantSubstr) {
+	if !strings.Contains(errMsg, wantSubstr) {
 		t.Errorf("error %q does not contain %q", errMsg, wantSubstr)
 	}
 }
@@ -284,21 +346,248 @@ func TestServe_invalidJSON(t *testing.T) {
 	}
 	errMsg, _ := resp["error"].(string)
 	const wantSubstr = "invalid JSON"
-	if !containsSubstr(errMsg, wantSubstr) {
+	if !strings.Contains(errMsg, wantSubstr) {
 		t.Errorf("error %q does not contain %q", errMsg, wantSubstr)
 	}
 }
 
-// containsSubstr reports whether s contains substr.
-func containsSubstr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && indexSubstr(s, substr) >= 0)
+func TestServe_sendKeys_unknownProcess(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "send-keys", "process": "nope", "keys": "y\n"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "process not found") {
+		t.Errorf("error %q does not contain 'process not found'", errMsg)
+	}
 }
 
-func indexSubstr(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
+func TestServe_sendKeys_missingKeys(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "send-keys", "process": "web"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "missing keys") {
+		t.Errorf("error %q does not contain 'missing keys'", errMsg)
+	}
+}
+
+func TestServe_addProc(t *testing.T) {
+	mgr := testManager(t, "web")
+	// Set a no-op send so add-proc can notify the TUI
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "add-proc", "process": "worker", "shell": "echo worker"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+	// Verify the process was added
+	_, ok := mgr.Get("worker")
+	if !ok {
+		t.Error("process 'worker' should exist after add-proc")
+	}
+}
+
+func TestServe_addProc_duplicate(t *testing.T) {
+	mgr := testManager(t, "web")
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "add-proc", "process": "web", "shell": "echo web"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "already exists") {
+		t.Errorf("error %q does not contain 'already exists'", errMsg)
+	}
+}
+
+func TestServe_addProc_missingFields(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "add-proc"})
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false for missing name", resp["ok"])
+	}
+
+	resp = send(t, path, map[string]any{"cmd": "add-proc", "process": "worker"})
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false for missing shell", resp["ok"])
+	}
+}
+
+func TestServe_removeProc(t *testing.T) {
+	mgr := testManager(t, "web", "worker")
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "remove-proc", "process": "worker"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+	_, ok := mgr.Get("worker")
+	if ok {
+		t.Error("process 'worker' should be removed after remove-proc")
+	}
+}
+
+func TestServe_removeProc_unknown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "remove-proc", "process": "nope"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "process not found") {
+		t.Errorf("error %q does not contain 'process not found'", errMsg)
+	}
+}
+
+func TestServe_focus(t *testing.T) {
+	mgr := testManager(t, "web", "worker")
+	var focused string
+	mgr.SetSend(func(msg tea.Msg) {
+		if fm, ok := msg.(process.FocusMsg); ok {
+			focused = fm.Name
+		}
+	})
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "focus", "process": "worker"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+	if focused != "worker" {
+		t.Errorf("FocusMsg name: got %q, want %q", focused, "worker")
+	}
+}
+
+func TestServe_focus_unknown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "focus", "process": "nope"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+}
+
+func TestServe_toggleProc_unknown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "toggle-proc", "process": "nope"})
+
+	if resp["ok"] != false {
+		t.Fatalf("ok: got %v, want false", resp["ok"])
+	}
+}
+
+func TestServe_toggleProc_stoppedProcess(t *testing.T) {
+	mgr := testManager(t, "web")
+	mgr.SetSend(func(tea.Msg) {})
+	path := startServe(t, mgr)
+
+	// Process starts as stopped; toggle should succeed (attempts to start it)
+	resp := send(t, path, map[string]any{"cmd": "toggle-proc", "process": "web"})
+
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true; error: %v", resp["ok"], resp["error"])
+	}
+}
+
+func TestServe_quit(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	resp := send(t, path, map[string]any{"cmd": "quit"})
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true", resp["ok"])
+	}
+
+	select {
+	case <-mgr.QuitCh():
+	case <-time.After(time.Second):
+		t.Fatal("QuitCh not closed after quit command")
+	}
+}
+
+func TestServe_quit_idempotent(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	for i := 0; i < 3; i++ {
+		resp := send(t, path, map[string]any{"cmd": "quit"})
+		if resp["ok"] != true {
+			t.Fatalf("quit #%d ok: got %v, want true", i, resp["ok"])
 		}
 	}
-	return -1
+	select {
+	case <-mgr.QuitCh():
+	case <-time.After(time.Second):
+		t.Fatal("QuitCh not closed")
+	}
+}
+
+// TestServe_quit_replyBeforeShutdown guards against the detached main loop
+// closing QuitCh before the quit reply is flushed. The race was real:
+// `dispatch` used to call `mgr.Quit()` inline, so the detached main loop
+// could tear down before `writeJSON` returned. Regression test: read the
+// quit reply and assert it arrived before QuitCh was observed closed.
+func TestServe_quit_replyBeforeShutdown(t *testing.T) {
+	mgr := testManager(t, "web")
+	path := startServe(t, mgr)
+
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.Write([]byte(`{"cmd":"quit"}` + "\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// At this point either the reply or the QuitCh close may be observable
+	// first. Read the reply line — it must succeed with ok:true, proving
+	// the server wrote it before signaling shutdown.
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	line, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		t.Fatalf("read reply (race regressed?): %v", err)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(line), &resp); err != nil {
+		t.Fatalf("unmarshal %q: %v", line, err)
+	}
+	if resp["ok"] != true {
+		t.Fatalf("ok: got %v, want true", resp["ok"])
+	}
+
+	// And confirm QuitCh eventually closes — the dispatch side effect.
+	select {
+	case <-mgr.QuitCh():
+	case <-time.After(time.Second):
+		t.Fatal("QuitCh not closed after quit reply")
+	}
 }

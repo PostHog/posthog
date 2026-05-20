@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,21 @@ from posthog.models.integration import Integration, SlackIntegration
 logger = structlog.get_logger(__name__)
 
 PROGRESS_MESSAGE_MARKER = "Working on task..."
+UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
+    "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
+)
+UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\d)\b", re.IGNORECASE)
+
+
+def _format_task_error(error: str) -> str:
+    error = error.strip()
+    if not error:
+        return "Unknown error"
+
+    if UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.search(error):
+        return UPSTREAM_PROVIDER_FAILURE_MESSAGE
+
+    return error
 
 
 @dataclass
@@ -47,7 +63,7 @@ class SlackThreadContext:
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
 
-    def __init__(self, context: SlackThreadContext):
+    def __init__(self, context: SlackThreadContext) -> None:
         self.context = context
         self._integration: Integration | None = None
         self._client: WebClient | None = None
@@ -59,7 +75,7 @@ class SlackThreadHandler:
             self._integration = Integration.objects.get(id=self.context.integration_id)
         return self._integration
 
-    def _get_client(self):
+    def _get_client(self) -> WebClient:
         if self._client is None:
             integration = self._get_integration()
             self._client = SlackIntegration(integration).client
@@ -87,7 +103,7 @@ class SlackThreadHandler:
                 ts=self.context.thread_ts,
                 limit=50,
             )
-            messages = response.get("messages", [])
+            messages: list[dict[str, Any]] = response.get("messages", [])
 
             for msg in messages:
                 if msg.get("user") == bot_user_id and PROGRESS_MESSAGE_MARKER in msg.get("text", ""):
@@ -132,7 +148,11 @@ class SlackThreadHandler:
                     "elements": [
                         {
                             "type": "button",
-                            "text": {"type": "plain_text", "text": "View agent logs", "emoji": True},
+                            "text": {
+                                "type": "plain_text",
+                                "text": "View agent logs",
+                                "emoji": True,
+                            },
                             "url": task_url,
                         }
                     ],
@@ -171,12 +191,20 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "View PR",
+                            "emoji": True,
+                        },
                         "url": pr_url,
                     },
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Open in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],
@@ -197,12 +225,20 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "View PR",
+                            "emoji": True,
+                        },
                         "url": pr_url,
                     },
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Open in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],
@@ -235,7 +271,7 @@ class SlackThreadHandler:
         if pr_url:
             header = "*Pull Request Created* :rocket:"
         else:
-            header = "*Task Completed* :white_check_mark:"
+            header = "*Task Completed* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -244,12 +280,20 @@ class SlackThreadHandler:
         buttons: list[dict[str, Any]] = []
         if pr_url:
             buttons.append(
-                {"type": "button", "text": {"type": "plain_text", "text": "View PR", "emoji": True}, "url": pr_url}
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+                    "url": pr_url,
+                }
             )
         buttons.append(
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                "text": {
+                    "type": "plain_text",
+                    "text": "Open in PostHog",
+                    "emoji": True,
+                },
                 "url": task_url,
             }
         )
@@ -261,6 +305,7 @@ class SlackThreadHandler:
     def post_error(self, error: str, task_url: str) -> None:
         """Post error message with link to PostHog for details."""
         header = "*Task Failed* :x:"
+        error = _format_task_error(error)
         truncated_error = error[:200] if len(error) > 200 else error
 
         blocks: list[dict[str, Any]] = [
@@ -271,7 +316,11 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "See details in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "See details in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],
@@ -282,7 +331,7 @@ class SlackThreadHandler:
 
     def post_cancelled(self, task_url: str) -> None:
         """Post cancelled message with link to PostHog for details."""
-        header = "*Sandbox stopped* :white_check_mark:"
+        header = "*Sandbox stopped* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -291,7 +340,11 @@ class SlackThreadHandler:
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Open in PostHog",
+                            "emoji": True,
+                        },
                         "url": task_url,
                     },
                 ],

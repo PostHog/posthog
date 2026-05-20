@@ -22,11 +22,12 @@ from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
+from products.llm_analytics.backend.models.score_definitions import ScoreDefinition, StaleScoreDefinitionVersion
 from products.llm_analytics.backend.score_definition_configs import ScoreDefinitionConfigField
 
 HUMAN_REVIEWS_FEATURE_FLAG = "llma-trace-review"
@@ -63,6 +64,11 @@ class ScoreDefinitionSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Current immutable configuration version number.",
     )
+    current_version_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="UUID of the current version row. Matches `system.score_definitions.current_version_id` in HogQL.",
+    )
     config = ScoreDefinitionConfigField(
         source="current_version.config",
         read_only=True,
@@ -78,6 +84,7 @@ class ScoreDefinitionSerializer(serializers.ModelSerializer):
             "kind",
             "archived",
             "current_version",
+            "current_version_id",
             "config",
             "created_by",
             "created_at",
@@ -140,6 +147,15 @@ class ScoreDefinitionMetadataSerializer(serializers.Serializer):
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
     config = ScoreDefinitionConfigField(help_text="Next immutable scorer configuration.")
+    base_version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text=(
+            "Version number the caller observed before requesting this bump. "
+            "If provided and it does not match the scorer's current version, the request fails with 409. "
+            "Omit to skip the optimistic-concurrency check."
+        ),
+    )
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
@@ -198,9 +214,30 @@ class ScoreDefinitionViewSet(
     def safely_get_queryset(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
-        return (
+        queryset = (
             queryset.filter(team_id=self.team_id).select_related("current_version", "created_by").order_by("name", "id")
         )
+
+        # List defaults to active scorers to mirror the UI; non-boolean `?archived=` values keep that default.
+        if self.action == "list":
+            archived_param = (self.request.query_params.get("archived") or "").strip().lower()
+            if archived_param not in {"true", "false", "1", "0"}:
+                queryset = queryset.filter(archived=False)
+
+        return queryset
+
+    @staticmethod
+    def _event_properties(definition: ScoreDefinition) -> dict[str, str | bool | int]:
+        current_version = definition.current_version.version if definition.current_version else 0
+
+        return {
+            "scorer_id": str(definition.id),
+            "scorer_name": definition.name,
+            "scorer_kind": definition.kind,
+            "has_description": bool(definition.description),
+            "archived": definition.archived,
+            "version": current_version,
+        }
 
     @transaction.atomic
     def _create_definition(self, validated_data: dict[str, Any]) -> ScoreDefinition:
@@ -217,26 +254,31 @@ class ScoreDefinitionViewSet(
         definition.create_new_version(config=config, created_by=cast(User, self.request.user))
         return definition
 
-    def _update_definition_metadata(
-        self, definition: ScoreDefinition, validated_data: dict[str, Any]
-    ) -> ScoreDefinition:
+    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[str]:
         definition_data = dict(validated_data)
+        changed_fields: list[str] = []
 
         if "description" in definition_data:
             definition_data["description"] = definition_data["description"] or ""
 
         for field, value in definition_data.items():
-            setattr(definition, field, value)
+            if getattr(definition, field) != value:
+                setattr(definition, field, value)
+                changed_fields.append(field)
 
-        if definition_data:
-            definition.save(update_fields=[*definition_data.keys(), "updated_at"])
+        if changed_fields:
+            definition.save(update_fields=[*changed_fields, "updated_at"])
 
-        return definition
+        return changed_fields
 
     def _create_definition_version(
         self, definition: ScoreDefinition, validated_data: dict[str, Any]
     ) -> ScoreDefinition:
-        definition.create_new_version(config=validated_data["config"], created_by=cast(User, self.request.user))
+        definition.create_new_version(
+            config=validated_data["config"],
+            created_by=cast(User, self.request.user),
+            base_version=validated_data.get("base_version"),
+        )
         definition.refresh_from_db(fields=["current_version", "updated_at"])
         return definition
 
@@ -277,6 +319,15 @@ class ScoreDefinitionViewSet(
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         definition = self._create_definition(dict(request.validated_data))
+
+        report_user_action(
+            request.user,
+            "llma scorer created",
+            self._event_properties(definition),
+            team=self.team,
+            request=request,
+        )
+
         return Response(self.get_serializer(definition).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -285,11 +336,34 @@ class ScoreDefinitionViewSet(
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         definition = self.get_object()
-        self._update_definition_metadata(definition, dict(request.validated_data))
+        changed_fields = self._update_definition_metadata(definition, dict(request.validated_data))
+
+        if changed_fields:
+            event_properties: dict[str, Any] = {
+                **self._event_properties(definition),
+                "changed_fields": changed_fields,
+            }
+
+            if "archived" in changed_fields:
+                event_properties["archived_new_value"] = definition.archived
+
+            report_user_action(
+                request.user,
+                "llma scorer updated",
+                event_properties,
+                team=self.team,
+                request=request,
+            )
+
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=ScoreDefinitionNewVersionSerializer, responses=ScoreDefinitionSerializer)
-    @action(detail=True, methods=["post"], url_path="new_version")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="new_version",
+        required_scopes=["llm_analytics:write"],
+    )
     def new_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         definition = self.get_object()
         serializer = ScoreDefinitionNewVersionSerializer(
@@ -297,5 +371,24 @@ class ScoreDefinitionViewSet(
             context={**self.get_serializer_context(), "score_definition_kind": definition.kind},
         )
         serializer.is_valid(raise_exception=True)
-        self._create_definition_version(definition, dict(serializer.validated_data))
+
+        try:
+            definition = self._create_definition_version(definition, dict(serializer.validated_data))
+        except StaleScoreDefinitionVersion as err:
+            return Response(
+                {
+                    "detail": "The scorer changed since you opened it. Reload the latest version and try again.",
+                    "current_version": err.current_version,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report_user_action(
+            request.user,
+            "llma scorer version created",
+            self._event_properties(definition),
+            team=self.team,
+            request=request,
+        )
+
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)

@@ -12,6 +12,7 @@ from collections.abc import Callable, Generator
 from time import perf_counter
 from typing import Any
 
+from django.core.cache import cache
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
@@ -39,10 +40,11 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from products.llm_analytics.backend.api.metrics import LLMA_PROXY_BYOK_REQUESTS, llma_track_latency
 from products.llm_analytics.backend.llm import (
     SUPPORTED_MODELS_WITH_THINKING,
+    TRIAL_MODEL_IDS,
     Client,
     CompletionRequest,
     ModelInfo,
-    get_default_models,
+    get_trial_models,
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
 from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLMProviderKey
@@ -50,6 +52,22 @@ from products.llm_analytics.backend.models.provider_keys import LLMProvider, LLM
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
+
+MODELS_CACHE_TIMEOUT_SECONDS = 60
+
+
+def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
+    return f"llma:proxy:models:{provider_key_id}"
+
+
+PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "gemini": "Gemini",
+    "openrouter": "OpenRouter",
+    "fireworks": "Fireworks",
+    "azure_openai": "Azure OpenAI",
+}
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -222,6 +240,15 @@ class LLMProxyViewSet(viewsets.ViewSet):
             except ValueError:
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
+            # Enforce trial model allowlist when using PostHog-funded keys
+            if provider_key is None and model not in TRIAL_MODEL_IDS:
+                return Response(
+                    {
+                        "error": f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model."
+                    },
+                    status=403,
+                )
+
             # Provider is always explicit from request
             provider = data.get("provider")
 
@@ -366,7 +393,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         """Return a list of available models across providers.
 
         If provider_key_id is specified, returns models available for that key.
-        Otherwise, returns the default static list of models.
+        Otherwise, returns only trial-eligible models (PostHog pays for these).
         """
         provider_key_id = request.query_params.get("provider_key_id")
 
@@ -378,9 +405,19 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
-                models = Client.list_models(provider_key.provider, api_key)
+                # Cache per provider key — list_models hits the provider's API, and the model picker
+                # can open many times per session. TTL is short enough that newly-added deployments
+                # surface within a minute.
+                cache_key = models_cache_key(provider_key.id)
+                models = cache.get(cache_key)
+                if models is None:
+                    models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
+                    # Only cache non-empty results — `list_models` swallows transient errors and returns
+                    # [], so caching that would persist a failure for the full TTL.
+                    if models:
+                        cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
                 recommended = Client.recommended_models(provider_key.provider)
-                provider_display = provider_key.provider.title()
+                provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 return Response(
                     [
                         ModelInfo(
@@ -394,8 +431,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     ]
                 )
 
-        # Default: return static list of all supported models
-        return Response(get_default_models())
+        # Default: return only trial-eligible models (PostHog pays for these)
+        return Response(get_trial_models())
 
     @action(detail=False, methods=["POST"])
     @llma_track_latency("llma_proxy_completion")

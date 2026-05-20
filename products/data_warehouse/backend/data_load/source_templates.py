@@ -5,56 +5,33 @@ from posthog.temporal.common.logger import get_logger
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.revenue_analytics.backend.joins import ensure_person_join
 
 LOGGER = get_logger(__name__)
 
 
 def database_operations(team_id: int, table_prefix: str) -> None:
-    customer_join_exists = (
-        DataWarehouseJoin.objects.filter(
-            team_id=team_id,
-            source_table_name="persons",
-            source_table_key="properties.email",
-            joining_table_name=f"{table_prefix}stripe_customer",
-            joining_table_key="email",
-            field_name=f"{table_prefix}stripe_customer",
-        )
-        .exclude(deleted=True)
-        .exists()
+    DataWarehouseJoin.objects.get_or_create(
+        team_id=team_id,
+        deleted=False,
+        source_table_name="persons",
+        source_table_key="properties.email",
+        joining_table_name=f"{table_prefix}stripe_customer",
+        joining_table_key="email",
+        field_name=f"{table_prefix}stripe_customer",
     )
 
-    invoice_join_exists = (
-        DataWarehouseJoin.objects.filter(
-            team_id=team_id,
-            source_table_name="persons",
-            source_table_key="properties.email",
-            joining_table_name=f"{table_prefix}stripe_invoice",
-            joining_table_key="customer_email",
-            field_name=f"{table_prefix}stripe_invoice",
-        )
-        .exclude(deleted=True)
-        .exists()
+    DataWarehouseJoin.objects.get_or_create(
+        team_id=team_id,
+        deleted=False,
+        source_table_name="persons",
+        source_table_key="properties.email",
+        joining_table_name=f"{table_prefix}stripe_invoice",
+        joining_table_key="customer_email",
+        field_name=f"{table_prefix}stripe_invoice",
     )
 
-    if not customer_join_exists:
-        DataWarehouseJoin.objects.create(
-            team_id=team_id,
-            source_table_name="persons",
-            source_table_key="properties.email",
-            joining_table_name=f"{table_prefix}stripe_customer",
-            joining_table_key="email",
-            field_name=f"{table_prefix}stripe_customer",
-        )
-
-    if not invoice_join_exists:
-        DataWarehouseJoin.objects.create(
-            team_id=team_id,
-            source_table_name="persons",
-            source_table_key="properties.email",
-            joining_table_name=f"{table_prefix}stripe_invoice",
-            joining_table_key="customer_email",
-            field_name=f"{table_prefix}stripe_invoice",
-        )
+    ensure_person_join(team_id, table_prefix)
 
 
 def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
@@ -72,7 +49,7 @@ def create_warehouse_templates_for_source(team_id: int, run_id: str) -> None:
         .first()
     )
 
-    source: ExternalDataSourceType = job.pipeline.source_type
+    source = ExternalDataSourceType(job.pipeline.source_type)
 
     # Quick exit if this isn't the first sync, or a stripe source
     if source != ExternalDataSourceType.STRIPE or last_successful_job is not None:

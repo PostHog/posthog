@@ -10,6 +10,7 @@ import {
     NuxtInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     SessionReplayFinalSteps,
     SvelteInstallation,
@@ -18,17 +19,16 @@ import {
     WebInstallation,
 } from '@posthog/shared-onboarding/session-replay'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
+import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { OnboardingStepKey, SDKInstructionsMap, SDKKey } from '~/types'
-
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
+// Re-exported for back-compat: callers used to import these from this file.
+export { AdvertiseMobileReplay, type AdvertiseMobileReplayContext } from './AdvertiseMobileReplay'
+
 const SNIPPETS = {
+    ...JS_WEB_SNIPPETS,
     SessionReplayFinalSteps,
 }
 
@@ -42,34 +42,47 @@ const SessionReplayWebInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayReactInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React',
 })
 const SessionReplayNextJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NextJSInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Next.js',
 })
 const SessionReplaySvelteInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SvelteInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Svelte',
 })
 const SessionReplayAstroInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AstroInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Astro',
 })
 const SessionReplayAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Angular',
 })
 const SessionReplayVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VueInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Vue',
 })
 const SessionReplayNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Nuxt',
+})
+const SessionReplayReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const SessionReplayRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 
 // Website builders
@@ -90,10 +103,12 @@ const SessionReplayWebflowInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Android',
 })
 const SessionReplayIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'Swift',
 })
 const SessionReplayFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
@@ -102,6 +117,7 @@ const SessionReplayFlutterInstructionsWrapper = withOnboardingDocsWrapper({
 const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Native',
 })
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
@@ -113,6 +129,7 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.NEXT_JS]: SessionReplayNextJSInstructionsWrapper,
     [SDKKey.NUXT_JS]: SessionReplayNuxtJSInstructionsWrapper,
     [SDKKey.REACT]: SessionReplayReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: SessionReplayReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: SessionReplayRemixJSInstructionsWrapper,
     [SDKKey.TANSTACK_START]: SessionReplayReactInstructionsWrapper,
     [SDKKey.SVELTE]: SessionReplaySvelteInstructionsWrapper,
@@ -123,57 +140,4 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.ANDROID]: SessionReplayAndroidInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: SessionReplayRNInstructionsWrapper,
     [SDKKey.FLUTTER]: SessionReplayFlutterInstructionsWrapper,
-}
-
-export type AdvertiseMobileReplayContext =
-    | 'product-analytics-onboarding'
-    | 'flags-onboarding'
-    | 'experiments-onboarding'
-
-export function AdvertiseMobileReplay({
-    context,
-    sdkKey,
-}: {
-    context: AdvertiseMobileReplayContext
-    sdkKey: SDKKey
-}): JSX.Element {
-    let platform = 'Mobile'
-    switch (sdkKey) {
-        case SDKKey.ANDROID:
-            platform = 'Android'
-            break
-        case SDKKey.IOS:
-            platform = 'iOS'
-            break
-        case SDKKey.REACT_NATIVE:
-            platform = 'React-Native'
-            break
-        case SDKKey.FLUTTER:
-            platform = 'Flutter'
-            break
-    }
-
-    return (
-        <div>
-            <LemonDivider className="my-8" />
-            <LemonBanner type="info">
-                <h3>
-                    Session Replay for {platform} <LemonTag type="highlight">NEW</LemonTag>
-                </h3>
-                <div>
-                    Session replay is now in general availability for {platform}.{' '}
-                    <Link
-                        to={urls.onboarding({
-                            productKey: 'session_replay',
-                            stepKey: OnboardingStepKey.INSTALL,
-                            sdk: sdkKey,
-                        })}
-                        data-attr={`${context}-${platform.toLowerCase()}-replay-cta`}
-                    >
-                        Learn how to set it up
-                    </Link>
-                </div>
-            </LemonBanner>
-        </div>
-    )
 }

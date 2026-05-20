@@ -344,12 +344,14 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             ),
             {"team_id": self.team.id},
         )
-        # distributed table has MATERIALIZED session_timestamp, so don't include it
+        # also test backfill into the distributed table (which forwards to sharded);
+        # session_timestamp must be included because the underlying sharded table
+        # has it as DEFAULT, not MATERIALIZED
         sync_execute(
             RAW_SESSION_TABLE_BACKFILL_SQL_V3(
                 where="team_id = %(team_id)s AND timestamp >= '2024-03-01'",
                 target_table=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),
-                include_session_timestamp=False,
+                include_session_timestamp=True,
             ),
             {"team_id": self.team.id},
         )

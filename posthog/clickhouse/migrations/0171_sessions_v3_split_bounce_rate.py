@@ -23,7 +23,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         SPLIT_BOUNCE_RATE.format(table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

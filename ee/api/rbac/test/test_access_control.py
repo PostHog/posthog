@@ -5,15 +5,15 @@ from unittest.mock import MagicMock, patch
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.dashboard import Dashboard
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 
 from ee.api.test.base import APILicensedTest
@@ -23,9 +23,9 @@ from ee.models.rbac.role import Role, RoleMembership
 class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [
-            AvailableFeature.ADVANCED_PERMISSIONS,
-            AvailableFeature.ROLE_BASED_ACCESS,
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
 
@@ -124,6 +124,26 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         # Should provide helpful guidance
         assert "organization member id" in res.json()["detail"]
         assert "/api/organizations/" in res.json()["detail"]
+
+    def test_role_based_access_control_rejected_without_role_based_access_feature(self):
+        # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL — same shape as the UI gate
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+
+        res = self._put_project_access_control({"role": str(role.id), "access_level": "admin"})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Role-based access" in res.json()["detail"]
+
+        # Member-level writes still work — only the role-backed write is blocked
+        res = self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
 
 
 class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
@@ -250,6 +270,196 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control(notebook_id=self.notebook.short_id)
         assert res.status_code == status.HTTP_200_OK, res.json()
+
+
+class TestResourceAccessControlsSecurityValidation(BaseAccessControlTest):
+    """
+    Regression tests for privilege escalation via resource_access_controls endpoint.
+
+    The resource_access_controls endpoint (is_resource_level=True) must only be available
+    on the project viewset. If exposed on other viewsets (notebooks, dashboards, etc.),
+    an attacker could use an object they own to bypass authorization checks and write
+    arbitrary access controls for any resource, including the project itself.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="0", title="attacker notebook"
+        )
+
+    def test_resource_access_controls_rejected_on_notebook_viewset(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {"resource": "project", "access_level": "admin"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_resource_access_controls_get_rejected_on_notebook_viewset(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.get(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_resource_access_controls_rejected_on_dashboard_viewset(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="attacker dashboard")
+        res = self.client.put(
+            f"/api/projects/@current/dashboards/{dashboard.id}/resource_access_controls",
+            {"resource": "project", "access_level": "admin"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_cannot_escalate_to_project_admin_via_own_notebook(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {
+                "resource": "project",
+                "resource_id": str(self.team.id),
+                "organization_member": str(self.organization_membership.id),
+                "access_level": "admin",
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_cannot_write_arbitrary_resource_controls_via_own_notebook(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+    def test_resource_access_controls_allowed_on_project_viewset(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "dashboard", "access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_resource_access_controls_with_spoofed_resource_id_rejected(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="target dashboard")
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {
+                "resource": "dashboard",
+                "resource_id": str(dashboard.id),
+                "access_level": "none",
+            },
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Cannot modify access controls for a resource different from the URL target" in res.json()["detail"]
+
+
+class TestResourceAccessControlsViaProjectId(BaseAccessControlTest):
+    """
+    Tests that the resource_access_controls endpoint works correctly when
+    addressed via an explicit project ID (e.g. PUT /api/projects/<id>/resource_access_controls)
+    rather than the @current alias.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="0", title="attacker notebook"
+        )
+
+    def _project_url(self, suffix: str) -> str:
+        return f"/api/projects/{self.project.id}/{suffix}"
+
+    def test_put_resource_access_controls_via_project_id_succeeds_for_admin(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["resource"] == "dashboard"
+        assert res.json()["access_level"] == "editor"
+
+    def test_get_resource_access_controls_via_project_id_succeeds_for_admin(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get(self._project_url("resource_access_controls"))
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert "access_controls" in res.json()
+
+    def test_put_resource_access_controls_via_project_id_rejected_for_member(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    def test_put_resource_access_controls_via_project_id_creates_correct_access_control(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "notebook", "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        ac = AccessControl.objects.get(team=self.team, resource="notebook", resource_id=None)
+        assert ac.access_level == "viewer"
+        assert ac.organization_member is None
+        assert ac.role is None
+
+    def test_put_resource_access_controls_via_project_id_with_spoofed_resource_id_rejected(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="target")
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {
+                "resource": "dashboard",
+                "resource_id": str(dashboard.id),
+                "access_level": "none",
+            },
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Cannot modify access controls for a resource different from the URL target" in res.json()["detail"]
+
+    def test_member_cannot_escalate_via_notebook_to_project_resource_access_controls(self):
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self.client.put(
+            f"/api/projects/{self.project.id}/notebooks/{self.notebook.short_id}/resource_access_controls",
+            {
+                "resource": "project",
+                "resource_id": str(self.team.id),
+                "organization_member": str(self.organization_membership.id),
+                "access_level": "admin",
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
+
+    def test_delete_resource_access_control_via_project_id(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert AccessControl.objects.filter(team=self.team, resource="dashboard", resource_id=None).exists()
+
+        res = self.client.put(
+            self._project_url("resource_access_controls"),
+            {"resource": "dashboard", "access_level": None},
+        )
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        assert not AccessControl.objects.filter(team=self.team, resource="dashboard", resource_id=None).exists()
 
 
 class TestUsersWithAccessAPI(BaseAccessControlTest):
@@ -1487,6 +1697,36 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         role_data = self._find_role(res.json()["results"], self.role.id)
         assert role_data["project"]["access_level"] == "member"
 
+    def test_role_overrides_ignored_when_role_based_access_not_available(self):
+        """Without ROLE_BASED_ACCESS, role-based overrides (project- and resource-level)
+        are inert at runtime, so the per-role preview must show the resource/project
+        default as the effective level."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        # Project default 'member', role-based project override 'admin'
+        self._put_project_access_control({"access_level": "member"})
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+        # Dashboard default 'viewer', role-based override 'manager'
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        self._put_global_access_control({"resource": "dashboard", "access_level": "manager", "role": str(self.role.id)})
+
+        res = self.client.get("/api/projects/@current/access_control_roles")
+        role_data = self._find_role(res.json()["results"], self.role.id)
+
+        # Resource-level role override must be ignored
+        dashboard = role_data["resources"]["dashboard"]
+        assert dashboard["effective_access_level"] == "viewer"
+        assert dashboard["inherited_access_level"] == "viewer"
+        assert dashboard["inherited_access_level_reason"] == "project_default"
+
+        # Project-level role override must also be ignored — falls back to project default
+        project = role_data["project"]
+        assert project["access_level"] is None
+        assert project["effective_access_level"] == "member"
+
 
 class TestAccessControlMembersEndpoint(BaseAccessControlTest):
     def setUp(self):
@@ -1625,6 +1865,45 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert ff["access_level"] is None
         assert ff["effective_access_level"] is None
         assert ff["inherited_access_level"] is None
+
+    def test_role_overrides_ignored_when_role_based_access_not_available(self):
+        """When the organization does not have the ROLE_BASED_ACCESS feature, role-based
+        overrides (project- and resource-level) must not influence a member's effective
+        access. The member should fall back to the default at each level."""
+        # Remove the ROLE_BASED_ACCESS feature, keep ACCESS_CONTROL
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        # Make user2 a regular member so org-admin highest-access doesn't mask the bug
+        self.user2_membership.level = OrganizationMembership.Level.MEMBER
+        self.user2_membership.save()
+
+        # Project default 'member', role-based project override 'admin'
+        self._put_project_access_control({"access_level": "member"})
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+        # Default dashboard access for the project is 'viewer'
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # A role-based resource override grants 'manager' on dashboards
+        self._put_global_access_control({"resource": "dashboard", "access_level": "manager", "role": str(self.role.id)})
+        # user2 is in that role
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+
+        res = self.client.get("/api/projects/@current/access_control_members")
+        member_data = self._find_member(res.json()["results"], self.user2_membership.id)
+
+        # Resource-level: role override must be ignored, fall back to project default
+        dashboard = member_data["resources"]["dashboard"]
+        assert dashboard["effective_access_level"] == "viewer"
+        assert dashboard["inherited_access_level"] == "viewer"
+        assert dashboard["inherited_access_level_reason"] == "project_default"
+
+        # Project-level: role override must also be ignored, fall back to project default
+        project = member_data["project"]
+        assert project["effective_access_level"] == "member"
+        assert project["inherited_access_level"] == "member"
+        assert project["inherited_access_level_reason"] == "project_default"
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""

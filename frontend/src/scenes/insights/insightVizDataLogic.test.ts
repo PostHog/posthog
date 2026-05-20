@@ -7,15 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import {
-    ActionsNode,
-    EventsNode,
-    FunnelsQuery,
-    InsightQueryNode,
-    LifecycleQuery,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -244,6 +236,63 @@ describe('insightVizDataLogic', () => {
                         trendsFilter: {},
                         version: 2,
                     },
+                },
+            })
+        })
+
+        it('disables filterTestAccounts and properties when adding a data warehouse series to trends', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                filterTestAccounts: true,
+                properties: [
+                    {
+                        type: 'event',
+                        key: 'browser',
+                        value: 'Chrome',
+                        operator: 'exact',
+                    },
+                ],
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+            } as TrendsQuery)
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                filterTestAccounts: true,
+                properties: [expect.objectContaining({ key: 'browser' })],
+            })
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.DataWarehouseNode,
+                            id: 'warehouse_orders',
+                            table_name: 'warehouse_orders',
+                            name: 'Orders',
+                            timestamp_field: 'created_at',
+                            id_field: 'order_id',
+                            distinct_id_field: 'customer_id',
+                        },
+                    ],
+                } as TrendsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: expect.objectContaining({
+                        kind: NodeKind.TrendsQuery,
+                        filterTestAccounts: undefined,
+                        properties: undefined,
+                        series: [
+                            expect.objectContaining({
+                                kind: NodeKind.DataWarehouseNode,
+                                table_name: 'warehouse_orders',
+                            }),
+                        ],
+                    }),
                 },
             })
         })
@@ -579,31 +628,6 @@ describe('insightVizDataLogic', () => {
                         },
                     },
                 })
-        })
-    })
-
-    describe('isFunnelWithEnoughSteps', () => {
-        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
-            kind: NodeKind.FunnelsQuery,
-            series,
-        })
-
-        it('with enough/not enough steps', () => {
-            expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource({
-                    kind: NodeKind.RetentionQuery,
-                } as InsightQueryNode)
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource(queryWithSeries([]))
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource(
-                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
-                )
-            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 

@@ -9,6 +9,7 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'
@@ -24,7 +25,11 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
+import {
+    checkLatestVersionsOnQuery,
+    convertDataTableNodeToDataVisualizationNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -39,6 +44,8 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
+
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
 import type { insightSceneLogicType } from './insightSceneLogicType'
@@ -49,16 +56,6 @@ export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
 export interface InsightSceneLogicProps {
     tabId?: string
-}
-
-function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean {
-    return (
-        !filter ||
-        (filter.date_from == null &&
-            filter.date_to == null &&
-            (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
-            filter.breakdown_filter == null)
-    )
 }
 
 function normalizeItemId(itemId: string | undefined): string | number | null {
@@ -352,21 +349,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         maxContext: [
-            (s) => [s.insight, s.filtersOverride, s.variablesOverride, s.insightData],
-            (
-                insight: Partial<QueryBasedInsightModel>,
-                filtersOverride,
-                variablesOverride,
-                insightData
-            ): MaxContextInput[] => {
+            (s) => [s.insight, s.filtersOverride, s.variablesOverride],
+            (insight: Partial<QueryBasedInsightModel>, filtersOverride, variablesOverride): MaxContextInput[] => {
                 if (!insight || !insight.short_id || !insight.query) {
                     return []
                 }
-                // Merge the latest result from insightDataLogic (more up-to-date than insight.result)
-                const insightWithResult =
-                    insightData?.result != null ? { ...insight, result: insightData.result } : insight
                 return [
-                    createMaxContextHelpers.insight(insightWithResult, {
+                    createMaxContextHelpers.insight(insight, {
                         filtersOverride: filtersOverride ?? undefined,
                         variablesOverride: variablesOverride ?? undefined,
                     }),
@@ -376,17 +365,25 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         hasOverrides: [
             (s) => [s.filtersOverride, s.variablesOverride, s.tileFiltersOverride],
             (filtersOverride, variablesOverride, tileFiltersOverride) =>
-                (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                !isDashboardFilterEmpty(filtersOverride) ||
                 (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride)),
+                !isDashboardFilterEmpty(tileFiltersOverride),
         ],
     }),
     sharedListeners(({ actions, values }) => ({
+        /**
+         * The editor must show the insight in the URL and the tile the user opened—not a different saved insight.
+         * After "Save as" from a dashboard, the tile still belongs to the original; if we kept the wrong editor
+         * state, going back and editing that tile could show the copy instead. Remount when those disagree, and
+         * when the URL insight does not match which insight this editor was opened from.
+         */
         reloadInsightLogic: () => {
             const logicInsightId = values.insight?.short_id ?? null
             const insightId = values.insightId ?? null
+            const mountedDashboardItemId = values.insightLogicRef?.logic.props.dashboardItemId ?? null
+            const propsMismatch = Boolean(insightId && mountedDashboardItemId && mountedDashboardItemId !== insightId)
 
-            if (logicInsightId !== insightId) {
+            if (logicInsightId !== insightId || propsMismatch) {
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
                 const oldRef2 = values.insightDataLogicRef // free old logic after mounting new one
                 if (insightId) {
@@ -396,6 +393,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: values.tabId,
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -445,6 +443,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 upgradedQuery = query
             }
 
+            upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
+
             if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
                 values.insightLogicRef?.logic.actions.setInsight(
                     {
@@ -470,6 +470,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
+            // `/insights/quick-start` is handled by Scene.InsightQuickStart, not the Insight scene.
+            // The :shortId pattern greedily matches it, so bail out before triggering a loadInsight
+            // for a non-existent short_id.
+            if (shortId === 'quick-start') {
+                return
+            }
             const insightMode =
                 mode === 'subscriptions'
                     ? ItemMode.Subscriptions
@@ -577,11 +583,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new' || insightId.startsWith('new-')) {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
+                    const taggedQuery =
+                        isInsightVizNode(query) && !query.source.tags?.productKey
+                            ? {
+                                  ...query,
+                                  source: {
+                                      ...query.source,
+                                      tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS },
+                                  },
+                              }
+                            : query
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
                             ...createEmptyInsight(`new-${values.tabId}`),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
-                            query,
+                            query: taggedQuery,
                         },
                         {
                             fromPersistentApi: false,

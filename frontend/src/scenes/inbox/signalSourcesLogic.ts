@@ -6,21 +6,24 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
 
-import type { signalSourcesLogicType } from './signalSourcesLogicType'
-import {
-    SignalSourceConfig,
-    SignalSourceConfigStatus,
-    SignalSourceProduct,
-    SignalSourceType,
-    ToggleSignalSourceParams,
-} from './types'
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
-export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github'
+import type { signalSourcesLogicType } from './signalSourcesLogicType'
+import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
+
+export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github' | 'PgAnalyze'
+
+/** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
+export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
+    SignalSourceType.ISSUE_CREATED,
+    SignalSourceType.ISSUE_REOPENED,
+    SignalSourceType.ISSUE_SPIKING,
+]
 
 const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
     DataWarehouseSource,
@@ -49,10 +52,24 @@ const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
         requiredTable: 'tickets',
         enableErrorMessage: 'Failed to enable Zendesk Tickets',
     },
+    PgAnalyze: {
+        sourceProduct: SignalSourceProduct.PGANALYZE,
+        sourceType: SignalSourceType.ISSUE,
+        requiredTable: 'issues',
+        enableErrorMessage: 'Failed to enable pganalyze',
+    },
+}
+
+/** Values subset used by data-warehouse source helpers */
+interface SignalSourcesLogicValuesForDw {
+    githubIssuesConfig: SignalSourceConfig | null
+    linearIssuesConfig: SignalSourceConfig | null
+    zendeskTicketsConfig: SignalSourceConfig | null
+    pgAnalyzeIssuesConfig: SignalSourceConfig | null
 }
 
 function getDataWarehouseSourceConfig(
-    values: signalSourcesLogicType['values'],
+    values: SignalSourcesLogicValuesForDw,
     dwSource: DataWarehouseSource
 ): SignalSourceConfig | null {
     if (dwSource === 'Github') {
@@ -60,6 +77,9 @@ function getDataWarehouseSourceConfig(
     }
     if (dwSource === 'Linear') {
         return values.linearIssuesConfig
+    }
+    if (dwSource === 'PgAnalyze') {
+        return values.pgAnalyzeIssuesConfig
     }
     return values.zendeskTicketsConfig
 }
@@ -97,8 +117,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
 
     connect(() => ({
-        values: [externalDataSourcesLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
-        actions: [externalDataSourcesLogic, ['loadSources']],
+        values: [sourcesDataLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
+        actions: [sourcesDataLogic, ['loadSources']],
     })),
 
     actions({
@@ -115,6 +135,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
+        toggleErrorTracking: true,
+        toggleErrorTrackingComplete: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -185,6 +207,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     next.delete(`${params.sourceProduct}_${params.sourceType}`)
                     return next
                 },
+                toggleErrorTracking: (state) => {
+                    const next = new Set(state)
+                    next.add('error_tracking')
+                    return next
+                },
+                toggleErrorTrackingComplete: (state) => {
+                    const next = new Set(state)
+                    next.delete('error_tracking')
+                    return next
+                },
             },
         ],
     }),
@@ -220,6 +252,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     (c) => c.source_product === SignalSourceProduct.ZENDESK && c.source_type === SignalSourceType.TICKET
                 ) ?? null,
         ],
+        pgAnalyzeIssuesConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.PGANALYZE && c.source_type === SignalSourceType.ISSUE
+                ) ?? null,
+        ],
         isSessionAnalysisToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
@@ -237,7 +277,30 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.ZENDESK}_${SignalSourceType.TICKET}`),
         ],
-        isClusteringRunning: [
+        isPgAnalyzeIssuesToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.PGANALYZE}_${SignalSourceType.ISSUE}`),
+        ],
+        isErrorTrackingToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has('error_tracking'),
+        ],
+        errorTrackingIsFullyEnabled: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): boolean => {
+                if (!sourceConfigs?.length) {
+                    return false
+                }
+                return ERROR_TRACKING_SIGNAL_SOURCE_TYPES.every((sourceType) => {
+                    const c = sourceConfigs.find(
+                        (row) =>
+                            row.source_product === SignalSourceProduct.ERROR_TRACKING && row.source_type === sourceType
+                    )
+                    return c?.enabled === true
+                })
+            },
+        ],
+        isSessionAnalysisRunning: [
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
         ],
@@ -302,6 +365,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     Github: { sourceProduct: SignalSourceProduct.GITHUB, sourceType: SignalSourceType.ISSUE },
                     Linear: { sourceProduct: SignalSourceProduct.LINEAR, sourceType: SignalSourceType.ISSUE },
                     Zendesk: { sourceProduct: SignalSourceProduct.ZENDESK, sourceType: SignalSourceType.TICKET },
+                    PgAnalyze: { sourceProduct: SignalSourceProduct.PGANALYZE, sourceType: SignalSourceType.ISSUE },
                 }
                 const mapped = mapping[product]
                 if (mapped) {
@@ -340,6 +404,37 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.toggleSignalSourceFailure(params, errorMessage)
                     actions.loadSourceConfigs()
                     lemonToast.error(errorMessage)
+                }
+            },
+            toggleErrorTracking: async (_, breakpoint) => {
+                const desiredEnabled = !values.errorTrackingIsFullyEnabled
+                const configs = values.sourceConfigs ?? []
+                try {
+                    for (const sourceType of ERROR_TRACKING_SIGNAL_SOURCE_TYPES) {
+                        const existing = configs.find(
+                            (c) =>
+                                c.source_product === SignalSourceProduct.ERROR_TRACKING && c.source_type === sourceType
+                        )
+                        if (existing && !existing.id.startsWith('new_')) {
+                            await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
+                        } else if (desiredEnabled) {
+                            await api.signalSourceConfigs.create({
+                                source_product: SignalSourceProduct.ERROR_TRACKING,
+                                source_type: sourceType,
+                                enabled: true,
+                                config: {},
+                            })
+                        }
+                    }
+                    breakpoint()
+                    actions.toggleErrorTrackingComplete()
+                    actions.loadSourceConfigs()
+                } catch (error: any) {
+                    breakpoint() // re-throws if superseded, skipping the lines below
+                    actions.toggleErrorTrackingComplete()
+                    const errorMessage = error?.detail || error?.message || 'Failed to toggle Error tracking signals'
+                    lemonToast.error(errorMessage)
+                    actions.loadSourceConfigs()
                 }
             },
             toggleSessionAnalysis: () => {

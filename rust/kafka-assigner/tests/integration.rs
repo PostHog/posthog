@@ -12,6 +12,7 @@ use common::{
     NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use kafka_assigner::assigner::AssignerConfig;
+use kafka_assigner::types::ConsumerStatus;
 use kafka_assigner::types::HandoffPhase;
 
 // ── Basic scenarios ─────────────────────────────────────────────
@@ -726,6 +727,130 @@ async fn rapid_scale_up_debounce() {
             "expected even distribution for {name}"
         );
     }
+
+    cancel.cancel();
+}
+
+// ── Deregister / Draining scenarios ─────────────────────────────
+
+#[tokio::test]
+async fn draining_consumer_partitions_are_handed_off() {
+    let store = test_store("draining-handoff").await;
+    let cancel = CancellationToken::new();
+
+    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
+
+    let c0 = register_consumer(&store, "c-0", 10).await;
+    let _c1 = register_consumer(&store, "c-1", 10).await;
+
+    // Wait for balanced 2-way assignment with handoffs driven to completion.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            for h in &handoffs {
+                match h.phase {
+                    HandoffPhase::Warming => signal_ready(&store, &h.topic_partition()).await,
+                    HandoffPhase::Complete => signal_released(&store, &h.topic_partition()).await,
+                    HandoffPhase::Ready => {}
+                }
+            }
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize
+                && store.list_handoffs().await.unwrap_or_default().is_empty()
+                && assignments.iter().any(|a| a.owner == "c-0")
+                && assignments.iter().any(|a| a.owner == "c-1")
+        }
+    })
+    .await;
+
+    // Transition c-0 to Draining (what the Deregister handler does).
+    store
+        .update_consumer_status("c-0", ConsumerStatus::Draining, c0.lease_id)
+        .await
+        .unwrap();
+
+    // The assigner should rebalance: c-0 is excluded from new assignments,
+    // so all partitions should move to c-1 via handoffs.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            for h in &handoffs {
+                match h.phase {
+                    HandoffPhase::Warming => signal_ready(&store, &h.topic_partition()).await,
+                    HandoffPhase::Complete => signal_released(&store, &h.topic_partition()).await,
+                    HandoffPhase::Ready => {}
+                }
+            }
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize
+                && store.list_handoffs().await.unwrap_or_default().is_empty()
+                && assignments.iter().all(|a| a.owner == "c-1")
+        }
+    })
+    .await;
+
+    // Verify: all partitions owned by c-1, none by c-0.
+    let assignments = store.list_assignments().await.unwrap();
+    assert_eq!(assignments.len(), NUM_PARTITIONS as usize);
+    assert!(assignments.iter().all(|a| a.owner == "c-1"));
+
+    cancel.cancel();
+}
+
+#[tokio::test]
+async fn draining_consumer_still_receives_handoffs_as_old_owner() {
+    let store = test_store("draining-old-owner").await;
+    let cancel = CancellationToken::new();
+
+    set_topic_config(&store, "events", NUM_PARTITIONS).await;
+    let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
+
+    let c0 = register_consumer(&store, "c-0", 10).await;
+
+    // c-0 gets all partitions.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            assignments.len() == NUM_PARTITIONS as usize
+                && assignments.iter().all(|a| a.owner == "c-0")
+        }
+    })
+    .await;
+
+    // Set c-0 to Draining, then add c-1.
+    store
+        .update_consumer_status("c-0", ConsumerStatus::Draining, c0.lease_id)
+        .await
+        .unwrap();
+    let _c1 = register_consumer(&store, "c-1", 10).await;
+
+    // Handoffs should be created with c-0 as old_owner (still alive/registered).
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            !handoffs.is_empty()
+                && handoffs
+                    .iter()
+                    .all(|h| h.old_owner == "c-0" && h.new_owner == "c-1")
+        }
+    })
+    .await;
+
+    // Drive handoffs to completion.
+    drive_handoffs_to_completion(&store).await;
+
+    // All partitions now owned by c-1.
+    let assignments = store.list_assignments().await.unwrap();
+    assert!(assignments.iter().all(|a| a.owner == "c-1"));
 
     cancel.cancel();
 }

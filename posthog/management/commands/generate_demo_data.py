@@ -12,13 +12,14 @@ from django.core import exceptions
 from django.core.management.base import BaseCommand
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.demo.matrix import Matrix, MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
 from posthog.products import Products
@@ -140,7 +141,7 @@ class Command(BaseCommand):
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
             group_type_index_offset=(
-                GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count() if existing_team else 0
+                len(get_group_types_for_project(existing_team.project_id)) if existing_team else 0
             ),
         )
         print("Running simulation...")
@@ -165,6 +166,8 @@ class Command(BaseCommand):
                     else:
                         team = Team.objects.get(pk=existing_team_id)
                         user = team.organization.members.first()
+                        if user is None:
+                            raise ValueError(f"Project {existing_team_id} has no organization members")
                         matrix_manager.run_on_team(team, user)
                 else:
                     _organization, team, user = matrix_manager.ensure_account_and_save(
@@ -213,18 +216,25 @@ class Command(BaseCommand):
                 print("Marking all quick start tasks as completed...")
                 self.complete_all_quick_start_tasks(team)
 
+            print("Seeding extra global dashboard templates (dev)...")
+            created_templates = seed_dev_dashboard_templates()
+            if created_templates:
+                print(f"Created dashboard templates: {', '.join(created_templates)}")
+            else:
+                print("Dashboard template seeds already present.")
+
             print(
                 "\nMaster project reset!\n"
                 if existing_team_id == 0
                 else (
-                    f"\nDemo data ready for project {team.name}!\n"
+                    f"\nDemo data ready for project {(team.name if team is not None else 'unknown project')}!\n"
                     if existing_team_id is not None
-                    else f"\nDemo data ready for {user.email}!\n\n"
+                    else f"\nDemo data ready for {(user.email if user is not None else 'unknown user')}!\n\n"
                     "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8010/login?email={quote(user.email)}\n"
+                    f"http://localhost:8010/login?email={quote(user.email if user is not None else '')}\n"
                     f"The password is:\n{password}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8010/signup?email={quote(user.email)}\n"
+                    f"http://localhost:8010/signup?email={quote(user.email if user is not None else '')}\n"
                 )
             )
 

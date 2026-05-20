@@ -12,6 +12,9 @@ import { UUIDT } from '~/utils/utils'
 import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
+import { TophogOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { TopHogRegistry } from '../pipelines/extensions/tophog'
 import { TopHog } from '../tophog'
 import { CymbalClient } from './cymbal/client'
@@ -22,6 +25,12 @@ import {
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+
+// Skip retry sleeps so tests run instantly
+jest.mock('~/utils/utils', () => ({
+    ...jest.requireActual('~/utils/utils'),
+    sleep: jest.fn().mockResolvedValue(undefined),
+}))
 
 // Suppress logger output during tests
 jest.mock('~/utils/logger', () => ({
@@ -242,6 +251,7 @@ describe('ErrorTrackingPipeline', () => {
             transformEventAndProduceMessages: jest
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
+            processInvocationResults: jest.fn().mockResolvedValue(undefined),
         }
 
         mockCymbalClient = {
@@ -271,9 +281,24 @@ describe('ErrorTrackingPipeline', () => {
         }
 
         pipelineConfig = {
-            kafkaProducer: mockKafkaProducer,
-            dlqTopic: 'error_tracking_dlq',
-            outputTopic: 'clickhouse_events_json_test',
+            outputs: new IngestionOutputs({
+                events: new SingleIngestionOutput('events', 'clickhouse_events_json_test', mockKafkaProducer, 'test'),
+                ingestion_warnings: new SingleIngestionOutput(
+                    'ingestion_warnings',
+                    'clickhouse_ingestion_warnings_test',
+                    mockKafkaProducer,
+                    'test'
+                ),
+                dlq: new SingleIngestionOutput('dlq', 'error_tracking_dlq', mockKafkaProducer, 'test'),
+                overflow: new SingleIngestionOutput('overflow', 'error_tracking_overflow', mockKafkaProducer, 'test'),
+                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockKafkaProducer, 'test'),
+                app_metrics: new SingleIngestionOutput(
+                    'app_metrics',
+                    'clickhouse_app_metrics2_test',
+                    mockKafkaProducer,
+                    'test'
+                ),
+            }),
             groupId: 'error-tracking-test',
             promiseScheduler,
             teamManager: mockTeamManager,
@@ -283,8 +308,7 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             overflowEnabled: false,
-            overflowTopic: 'error_tracking_overflow',
-            ingestionWarningProducer: mockKafkaProducer,
+            preservePartitionLocality: false,
             topHog: mockTopHog,
         }
     })
@@ -395,6 +419,23 @@ describe('ErrorTrackingPipeline', () => {
             // Verify both events were emitted
             const producedEvents = getProducedEvents()
             expect(producedEvents).toHaveLength(2)
+        })
+
+        it('passes Kafka message byte size to Cymbal for batch chunking', async () => {
+            mockPersonRepository.fetchPerson.mockResolvedValue(undefined)
+
+            const cymbalResponse = createCymbalResponseWithEnrichedProperties({
+                $exception_list: [{ type: 'Error', value: 'Test error' }],
+            })
+            mockCymbalClient.processExceptions.mockResolvedValue([cymbalResponse])
+
+            const message = createKafkaMessage({})
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [message])
+
+            const cymbalItems = mockCymbalClient.processExceptions.mock.calls[0][0]
+            expect(cymbalItems).toHaveLength(1)
+            expect(cymbalItems[0].estimatedSize).toBe(message.value!.length)
         })
 
         it('handles events with group types', async () => {
@@ -605,7 +646,7 @@ describe('ErrorTrackingPipeline', () => {
 
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
 
-            // Cymbal errors are retried 3 times (pipeline default), then propagate
+            // Cymbal errors are retried 10 times (pipeline default), then propagate
             // so Kafka doesn't commit and retries the batch
             await expect(runErrorTrackingPipeline(pipeline, [message])).rejects.toThrow('Cymbal unavailable')
 
@@ -886,31 +927,26 @@ describe('ErrorTrackingPipeline', () => {
     })
 
     describe('TopHog metrics', () => {
-        let topHogKafkaProducer: jest.Mocked<KafkaProducerWrapper>
+        let mockTophogQueueMessages: jest.Mock
         let topHog: TopHog
 
         beforeEach(() => {
-            topHogKafkaProducer = {
-                produce: jest.fn().mockResolvedValue(undefined),
-                queueMessages: jest.fn().mockResolvedValue(undefined),
-            } as unknown as jest.Mocked<KafkaProducerWrapper>
+            mockTophogQueueMessages = jest.fn().mockResolvedValue(undefined)
+            const tophogOutputs = {
+                queueMessages: mockTophogQueueMessages,
+            } as unknown as IngestionOutputs<TophogOutput>
 
             topHog = new TopHog({
-                kafkaProducer: topHogKafkaProducer,
-                topic: 'clickhouse_tophog_test',
-                pipeline: 'error_tracking',
+                outputs: tophogOutputs,
+                pipeline: 'errortracking',
                 lane: 'main',
             })
         })
 
         const getTopHogMessages = (): any[] => {
-            return topHogKafkaProducer.queueMessages.mock.calls.flatMap((call) => {
-                const arg = call[0]
-                const topicMessages = Array.isArray(arg) ? arg : [arg]
-                return topicMessages
-                    .filter((tm: any) => tm.topic === 'clickhouse_tophog_test')
-                    .flatMap((tm: any) => tm.messages.map((m: { value: string }) => parseJSON(m.value)))
-            })
+            return mockTophogQueueMessages.mock.calls.flatMap((call: any) =>
+                call[1].map((m: any) => parseJSON(m.value.toString()))
+            )
         }
 
         it('records resolved_teams metric when team is resolved', async () => {
@@ -1009,7 +1045,7 @@ describe('ErrorTrackingPipeline', () => {
             const messages = getTopHogMessages()
             expect(messages.length).toBeGreaterThan(0)
             for (const msg of messages) {
-                expect(msg.pipeline).toBe('error_tracking')
+                expect(msg.pipeline).toBe('errortracking')
                 expect(msg.lane).toBe('main')
             }
         })

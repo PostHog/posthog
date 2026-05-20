@@ -1,10 +1,14 @@
 import copy
+from typing import cast
 
 import structlog
-from rest_framework import mixins, status, viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
+from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -12,9 +16,50 @@ from posthog.api.utils import action
 from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models.feature_flag.flag_analytics import get_cached_evaluations_7d_by_team
 from posthog.models.filters.filter import Filter
 from posthog.models.scheduled_change import ScheduledChange
 from posthog.user_permissions import UserPermissions
+
+
+class CopyFlagsRequestSerializer(serializers.Serializer):
+    feature_flag_key = serializers.CharField(required=True, help_text="Key of the feature flag to copy")
+    from_project = serializers.IntegerField(required=True, help_text="Source project ID to copy the flag from")
+    target_project_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=True,
+        max_length=50,
+        help_text="List of target project IDs to copy the flag to",
+    )
+    copy_schedule = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to also copy scheduled changes for this flag",
+    )
+    disable_copied_flag = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status",
+    )
+
+
+class CopyFlagsResultSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(required=False, help_text="Project ID (present on failure)")
+    error_message = serializers.CharField(required=False, help_text="Error message (present on failure)")
+
+
+class CopyFlagsSuccessItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the created feature flag")
+    key = serializers.CharField(help_text="Key of the feature flag")
+    name = serializers.CharField(help_text="Name of the feature flag")
+    active = serializers.BooleanField(help_text="Whether the flag is active")
+    team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+
+
+class CopyFlagsResponseSerializer(serializers.Serializer):
+    success = CopyFlagsSuccessItemSerializer(many=True, help_text="List of successfully copied flags")
+    failed = CopyFlagsResultSerializer(many=True, help_text="List of failed copy attempts")
+
 
 logger = structlog.get_logger(__name__)
 
@@ -25,12 +70,17 @@ class OrganizationFeatureFlagView(
     mixins.RetrieveModelMixin,
 ):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     """
     Retrieves all feature flags for a given organization and key.
     """
 
     lookup_field = "feature_flag_key"
 
+    @extend_schema(
+        operation_id="org_feature_flags_retrieve",
+        parameters=[OpenApiParameter("feature_flag_key", OpenApiTypes.STR, OpenApiParameter.PATH)],
+    )
     def retrieve(self, request, *args, **kwargs):
         feature_flag_key = kwargs.get(self.lookup_field)
 
@@ -44,6 +94,11 @@ class OrganizationFeatureFlagView(
             key=feature_flag_key,
             team_id__in=team_ids,
         )
+
+        counts_by_team = get_cached_evaluations_7d_by_team(
+            cast(str, feature_flag_key), [flag.team_id for flag in flags]
+        )
+
         flags_data = [
             {
                 "flag_id": flag.id,
@@ -54,19 +109,25 @@ class OrganizationFeatureFlagView(
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at,
                 "active": flag.active,
+                "evaluations_7d": counts_by_team.get(flag.team_id) if counts_by_team is not None else None,
             }
             for flag in flags
         ]
 
         return Response(flags_data)
 
-    @action(detail=False, methods=["post"], url_path="copy_flags")
+    @extend_schema(
+        request=CopyFlagsRequestSerializer,
+        responses={200: CopyFlagsResponseSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="copy_flags", required_scopes=["feature_flag:write"])
     def copy_flags(self, request, *args, **kwargs):
         body = request.data
         feature_flag_key = body.get("feature_flag_key")
         from_project = body.get("from_project")
         target_project_ids = body.get("target_project_ids")
         copy_schedule = body.get("copy_schedule", False)  # Optional parameter to copy schedules
+        disable_copied_flag = body.get("disable_copied_flag", False)
 
         if not feature_flag_key or not from_project or not target_project_ids:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
@@ -107,7 +168,7 @@ class OrganizationFeatureFlagView(
                 failed_projects.append(
                     {
                         "project_id": target_project_id,
-                        "errors": "Project not found.",
+                        "error_message": "Project not found.",
                     }
                 )
                 continue
@@ -168,7 +229,7 @@ class OrganizationFeatureFlagView(
                                     original_child_cohort_id = int(prop.value)
                                     original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
 
-                                    if not original_child_cohort:
+                                    if not original_child_cohort or original_child_cohort.name is None:
                                         continue
                                     prop.value = name_to_dest_cohort_id[original_child_cohort.name]
                                 except (ValueError, TypeError):
@@ -191,7 +252,7 @@ class OrganizationFeatureFlagView(
                         destination_cohort_serializer.is_valid(raise_exception=True)
                         destination_cohort = destination_cohort_serializer.save()
 
-                    if destination_cohort is not None:
+                    if destination_cohort is not None and original_cohort.name is not None:
                         name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
             # reference correct destination cohort ids in the flag
@@ -202,7 +263,7 @@ class OrganizationFeatureFlagView(
                         try:
                             original_cohort_id = int(prop["value"])
                             original_cohort_ref = seen_cohorts_cache[original_cohort_id]
-                            if not original_cohort_ref:
+                            if not original_cohort_ref or original_cohort_ref.name is None:
                                 continue
                             cohort_name = original_cohort_ref.name
                             prop["value"] = name_to_dest_cohort_id[cohort_name]
@@ -221,7 +282,7 @@ class OrganizationFeatureFlagView(
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
                 "filters": filters,
-                "active": flag_to_copy.active,
+                "active": False if disable_copied_flag else flag_to_copy.active,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
                 "evaluation_runtime": flag_to_copy.evaluation_runtime,
@@ -280,7 +341,9 @@ class OrganizationFeatureFlagView(
                 failed_projects.append(
                     {
                         "project_id": target_project_id,
-                        "errors": str(e) if not feature_flag_serializer.errors else feature_flag_serializer.errors,
+                        "error_message": str(e)
+                        if not feature_flag_serializer.errors
+                        else feature_flag_serializer.errors,
                     }
                 )
 

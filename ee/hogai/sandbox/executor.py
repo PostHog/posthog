@@ -31,10 +31,10 @@ from ee.hogai.sandbox.types import (
     ACP_METHOD_SESSION_UPDATE,
     ACP_NOTIFICATION_TYPE,
     ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK,
-    TURN_COMPLETE_METHOD,
     ACPNotification,
     ACPSessionUpdateParams,
     SandboxSeedEvent,
+    is_turn_complete,
 )
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
@@ -233,11 +233,7 @@ def _seed_sandbox_stream(run_id: str) -> None:
     conn.expire(stream_key, SANDBOX_STREAM_TTL)
 
 
-def _is_turn_complete(event: dict) -> bool:
-    if event.get("type") != ACP_NOTIFICATION_TYPE:
-        return False
-    notification = event.get("notification", {})
-    return notification.get("method") == TURN_COMPLETE_METHOD
+_is_turn_complete = is_turn_complete
 
 
 async def _sandbox_stream(

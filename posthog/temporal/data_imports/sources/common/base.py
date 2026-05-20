@@ -1,10 +1,13 @@
+import dataclasses
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
 
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+
+    from products.data_warehouse.backend.models import ExternalDataSource
 
 from posthog.schema import (
     SourceConfig,
@@ -23,6 +26,8 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
@@ -70,8 +75,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return {}
 
     def get_schemas(
-        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ConfigType,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        """Return the list of schemas available for this source.
+
+        ``force_refresh=True`` instructs the source to bypass any internal cache
+        of upstream schema discovery (e.g. paginated API listings). Sources
+        without caches can ignore the flag.
+        """
         raise NotImplementedError()
 
     @property
@@ -95,6 +111,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
 
+    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
+        """Best-effort teardown of CDC resources tied to the source. No-op by default."""
+        return None
+
 
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
@@ -116,6 +136,36 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         raise NotImplementedError()
 
 
+@dataclasses.dataclass
+class WebhookCreationResult:
+    success: bool
+    error: str | None = None
+    extra_inputs: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Names of `webhookFields` the user still needs to fill in after creation
+    # (e.g. when the source's API doesn't return the signing secret on create).
+    # Empty list means the auto-created webhook is fully configured.
+    pending_inputs: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class WebhookDeletionResult:
+    success: bool
+    error: str | None = None
+
+
+@dataclasses.dataclass
+class ExternalWebhookInfo:
+    """Info about an external webhook on the source (e.g. Stripe webhook endpoint)."""
+
+    exists: bool
+    url: str | None = None
+    enabled_events: list[str] | None = None
+    status: str | None = None
+    description: str | None = None
+    created_at: str | None = None
+    error: str | None = None
+
+
 class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources that support webhook based imports."""
 
@@ -127,6 +177,52 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     @abstractmethod
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         raise NotImplementedError()
+
+    def create_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookCreationResult:
+        """Create a webhook on the external source pointing to our webhook_url.
+
+        Returns a WebhookCreationResult. If the source doesn't support automatic
+        webhook creation, returns a failed result so the user can set it up manually.
+        """
+        raise NotImplementedError()
+
+    def webhook_inputs_updated(
+        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
+    ) -> tuple[bool, str | None]:
+        """Called when webhook inputs have been set on the underlying hog function.
+
+        Returns ``(success, error)``. Implementations that need to call out to the
+        external service (e.g. enabling a previously-disabled webhook) should return
+        ``(False, message)`` on failure so the API view can surface the error to the
+        user instead of silently dropping it.
+        """
+        return True, None
+
+    @property
+    @abstractmethod
+    def webhook_resource_map(self) -> dict[str, str]:
+        """The schema mapping to use to be stored on the HogFunction for matching incoming webhooks with tables.
+        In most cases this will likely just be the table name -> table name. But in the case of Stripe, it's the
+        table name mapped to the Stripe object type"""
+        raise NotImplementedError()
+
+    def get_external_webhook_info(
+        self, config: ConfigType, webhook_url: str, team_id: int
+    ) -> ExternalWebhookInfo | None:
+        """Check the external source for webhook status.
+
+        Returns None if the source doesn't support checking webhook info.
+        Sources should override this to query their API (e.g. list Stripe webhook endpoints).
+        """
+        return None
+
+    def delete_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+        """Delete the webhook on the external source that matches webhook_url.
+
+        Sources should override this to call their API (e.g. delete Stripe webhook endpoint).
+        Returns a WebhookDeletionResult indicating success or failure.
+        """
+        return WebhookDeletionResult(success=False, error="This source does not support automatic webhook deletion.")
 
 
 AnySource = SimpleSource[ConfigType] | ResumableSource[ConfigType, ResumableData] | WebhookSource[ConfigType]

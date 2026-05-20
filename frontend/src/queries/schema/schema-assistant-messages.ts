@@ -8,18 +8,25 @@ import { DocumentBlock } from './schema-assistant-artifacts'
 import type {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
+    AssistantPathsQuery,
     AssistantRetentionQuery,
+    AssistantStickinessQuery,
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
+    DataVisualizationNode,
     FunnelsQuery,
     HogQLQuery,
+    LifecycleQuery,
+    PathsQuery,
     QuerySchema,
     RetentionQuery,
     RevenueAnalyticsGrossRevenueQuery,
     RevenueAnalyticsMRRQuery,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsTopCustomersQuery,
+    StickinessQuery,
     TrendsQuery,
 } from './schema-general'
 
@@ -151,7 +158,7 @@ export interface MultiQuestionFormQuestion {
     type?: MultiQuestionFormQuestionType
     /** Available answer options (required for select and multi_select) */
     options?: MultiQuestionFormQuestionOption[]
-    /** Whether to show a "Type your answer" option (default: true). Only used for select type. */
+    /** Whether to show a "Type your answer" option (default: true). Used for select and multi_select types. */
     allow_custom_answer?: boolean
     /** Fields for multi_field type questions, grouped with a shared submit button */
     fields?: MultiQuestionFormField[]
@@ -178,7 +185,11 @@ export interface FormResumePayload {
     form_answers: MultiQuestionFormAnswers
 }
 
-export type ResumePayload = ApprovalResumePayload | FormResumePayload
+export interface FormDismissPayload {
+    action: 'dismiss_form'
+}
+
+export type ResumePayload = ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
@@ -230,9 +241,13 @@ export interface ContextMessage extends BaseAssistantMessage {
  * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
  */
 export type AnyAssistantGeneratedQuery =
+    | DataVisualizationNode
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
+    | AssistantStickinessQuery
+    | AssistantPathsQuery
+    | AssistantLifecycleQuery
     | AssistantHogQLQuery
 
 export interface VisualizationItem {
@@ -244,6 +259,9 @@ export interface VisualizationItem {
         | TrendsQuery
         | FunnelsQuery
         | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
         | HogQLQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
@@ -434,6 +452,7 @@ export type AssistantTool =
     | 'search_session_recordings'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
+    | 'create_user_interview_topic'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -476,8 +495,10 @@ export type AssistantTool =
     | 'upsert_alert'
     | 'finalize_plan'
     | 'call_mcp_server'
-    | 'recommend_products'
     | 'search_llm_traces'
+    | 'run_hog_eval_test'
+    | 'diagnose_proxy'
+    | 'web_analytics_doctor'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -487,11 +508,11 @@ export enum AgentMode {
     Plan = 'plan',
     Execution = 'execution',
     Survey = 'survey',
-    Onboarding = 'onboarding',
     Research = 'research',
     Flags = 'flags',
     LLMAnalytics = 'llm_analytics',
     Sandbox = 'sandbox',
+    UserInterview = 'user_interview',
 }
 
 export enum SlashCommandName {

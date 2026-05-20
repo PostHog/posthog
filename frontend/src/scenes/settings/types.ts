@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-conversations'
     | 'environment-customization'
     | 'environment-autocapture'
     | 'environment-heatmaps'
@@ -33,6 +34,7 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-error-tracking-configuration'
     | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
@@ -53,8 +55,8 @@ export type SettingSectionId =
     | 'organization-details'
     | 'organization-integrations'
     | 'organization-oauth-apps'
+    | 'organization-cimd-verification-tokens'
     | 'organization-members'
-    | 'organization-notifications'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
@@ -62,8 +64,11 @@ export type SettingSectionId =
     | 'environment-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
+    | 'organization-legal-documents'
     | 'organization-startup-program'
     | 'user-profile'
+    | 'user-personal-integrations'
+    | 'user-connected-apps'
     | 'user-api-keys'
     | 'user-notifications'
     | 'user-customization'
@@ -73,7 +78,11 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
+    | 'conversations-general'
+    | 'conversations-channels'
+    | 'conversations-notifications'
     | 'snippet-v2'
+    | 'js-snippet-version'
     | 'replay-triggers'
     | 'replay-integrations'
     | 'display-name'
@@ -89,7 +98,9 @@ export type SettingId =
     | 'correlation-analysis'
     | 'customer-analytics-usage-metrics'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-accounts'
     | 'person-display-name'
+    | 'person-last-seen-at'
     | 'path-cleaning'
     | 'datacapture'
     | 'human-friendly-comparison-periods'
@@ -115,6 +126,8 @@ export type SettingId =
     | 'environment-experiment-stats-method'
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-recalculation-time'
+    | 'environment-experiment-matured-users'
+    | 'environment-experiment-cuped-enabled'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-ingestion-controls'
@@ -126,6 +139,7 @@ export type SettingId =
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
     | 'error-tracking-spike-detection'
+    | 'error-tracking-rate-limits'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-posthog-code-slack'
@@ -141,9 +155,9 @@ export type SettingId =
     | 'organization-display-name'
     | 'organization-integrations-list'
     | 'organization-oauth-apps-list'
+    | 'organization-cimd-verification-tokens-list'
     | 'invites'
     | 'members'
-    | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
     | 'organization-experiment-stats-method'
@@ -156,8 +170,11 @@ export type SettingId =
     | 'change-password'
     | '2fa'
     | 'passkeys'
+    | 'connected-apps'
+    | 'personal-integrations'
     | 'personal-api-keys'
     | 'notifications'
+    | 'realtime-notifications'
     | 'feature-previews'
     | 'feature-previews-coming-soon'
     | 'optout'
@@ -165,6 +182,7 @@ export type SettingId =
     | 'replay-ai-config'
     | 'heatmaps'
     | 'hedgehog-mode'
+    | 'sidebar-auto-suggest'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
     | 'session-join-mode'
@@ -199,13 +217,16 @@ export type SettingId =
     | 'discussion-mention-integrations'
     | 'logs'
     | 'logs-json-parse'
+    | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
+    | 'logs-drop-rules'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
+    | 'mcp-hints'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -221,8 +242,13 @@ export type Setting = {
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
      * When an array is provided, the setting will be shown if ALL of the conditions are met.
+     * When a tuple is provided, the setting will be shown if the feature flag is enabled and the value matches the given value.
      */
-    flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
+    flag?:
+        | FeatureFlagKey
+        | `!${FeatureFlagKey}`
+        | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
+        | [[FeatureFlagKey, string | boolean]]
 
     /**
      * defaults to true if not provided
@@ -273,4 +299,11 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * Sections with the same group will be nested under a group header.
      */
     group?: string
+
+    /**
+     * When true, the section is hidden from the settings page navigation and search
+     * but remains accessible when referenced directly via sectionId (e.g. from a
+     * product's own configuration scene).
+     */
+    hideFromNavigation?: boolean
 }

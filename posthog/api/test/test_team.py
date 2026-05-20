@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
@@ -19,25 +19,30 @@ from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.team import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.dashboard import Dashboard
-from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    cached_group_types_for_team,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
@@ -53,12 +58,18 @@ def team_api_test_factory():
 
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
             starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
             self._assert_activity_log([])
@@ -87,7 +98,6 @@ def team_api_test_factory():
             self.assertEqual(response_data["name"], self.team.name)
             self.assertEqual(response_data["timezone"], "UTC")
             self.assertEqual(response_data["is_demo"], False)
-            self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
             self.assertEqual(response_data["has_group_types"], False)
             self.assertEqual(
                 response_data["person_on_events_querying_enabled"],
@@ -352,38 +362,6 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
 
-        @parameterized.expand(
-            [
-                ("null_value", None, True),
-                ("empty_string", "", True),
-                ("valid_slack_url", "https://hooks.slack.com/services/T00/B00/XXX", True),
-                ("valid_external_url", "https://example.com/webhook", True),
-                ("localhost", "http://localhost/webhook", False),
-                ("localhost_with_port", "http://localhost:8080/webhook", False),
-                ("loopback_ip", "http://127.0.0.1/webhook", False),
-                ("internal_ip_192", "http://192.168.1.1/webhook", False),
-                ("internal_ip_10", "http://10.0.0.1/webhook", False),
-                ("internal_ip_172", "http://172.16.0.1/webhook", False),
-            ]
-        )
-        @override_settings(DEBUG=False)
-        def test_slack_incoming_webhook_ssrf_validation(
-            self, _name: str, webhook_url: str | None, should_succeed: bool
-        ):
-            """Test that slack_incoming_webhook rejects internal/private IPs (CVE-2025-1521)."""
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/",
-                {"slack_incoming_webhook": webhook_url},
-            )
-            if should_succeed:
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.team.refresh_from_db()
-                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
-            else:
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                response_data = response.json()
-                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
-
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -448,6 +426,7 @@ def team_api_test_factory():
                         "short_id": None,
                         "trigger": None,
                     },
+                    "client": None,
                     "created_at": ANY,
                 },
                 {
@@ -470,6 +449,7 @@ def team_api_test_factory():
                     "scope": "Team",
                     "user_id": self.user.pk,
                     "was_impersonated": False,
+                    "client": None,
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -495,6 +475,7 @@ def team_api_test_factory():
                         "scope": "Project",
                         "user_id": self.user.pk,
                         "was_impersonated": False,
+                        "client": None,
                     },
                 )
             assert activity == expected_activity
@@ -533,6 +514,7 @@ def team_api_test_factory():
                     event="team deleted",
                     properties=mock.ANY,
                     groups=mock.ANY,
+                    send_feature_flags=False,
                 ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -542,6 +524,7 @@ def team_api_test_factory():
                         event="project deleted",
                         properties=mock.ANY,
                         groups=mock.ANY,
+                        send_feature_flags=False,
                     )
                 )
                 mock_delete_task_project.delay.assert_called_once_with(
@@ -1330,7 +1313,7 @@ def team_api_test_factory():
         ) -> None:
             response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
 
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_recording_linked_flag",
                 "code": expected_code,
                 "detail": expected_error,
@@ -1462,7 +1445,7 @@ def team_api_test_factory():
             response = self._patch_session_replay_config(
                 {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
             )
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_replay_config",
                 "code": expected_code,
                 "detail": expected_error,
@@ -1644,7 +1627,7 @@ def team_api_test_factory():
                 team=self.team,
             )
 
-        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
+        @patch("posthog.api.team.enqueue_product_activation_calc_debounced", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
@@ -2104,7 +2087,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
@@ -2113,7 +2096,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["logs_settings"]["retention_last_updated"] is not None
@@ -2122,7 +2105,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -2131,23 +2114,34 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_invalid_values_rejected(self):
+            for invalid_days in [7, 15, 20, 45, 100]:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": invalid_days}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                    f"Expected 400 for retention_days={invalid_days}"
+                )
+                assert "retention_days must be one of" in response.json()["detail"]
 
         def test_logs_settings_non_retention_changes_not_restricted(self):
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
@@ -2157,7 +2151,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 15,  # Same retention
+                            "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
                         }
                     },
@@ -2170,7 +2164,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 16,
+                            "retention_days": 30,
                         }
                     },
                 )
@@ -2337,6 +2331,457 @@ def team_api_test_factory():
                 ).count(),
                 1,
             )
+
+        def test_can_set_session_recording_trigger_groups(self):
+            """Test that we can create and update session_recording_trigger_groups field"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "test-group-1",
+                        "name": "Test Group",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 5000,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["pageview"],
+                            "flag": "test-flag-key",
+                        },
+                    }
+                ],
+            }
+
+            # Test creating with trigger groups
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+            # Test that it persisted
+            self.team.refresh_from_db()
+            assert self.team.session_recording_trigger_groups == trigger_groups
+
+            # Test updating
+            trigger_groups["groups"][0]["sampleRate"] = 1.0  # type: ignore
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["sampleRate"] == 1.0
+
+            # Test clearing (set to null)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": None},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] is None
+
+        @parameterized.expand(
+            [
+                (
+                    "missing_version",
+                    {"groups": []},
+                    "version",
+                ),
+                (
+                    "invalid_version",
+                    {"version": 1, "groups": []},
+                    "version",
+                ),
+                (
+                    "missing_groups",
+                    {"version": 2},
+                    "groups",
+                ),
+                (
+                    "invalid_sample_rate_above_one",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 1.5,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "negative_sample_rate",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": -0.1,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "invalid_match_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {"matchType": "invalid"},
+                            }
+                        ],
+                    },
+                    "matchtype",
+                ),
+                (
+                    "invalid_regex",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "urls": [{"url": "[invalid(regex", "matching": "regex"}],
+                                },
+                            }
+                        ],
+                    },
+                    "regex",
+                ),
+                (
+                    "invalid_min_duration_negative",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": -100,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_too_large",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": 40000,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_boolean",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": True,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "event_object_missing_name",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"properties": []}],
+                                },
+                            }
+                        ],
+                    },
+                    "name",
+                ),
+                (
+                    "event_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [123],
+                                },
+                            }
+                        ],
+                    },
+                    "string or object",
+                ),
+                (
+                    "event_property_missing_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"key": "amount", "operator": "gt", "value": 100}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "hogql", "operator": "gt", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_missing_key",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"type": "event", "operator": "exact", "value": "foo"}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "key",
+                ),
+                (
+                    "event_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "event", "operator": "banana", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
+                (
+                    "group_level_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"name": "error"}],
+                                    "properties": [
+                                        {"key": "country", "type": "person", "operator": "banana", "value": "US"}
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
+            ]
+        )
+        def test_session_recording_trigger_groups_validation_errors(
+            self, name: str, trigger_groups: dict, expected_error_fragment: str
+        ):
+            """Test various validation failures for trigger groups"""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert expected_error_fragment in str(response.json()).lower()
+
+        def test_session_recording_trigger_groups_complex_valid_config(self):
+            """Test that complex valid configurations pass validation"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "errors",
+                        "name": "Error Tracking",
+                        "sampleRate": 1.0,
+                        "minDurationMs": 0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["error", "crash"],
+                            "urls": [{"url": "/checkout.*", "matching": "regex"}],
+                        },
+                    },
+                    {
+                        "id": "feature-flag",
+                        "name": "Feature Flag Testing",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 10000,
+                        "conditions": {
+                            "matchType": "all",
+                            "flag": {"key": "variant-test", "variant": "control"},
+                        },
+                    },
+                    {
+                        "id": "simple-flag",
+                        "name": "Simple Flag",
+                        "sampleRate": 0.3,
+                        "conditions": {
+                            "matchType": "any",
+                            "flag": "simple-feature-flag",
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_event_objects_and_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "rich-events",
+                        "name": "Events with WHERE clauses",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "all",
+                            "events": [
+                                "simple_event",
+                                {
+                                    "name": "purchase",
+                                    "properties": [
+                                        {"key": "amount", "type": "event", "operator": "gt", "value": 100},
+                                        {"key": "currency", "type": "event", "operator": "exact", "value": "USD"},
+                                    ],
+                                },
+                                {"name": "$exception"},
+                            ],
+                            "urls": [
+                                {
+                                    "url": "/checkout.*",
+                                    "matching": "regex",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_group_level_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "us-errors",
+                        "name": "US errors on checkout",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": [{"name": "$exception"}, {"name": "purchase_error"}],
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "operator": "icontains",
+                                    "value": ["checkout.acme.com", "payments.acme.com"],
+                                },
+                                {"key": "country", "type": "person", "operator": "exact", "value": "US"},
+                            ],
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
 
     return TestTeamAPI
 
@@ -2534,8 +2979,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2569,8 +3014,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2600,8 +3045,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2627,8 +3072,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2661,8 +3106,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2691,8 +3136,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2784,3 +3229,191 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+    @parameterized.expand(
+        [
+            (
+                "missing_key",
+                [{"type": "person", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_type",
+                [{"key": "email", "type": "not_a_type", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_operator",
+                [{"key": "email", "type": "person", "operator": "not_an_operator", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_cohort_value",
+                [{"key": "id", "type": "cohort", "operator": "in", "value": "not-a-cohort-id"}],
+            ),
+        ]
+    )
+    def test_validate_test_account_filters_rejects_invalid_filters(
+        self, _name: str, test_account_filters: list[dict[str, Any]]
+    ):
+        original_test_account_filters = self.team.test_account_filters
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": test_account_filters},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "test_account_filters")
+        self.assertIn("Must provide an array of valid property filters.", response.json()["detail"])
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters, original_test_account_filters)
+
+    def test_validate_test_account_filters_allows_is_set_filters_without_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": [{"key": "email", "type": "person", "operator": "is_set"}]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["test_account_filters"],
+            [{"key": "email", "type": "person", "operator": "is_set"}],
+        )
+
+
+class TestTeamSerializerHomeViewWins(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        _reset_default_data_color_theme_id_cache()
+        self.addCleanup(_reset_default_data_color_theme_id_cache)
+
+    def test_cached_group_types_for_team_memoises_per_instance(self):
+        # has_group_types and group_types are sibling SerializerMethodFields; previously
+        # each hit Redis. They now share a request-scoped memo on the team instance,
+        # via the helper in posthog/models/group_type_mapping.py.
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_team(self.team)
+            cached_group_types_for_team(self.team)
+            cached_group_types_for_team(self.team)
+        assert mock_fetch.call_count == 1
+
+        # Different team instance bypasses the memo: a single mock spanning both
+        # instances must see exactly one fetch (the fresh one), not zero.
+        fresh_team = Team.objects.get(pk=self.team.pk)
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_team(self.team)  # cached on self.team
+            cached_group_types_for_team(fresh_team)  # uncached on fresh
+        assert mock_fetch.call_count == 1
+        assert mock_fetch.call_args.args == (fresh_team.project_id,)
+
+    def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
+        # System-wide default DataColorTheme is a deploy-time fixture; cache for
+        # process lifetime to skip a per-render PG round-trip on the home view.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = 42
+
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+
+        assert mock_objects.filter.call_count == 1
+
+    def test_default_data_color_theme_id_does_not_cache_none(self):
+        # If the very first call lands before the data migration is applied, a
+        # None must NOT be cached - subsequent calls should retry so we recover
+        # automatically once the row appears.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = None
+
+            assert _default_data_color_theme_id() is None
+            assert _default_data_color_theme_id() is None
+
+        assert mock_objects.filter.call_count == 2
+
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = 7
+
+            assert _default_data_color_theme_id() == 7
+            assert _default_data_color_theme_id() == 7
+
+        assert mock_objects.filter.call_count == 1
+
+
+class TestGetOrMintLiveEventsToken(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("authenticated_user", False),
+            ("anonymous_user", True),
+        ]
+    )
+    def test_returns_a_signed_jwt_with_expected_claims(self, _name: str, anonymous: bool) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.jwt import PosthogJwtAudience, decode_jwt
+
+        user_id = None if anonymous else self.user.id
+        token = get_or_mint_live_events_token(self.team, user_id)
+        claims = decode_jwt(token, PosthogJwtAudience.LIVESTREAM)
+        assert claims["team_id"] == self.team.id
+        assert claims["api_token"] == self.team.api_token
+        assert claims["user_id"] == user_id
+        assert claims["organization_id"] == str(self.team.organization_id)
+
+    @parameterized.expand(
+        [
+            ("authenticated_user", False),
+            ("anonymous_user", True),
+        ]
+    )
+    def test_second_call_returns_cached_token_without_re_signing(self, _name: str, anonymous: bool) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+
+        user_id = None if anonymous else self.user.id
+        first = get_or_mint_live_events_token(self.team, user_id)
+        with patch("posthog.api.team.encode_jwt") as mock_encode:
+            second = get_or_mint_live_events_token(self.team, user_id)
+        mock_encode.assert_not_called()
+        assert first == second
+
+    @parameterized.expand(
+        [
+            # name, mutation_callback (called with self) describing the cache-key
+            # component that should diverge between two calls
+            ("user_id changes", lambda self: {"first_user_id": self.user.id, "second_user_id": self.user.id + 9999}),
+            (
+                "anonymous vs authenticated diverge",
+                lambda self: {"first_user_id": None, "second_user_id": self.user.id},
+            ),
+            ("api_token rotates", lambda self: {"rotate_api_token": True}),
+        ]
+    )
+    def test_cache_key_component_changes_force_a_fresh_mint(self, _name: str, mutation_factory) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+
+        mutation = mutation_factory(self)
+        first_user_id = mutation.get("first_user_id", self.user.id)
+        second_user_id = mutation.get("second_user_id", self.user.id)
+        rotate_api_token = mutation.get("rotate_api_token", False)
+
+        token_before = get_or_mint_live_events_token(self.team, first_user_id)
+        if rotate_api_token:
+            self.team.api_token = "rotated_token_value"
+        token_after = get_or_mint_live_events_token(self.team, second_user_id)
+        assert token_before != token_after
+
+    def test_secret_key_rotation_partitions_the_cache_namespace(self) -> None:
+        # SECRET_KEY rotation must invalidate cached tokens automatically — otherwise
+        # the livestream service would reject the cached old-key signatures for up
+        # to the cache TTL. We embed a fingerprint of SECRET_KEY in the cache key so
+        # the namespace partitions cleanly on rotation.
+        from posthog.api.team import get_or_mint_live_events_token
+
+        token_old_secret = get_or_mint_live_events_token(self.team, self.user.id)
+        with override_settings(SECRET_KEY="completely-different-rotated-secret"):
+            token_new_secret = get_or_mint_live_events_token(self.team, self.user.id)
+        assert token_old_secret != token_new_secret

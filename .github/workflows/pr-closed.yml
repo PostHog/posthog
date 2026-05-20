@@ -21,9 +21,41 @@ jobs:
             pr_number: '${{ github.event.pull_request.number }}'
         secrets: inherit
 
+    disable-canary-flags:
+        name: Disable feature flags canary
+        if: contains(github.event.pull_request.labels.*.name, 'canary-flags')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Get deployer token
+              id: deployer
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Dispatch canary disable to charts repo
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              with:
+                  github-token: ${{ steps.deployer.outputs.token }}
+                  script: |
+                      await github.rest.repos.createDispatchEvent({
+                          owner: 'PostHog',
+                          repo: 'charts',
+                          event_type: 'disable-canary-flags',
+                          client_payload: {
+                              pr_number: process.env.PR_NUMBER
+                          }
+                      });
+
     report-pr-age:
         name: Report age of PR
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.merged == true
         steps:
             - name: Calculate PR age
@@ -52,8 +84,15 @@ jobs:
                   echo "$pr_title_escaped" >> $GITHUB_ENV
                   echo "EOF" >> $GITHUB_ENV
             - name: Capture PR age to PostHog
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-pr-stats'
+                  properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}}, "prTitle": ${{ env.pr_title_escaped }}, "prNumber": "${{ github.event.pull_request.number}}"  }'
+            - name: Capture PR age to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
                   event: 'posthog-ci-pr-stats'
                   properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}}, "prTitle": ${{ env.pr_title_escaped }}, "prNumber": "${{ github.event.pull_request.number}}"  }'

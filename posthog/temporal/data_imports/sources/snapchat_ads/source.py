@@ -6,23 +6,29 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    ResumableSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import SnapchatAdsSourceConfig
 from posthog.temporal.data_imports.sources.snapchat_ads.settings import SNAPCHAT_ADS_CONFIG
-from posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads import snapchat_ads_source
+from posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads import SnapchatResumeConfig, snapchat_ads_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
+class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SNAPCHATADS
@@ -33,9 +39,7 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.SNAPCHAT_ADS,
             label="Snapchat Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Snapchat Ads. Ensure you have granted PostHog access to your Snapchat Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/snapchat-ads).",
-            betaSource=True,
-            unreleasedSource=True,
-            featureFlag="snapchat-ads-source",
+            releaseStatus="beta",
             iconPath="/static/services/snapchat.png",
             docsUrl="https://posthog.com/docs/cdp/sources/snapchat-ads",
             fields=cast(
@@ -47,6 +51,7 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Snapchat Ads ad account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="snapchat_integration_id",
@@ -56,6 +61,16 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_stats_daily",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
     def validate_credentials(
@@ -77,6 +92,7 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -94,7 +110,15 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
 
         return schemas
 
-    def source_for_pipeline(self, config: SnapchatAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SnapchatResumeConfig]:
+        return ResumableSourceManager[SnapchatResumeConfig](inputs, SnapchatResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: SnapchatAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[SnapchatResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.snapchat_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -106,6 +130,7 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

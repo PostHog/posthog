@@ -66,6 +66,7 @@ def test_bigquery_destination_table_default():
             SourceInputs(
                 schema_name="schema",
                 schema_id="schema-id",
+                source_id="source-id",
                 team_id=1,
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=None,
@@ -155,6 +156,7 @@ def test_bigquery_destination_table_with_dataset_project_set():
             SourceInputs(
                 schema_name="schema",
                 schema_id="schema-id",
+                source_id="source-id",
                 team_id=1,
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=None,
@@ -244,6 +246,7 @@ def test_bigquery_destination_table_with_temporary_dataset_set():
             SourceInputs(
                 schema_name="schema",
                 schema_id="schema-id",
+                source_id="source-id",
                 team_id=1,
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=None,
@@ -336,6 +339,7 @@ def test_bigquery_destination_table_with_both_temporary_dataset_and_dataset_proj
             SourceInputs(
                 schema_name="schema",
                 schema_id="schema-id",
+                source_id="source-id",
                 team_id=1,
                 should_use_incremental_field=False,
                 db_incremental_field_last_value=None,

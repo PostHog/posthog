@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_materialized_columns
 from unittest.mock import MagicMock, patch
 
@@ -10,13 +11,18 @@ from posthog.schema import (
     EmptyPropertyFilter,
     FlagPropertyFilter,
     HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
     PropertyOperator,
     RetentionEntity,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
     entity_to_expr,
     has_aggregation,
@@ -287,6 +293,88 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("properties.unknown_prop = 'true'"),
         )
+
+    @parameterized.expand(
+        [
+            (
+                "is_date_before_iso",
+                "event",
+                "a",
+                "2026-03-19T14:00:00Z",
+                "is_date_before",
+                ast.CompareOperationOp.Lt,
+                "2026-03-19T14:00:00Z",
+            ),
+            (
+                "is_date_after_iso",
+                "event",
+                "a",
+                "2026-03-19T14:00:00Z",
+                "is_date_after",
+                ast.CompareOperationOp.Gt,
+                "2026-03-19T14:00:00Z",
+            ),
+            (
+                "is_date_exact_date_only",
+                "event",
+                "a",
+                "2026-03-19",
+                "is_date_exact",
+                ast.CompareOperationOp.Eq,
+                "2026-03-19",
+            ),
+            (
+                "person_is_date_before_iso",
+                "person",
+                "inserted_at",
+                "2026-03-19T14:00:00Z",
+                "is_date_before",
+                ast.CompareOperationOp.Lt,
+                "2026-03-19T14:00:00Z",
+            ),
+        ]
+    )
+    def test_property_to_expr_date_operator(self, _name, prop_type, key, value, operator, op, expected_rhs):
+        chain = ["person", "properties", key] if prop_type == "person" else ["properties", key]
+        self.assertEqual(
+            self._property_to_expr({"type": prop_type, "key": key, "value": value, "operator": operator}),
+            ast.CompareOperation(
+                op=op,
+                left=ast.Call(
+                    name="toDateTime",
+                    args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])],
+                ),
+                right=ast.Call(name="toDateTime", args=[ast.Constant(value=expected_rhs)]),
+            ),
+        )
+
+    def test_property_to_expr_generic_lt_gt_unchanged(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
+            self._parse_expr("properties.a < '3'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
+            self._parse_expr("properties.a > '3'"),
+        )
+
+    @parameterized.expand(
+        [
+            ("is_date_before_relative", "-10m", "is_date_before", ast.CompareOperationOp.Lt, "2025-06-09 12:00:00"),
+            ("is_date_after_relative", "-7d", "is_date_after", ast.CompareOperationOp.Gt, "2026-04-02 12:00:00"),
+            ("is_date_exact_relative", "-1y", "is_date_exact", ast.CompareOperationOp.Eq, "2025-04-09 12:00:00"),
+        ]
+    )
+    @freeze_time("2026-04-09T12:00:00Z")
+    def test_property_to_expr_date_operator_relative(self, _name, value, operator, op, expected_rhs):
+        result = self._property_to_expr({"type": "event", "key": "a", "value": value, "operator": operator})
+        assert isinstance(result, ast.CompareOperation)
+        assert result.op == op
+        assert isinstance(result.right, ast.Call)
+        assert result.right.name == "toDateTime"
+        assert len(result.right.args) == 1
+        assert isinstance(result.right.args[0], ast.Constant)
+        assert result.right.args[0].value == expected_rhs
 
     def test_property_to_expr_event_list(self):
         # positive
@@ -854,6 +942,56 @@ class TestProperty(BaseTest):
             "The 'event' property filter does not work in 'person' scope",
         )
 
+    @parameterized.expand(
+        [
+            ("event_scope", "event", "distinct_id = 'abc'"),
+            ("person_scope", "person", "pdi.distinct_id = 'abc'"),
+        ]
+    )
+    def test_person_distinct_id_property(self, _name, scope, expected_expr):
+        # distinct_id is not stored in person.properties — it's the events.distinct_id column
+        # in event scope, and reachable via the pdi lazy join in person scope.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "distinct_id", "value": "abc", "operator": "exact"},
+                scope=scope,
+            ),
+            self._parse_expr(expected_expr),
+        )
+
+    @parameterized.expand(
+        [
+            ("disabled", PersonsOnEventsMode.DISABLED),
+            ("no_override_props_on_events", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("override_props_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("override_props_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        ]
+    )
+    def test_person_distinct_id_property_resolves_under_all_poe_modes(self, _name, mode):
+        # Regression test for "Field not found: pdi" — previously, the special case for
+        # {type: person, key: distinct_id} routed through events.person.pdi, which broke under
+        # person-on-events modes that rebind events.person to the `poe` virtual table.
+        expr = property_to_expr(
+            {"type": "person", "key": "distinct_id", "value": "abc", "operator": "is_not"},
+            team=self.team,
+            scope="event",
+        )
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=expr,
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team, HogQLQueryModifiers(personsOnEventsMode=mode)),
+        )
+        sql, _ = prepare_and_print_ast(query_ast, context=context, dialect="clickhouse")
+        # Used to raise QueryError("Field not found: pdi") under PoE modes that rebind
+        # events.person to the `poe` virtual table.
+        assert "distinct_id" in sql
+        assert "pdi" not in sql
+
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
@@ -1100,6 +1238,70 @@ class TestProperty(BaseTest):
             chain=["person", "properties", 42]
         )
         assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])
+
+    @parameterized.expand(
+        [
+            (
+                "traffic_type_bot",
+                {"type": "event", "key": "$virt_traffic_type", "value": "Bot"},
+                "$virt_traffic_type = 'Bot'",
+            ),
+            (
+                "traffic_type_ai_agent",
+                {"type": "event", "key": "$virt_traffic_type", "value": "AI Agent"},
+                "$virt_traffic_type = 'AI Agent'",
+            ),
+            (
+                "bot_name_googlebot",
+                {"type": "event", "key": "$virt_bot_name", "value": "Googlebot"},
+                "$virt_bot_name = 'Googlebot'",
+            ),
+        ]
+    )
+    def test_virtual_event_properties_on_event_scope(self, _name: str, prop_dict: dict, expected_expr: str):
+        assert self._property_to_expr(prop_dict, scope="event") == self._parse_expr(expected_expr)
+
+    @parameterized.expand(
+        [
+            (
+                "is_not_bot",
+                {"type": "event", "key": "$virt_traffic_type", "value": "Bot", "operator": "is_not"},
+                "$virt_traffic_type != 'Bot'",
+            ),
+            (
+                "icontains_google",
+                {"type": "event", "key": "$virt_bot_name", "value": "Google", "operator": "icontains"},
+                "toString($virt_bot_name) ilike '%Google%'",
+            ),
+            (
+                "is_set",
+                {"type": "event", "key": "$virt_traffic_type", "operator": "is_set"},
+                "$virt_traffic_type != NULL",
+            ),
+        ]
+    )
+    def test_virtual_event_properties_with_operators(self, _name: str, prop_dict: dict, expected_expr: str):
+        assert self._property_to_expr(prop_dict, scope="event") == self._parse_expr(expected_expr)
+
+    def test_virtual_event_properties_boolean_filter(self):
+        assert self._property_to_expr(
+            {"type": "event", "key": "$virt_is_bot", "value": "true"}, scope="event"
+        ) == self._parse_expr("$virt_is_bot = true")
+
+        assert self._property_to_expr(
+            {"type": "event", "key": "$virt_is_bot", "value": "false"}, scope="event"
+        ) == self._parse_expr("$virt_is_bot = false")
+
+    @parameterized.expand(
+        [
+            ("is_bot", "$virt_is_bot"),
+            ("traffic_type", "$virt_traffic_type"),
+            ("bot_name", "$virt_bot_name"),
+            ("traffic_category", "$virt_traffic_category"),
+        ]
+    )
+    def test_map_virtual_properties_for_event_properties(self, _name: str, virt_prop: str):
+        assert map_virtual_properties(ast.Field(chain=["properties", virt_prop])) == ast.Field(chain=[virt_prop])
 
     def test_property_to_expr_event_metadata_group_scope_basic(self):
         assert self._property_to_expr(
@@ -1623,3 +1825,101 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
         results = dict(zip(result.columns, row))
 
         assert results == self._expected_is_not_set_values(is_materialized)
+
+
+class TestPropertyDateOperatorsWithData(APIBaseTest):
+    """End-to-end tests for IS_DATE_* operators that actually execute the generated SQL.
+
+    Unit tests only assert AST shape, which cannot catch cases where the rendered
+    ClickHouse SQL is syntactically valid but rejected at runtime. In particular,
+    PropertySwapper wraps DateTime-typed properties with ``parseDateTime64BestEffortOrNull``,
+    and our outer ``toDateTime`` wrap must not produce a nested parse on a DateTime64
+    column — ``parseDateTime64BestEffortOrNull`` only accepts String input.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team,
+            name="signup_dt",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Datetime,
+        )
+        _create_event(
+            team=cls.team,
+            event="signup",
+            distinct_id="u1",
+            properties={"signup_dt": "2026-03-19T10:00:00Z"},
+        )
+        _create_event(
+            team=cls.team,
+            event="signup",
+            distinct_id="u2",
+            properties={"signup_dt": "2026-03-19T18:00:00Z"},
+        )
+
+    def _run(self, filter: dict) -> int:
+        expr = property_to_expr(filter, team=self.team, scope="event")
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="signup"),
+                    ),
+                    expr,
+                ]
+            ),
+        )
+        result = execute_hogql_query(team=self.team, query=query_ast)
+        return result.results[0][0]
+
+    @parameterized.expand(
+        [
+            ("is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
+            ("is_date_before_mysql", "2026-03-19 14:00:00", "is_date_before", 1),
+            ("is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
+            ("is_date_after_mysql", "2026-03-19 14:00:00", "is_date_after", 1),
+            ("is_date_before_date_only", "2026-03-20", "is_date_before", 2),
+            ("is_date_after_date_only", "2026-03-18", "is_date_after", 2),
+        ]
+    )
+    def test_is_date_operator_on_datetime_event_property(
+        self, _name: str, value: str, operator: str, expected_count: int
+    ):
+        count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
+        assert count == expected_count
+
+    @parameterized.expand(
+        [
+            # Events stored: u1 = 2026-03-19T10:00:00Z (03:00 PDT), u2 = 2026-03-19T18:00:00Z (11:00 PDT).
+            #
+            # ISO-with-Z filters carry an absolute offset and must resolve to the same moment
+            # regardless of team timezone. This is the regression guard for the silent-drift bug
+            # where stripping the Z would have silently re-interpreted the RHS in team time.
+            ("la_is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
+            ("la_is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
+            # Naive MySQL-format filters are deliberately interpreted as team-local wall clock.
+            # 07:00 PDT = 14:00 UTC, so the same event split as the UTC case above.
+            ("la_is_date_before_mysql_local", "2026-03-19 07:00:00", "is_date_before", 1),
+            ("la_is_date_after_mysql_local", "2026-03-19 07:00:00", "is_date_after", 1),
+            # 14:00 PDT = 21:00 UTC, past both events.
+            ("la_is_date_before_mysql_late", "2026-03-19 14:00:00", "is_date_before", 2),
+            ("la_is_date_after_mysql_late", "2026-03-19 14:00:00", "is_date_after", 0),
+            # Date-only filters are midnight team-local: 2026-03-20 00:00 PDT = 2026-03-20 07:00 UTC.
+            ("la_is_date_before_date_only", "2026-03-20", "is_date_before", 2),
+            ("la_is_date_after_date_only", "2026-03-18", "is_date_after", 2),
+        ]
+    )
+    def test_is_date_operator_on_datetime_event_property_non_utc_team(
+        self, _name: str, value: str, operator: str, expected_count: int
+    ):
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+
+        count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
+        assert count == expected_count

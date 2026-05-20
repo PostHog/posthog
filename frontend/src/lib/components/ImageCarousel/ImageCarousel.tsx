@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { IconChevronLeft, IconChevronRight, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
-interface ImageCarouselProps {
+export interface ImageCarouselProps {
     imageUrls: string[]
     loading?: boolean
     onDelete?: (url: string) => void

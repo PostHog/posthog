@@ -3,14 +3,14 @@ import posthog from 'posthog-js'
 import { ReactNode } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { IconEllipsis, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
+import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -23,6 +23,7 @@ import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/Lifecycle
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
+import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
@@ -43,7 +44,7 @@ import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { isValidBreakdown, isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -73,6 +74,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
+        interval,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
@@ -94,8 +96,10 @@ export function InsightDisplayConfig(): JSX.Element {
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
         isTrends &&
-        !isValidBreakdown(breakdownFilter) &&
-        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph)
+        !hasBreakdownFilter(breakdownFilter) &&
+        (!display || display === ChartDisplayType.ActionsLineGraph || display === ChartDisplayType.ActionsAreaGraph) &&
+        !!interval &&
+        (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
     const isLineGraph =
@@ -110,6 +114,22 @@ export function InsightDisplayConfig(): JSX.Element {
 
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
+        ...(showSmoothing
+            ? [
+                  {
+                      title: 'Smoothing',
+                      items: [
+                          {
+                              label: () => (
+                                  <div className="px-2 pb-1.5 w-full">
+                                      <SmoothingFilter />
+                                  </div>
+                              ),
+                          },
+                      ],
+                  },
+              ]
+            : []),
         ...((isTrends && display !== ChartDisplayType.CalendarHeatmap) ||
         isRetention ||
         isTrendsFunnel ||
@@ -123,9 +143,36 @@ export function InsightDisplayConfig(): JSX.Element {
                           </h5>
                       ),
                       items: isBoxPlot
-                          ? hasLegend
-                              ? [{ label: () => <ShowLegendFilter /> }]
-                              : []
+                          ? [
+                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                {
+                                    label: () => (
+                                        <LemonCheckbox
+                                            label={
+                                                <span className="font-normal">
+                                                    Exclude outliers{' '}
+                                                    <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
+                                                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                                                    </Tooltip>
+                                                </span>
+                                            }
+                                            className="p-1 px-2"
+                                            size="small"
+                                            checked={trendsFilter?.excludeBoxPlotOutliers !== false}
+                                            onChange={(checked) => {
+                                                if (isTrendsQuery(querySource)) {
+                                                    const newQuery = { ...querySource }
+                                                    newQuery.trendsFilter = {
+                                                        ...trendsFilter,
+                                                        excludeBoxPlotOutliers: checked,
+                                                    }
+                                                    updateQuerySource(newQuery)
+                                                }
+                                            }}
+                                        />
+                                    ),
+                                },
+                            ]
                           : [
                                 ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
@@ -135,7 +182,10 @@ export function InsightDisplayConfig(): JSX.Element {
                                     ? [{ label: () => <ShowPieTotalFilter /> }]
                                     : []),
                                 ...(showAlertThresholdLinesConfig
-                                    ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                                    ? [
+                                          { label: () => <ShowAlertThresholdLinesFilter /> },
+                                          { label: () => <ShowAlertAnomalyPointsFilter /> },
+                                      ]
                                     : []),
                                 ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                                 ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
@@ -276,6 +326,7 @@ export function InsightDisplayConfig(): JSX.Element {
             : []),
     ]
     const advancedOptionsCount: number =
+        (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
@@ -291,7 +342,7 @@ export function InsightDisplayConfig(): JSX.Element {
 
     return (
         <div
-            className="InsightDisplayConfig flex justify-between items-center flex-wrap gap-2"
+            className="InsightDisplayConfig @container flex justify-between items-center flex-wrap gap-2 [&_.LemonButton--small]:[--lemon-button-gap:0.25rem] [&_.LemonButton--small]:[--lemon-button-padding-horizontal:0.375rem]"
             data-attr="insight-filters"
         >
             <div className="flex items-center gap-x-2 flex-wrap gap-y-2">
@@ -307,16 +358,10 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {showSmoothing && (
-                    <ConfigFilter>
-                        <SmoothingFilter />
-                    </ConfigFilter>
-                )}
-
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        {isValidBreakdown(breakdownFilter) && <RetentionBreakdownFilter />}
+                        {hasBreakdownFilter(breakdownFilter) && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
 
@@ -337,24 +382,36 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center gap-x-2 flex-wrap">
+            <div className="flex items-center gap-x-2">
                 {advancedOptions.length > 0 && (
-                    <LemonMenu
-                        items={advancedOptions}
-                        closeOnClickInside={false}
-                        placement={isTrendsFunnel ? 'bottom-end' : undefined}
-                    >
-                        <LemonButton size="small" disabledReason={editingDisabledReason}>
-                            <span className="font-medium whitespace-nowrap">
-                                Options
-                                {advancedOptionsCount ? (
-                                    <span className="ml-0.5 text-secondary ligatures-none">
-                                        ({advancedOptionsCount})
-                                    </span>
-                                ) : null}
-                            </span>
-                        </LemonButton>
-                    </LemonMenu>
+                    <>
+                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                aria-label="Options"
+                                className="@max-[780px]:hidden"
+                            >
+                                <span className="font-medium whitespace-nowrap">
+                                    Options
+                                    {advancedOptionsCount ? (
+                                        <span className="ml-0.5 text-secondary ligatures-none">
+                                            ({advancedOptionsCount})
+                                        </span>
+                                    ) : null}
+                                </span>
+                            </LemonButton>
+                        </LemonMenu>
+                        <LemonMenu items={advancedOptions} closeOnClickInside={false} placement="bottom-end">
+                            <LemonButton
+                                size="small"
+                                disabledReason={editingDisabledReason}
+                                icon={<IconEllipsis />}
+                                aria-label="Options"
+                                className="hidden @max-[780px]:flex order-[999]"
+                            />
+                        </LemonMenu>
+                    </>
                 )}
                 {supportsDisplay && (
                     <ConfigFilter>

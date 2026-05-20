@@ -69,6 +69,9 @@ pub struct PipelineBuilder {
     rebalance_cleanup_parallelism: usize,
     local_checkpoint_max_staleness: Duration,
 
+    // Shared offset tracker (injected from service, also used by CheckpointManager)
+    offset_tracker: Option<Arc<OffsetTracker>>,
+
     // Fail-open mode: bypass deduplication and forward events directly
     fail_open: bool,
 
@@ -108,6 +111,7 @@ impl PipelineBuilder {
             local_checkpoint_max_staleness: Duration::from_secs(
                 DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
             ),
+            offset_tracker: None,
             fail_open,
             dedup_config: None,
             main_producer: None,
@@ -122,6 +126,11 @@ impl PipelineBuilder {
 
     pub fn with_local_checkpoint_staleness(mut self, staleness: Duration) -> Self {
         self.local_checkpoint_max_staleness = staleness;
+        self
+    }
+
+    pub fn with_offset_tracker(mut self, offset_tracker: Arc<OffsetTracker>) -> Self {
+        self.offset_tracker = Some(offset_tracker);
         self
     }
 
@@ -141,7 +150,10 @@ impl PipelineBuilder {
     /// Build a group-based pipeline consumer (uses Kafka's consumer group protocol).
     pub fn build(self, shutdown_rx: oneshot::Receiver<()>) -> Result<PipelineConsumer> {
         let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
-        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
+        let offset_tracker = self
+            .offset_tracker
+            .clone()
+            .unwrap_or_else(|| Arc::new(OffsetTracker::new(rebalance_tracker.clone())));
 
         match self.pipeline_type {
             PipelineType::IngestionEvents => {
@@ -164,7 +176,10 @@ impl PipelineBuilder {
         shutdown_rx: oneshot::Receiver<()>,
     ) -> Result<PipelineConsumer> {
         let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
-        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker));
+        let offset_tracker = self
+            .offset_tracker
+            .clone()
+            .unwrap_or_else(|| Arc::new(OffsetTracker::new(rebalance_tracker)));
 
         match self.pipeline_type {
             PipelineType::IngestionEvents => {

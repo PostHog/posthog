@@ -19,6 +19,6 @@ ORDER BY (team_id, date, metric_name)
 operations = [
     run_sql_with_exceptions(
         LLMA_METRICS_DAILY_SQL,
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

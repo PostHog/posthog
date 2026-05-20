@@ -2,7 +2,10 @@ import {
     APIInstallation,
     AndroidInstallation,
     AngularInstallation,
+    DotNetInstallation,
+    ElixirInstallation,
     FlutterInstallation,
+    GoInstallation,
     IOSInstallation,
     HonoInstallation,
     WebInstallation,
@@ -10,6 +13,7 @@ import {
     NodeJSInstallation,
     Nuxt36Installation,
     Nuxt37Installation,
+    PHPInstallation,
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
@@ -17,14 +21,15 @@ import {
     RubyOnRailsInstallation,
     SvelteInstallation,
 } from '@posthog/shared-onboarding/error-tracking'
-import { JSEventCapture, PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
+import { PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
+import { JS_WEB_SNIPPETS as BASE_JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 const JS_WEB_SNIPPETS = {
-    JSEventCapture,
+    ...BASE_JS_WEB_SNIPPETS,
 }
 
 const PYTHON_SNIPPETS = {
@@ -82,6 +87,7 @@ const ErrorTrackingRubyInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ErrorTrackingRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyOnRailsInstallation,
+    wizardIntegrationName: 'Ruby on Rails',
 })
 
 const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
@@ -90,15 +96,30 @@ const ErrorTrackingHonoInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ErrorTrackingAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
+    wizardIntegrationName: 'Android',
 })
 const ErrorTrackingIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
+    wizardIntegrationName: 'Swift',
 })
 const ErrorTrackingFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
 })
+const ErrorTrackingGoInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoInstallation,
+})
+const ErrorTrackingPHPInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PHPInstallation,
+})
+const ErrorTrackingElixirInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ElixirInstallation,
+})
+const ErrorTrackingDotNetInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DotNetInstallation,
+})
 const ErrorTrackingReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
+    wizardIntegrationName: 'React Native',
 })
 const ErrorTrackingAPIInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: APIInstallation,
@@ -120,6 +141,10 @@ export const ErrorTrackingSDKInstructions: SDKInstructionsMap = {
     [SDKKey.HONO]: ErrorTrackingHonoInstructionsWrapper,
     [SDKKey.ANDROID]: ErrorTrackingAndroidInstructionsWrapper,
     [SDKKey.FLUTTER]: ErrorTrackingFlutterInstructionsWrapper,
+    [SDKKey.GO]: ErrorTrackingGoInstructionsWrapper,
+    [SDKKey.PHP]: ErrorTrackingPHPInstructionsWrapper,
+    [SDKKey.ELIXIR]: ErrorTrackingElixirInstructionsWrapper,
+    [SDKKey.DOTNET]: ErrorTrackingDotNetInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ErrorTrackingReactNativeInstructionsWrapper,
     [SDKKey.IOS]: ErrorTrackingIOSInstructionsWrapper,
     [SDKKey.API]: ErrorTrackingAPIInstructionsWrapper,

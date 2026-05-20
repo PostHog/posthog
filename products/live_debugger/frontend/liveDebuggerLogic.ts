@@ -1,7 +1,8 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { liveDebuggerLogicType } from './liveDebuggerLogicType'
 
@@ -29,6 +30,7 @@ export interface BreakpointInstance {
 
 export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
     path(['products', 'live_debugger', 'frontend', 'liveDebuggerLogic']),
+    connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
 
     actions({
         toggleBreakpoint: (filename: string, lineNumber: number, repository: string) => ({
@@ -67,7 +69,8 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                     params.append('filename', values.selectedFilePath)
 
                     const queryString = params.toString()
-                    const url = `api/projects/@current/live_debugger_breakpoints/?${queryString}`
+                    const url = `api/projects/${values.currentProjectId}/live_debugger_breakpoints/?${queryString}`
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(url)
                     return response.results || []
                 },
@@ -84,7 +87,8 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                     breakpointIds.forEach((id: string) => params.append('breakpoint_ids', id))
 
                     const queryString = params.toString()
-                    const url = `api/projects/@current/live_debugger_breakpoints/breakpoint_hits/${queryString ? `?${queryString}` : ''}`
+                    const url = `api/projects/${values.currentProjectId}/live_debugger_breakpoints/breakpoint_hits/${queryString ? `?${queryString}` : ''}`
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(url)
                     return response.results || []
                 },
@@ -159,9 +163,13 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
+                // nosemgrep: prefer-codegen-api
+                await api.delete(
+                    `api/projects/${values.currentProjectId}/live_debugger_breakpoints/${existingBreakpoint.id}/`
+                )
             } else {
-                await api.create('api/projects/@current/live_debugger_breakpoints/', {
+                // nosemgrep: prefer-codegen-api
+                await api.create(`api/projects/${values.currentProjectId}/live_debugger_breakpoints/`, {
                     repository,
                     filename,
                     line_number: lineNumber,
@@ -180,9 +188,13 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
                 : undefined
 
             if (existingBreakpoint) {
-                await api.delete(`api/projects/@current/live_debugger_breakpoints/${existingBreakpoint.id}/`)
+                // nosemgrep: prefer-codegen-api
+                await api.delete(
+                    `api/projects/${values.currentProjectId}/live_debugger_breakpoints/${existingBreakpoint.id}/`
+                )
             } else {
-                await api.create('api/projects/@current/live_debugger_breakpoints/', {
+                // nosemgrep: prefer-codegen-api
+                await api.create(`api/projects/${values.currentProjectId}/live_debugger_breakpoints/`, {
                     repository,
                     filename,
                     line_number: lineNumber,
@@ -197,7 +209,8 @@ export const liveDebuggerLogic = kea<liveDebuggerLogicType>([
             if (Array.isArray(values.breakpoints)) {
                 await Promise.all(
                     values.breakpoints.map((bp) =>
-                        api.delete(`api/projects/@current/live_debugger_breakpoints/${bp.id}/`)
+                        // nosemgrep: prefer-codegen-api
+                        api.delete(`api/projects/${values.currentProjectId}/live_debugger_breakpoints/${bp.id}/`)
                     )
                 )
             }

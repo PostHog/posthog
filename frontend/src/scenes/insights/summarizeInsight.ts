@@ -152,8 +152,14 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             summary = `${query.trendsFilter.formula} on ${summary}`
         }
         if (query.trendsFilter?.formulaNodes) {
-            const formulas = query.trendsFilter?.formulaNodes.map((node) => node.custom_name || node.formula).join(', ')
-            summary = `${formulas} on ${summary}`
+            const formulas = query.trendsFilter.formulaNodes
+                .map((node) => node.custom_name?.trim() || node.formula?.trim())
+                .filter((formula): formula is string => !!formula)
+                .join(', ')
+
+            if (formulas) {
+                summary = `${formulas} on ${summary}`
+            }
         }
 
         return summary

@@ -50,7 +50,7 @@ For detailed sequencing, load [references/phased-migration-plan.md](references/p
    - Classify each usage by capability (read/list, detail/read, create/update/delete, async/task, webhook/event).
 2. Define the minimal contract surface.
    - Start from currently consumed fields only.
-   - Create frozen dataclasses in `backend/facade/contracts.py`.
+   - Create frozen dataclasses in `backend/facade/contracts.py` using `pydantic.dataclasses.dataclass` — same shape as the stdlib variant but with runtime type validation on construction.
 3. Introduce a thin facade in `backend/facade/api.py`.
    - Map ORM instances to contracts with explicit mapper functions.
    - Keep method names capability-oriented and stable.
@@ -61,7 +61,10 @@ For detailed sequencing, load [references/phased-migration-plan.md](references/p
    - Serializers convert JSON <-> contracts.
    - Views call facade methods only.
 6. Enforce boundaries and verify.
-   - Update `tach.toml` interfaces/dependencies when applicable.
+   - Add a global `[[interfaces]]` block in `tach.toml` with `expose` patterns for the facade and presentation views.
+   - Add `backend:contract-check` to `package.json` so turbo-discover treats the product as isolated.
+   - Run `tach check --interfaces` to verify no external imports bypass the facade.
+   - Run `hogli product:lint <name>` to verify the product passes all checks.
    - Run focused tests for changed files, then product-level backend tests.
 
 ## PR slicing strategy
@@ -88,4 +91,8 @@ Treat migration as complete only when:
 - Facade returns/accepts contracts, not ORM.
 - Presentation layer no longer encodes business logic.
 - Tests cover facade and presentation boundaries.
-- Turbo/tach config reflects intended product isolation.
+- A global `[[interfaces]]` block in `tach.toml` restricts imports to facade + presentation views.
+- `tach check --interfaces` passes with no violations for this product.
+- `lint-imports` passes (import-linter verifies presentation doesn't bypass the facade internally).
+- `hogli product:lint <name>` shows no legacy leak warning.
+- `backend:contract-check` is present in `package.json` (enables isolated testing in CI).

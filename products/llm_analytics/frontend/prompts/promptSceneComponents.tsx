@@ -1,30 +1,65 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
-import { LLMPrompt, LLMPromptVersionSummary } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
+import type { ExperimentApi } from '../../../experiments/frontend/generated/api.schemas'
+import { MarkdownOutline } from '../components/MarkdownOutline'
 import { useTracesQueryContext } from '../LLMAnalyticsTracesScene'
+import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
+import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { promptExperimentsLogic } from './promptExperimentsLogic'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
+
+function PromptOutline({
+    promptText,
+    containerRef,
+    className,
+}: {
+    promptText: string
+    containerRef: React.RefObject<HTMLDivElement | null>
+    className?: string
+}): JSX.Element | null {
+    const { isOutlineExpanded } = useValues(llmPromptLogic)
+    const { toggleOutlineExpanded } = useActions(llmPromptLogic)
+
+    return (
+        <MarkdownOutline
+            markdownText={promptText}
+            containerRef={containerRef}
+            className={className}
+            label="Prompt outline"
+            tooltipText="Navigate the sections of your prompt. Click a heading to scroll to it."
+            dataAttrPrefix="llma-prompt"
+            isExpanded={isOutlineExpanded}
+            onToggleExpanded={toggleOutlineExpanded}
+        />
+    )
+}
 
 export function PromptViewDetails(): JSX.Element {
     const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
         useValues(llmPromptLogic)
     const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
+    const markdownContainerRef = useRef<HTMLDivElement>(null)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -100,7 +135,14 @@ export function PromptViewDetails(): JSX.Element {
                 {isDiffVisible ? (
                     <PromptDiffView />
                 ) : isRenderingMarkdown ? (
-                    <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3">{prompt.prompt}</LemonMarkdown>
+                    <>
+                        <PromptOutline promptText={promptText} containerRef={markdownContainerRef} className="mt-2" />
+                        <div ref={markdownContainerRef}>
+                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                                {promptText}
+                            </LemonMarkdown>
+                        </div>
+                    </>
                 ) : (
                     <pre className="mt-1 max-w-3xl rounded border bg-bg-light p-3 whitespace-pre-wrap">
                         {prompt.prompt}
@@ -175,6 +217,7 @@ function PromptDiffView(): JSX.Element {
                     >
                         <MonacoDiffEditor
                             original={original}
+                            value={modified}
                             modified={modified}
                             language="markdown"
                             options={{
@@ -290,6 +333,140 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
                 </div>
             </div>
             <Query query={promptUsageLogQuery} />
+        </div>
+    )
+}
+
+function experimentStatusTag(experiment: ExperimentApi): JSX.Element {
+    if (experiment.archived) {
+        return <LemonTag type="muted">Archived</LemonTag>
+    }
+    if (experiment.end_date) {
+        return <LemonTag type="completion">Stopped</LemonTag>
+    }
+    if (experiment.start_date) {
+        return <LemonTag type="success">Running</LemonTag>
+    }
+    return <LemonTag type="default">Draft</LemonTag>
+}
+
+function promptMetadata(experiment: ExperimentApi): { templates: string[]; versions: number[] } {
+    const params = experiment.parameters as { prompt_metadata?: { templates?: string[]; versions?: number[] } } | null
+    const meta = params?.prompt_metadata
+    return {
+        templates: meta?.templates ?? [],
+        versions: meta?.versions ?? [],
+    }
+}
+
+export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Element {
+    const { versions } = useValues(llmPromptLogic)
+    const { openModal } = useActions(createPromptExperimentModalLogic)
+    const { experiments, experimentsLoading } = useValues(promptExperimentsLogic({ promptName: prompt.name }))
+
+    const columns: LemonTableColumns<ExperimentApi> = [
+        {
+            title: 'Name',
+            dataIndex: 'name',
+            sticky: true,
+            width: '40%',
+            render: function Render(_, experiment) {
+                return (
+                    <LemonTableLink
+                        to={urls.experiment(experiment.id)}
+                        title={experiment.name}
+                        description={experiment.description ?? undefined}
+                    />
+                )
+            },
+        },
+        {
+            title: 'Status',
+            render: function Render(_, experiment) {
+                return experimentStatusTag(experiment)
+            },
+        },
+        {
+            title: 'Versions',
+            render: function Render(_, experiment) {
+                const meta = promptMetadata(experiment)
+                if (meta.versions.length === 0) {
+                    return <span className="text-secondary">—</span>
+                }
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        {meta.versions.map((v) => (
+                            <LemonTag key={v} type="muted">
+                                v{v}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Metrics',
+            render: function Render(_, experiment) {
+                const meta = promptMetadata(experiment)
+                if (meta.templates.length === 0) {
+                    return <span className="text-secondary">—</span>
+                }
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        {meta.templates.map((t) => (
+                            <LemonTag key={t} type="default">
+                                {t}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )
+            },
+        },
+        {
+            title: 'Created',
+            render: function Render(_, experiment) {
+                return <span title={experiment.created_at}>{dayjs(experiment.created_at).fromNow()}</span>
+            },
+        },
+    ]
+
+    return (
+        <div data-attr="llma-prompt-experiments-container" className="mt-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <h4 className="m-0">Experiments</h4>
+                    <p className="text-secondary text-xs m-0">
+                        Compare prompt versions side-by-side with a metric template.
+                    </p>
+                </div>
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.LlmAnalytics}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={() => openModal(prompt.name, versions)}
+                        data-attr="llma-prompt-create-experiment-button"
+                    >
+                        Create experiment
+                    </LemonButton>
+                </AccessControlAction>
+            </div>
+            <LemonTable
+                dataSource={experiments}
+                columns={columns}
+                loading={experimentsLoading}
+                emptyState={
+                    <div className="p-6 text-center text-secondary">
+                        No experiments linked to "{prompt.name}" yet. Click <b>Create experiment</b> to compare two or
+                        more versions.
+                    </div>
+                }
+                rowKey="id"
+                data-attr="llma-prompt-experiments-table"
+            />
+            <CreatePromptExperimentModal />
         </div>
     )
 }

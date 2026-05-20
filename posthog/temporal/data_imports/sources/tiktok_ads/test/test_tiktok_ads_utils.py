@@ -675,6 +675,58 @@ class TestTikTokAdsPaginator:
         with pytest.raises(TikTokAdsAPIError, match="Failed to parse TikTok API response"):
             self.paginator.update_state(mock_response)
 
+    def test_init_request_sets_current_page(self):
+        """init_request must seed the request with the paginator's current page
+        so resumed runs target the saved page on their first call."""
+        mock_request = Mock()
+        mock_request.params = None
+
+        self.paginator.init_request(mock_request)
+
+        assert mock_request.params == {"page": 1}
+
+    def test_init_request_preserves_existing_params(self):
+        """init_request must not clobber pre-existing non-page params."""
+        mock_request = Mock()
+        mock_request.params = {"advertiser_id": "123"}
+
+        self.paginator.init_request(mock_request)
+
+        assert mock_request.params == {"advertiser_id": "123", "page": 1}
+
+    def test_get_resume_state_when_no_next_page(self):
+        """Freshly constructed paginator has no next page and returns None."""
+        assert self.paginator.get_resume_state() is None
+
+    def test_get_resume_state_while_paginating(self):
+        """Mid-iteration ``current_page`` points at the next un-fetched page."""
+        response = self._create_mock_response(
+            {"data": {"page_info": {"page": 1, "page_size": 100, "total_page": 3, "total_number": 250}}}
+        )
+        self.paginator.update_state(response)
+
+        assert self.paginator.get_resume_state() == {"page": 2}
+
+    def test_set_resume_state_seeds_current_page(self):
+        """Seeding sets ``current_page`` and marks the paginator as having pages."""
+        self.paginator.set_resume_state({"page": 5})
+
+        assert self.paginator.current_page == 5
+        assert self.paginator.has_next_page is True
+
+    def test_set_resume_state_round_trip(self):
+        """set_resume_state then get_resume_state returns the seeded page."""
+        self.paginator.set_resume_state({"page": 7})
+
+        assert self.paginator.get_resume_state() == {"page": 7}
+
+    def test_set_resume_state_ignores_missing_page(self):
+        """Missing ``page`` key leaves the paginator untouched."""
+        self.paginator.set_resume_state({})
+
+        assert self.paginator.current_page == 1
+        assert self.paginator.has_next_page is False
+
     @parameterized.expand(
         [
             ("qps_limit_error", 40100, "App reaches the QPS limit 20", True),

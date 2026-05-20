@@ -187,3 +187,42 @@ export const createSegments = (
 
     return segments
 }
+
+/**
+ * Merge runs of consecutive inactive segments into single segments.
+ * Active segments pass through unchanged. This produces output similar
+ * to the PostHog frontend's merged regions — fewer, coarser periods
+ * that are easier to skip over and less noisy for consumers.
+ */
+export const mergeInactiveSegments = (segments: RecordingSegment[]): RecordingSegment[] => {
+    const merged: RecordingSegment[] = []
+
+    let i = 0
+    while (i < segments.length) {
+        if (segments[i].isActive) {
+            merged.push(segments[i])
+            i++
+            continue
+        }
+
+        // Start of an inactive run — scan forward to the last consecutive inactive segment
+        const first = segments[i]
+        let last = first
+        while (i + 1 < segments.length && !segments[i + 1].isActive) {
+            i++
+            last = segments[i]
+        }
+
+        merged.push({
+            kind: first.kind,
+            startTimestamp: first.startTimestamp,
+            endTimestamp: last.endTimestamp,
+            durationMs: last.endTimestamp - first.startTimestamp,
+            windowId: first.windowId,
+            isActive: false,
+        })
+        i++
+    }
+
+    return merged
+}

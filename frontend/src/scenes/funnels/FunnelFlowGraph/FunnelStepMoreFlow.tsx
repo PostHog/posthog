@@ -28,7 +28,7 @@ export function FunnelStepMoreFlow({ stepIndex }: FunnelStepMoreFlowProps): JSX.
     const stepNumber = stepIndex + 1
     const editModeLocked = isEditMode
 
-    if (querySource?.aggregation_group_type_index != undefined) {
+    if (querySource?.aggregation_group_type_index != null) {
         return null
     }
 

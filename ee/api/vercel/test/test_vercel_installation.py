@@ -2,7 +2,7 @@ import json
 
 from unittest.mock import MagicMock, _patch, patch
 
-from rest_framework import status
+from rest_framework import exceptions, status
 
 from ee.api.vercel.test.base import VercelTestBase
 
@@ -93,6 +93,14 @@ class TestVercelInstallationAPI(VercelTestBase):
 
         assert response.status_code == status.HTTP_200_OK
         mock_delete.assert_called_once_with(self.installation_id)
+
+    @patch("ee.vercel.integration.VercelIntegration.delete_installation")
+    def test_destroy_returns_success_when_installation_not_found(self, mock_delete):
+        mock_delete.side_effect = exceptions.NotFound("Installation not found")
+        response = self._request("delete")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"finalized": True}
 
     def test_invalid_installation_id_format(self):
         url = "/api/vercel/v1/installations/invalid-id/"

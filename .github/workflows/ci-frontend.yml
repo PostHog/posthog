@@ -7,7 +7,7 @@ on:
             - master
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -26,15 +26,23 @@ jobs:
         name: Determine need to run frontend checks
         outputs:
             frontend: ${{ steps.filter.outputs.frontend || 'true' }}
+            frontend_code: ${{ steps.filter.outputs.frontend_code || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       frontend:
                         # Avoid running frontend tests for irrelevant changes
@@ -45,7 +53,10 @@ jobs:
                         - 'common/esbuilder/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
+                        - 'products/**/*.json'
                         - 'playwright/**'
+                        - 'services/mcp/**'
+                        - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
@@ -64,17 +75,42 @@ jobs:
                         - '**/*.yaml'
                         - '**/*.yml'
                         - .config/.markdownlint-cli2.jsonc
+                      # Like `frontend` but excludes doc/config-only files that don't affect
+                      # compiled output — used to skip Jest, bundle-size, and TypeScript checks
+                      # when only markdown or YAML files change.
+                      frontend_code:
+                        - 'bin/**'
+                        - 'frontend/**'
+                        - 'ee/frontend/**'
+                        - 'common/esbuilder/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
+                        - 'products/**/*.json'
+                        - 'playwright/**'
+                        - 'services/mcp/**'
+                        - .github/workflows/ci-frontend.yml
+                        - .oxlintrc.json
+                        - .oxfmtrc*
+                        - babel.config.js
+                        - package.json
+                        - pnpm-lock.yaml
+                        - jest.*.ts
+                        - tsconfig.json
+                        - tsconfig.*.json
+                        - webpack.config.js
+                        - stylelint*
 
     frontend-format:
         name: Frontend formatting
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -82,7 +118,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -114,15 +150,15 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   filter: blob:none
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -130,7 +166,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -145,7 +181,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend build:products
 
             - name: Check frontend bundle size
-              uses: preactjs/compressed-size-action@946a292cd35bd1088e0d7eb92b69d1a8d5b5d76a # v2
+              uses: preactjs/compressed-size-action@66325aad6443cb7cf89c4bfcd414aea2367cda94 # v2.9.1
               with:
                   build-script: '--filter=@posthog/frontend build'
                   install-script: 'pnpm --filter=@posthog/frontend... install'
@@ -173,9 +209,26 @@ jobs:
               if: |
                   (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
                   (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')
-              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-frontend-bundle-size'
+                  properties: |
+                      {
+                        "size_bytes": ${{ steps.dist-size.outputs.size_bytes }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }}
+                      }
+            - name: Capture bundle size to DevEx PostHog
+              if: |
+                  (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+                  (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-frontend-bundle-size'
                   properties: |
                       {
@@ -189,13 +242,14 @@ jobs:
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -203,7 +257,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -215,7 +269,7 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Restore .typegen cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -235,7 +289,7 @@ jobs:
 
             - name: Save .typegen cache
               if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -258,8 +312,9 @@ jobs:
 
     jest:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         needs: changes
-        if: needs.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend_code == 'true'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
         strategy:
@@ -270,14 +325,14 @@ jobs:
                 chunk: [1, 2]
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Remove ee
               if: matrix.segment == 'FOSS'
               run: rm -rf ee
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -285,7 +340,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -303,22 +358,43 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
+        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, frontend_tests, changes]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
-            needs.changes.outputs.frontend == 'true' && (
+            needs.changes.outputs.frontend_code == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
+            - name: Get telemetry app token
+              id: telemetry-app-token
+              if: github.run_attempt == '1'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
-              uses: PostHog/posthog-github-action@eea1405eeb2d1d2259f0ee0b44d7b152869e6840 # v1.1.1
+              if: github.run_attempt == '1'
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
+                  status-job: 'Frontend Tests Pass'
+                  runner: 'github'
+            - name: Capture running time to DevEx PostHog
+              if: github.run_attempt == '1'
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-running-time'
+                  capture-run-duration: true
+                  capture-job-durations: true
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Frontend Tests Pass'
                   runner: 'github'
 
@@ -326,6 +402,7 @@ jobs:
         needs: [jest, frontend-format, frontend-bundle-size, frontend-typescript-checks]
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

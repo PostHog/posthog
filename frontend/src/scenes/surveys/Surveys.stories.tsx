@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
@@ -211,6 +211,12 @@ const meta: Meta = {
         pageUrl: urls.surveys(),
     },
     decorators: [
+        (Story) => {
+            // Pin the survey editor preference to the full editor so the
+            // `/surveys/new` stories don't get redirected to the guided wizard.
+            localStorage.setItem('scenes.surveys.surveysLogic.preferredEditor', JSON.stringify('full'))
+            return <Story />
+        },
         mswDecorator({
             get: {
                 '/api/projects/:team_id/surveys/': toPaginatedResponse([
@@ -231,7 +237,7 @@ const meta: Meta = {
                 }`]: toPaginatedResponse([MOCK_SURVEY_WITH_RELEASE_CONS.targeting_flag]),
             },
             post: {
-                '/api/environments/:team_id/query/': async (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind/': async (req, res, ctx) => {
                     const body = await req.json()
                     if (body.kind == 'EventsQuery') {
                         return res(ctx.json(MOCK_SURVEY_RESULTS))
@@ -239,17 +245,14 @@ const meta: Meta = {
                     return res(ctx.json(MOCK_SURVEY_SHOWN))
                 },
                 // flag targeting has loaders, make sure they don't keep loading
-                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [
-                    200,
-                    { users_affected: 120, total_users: 2000 },
-                ],
+                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [200, { affected: 120, total: 2000 }],
             },
         }),
     ],
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const SurveysList: Story = {}
 
 export const SurveysGlobalSettings: Story = {
@@ -264,150 +267,163 @@ export const NewSurvey: Story = {
     },
 }
 
-export const NewSurveyCustomisationSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
-    })
-
-    return <App />
-}
-NewSurveyCustomisationSection.parameters = { pageUrl: urls.survey('new') }
-
-export const NewMultiQuestionSurveySection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.MultipleChoice,
-                question: "We're sorry to see you go. What's your reason for unsubscribing?",
-                choices: [
-                    'I no longer need the product',
-                    'I found a better product',
-                    'I found the product too difficult to use',
-                    'Other',
-                ],
-            } as MultipleSurveyQuestion,
-        ])
-    })
-
-    return <App />
-}
-NewMultiQuestionSurveySection.parameters = { pageUrl: urls.survey('new') }
-
-export const NewSurveyPresentationSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
-    })
-
-    return <App />
-}
-NewSurveyPresentationSection.parameters = { pageUrl: urls.survey('new') }
-NewSurveyPresentationSection.tags = ['test-skip']
-
-export const NewSurveyTargetingSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
-            groups: [
-                {
-                    properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
-                    rollout_percentage: 20,
-                },
-            ],
+export const NewSurveyCustomisationSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Customization)
         })
-    })
 
-    return <App />
-}
-NewSurveyTargetingSection.parameters = {
-    pageUrl: urls.survey('new?edit=true'),
-    testOptions: {
-        waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
+        return <App />
     },
+    parameters: { pageUrl: urls.survey('new') },
 }
 
-export const NewSurveyAppearanceSection: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
-    })
-
-    return <App />
-}
-NewSurveyAppearanceSection.parameters = { pageUrl: urls.survey('new?edit=true') }
-NewSurveyAppearanceSection.tags = ['test-skip']
-
-export const NewSurveyWithHTMLQuestionDescription: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            // TODO: setting available featues should be a decorator to make this easy
-            '/api/users/@me': () => [
-                200,
+export const NewMultiQuestionSurveySection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
                 {
-                    email: 'test@posthog.com',
-                    first_name: 'Test Hedgehog',
-                    organization: {
-                        ...organizationCurrent,
-                        available_product_features: [
-                            {
-                                key: 'surveys_text_html',
-                                name: 'surveys_text_html',
-                            },
-                        ],
-                    },
-                },
-            ],
-        },
-    })
+                    type: SurveyQuestionType.MultipleChoice,
+                    question: "We're sorry to see you go. What's your reason for unsubscribing?",
+                    choices: [
+                        'I no longer need the product',
+                        'I found a better product',
+                        'I found the product too difficult to use',
+                        'Other',
+                    ],
+                } as MultipleSurveyQuestion,
+            ])
+        })
 
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What is your favorite color?',
-                description: '<strong>This description has HTML in it</strong>',
-                descriptionContentType: 'html',
-            },
-        ])
-    })
-
-    return <App />
+        return <App />
+    },
+    parameters: { pageUrl: urls.survey('new') },
 }
-NewSurveyWithHTMLQuestionDescription.parameters = {
-    pageUrl: urls.survey('new?edit=true'),
-    testOptions: {
-        waitForSelector: '.survey-question-description strong',
+
+export const NewSurveyPresentationSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Presentation)
+        })
+
+        return <App />
+    },
+    parameters: { pageUrl: urls.survey('new') },
+    tags: ['test-skip'],
+}
+
+export const NewSurveyTargetingSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.DisplayConditions)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('conditions', { url: 'kiki' })
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('targeting_flag_filters', {
+                groups: [
+                    {
+                        properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
+                        rollout_percentage: 20,
+                    },
+                ],
+            })
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.survey('new?edit=true'),
+        testOptions: {
+            waitForSelector: ['.LemonBanner .LemonIcon', '.TaxonomicPropertyFilter__row'],
+        },
     },
 }
 
-export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: StoryFn = () => {
-    useDelayedOnMountEffect(() => {
-        surveyLogic({ id: 'new' }).mount()
-        surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
-        surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What is your favorite color?',
-                description: '<strong>This description has HTML in it</strong>',
-                descriptionContentType: 'text',
-            },
-        ])
-    })
+export const NewSurveyAppearanceSection: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Appearance)
+        })
 
-    return <App />
+        return <App />
+    },
+    parameters: { pageUrl: urls.survey('new?edit=true') },
+    tags: ['test-skip'],
 }
 
-NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML.parameters = {
-    pageUrl: urls.survey('new?edit=true'),
-    testOptions: {
-        waitForSelector: '.survey-question-description',
+export const NewSurveyWithHTMLQuestionDescription: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                // TODO: setting available featues should be a decorator to make this easy
+                '/api/users/@me': () => [
+                    200,
+                    {
+                        email: 'test@posthog.com',
+                        first_name: 'Test Hedgehog',
+                        organization: {
+                            ...organizationCurrent,
+                            available_product_features: [
+                                {
+                                    key: 'surveys_text_html',
+                                    name: 'surveys_text_html',
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'What is your favorite color?',
+                    description: '<strong>This description has HTML in it</strong>',
+                    descriptionContentType: 'html',
+                },
+            ])
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.survey('new?edit=true'),
+        testOptions: {
+            waitForSelector: '.survey-question-description strong',
+        },
+    },
+}
+
+export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            surveyLogic({ id: 'new' }).mount()
+            surveyLogic({ id: 'new' }).actions.setSelectedSection(SurveyEditSection.Steps)
+            surveyLogic({ id: 'new' }).actions.setSurveyValue('questions', [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'What is your favorite color?',
+                    description: '<strong>This description has HTML in it</strong>',
+                    descriptionContentType: 'text',
+                },
+            ])
+        })
+
+        return <App />
+    },
+    parameters: {
+        pageUrl: urls.survey('new?edit=true'),
+        testOptions: {
+            waitForSelector: '.survey-question-description',
+        },
     },
 }
 

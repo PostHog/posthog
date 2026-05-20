@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -91,12 +90,11 @@ function mergeSearchSurveysData(
     response: CountedPaginatedResponse<Survey>,
     appendResults = false
 ): SurveyDataState {
-    if (response.results.length === 0) {
+    if (appendResults && response.results.length === 0) {
         return currentData
     }
 
-    const searchSurveys =
-        appendResults && response.results ? [...currentData.searchSurveys, ...response.results] : response.results
+    const searchSurveys = appendResults ? [...currentData.searchSurveys, ...response.results] : response.results
 
     return {
         ...currentData,
@@ -136,6 +134,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadNextPage: true,
         loadNextSearchPage: true,
         setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
+        setPreferredEditor: (editor: 'guided' | 'full') => ({ editor }),
         handleMaxSurveyCreated: (
             toolOutput: {
                 survey_id?: string
@@ -172,11 +171,6 @@ export const surveysLogic = kea<surveysLogicType>([
                 const trimmedSearchTerm = values.searchTerm?.trim() || ''
                 if (trimmedSearchTerm === '') {
                     return mergeSearchSurveysData(values.data, { results: [], count: 0 })
-                }
-
-                // Only do backend search if we have more total items than the page size
-                if (values.data.surveysCount <= SURVEY_PAGE_SIZE) {
-                    return values.data
                 }
 
                 const response = await api.surveys.list({
@@ -335,6 +329,16 @@ export const surveysLogic = kea<surveysLogicType>([
                 setSurveyToDuplicate: (_, { survey }) => survey,
             },
         ],
+        // Remembers which editor (guided wizard vs full editor) the user last
+        // chose. Used on "new survey" landing pages to redirect to their
+        // preferred editor automatically.
+        preferredEditor: [
+            'guided' as 'guided' | 'full',
+            { persist: true },
+            {
+                setPreferredEditor: (_, { editor }) => editor,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteSurveySuccess: (_, __, action) => {
@@ -400,39 +404,16 @@ export const surveysLogic = kea<surveysLogicType>([
                 router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
             }
         },
-        setSearchTerm: async ({ searchTerm }, breakpoint) => {
-            await breakpoint(300) // Debounce for 300ms
-            if (searchTerm && values.data.surveysCount > SURVEY_PAGE_SIZE) {
-                actions.loadSearchResults()
-            }
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSearchResults()
         },
     })),
     selectors({
         searchedSurveys: [
             (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],
             (data, searchTerm, filters) => {
-                let searchedSurveys = data.surveys
-
-                if (searchTerm) {
-                    // Always do frontend search first for better UX
-                    const fuseResults = new Fuse(searchedSurveys, {
-                        keys: ['key', 'name'],
-                        ignoreLocation: true,
-                        threshold: 0.3,
-                    })
-                        .search(searchTerm)
-                        .map((result) => result.item)
-
-                    // If we have backend search results (triggered when total count > page size)
-                    // merge them with frontend results, removing duplicates
-                    if (data.searchSurveys.length > 0) {
-                        const seenIds = new Set(fuseResults.map((s) => s.id))
-                        const uniqueBackendResults = data.searchSurveys.filter((s) => !seenIds.has(s.id))
-                        searchedSurveys = [...fuseResults, ...uniqueBackendResults]
-                    } else {
-                        searchedSurveys = fuseResults
-                    }
-                }
+                let searchedSurveys = searchTerm?.trim() ? data.searchSurveys : data.surveys
 
                 const { status, type, created_by, archived } = filters
                 if (status !== 'any') {

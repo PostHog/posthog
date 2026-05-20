@@ -17,9 +17,9 @@
  * `churn` - Churn
  * `reactivation` - Reactivation
  */
-export type CategoryEnumApi = (typeof CategoryEnumApi)[keyof typeof CategoryEnumApi]
+export type CoreEventCategoryEnumApi = (typeof CoreEventCategoryEnumApi)[keyof typeof CoreEventCategoryEnumApi]
 
-export const CategoryEnumApi = {
+export const CoreEventCategoryEnumApi = {
     Acquisition: 'acquisition',
     Activation: 'activation',
     Monetization: 'monetization',
@@ -41,15 +41,15 @@ export interface CoreEventApi {
     description?: string
     /** Lifecycle category for this core event
 
-* `acquisition` - Acquisition
-* `activation` - Activation
-* `monetization` - Monetization
-* `expansion` - Expansion
-* `referral` - Referral
-* `retention` - Retention
-* `churn` - Churn
-* `reactivation` - Reactivation */
-    category: CategoryEnumApi
+  * `acquisition` - Acquisition
+  * `activation` - Activation
+  * `monetization` - Monetization
+  * `expansion` - Expansion
+  * `referral` - Referral
+  * `retention` - Retention
+  * `churn` - Churn
+  * `reactivation` - Reactivation */
+    category: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter: unknown
     readonly created_at: string
@@ -76,15 +76,15 @@ export interface PatchedCoreEventApi {
     description?: string
     /** Lifecycle category for this core event
 
-* `acquisition` - Acquisition
-* `activation` - Activation
-* `monetization` - Monetization
-* `expansion` - Expansion
-* `referral` - Referral
-* `retention` - Retention
-* `churn` - Churn
-* `reactivation` - Reactivation */
-    category?: CategoryEnumApi
+  * `acquisition` - Acquisition
+  * `activation` - Activation
+  * `monetization` - Monetization
+  * `expansion` - Expansion
+  * `referral` - Referral
+  * `retention` - Retention
+  * `churn` - Churn
+  * `reactivation` - Reactivation */
+    category?: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter?: unknown
     readonly created_at?: string

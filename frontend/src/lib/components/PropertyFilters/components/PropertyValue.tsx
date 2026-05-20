@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFeatures, IconRefresh } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import {
     AssigneeIconDisplay,
     AssigneeLabelDisplay,
@@ -12,6 +13,7 @@ import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/compon
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { DistinctIdSelect } from 'lib/components/PropertyFilters/components/DistinctIdSelect'
 import { GroupKeySelect } from 'lib/components/PropertyFilters/components/GroupKeySelect'
 import { PropertyFilterBetween } from 'lib/components/PropertyFilters/components/PropertyFilterBetween'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -20,7 +22,15 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { formatDate, isOperatorBetween, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import {
+    formatDate,
+    isOperatorBetween,
+    isOperatorDate,
+    isOperatorFlag,
+    isOperatorMulti,
+    isOperatorRegex,
+    toString,
+} from 'lib/utils'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -87,13 +97,16 @@ export function PropertyValue({
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
+    // Assignee values come from membersLogic/rolesLogic, not from the property values API
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
     const isNumericProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Numeric
+    const shouldRestrictToNumericInput = isNumericProperty && !isOperatorRegex(operator)
 
     const isGroupKeyProperty = propertyKey === '$group_key' && groupTypeIndex != null
+    const isDistinctIdProperty = propertyKey === 'distinct_id' && type === PropertyFilterType.Person
 
     // TODO: Add semver input validation when a semver operator is selected.
     // This will require detecting isOperatorSemver(operator) and validating the input
@@ -129,30 +142,49 @@ export function PropertyValue({
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isDistinctIdProperty &&
+            !isAssigneeProperty &&
             preloadValues &&
             propertyOptions?.status !== 'loading' &&
             propertyOptions?.status !== 'loaded'
         ) {
             load('')
         }
-    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty])
+    }, [preloadValues, load, propertyOptions?.status, isGroupKeyProperty, isDistinctIdProperty, isAssigneeProperty])
 
     // load options when propertyKey changes, unless it's a date/time property (since those don't have options to load)
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
+            !isDistinctIdProperty &&
+            !isAssigneeProperty &&
             !isDateTimeProperty &&
             propertyOptions?.status !== 'loading' &&
             propertyOptions?.status !== 'loaded'
         ) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty, isGroupKeyProperty, load, propertyOptions?.status])
+    }, [
+        propertyKey,
+        isDateTimeProperty,
+        isGroupKeyProperty,
+        isDistinctIdProperty,
+        isAssigneeProperty,
+        load,
+        propertyOptions?.status,
+    ])
 
-    // set initial suggested values when options are loaded, but only if there is no search input
-    // (to avoid overwriting suggestions based on search input)
+    // set initial suggested values when options are loaded, but only if the response was for an
+    // empty search (so we don't merge search-filtered results into the suggested set). We gate on
+    // the model's recorded `searchInput` rather than the local ref because background polling
+    // refreshes reuse the original request's search term — the local ref reflects the user's
+    // current input, not the request that produced these results.
     useEffect(() => {
-        if (propertyOptions?.status === 'loaded' && propertyOptions?.values && currentSearchInput.current === '') {
+        if (
+            propertyOptions?.status === 'loaded' &&
+            propertyOptions?.values &&
+            (propertyOptions?.searchInput ?? '') === ''
+        ) {
             const newKeys = propertyOptions.values.map((v) => toString(v.name))
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
@@ -168,7 +200,7 @@ export function PropertyValue({
                 return { set: existingSet, orderedKeys: merged }
             })
         }
-    }, [propertyOptions?.status, propertyOptions?.values])
+    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
 
     // reset initial suggested values when propertyKey changes
     useEffect(() => {
@@ -254,6 +286,19 @@ export function PropertyValue({
             <GroupKeySelect
                 value={value ?? null}
                 groupTypeIndex={groupTypeIndex}
+                operator={operator}
+                onChange={setValue}
+                size={size}
+                autoFocus={autoFocus}
+                forceSingleSelect={forceSingleSelect}
+            />
+        )
+    }
+
+    if (isDistinctIdProperty && editable) {
+        return (
+            <DistinctIdSelect
+                value={value ?? null}
                 operator={operator}
                 onChange={setValue}
                 size={size}
@@ -372,7 +417,7 @@ export function PropertyValue({
                         propertyKey,
                         eventNames,
                         properties: [],
-                        forceRefresh: true,
+                        refresh: 'force_blocking',
                     })
                 }
                 noPadding
@@ -391,14 +436,29 @@ export function PropertyValue({
                 singleValueAsSnack
                 allowCustomValues={propertyOptions?.allowCustomValues ?? true}
                 inputTransform={
-                    isNumericProperty
+                    shouldRestrictToNumericInput
                         ? (input: string) => {
                               // Only allow numeric characters, decimal point, and +/- signs
                               return input.replace(/[^0-9+\-.]/g, '')
                           }
                         : undefined
                 }
-                onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+                onChange={(nextVal) => {
+                    const newValues = nextVal.filter((v) => !formattedValues.includes(String(v)))
+                    if (newValues.length > 0) {
+                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+                        const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
+
+                        posthog.capture('property_value_selected', {
+                            property_key: propertyKey,
+                            property_type: type,
+                            from_suggestion: fromSuggestion,
+                            options_count: displayOptions.length,
+                            had_search_input: currentSearchInput.current !== '',
+                        })
+                    }
+                    isMultiSelect ? setValue(nextVal) : setValue(nextVal[0])
+                }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}
@@ -408,7 +468,6 @@ export function PropertyValue({
                 popoverClassName="max-w-200"
                 options={displayOptions.map(({ name: _name }, index) => {
                     const name = toString(_name)
-                    const isSuggested = initialSuggestedValues.set.has(name)
                     return {
                         key: name,
                         label: name,
@@ -421,11 +480,6 @@ export function PropertyValue({
                                 title={name}
                             >
                                 {formatLabelContent(isFlagDependencyProperty ? _name : name)}
-                                {isSuggested && currentSearchInput.current && (
-                                    <Tooltip title="Suggested value">
-                                        <IconFeatures className="text-muted shrink-0 w-4 h-4" />
-                                    </Tooltip>
-                                )}
                             </span>
                         ),
                     }

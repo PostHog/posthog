@@ -1,8 +1,9 @@
 import { Edge, MarkerType, Node } from '@xyflow/react'
-import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
+import type { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { getElk } from 'lib/elk'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps } from '~/types'
@@ -13,6 +14,7 @@ import type { funnelFlowGraphLogicType } from './funnelFlowGraphLogicType'
 import { funnelPathsExpansionLogic } from './funnelPathsExpansionLogic'
 import {
     bridgeConfigForExpansion,
+    buildFunnelStepReplacementMap,
     buildPathFlowElements,
     PathFlowEdgeData,
     PATH_NODE_HEIGHT,
@@ -31,7 +33,7 @@ export const PROFILE_NODE_HEIGHT = 80
 export const PROFILE_NODE_WIDTH = 180
 export const PROFILE_FIT_VIEW_OPTIONS = {
     padding: 0.1,
-    maxZoom: 2,
+    maxZoom: 1,
 }
 
 export const ELK_OPTIONS = {
@@ -60,8 +62,6 @@ export interface FunnelFlowEdgeData extends Record<string, unknown> {
 }
 
 export type AnyFlowNode = Node<FunnelFlowNodeData> | Node<PathFlowNodeData>
-
-const elk = new ELK()
 
 const DEFAULT_LOGIC_KEY = 'default_funnel_flow_graph'
 
@@ -100,6 +100,7 @@ async function layoutNodes(
         })) as ElkExtendedEdge[],
     }
 
+    const elk = await getElk()
     const laidOutGraph = await elk.layout(graph)
     const positionMap = new Map<string, { x: number; y: number }>()
     for (const child of laidOutGraph.children ?? []) {
@@ -254,13 +255,11 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 }
                 const bridgeConfig = bridgeConfigForExpansion(expandedPath)
 
-                const funnelStepByEventName = new Map<string, string>()
-                for (const node of funnelNodes) {
-                    const eventName = node.data.step.name
-                    if (!funnelStepByEventName.has(eventName)) {
-                        funnelStepByEventName.set(eventName, node.id)
-                    }
-                }
+                const funnelStepByEventName = buildFunnelStepReplacementMap(
+                    funnelNodes.map((n) => ({ id: n.id, name: n.data.step.name })),
+                    bridgeConfig.sourceStepId,
+                    bridgeConfig.targetStepId
+                )
 
                 const { nodes, edges } = buildPathFlowElements(
                     expandedPathResults,

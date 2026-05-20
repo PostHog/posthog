@@ -16,7 +16,7 @@
       GROUP BY
           raw_sessions_v3.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id)
   WHERE
-      and(equals(events.team_id, <TEAM_ID>), greater(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s))
+      and(equals(events.team_id, <TEAM_ID>), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))
   GROUP BY
       sessions.session_id
   LIMIT 50000
@@ -146,7 +146,7 @@
       GROUP BY
           raw_sessions_v3.session_id_v7) AS s__session ON equals(toUInt128(accurateCastOrNull(s.session_id, %(hogql_val_2)s)), s__session.session_id_v7)
   WHERE
-      and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_4)s), 0), greaterOrEquals(toTimeZone(s.min_first_timestamp, %(hogql_val_5)s), %(hogql_val_6)s), less(toTimeZone(s.min_first_timestamp, %(hogql_val_7)s), now64(6, %(hogql_val_8)s)))
+      and(equals(s.team_id, <TEAM_ID>), ifNull(equals(s__session.`$entry_pathname`, %(hogql_val_4)s), 0), greaterOrEquals(s.min_first_timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)), less(s.min_first_timestamp, now64(6, %(hogql_val_7)s)))
   GROUP BY
       s.session_id
   LIMIT 50000
@@ -215,7 +215,7 @@
       GROUP BY
           raw_sessions_v3.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
   WHERE
-      and(equals(events.team_id, <TEAM_ID>), less(toTimeZone(events.timestamp, %(hogql_val_3)s), today()))
+      and(equals(events.team_id, <TEAM_ID>), less(events.timestamp, today()))
   LIMIT 50000
   '''
 # ---

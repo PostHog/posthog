@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { LogEntry, parseLogEvent } from '../lib/parse-logs'
@@ -28,13 +29,61 @@ const LOG_POLL_INTERVAL_MS = 1000
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
+interface ParsedSseEvent {
+    data: string
+    eventType: string | null
+    id: string | null
+}
+
+function buildToolMap(entries: LogEntry[]): Map<string, LogEntry> {
+    const toolMap = new Map<string, LogEntry>()
+    for (const entry of entries) {
+        if (entry.type === 'tool' && entry.toolCallId) {
+            toolMap.set(entry.toolCallId, { ...entry })
+        }
+    }
+    return toolMap
+}
+
+function parseSseEventBlock(block: string): ParsedSseEvent | null {
+    let data = ''
+    let eventType: string | null = null
+    let id: string | null = null
+
+    for (const line of block.split('\n')) {
+        if (!line) {
+            continue
+        }
+        if (line.startsWith(':')) {
+            continue
+        }
+        if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim() || null
+            continue
+        }
+        if (line.startsWith('id:')) {
+            id = line.slice(3).trim() || null
+            continue
+        }
+        if (line.startsWith('data:')) {
+            data = data ? `${data}\n${line.slice(5).trimStart()}` : line.slice(5).trimStart()
+        }
+    }
+
+    if (!data && !eventType && !id) {
+        return null
+    }
+
+    return { data, eventType, id }
+}
+
 export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     path(['products', 'tasks', 'taskDetailSceneLogic']),
     props({} as TaskDetailSceneLogicProps),
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task']],
+        values: [taskLogic(props), ['task', 'taskLoading'], teamLogic, ['currentProjectId']],
         actions: [
             taskLogic(props),
             ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
@@ -51,6 +100,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         stopStreaming: true,
         markStreamingFailed: true,
         appendStreamEntries: (entries: LogEntry[]) => ({ entries }),
+        updateStreamEntries: (entries: LogEntry[]) => ({ entries }),
+        recordStreamProgress: (lastEventId: string | null, seenEventIds: string[]) => ({ lastEventId, seenEventIds }),
         setLogs: (logs: string) => ({ logs }),
         updateRun: (run: TaskRun) => ({ run }),
     }),
@@ -101,7 +152,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     }
                     const last = state[state.length - 1]
                     const first = entries[0]
-                    if (last?.type === 'agent' && first.type === 'agent') {
+                    if (last?.type === first.type && (first.type === 'agent' || first.type === 'thinking')) {
                         return [
                             ...state.slice(0, -1),
                             { ...last, message: (last.message || '') + (first.message || '') },
@@ -109,6 +160,44 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                         ]
                     }
                     return [...state, ...entries]
+                },
+                updateStreamEntries: (state, { entries }) => {
+                    if (entries.length === 0) {
+                        return state
+                    }
+                    const entriesById = new Map(entries.map((entry) => [entry.id, entry]))
+                    let changed = false
+                    const nextState = state.map((entry) => {
+                        const updatedEntry = entriesById.get(entry.id)
+                        if (!updatedEntry) {
+                            return entry
+                        }
+                        changed = true
+                        return updatedEntry
+                    })
+                    return changed ? nextState : state
+                },
+            },
+        ],
+        lastStreamEventId: [
+            null as string | null,
+            {
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? null : state),
+                recordStreamProgress: (state, { lastEventId }) => lastEventId ?? state,
+            },
+        ],
+        seenStreamEventIds: [
+            {} as Record<string, true>,
+            {
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? {} : state),
+                recordStreamProgress: (state, { seenEventIds }) => {
+                    if (seenEventIds.length === 0) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        ...Object.fromEntries(seenEventIds.map((eventId) => [eventId, true])),
+                    }
                 },
             },
         ],
@@ -148,7 +237,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     const run = await api.tasks.runs.get(props.taskId, values.selectedRunId)
                     // Use proxy endpoint to avoid CORS issues with direct S3 access
                     actions.loadLogs({
-                        url: `/api/projects/@current/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/`,
+                        url: `/api/projects/${values.currentProjectId}/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/`,
                     })
                     return run
                 },
@@ -258,7 +347,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             if (values.shouldPoll) {
                 if (values.streamingFailed) {
                     actions.startPolling()
-                } else {
+                } else if (!values.isStreaming) {
                     actions.startStreaming()
                 }
             } else {
@@ -288,15 +377,19 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     return () => {}
                 }
 
+                // TODO(no-at-current-in-api-urls): migrate to `currentProjectIdStrict`. Rule misses this site because the URL is bound to a const and passed to fetch via the variable.
                 const streamUrl = `/api/projects/@current/tasks/${props.taskId}/runs/${runId}/stream/`
-                const toolMap = new Map<string, LogEntry>()
-                let eventIndex = 0
+                const toolMap = buildToolMap(values.streamEntries)
+                let eventIndex = values.streamEntries.length
 
                 const consume = async (): Promise<void> => {
                     try {
                         const response = await fetch(streamUrl, {
                             signal: abortController.signal,
-                            headers: { Accept: 'text/event-stream' },
+                            headers: {
+                                Accept: 'text/event-stream',
+                                ...(values.lastStreamEventId ? { 'Last-Event-ID': values.lastStreamEventId } : {}),
+                            },
                         })
 
                         if (!response.ok || !response.body) {
@@ -317,24 +410,47 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                                 break
                             }
 
-                            buffer += decoder.decode(value, { stream: true })
-                            const lines = buffer.split('\n')
-                            // Keep the last incomplete line in the buffer
-                            buffer = lines.pop() || ''
+                            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+                            const blocks = buffer.split('\n\n')
+                            buffer = blocks.pop() || ''
 
                             const batch: LogEntry[] = []
-                            for (const line of lines) {
-                                if (!line.startsWith('data: ')) {
+                            const updatedEntriesById = new Map<string, LogEntry>()
+                            let lastProcessedEventId: string | null = null
+                            const newlySeenEventIds: string[] = []
+
+                            for (const block of blocks) {
+                                const parsedEvent = parseSseEventBlock(block)
+                                if (!parsedEvent || parsedEvent.eventType === 'keepalive' || !parsedEvent.data) {
                                     continue
                                 }
-                                const jsonStr = line.slice(6)
+
+                                if (parsedEvent.id) {
+                                    if (
+                                        values.seenStreamEventIds[parsedEvent.id] ||
+                                        newlySeenEventIds.includes(parsedEvent.id)
+                                    ) {
+                                        continue
+                                    }
+                                    newlySeenEventIds.push(parsedEvent.id)
+                                    lastProcessedEventId = parsedEvent.id
+                                }
+
                                 try {
-                                    const event = JSON.parse(jsonStr) as Record<string, unknown>
-                                    const entry = parseLogEvent(event, eventIndex++, toolMap)
+                                    const event = JSON.parse(parsedEvent.data) as Record<string, unknown>
+                                    const entryId = parsedEvent.id
+                                        ? `stream-${parsedEvent.id}`
+                                        : `stream-${eventIndex++}`
+                                    const entry = parseLogEvent(event, entryId, toolMap, (updatedEntry) => {
+                                        updatedEntriesById.set(updatedEntry.id, updatedEntry)
+                                    })
                                     if (entry) {
-                                        // Merge consecutive agent messages
+                                        // Merge consecutive agent/thinking messages
                                         const last = batch[batch.length - 1]
-                                        if (entry.type === 'agent' && last?.type === 'agent') {
+                                        if (
+                                            last?.type === entry.type &&
+                                            (entry.type === 'agent' || entry.type === 'thinking')
+                                        ) {
                                             last.message = (last.message || '') + (entry.message || '')
                                         } else {
                                             batch.push(entry)
@@ -345,11 +461,20 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                                 }
                             }
 
+                            if (newlySeenEventIds.length > 0) {
+                                actions.recordStreamProgress(lastProcessedEventId, newlySeenEventIds)
+                            }
+                            if (updatedEntriesById.size > 0) {
+                                actions.updateStreamEntries(Array.from(updatedEntriesById.values()))
+                            }
                             if (batch.length > 0) {
                                 actions.appendStreamEntries(batch)
                             }
                         }
 
+                        // Clear streaming state before refreshing the run so in-progress
+                        // runs can reconnect cleanly after an EOF.
+                        actions.stopStreaming()
                         // Stream ended normally — do a final poll to get the latest run status
                         actions.loadSelectedRun()
                     } catch (e) {

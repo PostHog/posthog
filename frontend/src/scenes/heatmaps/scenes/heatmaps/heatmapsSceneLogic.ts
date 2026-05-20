@@ -1,10 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb, HeatmapSavedFilters, HeatmapScreenshotType } from '~/types'
@@ -22,6 +23,7 @@ export const HEATMAPS_PER_PAGE = 30
 
 export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmaps', 'heatmapsSceneLogic']),
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
     actions({
         loadSavedHeatmaps: true,
         setSavedHeatmaps: (items: HeatmapScreenshotType[]) => ({ items }),
@@ -103,7 +105,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                 object,
                 idField: 'short_id',
                 // project/environment-scoped API path; backend must support soft-delete via PATCH
-                endpoint: 'environments/@current/saved',
+                endpoint: `environments/${values.currentTeamIdStrict}/saved`,
                 callback: () => actions.loadSavedHeatmaps(),
             })
         },

@@ -10,7 +10,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
+from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
+from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
 
@@ -137,6 +138,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         if not self.context.breakdown:
             prop_selector = self._default_breakdown_selector()
+        elif self.context.breakdownType == BreakdownType.COHORT:
+            prop_selector = "prop_basic"
         elif self._query_has_array_breakdown():
             prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
         else:
@@ -203,15 +206,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         return inner_select
 
     def get_query(self) -> ast.SelectQuery:
-        max_steps = self.context.max_steps
         funnelsFilter = self.context.funnelsFilter
 
         inner_select = self._inner_aggregation_query()
 
         if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-            for exclusion in funnelsFilter.exclusions or []:
-                if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
-                    raise ValidationError("Partial Exclusions not allowed in unordered funnels")
             if (
                 funnelsFilter.breakdownAttributionType == BreakdownAttributionType.STEP
                 and funnelsFilter.breakdownAttributionValue != 0

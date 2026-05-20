@@ -9,10 +9,12 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Survey, Team, User
+from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 from posthog.models.person.person import Person, PersonDistinctId
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+from products.surveys.backend.models import Survey
 
 
 class MultipleChoiceTemplate(TypedDict):
@@ -275,13 +277,15 @@ class Command(BaseCommand):
 
         # Query persons with their distinct IDs
         persons = (
-            Person.objects.filter(team_id=team.id)
+            Person.objects.filter(team_id=team.id)  # nosemgrep: no-direct-persons-db-orm
             .prefetch_related("persondistinctid_set")
             .order_by("-created_at")[:limit]
         )
 
         for person in persons:
-            distinct_ids = PersonDistinctId.objects.filter(person=person, team_id=team.id).values_list(
+            distinct_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                person=person, team_id=team.id
+            ).values_list(  # nosemgrep: no-direct-persons-db-orm
                 "distinct_id", flat=True
             )
 

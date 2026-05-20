@@ -53,6 +53,7 @@ We will begin by wiring up **one product** to:
 Focus:
 
 - One product = one Turbo package with `backend:test`; isolated products also declare `backend:contract-check`
+- Non-isolated products must **not** declare `backend:contract-check` — `turbo-discover` uses this key to identify isolated products, and its presence causes selective testing to skip the full Django test suite
 - Facade (`facade/api.py`) will define the **public interface**
 - Internal files will be private implementation details
 - Presentation layer (DRF) will sit above the facade but remain outside the contract surface initially
@@ -122,9 +123,31 @@ Each product defines its public interface as **frozen dataclasses** in `backend/
 - Small, hashable, stable
 - Facades accept them as inputs and return them as outputs
 
+### Choosing a dataclass flavor
+
+Stdlib `dataclasses.dataclass` is the baseline.
+`pydantic.dataclasses.dataclass` is the preferred upgrade when construction-time validation is useful:
+it keeps full dataclass semantics (passes `is_dataclass()`, works with `DataclassSerializer`, identical kwargs construction, `frozen=True`, `field(default_factory=...)`)
+and adds Pydantic's runtime type validation as a 1-line import swap.
+
+Use `pydantic.BaseModel` only when a contract genuinely needs features that dataclasses don't have — field aliases (e.g., camelCase wire / snake_case Python), computed fields exposed in the schema, custom validators, discriminated unions.
+Stay with one of the dataclass flavors otherwise;
+switching to `BaseModel` loses `is_dataclass()`-based tooling.
+
+DTO validation is **best-effort, not HTTP validation**.
+DRF serializers (or Pydantic schemas at the HTTP boundary) own the contract for untrusted input.
+Pydantic dataclass validation catches construction-site mistakes inside the backend — structural mismatches from mappers, malformed data from internal callers — close to the bug rather than at the wire.
+
+Note that Pydantic v2 dataclasses coerce inputs where the conversion is unambiguous (string → UUID/datetime, int → str) rather than reject them.
+Structural mistakes (None for a required int, dict where a list is expected, unparseable UUID) still raise `ValidationError`.
+If a contract genuinely needs strict typing — e.g., to catch a string sneaking into a UUID field — opt in per-contract via `@dataclass(frozen=True, config=ConfigDict(strict=True))`.
+
 ### Example
 
 ```python
+from pydantic.dataclasses import dataclass
+
+
 @dataclass(frozen=True)
 class Artifact:
     id: UUID
@@ -224,6 +247,16 @@ Responsibilities:
 - Convert frozen dataclasses → JSON responses
 - No business logic
 
+Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. This is enforced by import-linter in CI.
+
+### Where do cross-cutting utilities go?
+
+If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
+
+- **Presentation concern** (response caching, rate limiting) → `presentation/`
+- **Business concern** (domain-level caching, permission checks) → `logic/`, exposed through the facade
+- **Both layers need it** → that's a signal the boundary is drawn wrong; refactor
+
 ### Why not mix with the facade?
 
 - Keeps HTTP concerns decoupled
@@ -291,7 +324,18 @@ def process_artifact(artifact: Artifact) -> None:
 
 ### What tach enforces
 
-The `interfaces` setting in `tach.toml` controls which paths inside a product other products can import. This is machine-enforced — tach will reject any import that doesn't go through the declared interfaces.
+Global `[[interfaces]]` blocks in `tach.toml` control which paths inside a product other modules can import. All modules — including core (`posthog`, `ee`) — sit in a single `modules` layer, so interface enforcement applies everywhere. tach will reject any import that doesn't go through the declared `expose` patterns.
+
+Products with legacy interface leaks (where core still imports internals directly) get explicit blocks in `tach.toml` and have `backend:contract-check` removed so CI doesn't treat them as safely isolated. Run `hogli product:lint` to see which products have leaks.
+
+### What import-linter enforces
+
+[import-linter](https://github.com/seddonym/import-linter) enforces internal product architecture: presentation layers must not import any backend internals directly — they can only reach `facade` and other `presentation` modules. This is configured as a single forbidden contract in `pyproject.toml` that blocks `products.*.backend` from presentation, with allowlist ignores for facade and self-imports. Any new internal module (cache, helpers, etc.) is blocked automatically.
+
+tach handles _inter_-module boundaries (what can cross a product boundary). import-linter handles _intra_-product architecture (how code is structured within a product). Both run in CI.
+
+> [!TIP]
+> Use the `isolating-product-facade-contracts` skill for the full migration workflow — it covers contracts, facades, caller migration, and boundary enforcement step by step.
 
 During migration, existing cross-product model imports are tracked in `tach.toml` `depends_on`. The goal is to replace them with facade calls over time.
 
@@ -327,7 +371,7 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 Other products depend on a product's **contract files only**. When contract files haven't changed, downstream products don't need retesting.
 
-**Import boundaries** are enforced by tach via `tach.toml`. This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model.
+**Import boundaries** are enforced by tach via global `[[interfaces]]` blocks in `tach.toml`. This ensures products don't accidentally import each other's internals, which would break the contract-based isolation model. See the `isolating-product-facade-contracts` skill for the migration workflow.
 
 **Dependency rules for contract files (keep them pure):**
 

@@ -1,14 +1,14 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { userEvent, waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
-import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof App>
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Funnels',
     parameters: {
@@ -61,7 +61,10 @@ export const FunnelLeftToRightBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
 )
 FunnelLeftToRightBreakdown.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+    testOptions: {
+        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
+        snapshotBrowsers: [],
+    },
 }
 export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),

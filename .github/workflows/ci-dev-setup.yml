@@ -1,0 +1,60 @@
+name: Dev Setup (Flox)
+
+on:
+    pull_request:
+        paths:
+            - '.flox/**'
+            - '.github/workflows/ci-dev-setup.yml'
+            - 'bin/start'
+            - 'pyproject.toml'
+            - 'uv.lock'
+            - 'pnpm-lock.yaml'
+            - 'package.json'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    flox-dev-setup:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install Flox
+              uses: flox/install-flox-action@c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a # v2.4.0
+
+            - name: Activate Flox and verify dev setup
+              run: |
+                  flox activate -- bash -c '
+                    set -euo pipefail
+
+                    echo "--- Flox environment activated successfully ---"
+
+                    echo "--- Toolchain versions ---"
+                    echo "Go:     $(go version)"
+                    echo "Node:   $(node --version)"
+                    echo "Python: $(python --version 2>&1)"
+                    echo "Rust:   $(rustc --version)"
+                    echo "pnpm:   $(pnpm --version)"
+                    echo "uv:     $(uv --version)"
+
+                    echo "--- Python environment ---"
+                    uv run python -c "import django; print(f\"Django: {django.__version__}\")"
+
+                    echo "--- Node packages ---"
+                    pnpm --filter=@posthog/frontend exec tsc --version
+                  '
+
+            - name: Check lockfile consistency
+              run: |
+                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml; then
+                    echo "::error::Lockfiles were modified by flox activate. Please commit the updated lockfiles."
+                    exit 1
+                  fi

@@ -144,6 +144,7 @@ mod test {
                 resolved_name: Some("bar".to_string()),
                 resolved: true,
                 resolve_failure: None,
+
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 code_variables: None,
@@ -163,6 +164,7 @@ mod test {
                 resolved_name: Some("baz".to_string()),
                 resolved: true,
                 resolve_failure: None,
+
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 code_variables: None,
@@ -184,6 +186,7 @@ mod test {
             resolved_name: None,
             resolved: false,
             resolve_failure: None,
+
             lang: "javascript".to_string(),
             junk_drawer: None,
             code_variables: None,
@@ -236,6 +239,7 @@ mod test {
                 resolved_name: Some("bar".to_string()),
                 resolved: false,
                 resolve_failure: None,
+
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 code_variables: None,
@@ -255,6 +259,7 @@ mod test {
                 resolved_name: Some("baz".to_string()),
                 resolved: false,
                 resolve_failure: None,
+
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 code_variables: None,
@@ -274,6 +279,7 @@ mod test {
                 resolved_name: None,
                 resolved: false,
                 resolve_failure: None,
+
                 lang: "javascript".to_string(),
                 junk_drawer: None,
                 code_variables: None,
@@ -321,6 +327,7 @@ mod test {
             resolved_name: Some("bar".to_string()),
             resolved: false,
             resolve_failure: None,
+
             lang: "javascript".to_string(),
             junk_drawer: None,
             code_variables: None,
@@ -341,6 +348,7 @@ mod test {
             resolved_name: Some("baz".to_string()),
             resolved: false,
             resolve_failure: None,
+
             lang: "javascript".to_string(),
             junk_drawer: None,
             code_variables: None,

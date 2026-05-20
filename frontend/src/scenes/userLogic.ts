@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -11,7 +11,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
+import { AvailableFeature, NotificationSettings, OrganizationBasicType, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
@@ -21,12 +21,53 @@ export interface UserDetailsFormType {
     email: string
 }
 
+type DigestProjectSettingKey =
+    | 'error_tracking_weekly_digest_project_enabled'
+    | 'web_analytics_weekly_digest_project_enabled'
+
+function updateDigestProjectSetting(
+    key: DigestProjectSettingKey,
+    teamId: number,
+    enabled: boolean,
+    values: { user: UserType | null },
+    actions: { updateUser: (user: Partial<UserType>) => void }
+): void {
+    if (!values.user?.notification_settings) {
+        return
+    }
+    actions.updateUser({
+        notification_settings: {
+            ...values.user.notification_settings,
+            [key]: { ...values.user.notification_settings[key], [teamId]: enabled },
+        },
+    })
+}
+
+function updateDigestProjectSettings(
+    key: DigestProjectSettingKey,
+    teamIds: number[],
+    enabled: boolean,
+    values: { user: UserType | null },
+    actions: { updateUser: (user: Partial<UserType>) => void }
+): void {
+    if (!values.user?.notification_settings) {
+        return
+    }
+    const projectSettings: Record<string, boolean> = { ...values.user.notification_settings[key] }
+    teamIds?.forEach((teamId) => {
+        projectSettings[teamId] = enabled
+    })
+    actions.updateUser({
+        notification_settings: { ...values.user.notification_settings, [key]: projectSettings } as NotificationSettings,
+    })
+}
+
 export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
-        logout: true,
+        logout: (preserveLocation = false) => ({ preserveLocation }),
         upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
             user,
@@ -41,7 +82,32 @@ export const userLogic = kea<userLogicType>([
         updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
         updateETWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         updateETWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
+        updateWAWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
+        updateWAWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
+        updateMemberJoinEmailForOrganization: (organizationId: string, enabled: boolean) => ({
+            organizationId,
+            enabled,
+        }),
+        updateMemberJoinEmailForAllOrganizations: (organizationIds: string[], enabled: boolean) => ({
+            organizationIds,
+            enabled,
+        }),
         updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
+        updateRealtimeNotificationForTeam: (type: string, teamId: number, enabled: boolean) => ({
+            type,
+            teamId,
+            enabled,
+        }),
+        updateRealtimeNotificationForProject: (teamId: number, types: string[], enabled: boolean) => ({
+            teamId,
+            types,
+            enabled,
+        }),
+        updateAllRealtimeNotifications: (teamIds: number[], types: string[], enabled: boolean) => ({
+            teamIds,
+            types,
+            enabled,
+        }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -168,11 +234,45 @@ export const userLogic = kea<userLogicType>([
                 upgradeImpersonationFailure: () => false,
             },
         ],
+        optimisticThemeMode: [
+            null as UserTheme | null,
+            {
+                updateUser: (prev, { user }) => (user?.theme_mode !== undefined ? user.theme_mode : prev),
+                updateUserSuccess: () => null,
+                updateUserFailure: () => null,
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
-        logout: () => {
+    listeners(({ actions, values, cache }) => ({
+        logout: ({ preserveLocation }) => {
+            if (cache.loggingOut) {
+                return
+            }
+            cache.loggingOut = true
             posthog.reset()
-            window.location.href = '/logout'
+
+            const form = document.createElement('form')
+            form.method = 'POST'
+            form.action = '/logout'
+            form.style.display = 'none'
+
+            const csrfInput = document.createElement('input')
+            csrfInput.type = 'hidden'
+            csrfInput.name = 'csrfmiddlewaretoken'
+            csrfInput.value = getCookie('posthog_csrftoken') || ''
+            form.appendChild(csrfInput)
+
+            if (preserveLocation) {
+                const { pathname, search, hash } = window.location
+                const nextInput = document.createElement('input')
+                nextInput.type = 'hidden'
+                nextInput.name = 'next'
+                nextInput.value = pathname + search + hash
+                form.appendChild(nextInput)
+            }
+
+            document.body.appendChild(form)
+            form.submit()
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
@@ -304,6 +404,30 @@ export const userLogic = kea<userLogicType>([
             })
         },
         updateETWeeklyDigestForTeam: ({ teamId, enabled }) => {
+            updateDigestProjectSetting('error_tracking_weekly_digest_project_enabled', teamId, enabled, values, actions)
+        },
+        updateETWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
+            updateDigestProjectSettings(
+                'error_tracking_weekly_digest_project_enabled',
+                teamIds,
+                enabled,
+                values,
+                actions
+            )
+        },
+        updateWAWeeklyDigestForTeam: ({ teamId, enabled }) => {
+            updateDigestProjectSetting('web_analytics_weekly_digest_project_enabled', teamId, enabled, values, actions)
+        },
+        updateWAWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
+            updateDigestProjectSettings(
+                'web_analytics_weekly_digest_project_enabled',
+                teamIds,
+                enabled,
+                values,
+                actions
+            )
+        },
+        updateMemberJoinEmailForOrganization: ({ organizationId, enabled }) => {
             if (!values.user?.notification_settings) {
                 return
             }
@@ -311,30 +435,76 @@ export const userLogic = kea<userLogicType>([
             actions.updateUser({
                 notification_settings: {
                     ...values.user.notification_settings,
-                    error_tracking_weekly_digest_project_enabled: {
-                        ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
-                        [teamId]: enabled,
+                    organization_member_join_email_disabled: {
+                        ...values.user.notification_settings.organization_member_join_email_disabled,
+                        [organizationId]: !enabled,
                     },
                 },
             })
         },
-        updateETWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
+        updateMemberJoinEmailForAllOrganizations: ({ organizationIds, enabled }) => {
             if (!values.user?.notification_settings) {
                 return
             }
 
-            const etProjectSettings = {
-                ...values.user.notification_settings.error_tracking_weekly_digest_project_enabled,
+            const organizationMemberJoinEmailDisabled = {
+                ...values.user.notification_settings.organization_member_join_email_disabled,
             }
-            teamIds?.forEach((teamId) => {
-                etProjectSettings[teamId] = enabled
+            organizationIds.forEach((id) => {
+                organizationMemberJoinEmailDisabled[id] = !enabled
             })
 
             actions.updateUser({
                 notification_settings: {
                     ...values.user.notification_settings,
-                    error_tracking_weekly_digest_project_enabled: etProjectSettings,
+                    organization_member_join_email_disabled: organizationMemberJoinEmailDisabled,
                 },
+            })
+        },
+        updateRealtimeNotificationForTeam: ({ type, teamId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const typeMap = { ...current[type], [String(teamId)]: !enabled }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: { ...current, [type]: typeMap },
+                } as NotificationSettings,
+            })
+        },
+        updateRealtimeNotificationForProject: ({ teamId, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                next[type] = { ...next[type], [String(teamId)]: !enabled }
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
+            })
+        },
+        updateAllRealtimeNotifications: ({ teamIds, types, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+            const current = values.user.notification_settings.realtime_notifications_disabled ?? {}
+            const next = { ...current }
+            for (const type of types) {
+                const typeMap = { ...next[type] }
+                for (const teamId of teamIds) {
+                    typeMap[String(teamId)] = !enabled
+                }
+                next[type] = typeMap
+            }
+            actions.updateUser({
+                notification_settings: {
+                    realtime_notifications_disabled: next,
+                } as NotificationSettings,
             })
         },
         updateDataPipelineErrorThreshold: async ({ threshold }, breakpoint) => {
@@ -398,9 +568,9 @@ export const userLogic = kea<userLogicType>([
         ],
 
         themeMode: [
-            (s) => [s.user],
-            (user): UserTheme => {
-                return user?.theme_mode || 'light'
+            (s) => [s.user, s.optimisticThemeMode],
+            (user, optimisticThemeMode): UserTheme => {
+                return optimisticThemeMode ?? user?.theme_mode ?? 'light'
             },
         ],
 

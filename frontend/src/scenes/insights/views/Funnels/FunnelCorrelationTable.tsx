@@ -101,7 +101,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 </div>
                 <div>
                     {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                    {querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'} converted were{' '}
+                    {querySource?.aggregation_group_type_index != null ? 'that' : 'who'} converted were{' '}
                     <mark>
                         <b>
                             {get_friendly_numeric_value(record.odds_ratio)}x {is_success ? 'more' : 'less'} likely
@@ -250,7 +250,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         {
                             title: 'Completed',
                             tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                querySource?.aggregation_group_type_index != null ? 'that' : 'who'
                             } performed the event and completed the entire funnel.`,
                             dataIndex: 'success_count',
                             render: (_, record) => renderSuccessCount(record),
@@ -261,7 +261,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             title: 'Dropped off',
                             dataIndex: 'failure_count',
                             tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                querySource?.aggregation_group_type_index != null ? 'that' : 'who'
                             } performed the event and did not complete the entire funnel.`,
                             render: (_, record) => renderFailureCount(record),
                             align: 'center',
@@ -316,7 +316,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     expandable={{
                         expandedRowRender: (record) => renderNestedTable(record.event.event),
                         isRowExpanded: (record) => nestedTableExpandedKeys.includes(record.event.event),
-                        rowExpandable: () => querySource?.aggregation_group_type_index === undefined,
+                        rowExpandable: () => querySource?.aggregation_group_type_index == null,
                         onRowExpand: (record) => {
                             !eventHasPropertyCorrelations(record.event.event) &&
                                 loadEventWithPropertyCorrelations(record.event.event)

@@ -10,13 +10,16 @@ import django.utils.timezone
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
+from rest_framework import serializers
 
 from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Survey, Team
+from posthog.models import Team
 
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
+from products.surveys.backend.models import Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
@@ -93,6 +96,11 @@ def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
     return result
 
 
+def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    serializer = SurveySerializerCreateUpdateOnly()
+    return serializer.validate_questions(questions)
+
+
 def _build_appearance(team: Team) -> dict[str, Any]:
     """Build appearance dict with global + team defaults."""
     appearance = DEFAULT_SURVEY_APPEARANCE.copy()
@@ -108,8 +116,6 @@ URL_MATCH_ALIASES: dict[str, str] = {
     "icontains": "icontains",
     "regex": "regex",
 }
-
-TOOL_MANAGED_CONDITION_KEYS = {"url", "urlMatchType", "linkedFlagVariant", "seenSurveyWaitPeriodInDays"}
 
 
 def _build_targeting_conditions(
@@ -271,6 +277,7 @@ class CreateSurveyTool(MaxTool):
                 wait_period_days=wait_period_days,
                 responses_limit=responses_limit,
             )
+            survey_data["questions"] = _validate_and_sanitize_questions(survey_data["questions"])
 
             if should_launch:
                 survey_data["start_date"] = django.utils.timezone.now()
@@ -289,6 +296,12 @@ class CreateSurveyTool(MaxTool):
                 "survey_type": survey_type,
             }
 
+        except serializers.ValidationError as e:
+            error_message = str(e.detail if hasattr(e, "detail") else e)
+            return f"Survey validation failed: {error_message}", {
+                "error": "validation_failed",
+                "error_message": error_message,
+            }
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
@@ -310,6 +323,12 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
     - Set stop=true to stop collecting responses
     - Set archive=true to archive the survey
 
+    # Removing targeting
+    - Set remove_url_targeting=true to remove URL targeting
+    - Set remove_linked_flag=true to remove linked feature flag targeting
+    - Set remove_linked_flag_variant=true to remove only feature flag variant targeting
+    - Set remove_wait_period=true to remove the survey wait period
+
     # Question identity
     - When updating questions, use read_data(kind="survey") first to see the current questions
     - Each question is shown with a number (1, 2, 3, ...) — pass that number as the question's `id` to preserve its identity and historical response data
@@ -317,6 +336,7 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
 
     # Important
     - Only include fields you want to change
+    - Omitted targeting fields are preserved. Use the remove_* fields when the user explicitly asks to remove targeting.
     - When updating questions, provide the complete list (it replaces existing)
     """).strip()
 
@@ -337,6 +357,12 @@ class EditSurveyToolArgs(BaseModel):
     wait_period_days: int | None = Field(
         default=None, description="Minimum days before showing this survey again to a user who has seen any survey"
     )
+    remove_url_targeting: bool = Field(default=False, description="Remove URL targeting from the survey")
+    remove_linked_flag: bool = Field(default=False, description="Remove linked feature flag targeting from the survey")
+    remove_linked_flag_variant: bool = Field(
+        default=False, description="Remove feature flag variant targeting from the survey"
+    )
+    remove_wait_period: bool = Field(default=False, description="Remove the survey wait period")
     responses_limit: int | None = Field(default=None, description="Maximum number of responses")
     launch: bool | None = Field(default=None, description="Set to true to launch the survey")
     stop: bool | None = Field(default=None, description="Set to true to stop the survey")
@@ -357,9 +383,21 @@ class EditSurveyTool(MaxTool):
         launch: bool | None = None,
         stop: bool | None = None,
         archive: bool | None = None,
+        remove_url_targeting: bool = False,
+        remove_linked_flag: bool = False,
+        remove_linked_flag_variant: bool = False,
+        remove_wait_period: bool = False,
         **kwargs,
     ) -> bool:
-        return launch is True or stop is True or archive is True
+        return (
+            launch is True
+            or stop is True
+            or archive is True
+            or remove_url_targeting is True
+            or remove_linked_flag is True
+            or remove_linked_flag_variant is True
+            or remove_wait_period is True
+        )
 
     async def format_dangerous_operation_preview(
         self,
@@ -367,6 +405,10 @@ class EditSurveyTool(MaxTool):
         launch: bool | None = None,
         stop: bool | None = None,
         archive: bool | None = None,
+        remove_url_targeting: bool = False,
+        remove_linked_flag: bool = False,
+        remove_linked_flag_variant: bool = False,
+        remove_wait_period: bool = False,
         **kwargs,
     ) -> str:
         survey_name = survey_id
@@ -383,6 +425,14 @@ class EditSurveyTool(MaxTool):
             actions.append("**Stop** the survey (it will stop collecting responses)")
         if archive is True:
             actions.append("**Archive** the survey")
+        if remove_url_targeting is True:
+            actions.append("**Remove URL targeting** from the survey")
+        if remove_linked_flag is True:
+            actions.append("**Remove linked feature flag targeting** from the survey")
+        if remove_linked_flag_variant is True:
+            actions.append("**Remove feature flag variant targeting** from the survey")
+        if remove_wait_period is True:
+            actions.append("**Remove the survey wait period**")
 
         if len(actions) == 1:
             return f"{actions[0]} {survey_name}"
@@ -401,6 +451,10 @@ class EditSurveyTool(MaxTool):
         linked_flag_id: int | None = None,
         linked_flag_variant: str | None = None,
         wait_period_days: int | None = None,
+        remove_url_targeting: bool = False,
+        remove_linked_flag: bool = False,
+        remove_linked_flag_variant: bool = False,
+        remove_wait_period: bool = False,
         responses_limit: int | None = None,
         launch: bool | None = None,
         stop: bool | None = None,
@@ -435,23 +489,31 @@ class EditSurveyTool(MaxTool):
                     if simple_q.id and simple_q.id in id_map:
                         new_q["id"] = id_map[simple_q.id]
 
-                update_data["questions"] = new_questions
+                update_data["questions"] = _validate_and_sanitize_questions(new_questions)
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
+            elif remove_linked_flag:
+                update_data["linked_flag_id"] = None
             if responses_limit is not None:
                 update_data["responses_limit"] = responses_limit
 
-            # When any targeting field is provided, strip all tool-managed keys
-            # from existing conditions first, then apply new values. This prevents
-            # stale targeting from accumulating across edits.
+            existing_conditions = dict(survey.conditions or {})
+            updated_conditions = dict(existing_conditions)
+            if remove_url_targeting:
+                updated_conditions.pop("url", None)
+                updated_conditions.pop("urlMatchType", None)
+            if remove_linked_flag or remove_linked_flag_variant:
+                updated_conditions.pop("linkedFlagVariant", None)
+            if remove_wait_period:
+                updated_conditions.pop("seenSurveyWaitPeriodInDays", None)
+
             conditions = _build_targeting_conditions(
                 target_url, target_url_match, linked_flag_variant, wait_period_days
             )
             if conditions:
-                existing_conditions = {
-                    k: v for k, v in (survey.conditions or {}).items() if k not in TOOL_MANAGED_CONDITION_KEYS
-                }
-                update_data["conditions"] = {**existing_conditions, **conditions}
+                updated_conditions.update(conditions)
+            if updated_conditions != existing_conditions:
+                update_data["conditions"] = updated_conditions
 
             # Lifecycle bools
             lifecycle_actions = []
@@ -489,6 +551,12 @@ class EditSurveyTool(MaxTool):
                 "updated_fields": list(update_data.keys()),
             }
 
+        except serializers.ValidationError as e:
+            error_message = str(e.detail if hasattr(e, "detail") else e)
+            return f"Survey validation failed: {error_message}", {
+                "error": "validation_failed",
+                "error_message": error_message,
+            }
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}

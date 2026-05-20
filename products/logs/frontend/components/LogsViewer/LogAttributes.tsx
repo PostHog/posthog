@@ -122,6 +122,9 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                         key: 'value',
                         dataIndex: 'value',
                         render: (_, record) => {
+                            if (record.value === '') {
+                                return <span className="font-mono text-xs text-muted italic">(empty)</span>
+                            }
                             return (
                                 <CopyToClipboardInline
                                     explicitValue={record.value}

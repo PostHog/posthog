@@ -11,7 +11,7 @@ from posthog.clickhouse.log_entries import (
 operations = [
     run_sql_with_exceptions(LOG_ENTRIES_SHARDED_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(LOG_ENTRIES_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(LOG_ENTRIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(LOG_ENTRIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(KAFKA_LOG_ENTRIES_V3_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     run_sql_with_exceptions(LOG_ENTRIES_V3_TABLE_MV_SQL(), node_roles=[NodeRole.DATA]),
 ]

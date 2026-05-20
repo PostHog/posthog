@@ -1,6 +1,6 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 
-import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay, LemonMenuOverlayProps } from 'lib/lemon-ui/LemonMenu'
 
 import { mswDecorator } from '~/mocks/browser'
 import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
@@ -54,7 +54,7 @@ const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; f
     },
 }
 
-const meta: Meta<typeof LemonMenuOverlay> = {
+const meta: Meta<LemonMenuOverlayProps> = {
     title: 'Scenes-App/Marketing Analytics/Cell Actions',
     component: LemonMenuOverlay,
     decorators: [
@@ -85,6 +85,7 @@ The menus are hierarchical with submenus for mapping options.
     },
     tags: ['autodocs'],
 }
+type Story = StoryObj<LemonMenuOverlayProps>
 export default meta
 
 // Extract all submenu items from nested menu structure
@@ -143,143 +144,159 @@ function MenuDisplay({ items, title }: MenuDisplayProps): JSX.Element {
     )
 }
 
-export const SourceCellAction_Unmapped: StoryFn = () => {
-    const items = buildSourceMappingMenuItems({
-        utmSource: 'paid_search',
-        mappingStatus: { type: MappingTypes.Unmapped },
-        availableIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-        onOpenIntegrationSettings: () => alert('Opening settings'),
-    })
+export const SourceCellAction_Unmapped: Story = {
+    render: () => {
+        const items = buildSourceMappingMenuItems({
+            utmSource: 'paid_search',
+            mappingStatus: { type: MappingTypes.Unmapped },
+            availableIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
+            onOpenIntegrationSettings: () => alert('Opening settings'),
+        })
 
-    return <MenuDisplay items={items} title="Source: Unmapped (can be mapped to any integration)" />
-}
-
-SourceCellAction_Unmapped.parameters = {
-    docs: {
-        description: {
-            story: 'Source cell action when the UTM source is not mapped to any integration. Shows available integrations to map to.',
+        return <MenuDisplay items={items} title="Source: Unmapped (can be mapped to any integration)" />
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Source cell action when the UTM source is not mapped to any integration. Shows available integrations to map to.',
+            },
         },
     },
 }
 
-export const SourceCellAction_CustomMapped: StoryFn = () => {
-    const items = buildSourceMappingMenuItems({
-        utmSource: 'paid_search',
-        mappingStatus: { type: MappingTypes.Custom, integration: 'GoogleAds' },
-        availableIntegrations: [],
-        onRemoveMapping: () => alert('Removing mapping'),
-    })
+export const SourceCellAction_CustomMapped: Story = {
+    render: () => {
+        const items = buildSourceMappingMenuItems({
+            utmSource: 'paid_search',
+            mappingStatus: { type: MappingTypes.Custom, integration: 'GoogleAds' },
+            availableIntegrations: [],
+            onRemoveMapping: () => alert('Removing mapping'),
+        })
 
-    return <MenuDisplay items={items} title="Source: Custom Mapped (can be removed)" />
-}
-SourceCellAction_CustomMapped.parameters = {
-    docs: {
-        description: {
-            story: 'Source cell action when the UTM source has a custom mapping. Shows option to remove the mapping.',
+        return <MenuDisplay items={items} title="Source: Custom Mapped (can be removed)" />
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Source cell action when the UTM source has a custom mapping. Shows option to remove the mapping.',
+            },
         },
     },
 }
 
-export const SourceCellAction_DefaultMapped: StoryFn = () => {
-    const items = buildSourceMappingMenuItems({
-        utmSource: 'google',
-        mappingStatus: { type: MappingTypes.Default, integration: 'GoogleAds' },
-        availableIntegrations: [],
-    })
+export const SourceCellAction_DefaultMapped: Story = {
+    render: () => {
+        const items = buildSourceMappingMenuItems({
+            utmSource: 'google',
+            mappingStatus: { type: MappingTypes.Default, integration: 'GoogleAds' },
+            availableIntegrations: [],
+        })
 
-    return <MenuDisplay items={items} title="Source: Default Mapped (cannot be modified)" />
-}
-SourceCellAction_DefaultMapped.parameters = {
-    docs: {
-        description: {
-            story: 'Source cell action when the UTM source matches a default mapping (e.g., "google" → Google Ads). The mapping option is disabled since default mappings cannot be modified.',
+        return <MenuDisplay items={items} title="Source: Default Mapped (cannot be modified)" />
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Source cell action when the UTM source matches a default mapping (e.g., "google" → Google Ads). The mapping option is disabled since default mappings cannot be modified.',
+            },
         },
     },
 }
 
 /** Campaign Cell Actions Stories */
-export const CampaignCellAction_Unmapped: StoryFn = () => {
-    const items = buildCampaignMappingMenuItems({
-        utmCampaign: 'summer_sale_2024',
-        globalMapping: null,
-        existingMappings: [],
-        availableIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-        onOpenIntegrationSettings: () => alert('Opening settings'),
-    })
+export const CampaignCellAction_Unmapped: Story = {
+    render: () => {
+        const items = buildCampaignMappingMenuItems({
+            utmCampaign: 'summer_sale_2024',
+            globalMapping: null,
+            existingMappings: [],
+            availableIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
+            onOpenIntegrationSettings: () => alert('Opening settings'),
+        })
 
-    return <MenuDisplay items={items} title="Campaign: Unmapped (can be mapped to any integration)" />
-}
-CampaignCellAction_Unmapped.parameters = {
-    docs: {
-        description: {
-            story: 'Campaign cell action when the UTM campaign is not mapped. Shows available integrations to map to.',
+        return <MenuDisplay items={items} title="Campaign: Unmapped (can be mapped to any integration)" />
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Campaign cell action when the UTM campaign is not mapped. Shows available integrations to map to.',
+            },
         },
     },
 }
 
-export const CampaignCellAction_GloballyMapped: StoryFn = () => {
-    const items = buildCampaignMappingMenuItems({
-        utmCampaign: 'retargeting_q4',
-        globalMapping: { integration: 'MetaAds', campaignName: 'Retargeting Campaign' },
-        existingMappings: [],
-        availableIntegrations: [],
-    })
+export const CampaignCellAction_GloballyMapped: Story = {
+    render: () => {
+        const items = buildCampaignMappingMenuItems({
+            utmCampaign: 'retargeting_q4',
+            globalMapping: { integration: 'MetaAds', campaignName: 'Retargeting Campaign' },
+            existingMappings: [],
+            availableIntegrations: [],
+        })
 
-    return <MenuDisplay items={items} title="Campaign: Globally Mapped (disabled)" />
-}
-CampaignCellAction_GloballyMapped.parameters = {
-    docs: {
-        description: {
-            story: 'Campaign cell action when the UTM campaign is already mapped globally. The mapping option is disabled.',
+        return <MenuDisplay items={items} title="Campaign: Globally Mapped (disabled)" />
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Campaign cell action when the UTM campaign is already mapped globally. The mapping option is disabled.',
+            },
         },
     },
 }
 
 /** Row Actions Stories */
-export const RowActions_Combined: StoryFn = () => {
-    const items = buildRowMappingMenuItems({
-        sourceValue: 'facebook',
-        campaignValue: 'retargeting_q4',
-        sourceMappingStatus: { type: MappingTypes.Unmapped },
-        availableSourceIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-        globalCampaignMapping: null,
-        existingCampaignMappings: [],
-        availableCampaignIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-        onOpenSourceSettings: () => alert('Opening source settings'),
-        onOpenCampaignSettings: () => alert('Opening campaign settings'),
-    })
+export const RowActions_Combined: Story = {
+    render: () => {
+        const items = buildRowMappingMenuItems({
+            sourceValue: 'facebook',
+            campaignValue: 'retargeting_q4',
+            sourceMappingStatus: { type: MappingTypes.Unmapped },
+            availableSourceIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
+            globalCampaignMapping: null,
+            existingCampaignMappings: [],
+            availableCampaignIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
+            onOpenSourceSettings: () => alert('Opening source settings'),
+            onOpenCampaignSettings: () => alert('Opening campaign settings'),
+        })
 
-    return <MenuDisplay items={items} title="Row Actions: Both Source and Campaign can be mapped" />
-}
-RowActions_Combined.parameters = {
-    docs: {
-        description: {
-            story: 'Row actions that combine both source and campaign mapping options. Appears in the row actions menu (three dots) at the end of each row.',
+        return <MenuDisplay items={items} title="Row Actions: Both Source and Campaign can be mapped" />
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Row actions that combine both source and campaign mapping options. Appears in the row actions menu (three dots) at the end of each row.',
+            },
         },
     },
 }
 
-export const RowActions_SourceDefaultMapped: StoryFn = () => {
-    const items = buildRowMappingMenuItems({
-        sourceValue: 'google',
-        campaignValue: 'black_friday_sale',
-        sourceMappingStatus: { type: MappingTypes.Default, integration: 'GoogleAds' },
-        availableSourceIntegrations: [],
-        globalCampaignMapping: null,
-        existingCampaignMappings: [],
-        availableCampaignIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
-        onOpenSourceSettings: () => alert('Opening source settings'),
-        onOpenCampaignSettings: () => alert('Opening campaign settings'),
-    })
+export const RowActions_SourceDefaultMapped: Story = {
+    render: () => {
+        const items = buildRowMappingMenuItems({
+            sourceValue: 'google',
+            campaignValue: 'black_friday_sale',
+            sourceMappingStatus: { type: MappingTypes.Default, integration: 'GoogleAds' },
+            availableSourceIntegrations: [],
+            globalCampaignMapping: null,
+            existingCampaignMappings: [],
+            availableCampaignIntegrations: [...VALID_NATIVE_MARKETING_SOURCES],
+            onOpenSourceSettings: () => alert('Opening source settings'),
+            onOpenCampaignSettings: () => alert('Opening campaign settings'),
+        })
 
-    return (
-        <MenuDisplay items={items} title="Row Actions: Source is default mapped (disabled), Campaign can be mapped" />
-    )
-}
-RowActions_SourceDefaultMapped.parameters = {
-    docs: {
-        description: {
-            story: 'Row actions where the source has a default mapping (disabled) but the campaign can still be mapped.',
+        return (
+            <MenuDisplay
+                items={items}
+                title="Row Actions: Source is default mapped (disabled), Campaign can be mapped"
+            />
+        )
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Row actions where the source has a default mapping (disabled) but the campaign can still be mapped.',
+            },
         },
     },
 }

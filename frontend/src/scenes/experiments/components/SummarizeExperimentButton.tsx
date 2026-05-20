@@ -55,7 +55,7 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
         const hasResults = orderedPrimaryMetricsWithResults.length > 0
         const hasStarted = isLaunched(experiment)
         return hasResults && hasStarted
-    }, [orderedPrimaryMetricsWithResults, experiment.status, experiment.start_date, experiment.end_date])
+    }, [orderedPrimaryMetricsWithResults, experiment.status, experiment.start_date, experiment.end_date, experiment])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_results_summary',

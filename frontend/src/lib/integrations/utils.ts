@@ -5,6 +5,7 @@ import { IntegrationKind } from '~/types'
 import IconAzureBlob from 'public/services/azure-blob-storage.png'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
+import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
@@ -25,6 +26,7 @@ import IconReddit from 'public/services/reddit.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
+import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
 import IconVercel from 'public/services/vercel.png'
@@ -36,9 +38,11 @@ export const ICONS: Record<IntegrationKind, any> = {
     hubspot: IconHubspot,
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
+    'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
     'google-sheets': IconGoogleSheets,
     snapchat: IconSnapchat,
+    stripe: IconStripe,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
@@ -57,6 +61,9 @@ export const ICONS: Record<IntegrationKind, any> = {
     firebase: IconFirebase,
     jira: IconJira,
     'pinterest-ads': IconPinterest,
+    'customerio-app': IconCustomerIO,
+    'customerio-webhook': IconCustomerIO,
+    'customerio-track': IconCustomerIO,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -69,6 +76,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Cloud Storage'
         case 'google-ads':
             return 'Google Ads'
+        case 'google-cloud-service-account':
+            return 'Google Cloud service account'
         case 'linkedin-ads':
             return 'LinkedIn Ads'
         case 'reddit-ads':

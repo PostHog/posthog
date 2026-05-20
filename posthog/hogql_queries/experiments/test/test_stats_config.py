@@ -20,8 +20,9 @@ from posthog.hogql_queries.experiments.utils import (
     get_frequentist_experiment_result,
     split_baseline_and_test_variants,
 )
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+from products.experiments.backend.models.experiment import Experiment
 
 INSUFFICIENT_DATA_CASES = [
     ("very_small_sample", {"control": (1, 0.5, 0.25), "test": (1, 0.3, 0.09)}),

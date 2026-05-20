@@ -1,10 +1,25 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
+import { DataColorTheme } from 'lib/colors'
+import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
+
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { seriesBreakdownLogicType } from './seriesBreakdownLogicType'
 
+/**
+ * Sentinel used to key result customizations for null / undefined breakdown values.
+ * Mirrors `BREAKDOWN_NULL_STRING_LABEL` from `scenes/insights/utils` to keep the
+ * collision-resistance contract consistent with trends/funnels breakdowns.
+ */
+export const BREAKDOWN_NULL_KEY = '$$_posthog_breakdown_null_$$'
+
+export const getBreakdownValueKey = (value: unknown): string =>
+    value === null || value === undefined ? BREAKDOWN_NULL_KEY : String(value)
+
 export interface AxisBreakdownSeries<T> {
     name: string
+    /** Stable key derived from the raw breakdown column value, used for result customization lookups. */
+    breakdownValue: string
     data: T[]
     settings?: AxisSeriesSettings
 }
@@ -16,7 +31,7 @@ export interface BreakdownSeriesData<T> {
     error?: string
 }
 
-export const EmptyBreakdownSeries: BreakdownSeriesData<number> = {
+export const EmptyBreakdownSeries: BreakdownSeriesData<number | null> = {
     xData: {
         column: {
             name: 'None',
@@ -32,10 +47,34 @@ export const EmptyBreakdownSeries: BreakdownSeriesData<number> = {
     seriesData: [],
 }
 
-const createEmptyBreakdownSeriesWithError = (error: string): BreakdownSeriesData<number> => {
+const createEmptyBreakdownSeriesWithError = (error: string): BreakdownSeriesData<number | null> => {
     return {
         ...EmptyBreakdownSeries,
         error,
+    }
+}
+
+const parseBreakdownSeriesValue = (value: unknown, selectedYAxis: SelectedYAxis): number | null => {
+    if (value === undefined || value === null || Number.isNaN(value)) {
+        return null
+    }
+
+    try {
+        const multiplier = selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
+
+        if (selectedYAxis.settings.formatting?.decimalPlaces) {
+            const parsed = parseFloat(
+                (parseFloat(String(value)) * multiplier).toFixed(selectedYAxis.settings.formatting.decimalPlaces)
+            )
+            return Number.isNaN(parsed) ? null : parsed
+        }
+
+        const parsed = Number.isInteger(value)
+            ? parseInt(String(value), 10) * multiplier
+            : parseFloat(String(value)) * multiplier
+        return Number.isNaN(parsed) ? null : parsed
+    } catch {
+        return null
     }
 }
 
@@ -49,7 +88,12 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     props({ key: '' } as SeriesBreakdownLogicProps),
     connect(() => ({
         actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
-        values: [dataVisualizationLogic, ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis']],
+        values: [
+            dataVisualizationLogic,
+            ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis', 'chartSettings'],
+            dataThemeLogic,
+            ['getTheme'],
+        ],
     })),
     actions(({ values }) => ({
         addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
@@ -92,6 +136,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 s.selectedXAxis,
                 s.response,
                 s.columns,
+                s.chartSettings,
+                s.getTheme,
             ],
             (
                 selectedBreakdownColumn,
@@ -99,8 +145,10 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 ySeries,
                 xSeries,
                 response,
-                columns
-            ): BreakdownSeriesData<number> => {
+                columns,
+                chartSettings,
+                getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null
+            ): BreakdownSeriesData<number | null> => {
                 if (
                     !response ||
                     !selectedBreakdownColumn ||
@@ -145,24 +193,33 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 let isUnaggregated = false
 
                 const multipleYSeries = yAxis.length > 1
+                const showNullsAsZero = chartSettings.showNullsAsZero ?? false
+                const resultCustomizations = chartSettings.resultCustomizations ?? {}
+                const theme = getTheme(undefined)
 
-                const seriesData: AxisBreakdownSeries<number>[] = yAxis.flatMap((selectedYAxis) => {
+                const seriesData: AxisBreakdownSeries<number | null>[] = yAxis.flatMap((selectedYAxis) => {
                     const yColumn = columns.find((n) => n.name === selectedYAxis.name)
                     if (!yColumn) {
                         return []
                     }
 
-                    return breakdownColumnValues.map<AxisBreakdownSeries<number>>((value) => {
+                    return breakdownColumnValues.map<AxisBreakdownSeries<number | null>>((value) => {
                         const seriesName = multipleYSeries
                             ? `${selectedYAxis.name} - ${value || '[No value]'}`
                             : value || '[No value]'
+                        const breakdownValue = getBreakdownValueKey(value)
+                        const customColorToken = resultCustomizations[breakdownValue]?.color
+                        const customColor =
+                            customColorToken && theme ? getColorFromToken(theme, customColorToken) : undefined
 
                         // first filter data by breakdown column value
                         const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
                         if (filteredData.length === 0) {
                             return {
                                 name: seriesName,
+                                breakdownValue,
                                 data: [],
+                                settings: customColor ? { display: { color: customColor } } : undefined,
                             }
                         }
 
@@ -176,45 +233,36 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                             }
                         }
 
-                        // sum y values for each x value, setting to 0 if no corresponding y value
+                        // Missing buckets should remain null unless the chart explicitly
+                        // requests zero-filling, matching the non-breakdown series path.
                         const dataset = xData.map((xValue) => {
-                            const yValue = filteredData
+                            const numericValues = filteredData
                                 .filter((n) => n[xColumn.dataIndex] === xValue)
-                                .map((n) => {
-                                    try {
-                                        const value = n[yColumn.dataIndex]
-                                        const multiplier =
-                                            selectedYAxis.settings.formatting?.style === 'percent' ? 100 : 1
+                                .map((n) => parseBreakdownSeriesValue(n[yColumn.dataIndex], selectedYAxis))
+                                .filter((value): value is number => value !== null)
 
-                                        if (selectedYAxis.settings.formatting?.decimalPlaces) {
-                                            return parseFloat(
-                                                (parseFloat(value) * multiplier).toFixed(
-                                                    selectedYAxis.settings.formatting.decimalPlaces
-                                                )
-                                            )
-                                        }
+                            if (numericValues.length === 0) {
+                                return showNullsAsZero ? 0 : null
+                            }
 
-                                        const isInt = Number.isInteger(value)
-                                        return isInt ? parseInt(value) * multiplier : parseFloat(value) * multiplier
-                                    } catch {
-                                        return 0
-                                    }
-                                })
-                                .reduce((a, b) => a + b, 0)
-                            return yValue
+                            return numericValues.reduce((a, b) => a + b, 0)
                         })
 
                         return {
                             name: seriesName,
+                            breakdownValue,
                             data: dataset,
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
-                            // breakdown series at the moment
+                            // breakdown series at the moment. The per-breakdown
+                            // color customization (if any) wins over the inherited
+                            // y-axis color.
                             settings: {
                                 formatting: selectedYAxis.settings.formatting,
                                 display: {
                                     yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
                                     displayType: selectedYAxis.settings?.display?.displayType,
+                                    color: customColor,
                                 },
                             },
                         }

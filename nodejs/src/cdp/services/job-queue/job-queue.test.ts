@@ -5,6 +5,7 @@ import { PluginsServerConfig } from '~/types'
 
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
+import { CyclotronJobInvocationResult, CyclotronJobQueueSource } from '../../types'
 import { createInvocation } from '../../utils/invocation-utils'
 import {
     CyclotronJobQueue,
@@ -29,6 +30,49 @@ describe('CyclotronJobQueue', () => {
     it('should initialise', () => {
         const queue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
         expect(queue).toBeDefined()
+    })
+
+    describe('v2 client validation', () => {
+        it.each([
+            {
+                description: 'producer mapping routes to postgres-v2 but v2 URL is not set',
+                v2URL: undefined as string | undefined,
+                producerMapping: '*:kafka,hogflow:postgres-v2',
+                producerTeamMapping: '',
+                expectThrow: /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING routes to postgres-v2/,
+            },
+            {
+                description: 'producer team mapping routes to postgres-v2 but v2 URL is not set',
+                v2URL: undefined as string | undefined,
+                producerMapping: '*:kafka',
+                producerTeamMapping: '1:*:kafka,1:hogflow:postgres-v2',
+                expectThrow: /CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING routes to postgres-v2/,
+            },
+            {
+                description: 'producer mapping routes to postgres-v2 and v2 URL is set',
+                v2URL: 'postgres://localhost:5432',
+                producerMapping: '*:kafka,hogflow:postgres-v2',
+                producerTeamMapping: '',
+                expectThrow: null,
+            },
+            {
+                description: 'producer mapping does not route to postgres-v2 and v2 URL is not set',
+                v2URL: undefined as string | undefined,
+                producerMapping: '*:kafka,hogflow:kafka',
+                producerTeamMapping: '',
+                expectThrow: null,
+            },
+        ])('$description', ({ v2URL, producerMapping, producerTeamMapping, expectThrow }) => {
+            config.CYCLOTRON_NODE_DATABASE_URL = v2URL
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = producerMapping
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = producerTeamMapping
+            const create = () => new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+            if (expectThrow) {
+                expect(create).toThrow(expectThrow)
+            } else {
+                expect(create).not.toThrow()
+            }
+        })
     })
 
     describe('producer setup', () => {
@@ -228,6 +272,97 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([])
             expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
         })
+    })
+
+    describe('queueInvocationResults', () => {
+        const buildQueue = (mapping: string) => {
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = ''
+            const queue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+
+            // Mock all sub-queue methods
+            queue['jobQueuePostgres'].queueInvocations = jest.fn()
+            queue['jobQueuePostgres'].queueInvocationResults = jest.fn()
+            queue['jobQueuePostgres'].releaseInvocations = jest.fn()
+            queue['jobQueueKafka'].queueInvocations = jest.fn()
+            queue['jobQueueKafka'].queueInvocationResults = jest.fn()
+            queue['jobQueuePostgresV2'] = {
+                queueInvocations: jest.fn(),
+                queueInvocationResults: jest.fn(),
+                releaseInvocations: jest.fn(),
+            } as any
+
+            return queue
+        }
+
+        const createResult = (queueSource: CyclotronJobQueueSource): CyclotronJobInvocationResult => ({
+            invocation: {
+                ...createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, exampleHogFunction),
+                queueSource,
+            },
+            finished: false,
+            error: null,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+        })
+
+        it.each([
+            {
+                scenario: 'postgres-v2 source routed to postgres target',
+                mapping: '*:postgres',
+                queueSource: 'postgres-v2' as const,
+                expectReleasedFrom: 'jobQueuePostgresV2',
+            },
+            {
+                scenario: 'postgres source routed to postgres-v2 target',
+                mapping: '*:postgres-v2',
+                queueSource: 'postgres' as const,
+                expectReleasedFrom: 'jobQueuePostgres',
+            },
+            {
+                scenario: 'postgres source routed to kafka target',
+                mapping: '*:kafka',
+                queueSource: 'postgres' as const,
+                expectReleasedFrom: 'jobQueuePostgres',
+            },
+            {
+                scenario: 'postgres-v2 source routed to kafka target',
+                mapping: '*:kafka',
+                queueSource: 'postgres-v2' as const,
+                expectReleasedFrom: 'jobQueuePostgresV2',
+            },
+        ])(
+            'should release source job when cross-routing: $scenario',
+            async ({ mapping, queueSource, expectReleasedFrom }) => {
+                const queue = buildQueue(mapping)
+                const result = createResult(queueSource)
+
+                await queue.queueInvocationResults([result])
+
+                expect(
+                    (queue[expectReleasedFrom as keyof typeof queue] as any).releaseInvocations
+                ).toHaveBeenCalledTimes(1)
+            }
+        )
+
+        it.each([
+            { mapping: '*:postgres', queueSource: 'postgres' as const },
+            { mapping: '*:postgres-v2', queueSource: 'postgres-v2' as const },
+        ])(
+            'should not release when source matches target: $mapping / $queueSource',
+            async ({ mapping, queueSource }) => {
+                const queue = buildQueue(mapping)
+                const result = createResult(queueSource)
+
+                await queue.queueInvocationResults([result])
+
+                // Should update, not create+release
+                expect(queue['jobQueuePostgres'].releaseInvocations).not.toHaveBeenCalled()
+                expect(queue['jobQueuePostgresV2']!.releaseInvocations).not.toHaveBeenCalled()
+            }
+        )
     })
 })
 

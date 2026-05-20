@@ -8,6 +8,7 @@ import { UUIDT } from '~/utils/utils'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '../../utils/event-loop-yield'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
     createExampleInvocation,
@@ -187,6 +188,8 @@ describe('CdpCyclotronWorker', () => {
             } as any)
 
             const invocationId = invocation.id
+            // Capture reference time BEFORE execution to avoid timing race in lower-bound assertion
+            const beforeExecution = DateTime.now()
             const results = await processor.processInvocations([invocation])
             const result = results[0]
 
@@ -196,8 +199,8 @@ describe('CdpCyclotronWorker', () => {
             expect(result.invocation.id).toEqual(invocationId)
             expect(result.invocation.queue).toEqual('hog')
             // NOTE: Check the queue scheduled at is within the bounds of the backoff
-            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThan(
-                DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            expect(result.invocation.queueScheduledAt?.toMillis()).toBeGreaterThanOrEqual(
+                beforeExecution.plus({ milliseconds: hub.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
             )
             expect(result.invocation.queueScheduledAt?.toMillis()).toBeLessThan(
                 DateTime.now().plus({ milliseconds: hub.CDP_FETCH_BACKOFF_MAX_MS }).toMillis()
@@ -407,17 +410,22 @@ describe('CdpCyclotronWorker', () => {
         describe('thread relief', () => {
             jest.setTimeout(10000)
             let interval: NodeJS.Timeout
+            const blockTime = 200
+            let originalThresholdMs: number
+
             beforeEach(() => {
                 jest.spyOn(Date, 'now').mockRestore()
                 jest.useRealTimers()
+                originalThresholdMs = getEventLoopYieldThresholdMs()
+                configureEventLoopYield(blockTime)
             })
 
             afterEach(() => {
                 clearInterval(interval)
+                configureEventLoopYield(originalThresholdMs)
             })
 
             it('should process batches in a way that does not block the main thread', async () => {
-                const blockTime = 200
                 let lastCheck = Date.now()
                 let longestDelay = 0
 

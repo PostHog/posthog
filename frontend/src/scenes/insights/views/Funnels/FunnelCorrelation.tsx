@@ -9,7 +9,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { AvailableFeature, FunnelVizType } from '~/types'
 
-import { FunnelCorrelationFeedbackForm } from './FunnelCorrelationFeedbackForm'
 import { FunnelCorrelationSkewWarning } from './FunnelCorrelationSkewWarning'
 import { FunnelCorrelationTable } from './FunnelCorrelationTable'
 import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
@@ -34,7 +33,6 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                 <div className="funnel-correlation">
                     <FunnelCorrelationSkewWarning />
                     <FunnelCorrelationTable />
-                    <FunnelCorrelationFeedbackForm />
                     <FunnelPropertyCorrelationTable />
                 </div>
             </PayGateMini>

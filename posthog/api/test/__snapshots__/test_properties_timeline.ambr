@@ -31,7 +31,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -66,7 +66,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -102,7 +102,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -138,7 +138,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -174,7 +174,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -210,7 +210,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -246,7 +246,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -282,7 +282,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -318,7 +318,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -356,7 +356,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -392,7 +392,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -430,7 +430,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -466,7 +466,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -506,7 +506,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -542,7 +542,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---
@@ -582,7 +582,7 @@
                         '' AS "person_properties")))
      WHERE start_event_number = 1
        OR relevant_property_values != previous_relevant_property_values
-       OR timestamp IS NULL )
+       OR timestamp IS NULL)
   WHERE timestamp IS NOT NULL
   '''
 # ---

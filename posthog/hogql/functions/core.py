@@ -86,6 +86,8 @@ class HogQLFunctionMeta:
     using_positional_arguments: bool = False
     parametric_first_arg: bool = False
     """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
+    requires_within_group: bool = False
+    """Whether the aggregation requires WITHIN GROUP syntax."""
 
 
 def compare_types(

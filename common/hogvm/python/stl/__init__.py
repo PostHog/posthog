@@ -967,12 +967,10 @@ STL: dict[str, STLFunction] = {
     ),
     "extractRegex": STLFunction(fn=extractRegex, minArgs=2, maxArgs=2),
     "like": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1]), minArgs=2, maxArgs=2),
-    "ilike": STLFunction(
-        fn=lambda args, team, stdout, timeout: like(args[0], args[1], re.IGNORECASE), minArgs=2, maxArgs=2
-    ),
+    "ilike": STLFunction(fn=lambda args, team, stdout, timeout: like(args[0], args[1], True), minArgs=2, maxArgs=2),
     "notLike": STLFunction(fn=lambda args, team, stdout, timeout: not like(args[0], args[1]), minArgs=2, maxArgs=2),
     "notILike": STLFunction(
-        fn=lambda args, team, stdout, timeout: not like(args[0], args[1], re.IGNORECASE), minArgs=2, maxArgs=2
+        fn=lambda args, team, stdout, timeout: not like(args[0], args[1], True), minArgs=2, maxArgs=2
     ),
     "toString": STLFunction(fn=toString, minArgs=1, maxArgs=1),
     "toUUID": STLFunction(fn=toString, minArgs=1, maxArgs=1),

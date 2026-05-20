@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
@@ -14,6 +14,7 @@ import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { Skeleton } from 'lib/ui/quill'
 import { isEmail } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -59,6 +60,9 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     // our catch-all case, so the message is generic
     sso_enforced: "Please log in with your organization's required SSO method.",
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
+    invalid_invite:
+        'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
+    social_login_failure: 'Login failed. Please try again or contact your administrator.',
 }
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
@@ -69,7 +73,7 @@ export const scene: SceneExport = {
 }
 
 export function Login(): JSX.Element {
-    const { precheck, resendEmailMFA, clearGeneralError, resetLogin } = useActions(loginLogic)
+    const { precheck, resendEmailMFA, clearGeneralError, resetLogin, devLogin, loadDevUsers } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -79,8 +83,18 @@ export function Login(): JSX.Element {
         generalError,
         signupUrl,
         resendResponseLoading,
+        devUsers,
+        devUsersLoading,
+        devLoginTimeSavedLabel,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
+    const allowDevLogin = !!preflight?.allow_dev_login
+
+    useEffect(() => {
+        if (allowDevLogin) {
+            loadDevUsers(null)
+        }
+    }, [allowDevLogin, loadDevUsers])
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const preventPasswordError = useRef(false)
@@ -293,6 +307,45 @@ export function Login(): JSX.Element {
                         lastUsedProvider={lastLoginMethod}
                         showPasskey
                     />
+                )}
+                {allowDevLogin && (
+                    <div className="deprecated-space-y-2 border-t border-dashed pt-4 mt-4">
+                        <div className="flex items-center justify-between">
+                            <h4 className="m-0">Dev login</h4>
+                        </div>
+                        <p className="text-muted text-sm m-0">
+                            Click a user to log in without a password. This list is only exposed in development mode.
+                        </p>
+                        {!devUsersLoading && devLoginTimeSavedLabel && (
+                            <p className="text-muted text-sm m-0">{devLoginTimeSavedLabel}</p>
+                        )}
+                        {devUsersLoading && <Skeleton className="w-full h-10" />}
+                        <div className="deprecated-space-y-1">
+                            {devUsers.map((u) => (
+                                <LemonButton
+                                    key={u.email}
+                                    type="secondary"
+                                    fullWidth
+                                    data-attr={`dev-login-${u.email}`}
+                                    onClick={() => devLogin(u.email)}
+                                >
+                                    <span className="flex items-center gap-2 w-full">
+                                        <span className="flex-1 text-left truncate">{u.email}</span>
+                                        {u.label && (
+                                            <LemonTag type="success" size="small">
+                                                {u.label}
+                                            </LemonTag>
+                                        )}
+                                        {u.is_staff && !u.label && (
+                                            <LemonTag type="default" size="small">
+                                                Staff
+                                            </LemonTag>
+                                        )}
+                                    </span>
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </div>
                 )}
             </div>
         </AuthShell>

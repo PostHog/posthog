@@ -3,9 +3,11 @@ import { loaders } from 'kea-loaders'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { teamLogic } from 'scenes/teamLogic'
 
-import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { Breadcrumb } from '~/types'
+
+import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { visualReviewReposCreate, visualReviewReposList, visualReviewReposPartialUpdate } from '../generated/api'
 import type { PatchedUpdateRepoRequestInputApi, RepoApi } from '../generated/api.schemas'
@@ -13,15 +15,18 @@ import type { visualReviewSettingsSceneLogicType } from './visualReviewSettingsS
 
 export interface RepoFormValues {
     baseline_file_paths: Record<string, string>
+    enable_pr_comments: boolean
 }
 
 const EMPTY_FORM: RepoFormValues = {
     baseline_file_paths: {},
+    enable_pr_comments: false,
 }
 
 function formValuesFromRepo(repo: RepoApi): RepoFormValues {
     return {
         baseline_file_paths: repo.baseline_file_paths || {},
+        enable_pr_comments: repo.enable_pr_comments,
     }
 }
 
@@ -29,7 +34,7 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewSettingsSceneLogic']),
 
     connect(() => ({
-        values: [integrationsLogic, ['integrations', 'getGitHubRepositoriesFull']],
+        values: [integrationsLogic, ['integrations', 'getGitHubRepositoriesFull'], teamLogic, ['currentProjectId']],
         actions: [integrationsLogic, ['loadIntegrationsSuccess']],
     })),
 
@@ -41,17 +46,17 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
         saveRepo: true,
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         repos: [
             [] as RepoApi[],
             {
                 loadRepos: async () => {
-                    const response = await visualReviewReposList('@current')
+                    const response = await visualReviewReposList(String(values.currentProjectId))
                     return response.results
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         editingRepoId: [
@@ -99,7 +104,8 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 }
                 return (
                     JSON.stringify(formValues.baseline_file_paths) !==
-                    JSON.stringify(editingRepo.baseline_file_paths || {})
+                        JSON.stringify(editingRepo.baseline_file_paths || {}) ||
+                    formValues.enable_pr_comments !== editingRepo.enable_pr_comments
                 )
             },
         ],
@@ -126,6 +132,11 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 const github = integrations?.find((i: { kind: string }) => i.kind === 'github')
                 const installationId = github?.config?.installation_id
                 if (installationId) {
+                    const accountType = github?.config?.account?.type
+                    const accountName = github?.config?.account?.name
+                    if (accountType === 'Organization' && accountName) {
+                        return `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+                    }
                     return `https://github.com/settings/installations/${installationId}`
                 }
                 return null
@@ -160,11 +171,12 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
             if (repo) {
                 const form = formValuesFromRepo(repo)
                 actions.setFormField('baseline_file_paths', form.baseline_file_paths)
+                actions.setFormField('enable_pr_comments', form.enable_pr_comments)
             }
         },
         addRepo: async ({ githubRepo }) => {
             try {
-                await visualReviewReposCreate('@current', {
+                await visualReviewReposCreate(String(values.currentProjectId), {
                     repo_external_id: githubRepo.id,
                     repo_full_name: githubRepo.full_name,
                 })
@@ -182,8 +194,9 @@ export const visualReviewSettingsSceneLogic = kea<visualReviewSettingsSceneLogic
                 if (editingRepoId) {
                     const updates: PatchedUpdateRepoRequestInputApi = {
                         baseline_file_paths: formValues.baseline_file_paths,
+                        enable_pr_comments: formValues.enable_pr_comments,
                     }
-                    await visualReviewReposPartialUpdate('@current', editingRepoId, updates)
+                    await visualReviewReposPartialUpdate(String(values.currentProjectId), editingRepoId, updates)
                     lemonToast.success('Settings saved')
                 }
 

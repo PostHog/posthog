@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconCode, IconDatabase, IconEllipsis, IconRefresh, IconSupport, IconWarning } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDuration } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { HealthIssueList } from './components/HealthIssueList'
 import { HealthIssueSummaryCards } from './components/HealthIssueSummaryCards'
+import { PlatformStatusBanner } from './components/PlatformStatusBanner'
 import { healthSceneLogic } from './healthSceneLogic'
 
 const HealthCard = ({
@@ -84,8 +87,21 @@ const LegacyHealthScene = (): JSX.Element => {
 }
 
 const UnifiedHealthScene = (): JSX.Element => {
-    const { showDismissed, healthIssuesLoading } = useValues(healthSceneLogic)
+    const { showDismissed, healthIssuesLoading, isRefreshInFlight, nextRefreshAvailableAt } =
+        useValues(healthSceneLogic)
     const { refreshHealthData, setShowDismissed } = useActions(healthSceneLogic)
+    const { openSupportForm } = useActions(supportLogic)
+
+    const now = Date.now()
+    const inCooldown = nextRefreshAvailableAt !== null && nextRefreshAvailableAt > now
+    const cooldownLabel = inCooldown
+        ? `Refresh available in ${humanFriendlyDuration(Math.ceil((nextRefreshAvailableAt! - now) / 1000), {
+              maxUnits: 2,
+          })}`
+        : undefined
+    const refreshTooltip = isRefreshInFlight
+        ? 'Refreshing health checks...'
+        : (cooldownLabel ?? 'Re-run all health checks for this project')
 
     return (
         <SceneContent>
@@ -95,11 +111,20 @@ const UnifiedHealthScene = (): JSX.Element => {
                 <p className="text-sm mb-0">See an at-a-glance view of the health of your project.</p>
                 <div className="flex items-center gap-1">
                     <LemonButton
+                        icon={<IconSupport />}
+                        type="secondary"
+                        size="small"
+                        onClick={() => openSupportForm({ kind: 'support', target_area: 'health_overview' })}
+                    >
+                        Get help from our team
+                    </LemonButton>
+                    <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
                         size="small"
-                        tooltip="Refresh"
-                        loading={healthIssuesLoading}
+                        tooltip={refreshTooltip}
+                        loading={isRefreshInFlight || healthIssuesLoading}
+                        disabledReason={cooldownLabel}
                         onClick={() => refreshHealthData()}
                     />
                     <LemonMenu
@@ -117,7 +142,16 @@ const UnifiedHealthScene = (): JSX.Element => {
                 </div>
             </div>
 
-            <div className="flex flex-col gap-6 max-w-5xl">
+            <div className="flex flex-col gap-6">
+                <LemonBanner
+                    type="info"
+                    className="mb-2"
+                    dismissKey="unified-health-page-feedback-banner"
+                    action={{ children: 'Send feedback', id: 'unified-health-page-feedback-button' }}
+                >
+                    We'd love your feedback on the new Health page. Let us know what's working and what could be better!
+                </LemonBanner>
+                <PlatformStatusBanner />
                 <HealthIssueSummaryCards />
                 <HealthIssueList />
             </div>

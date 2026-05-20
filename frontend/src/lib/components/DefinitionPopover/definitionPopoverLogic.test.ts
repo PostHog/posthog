@@ -1,9 +1,10 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -21,6 +22,8 @@ import {
     mockPersonProperty,
 } from '~/test/mocks'
 import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 describe('definitionPopoverLogic', () => {
     let logic: ReturnType<typeof definitionPopoverLogic.build>
@@ -48,25 +51,25 @@ describe('definitionPopoverLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/@current/event_definitions/': {
+                [`/api/projects/${MOCK_TEAM_ID}/event_definitions/`]: {
                     results: mockEventDefinitions,
                     count: mockEventDefinitions.length,
                 },
-                '/api/projects/@current/property_definitions/': {
+                [`/api/projects/${MOCK_TEAM_ID}/property_definitions/`]: {
                     results: [mockEventPropertyDefinition],
                     count: 1,
                 },
-                '/api/projects/@current/actions/': {
+                [`/api/projects/${MOCK_TEAM_ID}/actions/`]: {
                     results: [mockActionDefinition],
                     count: 1,
                 },
-                '/api/projects/@current/cohorts/': {
+                [`/api/projects/${MOCK_TEAM_ID}/cohorts/`]: {
                     results: [mockCohort],
                     count: 1,
                 },
             },
             patch: {
-                '/api/projects/@current/:object/:id/': {},
+                [`/api/projects/${MOCK_TEAM_ID}/:object/:id/`]: {},
             },
         })
 
@@ -144,19 +147,19 @@ describe('definitionPopoverLogic', () => {
                 {
                     type: TaxonomicFilterGroupType.Actions,
                     definition: mockActionDefinition as ActionType,
-                    url: `api/projects/@current/actions/${mockActionDefinition.id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/actions/${mockActionDefinition.id}`,
                     dispatchActions: [actionsModel, ['updateAction']],
                 },
                 {
                     type: TaxonomicFilterGroupType.CustomEvents,
                     definition: mockEventDefinitions[0],
-                    url: `api/projects/@current/event_definitions/${mockEventDefinitions[0].id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/event_definitions/${mockEventDefinitions[0].id}`,
                     dispatchActions: [],
                 },
                 {
                     type: TaxonomicFilterGroupType.Events,
                     definition: mockEventDefinitions[1],
-                    url: `api/projects/@current/event_definitions/${mockEventDefinitions[1].id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/event_definitions/${mockEventDefinitions[1].id}`,
                     dispatchActions: [],
                 },
                 {
@@ -167,7 +170,7 @@ describe('definitionPopoverLogic', () => {
                 {
                     type: TaxonomicFilterGroupType.EventProperties,
                     definition: mockEventPropertyDefinition as PropertyDefinition,
-                    url: `api/projects/@current/property_definitions/${mockEventPropertyDefinition.id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/property_definitions/${mockEventPropertyDefinition.id}`,
                     dispatchActions: [propertyDefinitionsModel, ['updatePropertyDefinitions']],
                 },
                 {
@@ -183,7 +186,7 @@ describe('definitionPopoverLogic', () => {
                 {
                     type: TaxonomicFilterGroupType.Cohorts,
                     definition: mockCohort,
-                    url: `api/projects/@current/cohorts/${mockCohort.id}`,
+                    url: `api/projects/${MOCK_TEAM_ID}/cohorts/${mockCohort.id}`,
                     dispatchActions: [cohortsModel, ['updateCohort']],
                 },
                 {

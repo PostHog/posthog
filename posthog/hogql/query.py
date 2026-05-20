@@ -1,8 +1,10 @@
 import dataclasses
+from datetime import date, datetime
 from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
 from opentelemetry import trace
+from psycopg.types.datetime import DateLoader
 
 from posthog.schema import (
     HogLanguage,
@@ -23,12 +25,19 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.schema.duckdb_table_functions import (
+    GenerateSeriesTable,
+    OpaqueFunctionCallTable,
+    RangeTable,
+)
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
     validate_direct_postgres_source_config,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -46,6 +55,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -130,9 +140,102 @@ def postgres_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
+def direct_postgres_session_setup_sql(
+    schema: str | None,
+    connection_metadata: dict[str, object] | None = None,
+    host: str | None = None,
+) -> str | None:
+    engine = connection_metadata.get("engine") if isinstance(connection_metadata, dict) else None
+    database = connection_metadata.get("database") if isinstance(connection_metadata, dict) else None
+    normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
+
+    if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
+        if normalized_schema:
+            quoted_schema = escape_postgres_identifier(normalized_schema)
+            return f"USE {quoted_schema}"
+        if isinstance(database, str) and database.strip():
+            quoted_database = escape_postgres_identifier(database.strip())
+            return f"USE {quoted_database}"
+        return None
+
+    if not normalized_schema:
+        return None
+
+    quoted_schema = escape_postgres_identifier(normalized_schema)
+    return f"SET search_path TO {quoted_schema}"
+
+
+def parse_lenient_direct_postgres_date(value: str) -> date:
+    trimmed = value.strip()
+
+    try:
+        return date.fromisoformat(trimmed)
+    except ValueError:
+        pass
+
+    normalized = trimmed[:-1] + "+00:00" if trimmed.endswith("Z") else trimmed
+    try:
+        return datetime.fromisoformat(normalized).date()
+    except ValueError:
+        pass
+
+    if len(trimmed) >= 10:
+        return date.fromisoformat(trimmed[:10])
+
+    raise ValueError(f"Unable to parse date value: {value!r}")
+
+
+class LenientDirectPostgresDateLoader(DateLoader):
+    """Handle non-standard DATE text values returned by DuckDB's Postgres wire."""
+
+    def load(self, data) -> date:
+        try:
+            return super().load(data)
+        except psycopg.DataError as exc:
+            try:
+                return parse_lenient_direct_postgres_date(bytes(data).decode("utf8", "replace"))
+            except ValueError:
+                raise exc from None
+
+
+def get_runtime_direct_postgres_connection_metadata(
+    connection: psycopg.Connection,
+    connection_metadata: dict[str, object] | None = None,
+) -> dict[str, object] | None:
+    runtime_connection_metadata = dict(connection_metadata) if isinstance(connection_metadata, dict) else {}
+    engine = runtime_connection_metadata.get("engine")
+    database = runtime_connection_metadata.get("database")
+
+    if engine is not None and isinstance(database, str) and database.strip():
+        return runtime_connection_metadata
+
+    metadata_cursor = connection.execute("SELECT current_database(), version()")
+    row = metadata_cursor.fetchone()
+    current_database = str(row[0]).strip() if row and row[0] is not None else None
+    version = str(row[1]) if row and len(row) > 1 and row[1] is not None else ""
+
+    if current_database and "database" not in runtime_connection_metadata:
+        runtime_connection_metadata["database"] = current_database
+
+    if "engine" not in runtime_connection_metadata:
+        runtime_connection_metadata["engine"] = (
+            "duckdb" if "duckdb" in version.lower() or "duckgres" in version.lower() else "postgres"
+        )
+
+    return runtime_connection_metadata or None
+
+
+def should_hydrate_runtime_direct_postgres_connection_metadata(
+    schema: str | None,
+    connection_metadata: dict[str, object] | None = None,
+) -> bool:
+    normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
+    return normalized_schema is None
+
+
 @dataclasses.dataclass
 class HogQLQueryExecutor:
-    query: Union[str, ast.SelectQuery, ast.SelectSetQuery]
+    query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     team: Team
     _: dataclasses.KW_ONLY
     query_type: str = "hogql_query"
@@ -155,6 +258,7 @@ class HogQLQueryExecutor:
     direct_postgres_source_id: Optional[str] = None
     direct_postgres_values: dict[str, object] | None = None
     connection_id: Optional[str] = None
+    send_raw_query: bool = False
     user: Optional[User] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
@@ -177,6 +281,11 @@ class HogQLQueryExecutor:
         self.results = None
         self.types = None
         self.metadata: Optional[HogQLMetadataResponse] = None
+        self.hogql: Optional[str] = None
+        self.print_columns: list[str] = []
+        self.has_more: Optional[bool] = None
+        self.limit: Optional[int] = None
+        self.offset: Optional[int] = None
 
     @tracer.start_as_current_span("HogQLQueryExecutor._parse_query")
     def _parse_query(self):
@@ -205,7 +314,19 @@ class HogQLQueryExecutor:
             if finder.has_filters:
                 if "filters" in self.placeholders and self.filters is not None:
                     raise ValueError("Query contains 'filters' both as placeholder and as a query parameter.")
-                self.select_query = replace_filters(self.select_query, self.filters, self.team)
+                # Build the database once with the executor's modifiers and cache it on the context
+                # so that _generate_hogql reuses it instead of building a second Database.
+                # Skip for direct-connection queries, whose database needs a connection_id resolved later.
+                if self.context.database is None and self.connection_id is None:
+                    self.context.database = Database.create_for(
+                        team=self.team,
+                        user=self.user,
+                        modifiers=self.query_modifiers,
+                        timings=self.timings,
+                    )
+                self.select_query = replace_filters(
+                    self.select_query, self.filters, self.team, database=self.context.database
+                )
 
             if finder.placeholder_fields or finder.placeholder_expressions:
                 self.select_query = cast(ast.SelectQuery, replace_placeholders(self.select_query, self.placeholders))
@@ -283,7 +404,7 @@ class HogQLQueryExecutor:
 
         with self.timings.measure("prepare_ast_for_printing"):
             select_query_hogql = cast(
-                ast.SelectQuery,
+                ast.SelectQuery | ast.SelectSetQuery,
                 prepare_ast_for_printing(node=cloned_query, context=self.hogql_context, dialect="hogql"),
             )
 
@@ -304,12 +425,13 @@ class HogQLQueryExecutor:
                 if isinstance(node, ast.Alias):
                     self.print_columns.append(node.alias)
                 else:
+                    stack = [select_query_hogql] if isinstance(select_query_hogql, ast.SelectQuery) else None
                     self.print_columns.append(
                         print_prepared_ast(
                             node=node,
                             context=self.hogql_context,
                             dialect="hogql",
-                            stack=[select_query_hogql],
+                            stack=stack,
                         )
                     )
 
@@ -342,7 +464,14 @@ class HogQLQueryExecutor:
         if query_type is None:
             return None
 
-        base_table_types = extract_base_table_types(query_type)
+        # Dialect-level table functions (range, generate_series, introspected opaque calls)
+        # aren't bound to any source — they're standalone SQL any direct connection can run,
+        # so they shouldn't influence source dispatching or block table-less execution.
+        base_table_types = [
+            table_type
+            for table_type in extract_base_table_types(query_type)
+            if not isinstance(table_type.table, (RangeTable, GenerateSeriesTable, OpaqueFunctionCallTable))
+        ]
         direct_source_ids = {
             table_type.table.external_data_source_id
             for table_type in base_table_types
@@ -431,7 +560,7 @@ class HogQLQueryExecutor:
         assert self.direct_postgres_sql is not None
         assert self.direct_postgres_source_id is not None
 
-        from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE, _get_sslmode
+        from posthog.temporal.data_imports.sources.postgres.postgres import _get_sslmode, source_requires_ssl
 
         from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
@@ -441,7 +570,8 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Connection not found or has been deleted") from e
 
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
-        require_ssl = source.created_at >= SSL_REQUIRED_AFTER_DATE
+        source_schema = source_config.schema
+        require_ssl = source_requires_ssl(source, source_config)
         settings = self._effective_direct_postgres_settings()
         statement_timeout_ms = (
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
@@ -476,6 +606,23 @@ class HogQLQueryExecutor:
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:
+                        runtime_connection_metadata = source.connection_metadata
+                        if should_hydrate_runtime_direct_postgres_connection_metadata(
+                            source_schema,
+                            runtime_connection_metadata,
+                        ):
+                            runtime_connection_metadata = get_runtime_direct_postgres_connection_metadata(
+                                connection,
+                                runtime_connection_metadata,
+                            )
+                        session_setup_sql = direct_postgres_session_setup_sql(
+                            source_schema,
+                            runtime_connection_metadata,
+                            host,
+                        )
+                        if session_setup_sql:
+                            connection.execute(session_setup_sql)
+                        connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
                             results = cursor.fetchall()
@@ -494,6 +641,8 @@ class HogQLQueryExecutor:
         self.types = [
             (column.name, postgres_oid_to_clickhouse_type(getattr(column, "type_code", None))) for column in description
         ]
+        if not self.print_columns:
+            self.print_columns = [column.name for column in description]
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
@@ -583,6 +732,64 @@ class HogQLQueryExecutor:
             engine="clickhouse",
         )
 
+    def _execute_raw_direct_postgres_query(self) -> None:
+        if not isinstance(self.query, str):
+            raise ExposedHogQLError("Sending a raw query requires a raw query string.")
+
+        source = get_direct_connection_source_none_or_raise(
+            self.team,
+            self.connection_id,
+            error_factory=ExposedHogQLError,
+        )
+        if source is None:
+            raise ExposedHogQLError("Sending a raw query requires a valid connection.")
+        self.connection_id = str(source.id)
+        self.direct_postgres_source_id = self.connection_id
+        self.direct_postgres_sql = str(self.query)
+        self._execute_direct_postgres_query()
+
+    def _capture_send_raw_query_translation_error(self) -> None:
+        """Try a post-success HogQL translation for raw queries.
+
+        On success, this stores the translated HogQL in ``self.hogql`` for the response.
+        On failure, it records the exception for telemetry and leaves ``self.hogql`` unset.
+
+        This runs synchronously after the raw query succeeds, so it adds the cost of
+        ``_prepare_execution()`` to raw-query responses.
+        """
+        if not isinstance(self.query, str) or self.connection_id is None:
+            return
+
+        try:
+            shadow_executor = HogQLQueryExecutor(
+                query=str(self.query),
+                team=self.team,
+                query_type=self.query_type,
+                filters=self.filters,
+                placeholders=self.placeholders,
+                variables=self.variables,
+                workload=self.workload,
+                settings=self.settings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                pretty=self.pretty,
+                connection_id=self.connection_id,
+                user=self.user,
+            )
+            shadow_executor._prepare_execution()
+            self.hogql = shadow_executor.hogql
+        except Exception as error:
+            capture_exception(
+                error,
+                {
+                    "component": "send_raw_query_parse_and_print",
+                    "send_raw_query": True,
+                    "team_id": self.team.pk,
+                    "connection_id": self.connection_id,
+                    "query_type": self.query_type,
+                },
+            )
+
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_clickhouse_query")
     def _execute_clickhouse_query(self):
         assert self.clickhouse_sql
@@ -590,11 +797,14 @@ class HogQLQueryExecutor:
         assert clickhouse_context is not None
         timings_dict = self.timings.to_dict()
         with self.timings.measure("clickhouse_execute"):
+            with self.timings.measure("extract_hogql_features"):
+                hogql_features = extract_hogql_features(self.select_query)
             tag_queries(
                 team_id=self.team.pk,
                 query_type=self.query_type,
                 has_joins="JOIN" in self.clickhouse_sql,
                 has_json_operations="JSONExtract" in self.clickhouse_sql or "JSONHas" in self.clickhouse_sql,
+                hogql_features=hogql_features,
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
@@ -655,12 +865,16 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
-        prepared_execution = self._prepare_execution()
+        if self.send_raw_query and self.connection_id is not None:
+            self._execute_raw_direct_postgres_query()
+            self._capture_send_raw_query_translation_error()
+        else:
+            prepared_execution = self._prepare_execution()
 
-        if prepared_execution.engine == "direct_postgres":
-            self._execute_direct_postgres_query()
-        elif self.clickhouse_sql is not None:
-            self._execute_clickhouse_query()
+            if prepared_execution.engine == "direct_postgres":
+                self._execute_direct_postgres_query()
+            elif self.clickhouse_sql is not None:
+                self._execute_clickhouse_query()
 
         return HogQLQueryResponse(
             query=self.query,
@@ -674,6 +888,9 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             explain=self.explain,
             metadata=self.metadata,
+            hasMore=self.has_more,
+            limit=self.limit,
+            offset=self.offset,
         )
 
 

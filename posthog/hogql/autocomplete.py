@@ -33,6 +33,9 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
 )
+from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
@@ -55,6 +58,65 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+
+
+def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
+    metadata = context.direct_postgres_connection_metadata
+    if metadata is None and context.database is not None:
+        metadata = getattr(context.database, "_direct_connection_metadata", None)
+
+    return metadata if isinstance(metadata, dict) else None
+
+
+def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
+        return []
+
+    available_functions = metadata.get("available_functions")
+    if not isinstance(available_functions, list):
+        return []
+
+    return [function_name for function_name in available_functions if isinstance(function_name, str)]
+
+
+def get_available_functions(language: str, context: HogQLContext) -> list[str]:
+    if language == HogLanguage.HOG_QL or language == HogLanguage.HOG_QL_EXPR:
+        return sorted(set(ALL_EXPOSED_FUNCTION_NAMES) | set(get_connection_supported_functions(context)))
+
+    return ALL_HOG_FUNCTIONS
+
+
+def get_direct_table_function_names(context: HogQLContext) -> list[str]:
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
+        return []
+
+    available_table_functions = metadata.get("available_table_functions")
+    if not isinstance(available_table_functions, list):
+        return []
+
+    return sorted({name for name in available_table_functions if isinstance(name, str)})
+
+
+def append_function_suggestions(
+    suggestions: list[AutocompleteCompletionItem], language: str, context: HogQLContext, prefix: str = ""
+) -> None:
+    available_functions = get_available_functions(language, context)
+    if prefix:
+        normalized_prefix = prefix.lower()
+        available_functions = [
+            function_name
+            for function_name in available_functions
+            if function_name.lower().startswith(normalized_prefix)
+        ]
+
+    extend_responses(
+        available_functions,
+        suggestions,
+        AutocompleteCompletionItemKind.FUNCTION,
+        insert_text=lambda key: f"{key}()",
+    )
 
 
 class GetNodeAtPositionTraverser(TraversingVisitor):
@@ -180,8 +242,11 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
                         constant_field = constant_type_to_database_field(field.type, name)
                         new_fields[name] = constant_field
                         continue
-                    elif isinstance(field, ast.FieldType):
-                        underlying_field_name = field.name
+                    # `field` is already narrowed to FieldAliasType, so this elif is
+                    # provably dead — `FieldAliasType` and `FieldType` are sibling Type
+                    # subclasses. Kept as a defensive runtime guard; suppress for mypy.
+                    elif isinstance(field, ast.FieldType):  # type: ignore[unreachable]
+                        underlying_field_name = field.name  # type: ignore[unreachable]
                     else:
                         underlying_field_name = name
                 elif isinstance(field, ast.FieldType):
@@ -306,16 +371,7 @@ def append_table_field_to_response(
         insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
     )
 
-    if language == HogLanguage.HOG_QL or language == HogLanguage.HOG_QL_EXPR:
-        available_functions = ALL_EXPOSED_FUNCTION_NAMES
-    else:
-        available_functions = ALL_HOG_FUNCTIONS
-    extend_responses(
-        available_functions,
-        suggestions,
-        AutocompleteCompletionItemKind.FUNCTION,
-        insert_text=lambda key: f"{key}()",
-    )
+    append_function_suggestions(suggestions=suggestions, language=language, context=context)
 
 
 def extend_responses(
@@ -512,7 +568,8 @@ def get_hogql_autocomplete(
             if query.filters:
                 try:
                     select_ast = cast(
-                        ast.SelectQuery, replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team)
+                        ast.SelectQuery,
+                        replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team, database=database),
                     )
                 except Exception:
                     pass
@@ -541,6 +598,14 @@ def get_hogql_autocomplete(
                 with timings.measure("select_field"):
                     table = get_table(context, nearest_select.select_from, ctes)
                     if table is None:
+                        if len(node.chain) == 1:
+                            prefix = "" if str(node.chain[0]) == MATCH_ANY_CHARACTER else str(node.chain[0])
+                            append_function_suggestions(
+                                suggestions=response.suggestions,
+                                language=query.language,
+                                context=context,
+                                prefix=prefix,
+                            )
                         continue
 
                     chain_len = len(node.chain)
@@ -586,14 +651,18 @@ def get_hogql_autocomplete(
                             field = last_table.fields[str(chain_part)]
 
                             if isinstance(field, StringJSONDatabaseField):
-                                if last_table.to_printed_hogql() == "events":
+                                if isinstance(last_table, EventsPersonSubTable):
+                                    property_type = PropertyDefinition.Type.PERSON
+                                elif isinstance(last_table, EventsGroupSubTable):
+                                    property_type = PropertyDefinition.Type.GROUP
+                                elif isinstance(last_table, EventsTable):
                                     if field.name == "person_properties":
                                         property_type = PropertyDefinition.Type.PERSON
                                     else:
                                         property_type = PropertyDefinition.Type.EVENT
-                                elif last_table.to_printed_hogql() == "persons":
+                                elif isinstance(last_table, PersonsTable):
                                     property_type = PropertyDefinition.Type.PERSON
-                                elif last_table.to_printed_hogql() == "groups":
+                                elif isinstance(last_table, GroupsTable):
                                     property_type = PropertyDefinition.Type.GROUP
                                 else:
                                     property_type = None
@@ -676,6 +745,15 @@ def get_hogql_autocomplete(
                             kind=AutocompleteCompletionItemKind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
+                        table_function_names = get_direct_table_function_names(context)
+                        if table_function_names:
+                            extend_responses(
+                                keys=table_function_names,
+                                suggestions=response.suggestions,
+                                kind=AutocompleteCompletionItemKind.FUNCTION,
+                                insert_text=lambda key: f"{key}()",
+                                details=["Table function"] * len(table_function_names),
+                            )
                     elif node.chain[0] in posthog_table_names:
                         pass
                     else:

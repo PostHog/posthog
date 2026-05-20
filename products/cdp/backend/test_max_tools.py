@@ -13,12 +13,12 @@ class TestParseOutput:
             (
                 "slice_syntax",
                 "let x := content[1:2000]",
-                "no viable alternative at input",
+                "The Hog code failed to compile",
             ),
             (
                 "double_ampersand",
                 "if (a && b) { print(a) }",
-                "no viable alternative at input",
+                "Unexpected character '&' (U+0026)",
             ),
         ]
     )

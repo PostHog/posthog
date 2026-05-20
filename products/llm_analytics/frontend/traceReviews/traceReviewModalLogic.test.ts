@@ -40,6 +40,7 @@ describe('traceReviewModalLogic', () => {
         kind: 'boolean',
         archived: false,
         current_version: 1,
+        current_version_id: null,
         config: {
             true_label: 'Yes',
             false_label: 'No',
@@ -57,6 +58,7 @@ describe('traceReviewModalLogic', () => {
         kind: 'numeric',
         archived: false,
         current_version: 1,
+        current_version_id: null,
         config: {
             min: 0,
             max: 10,
@@ -71,6 +73,7 @@ describe('traceReviewModalLogic', () => {
     const existingReview: TraceReview = {
         id: 'review_1',
         trace_id: 'trace_1',
+        trace_url: `https://us.posthog.com/project/${MOCK_DEFAULT_TEAM.id}/llm-analytics/traces/trace_1`,
         comment: 'Needs investigation',
         created_at: '2026-03-12T00:00:00Z',
         updated_at: '2026-03-12T00:00:00Z',
@@ -206,6 +209,30 @@ describe('traceReviewModalLogic', () => {
                     numeric_value: '8',
                 },
             ],
+        })
+    })
+
+    it('includes queue context in the save payload when opened from a queue', async () => {
+        mockTraceReviewsApi.getByTraceId.mockResolvedValue(null)
+        mockLlmAnalyticsScoreDefinitionsList.mockResolvedValue({
+            results: [booleanDefinition],
+            count: 1,
+            next: null,
+            previous: null,
+        })
+
+        const logic = traceReviewModalLogic({ traceId: 'trace_1', queueId: 'queue_1' })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.openModal()
+        }).toFinishAllListeners()
+
+        expect(logic.values.submitPayload).toEqual({
+            trace_id: 'trace_1',
+            queue_id: 'queue_1',
+            comment: null,
+            scores: [],
         })
     })
 

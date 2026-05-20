@@ -10,6 +10,7 @@ import json
 import base64
 import hashlib
 import subprocess
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,76 @@ from unittest.mock import MagicMock
 
 import responses
 
+from posthog.models.scoping import team_scope
+
 from products.visual_review.backend.models import Repo
+
+PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_reader"}
+
+
+@pytest.fixture(autouse=True)
+def _set_team_scope(request):
+    """Set team context for raw pytest tests that use the database.
+
+    ProductTeamModel is fail-closed — queries without context raise
+    TeamScopeError. Only activates for tests marked with @pytest.mark.django_db.
+
+    TestCase / APIBaseTest subclasses are skipped here even when the
+    marker is present, because they create their own team in setUp()
+    and `getfixturevalue("team")` would duplicate-create with the same
+    api_token (collision on `posthog_team_api_token_a9a1df8a_uniq`).
+    Those tests use VisualReviewTeamScopedTestMixin (below) which
+    wraps setUp/tearDown with team_scope using the test's own
+    self.team — no extra team creation.
+    """
+    if request.node.get_closest_marker("django_db") is None:
+        yield
+        return
+
+    is_django_testcase = request.cls is not None and any(cls.__name__ == "TestCase" for cls in request.cls.__mro__)
+    if is_django_testcase:
+        yield
+        return
+
+    team = request.getfixturevalue("team")
+    with team_scope(team.id):
+        yield
+
+
+class VisualReviewTeamScopedTestMixin:
+    """Mixin for TestCase / APIBaseTest tests that use ProductTeamModel.
+
+    Wraps setUp/tearDown with team_scope so the test body's queries to
+    Repo, Run, RunSnapshot etc. find a scope. Place this BEFORE
+    APIBaseTest in the MRO so its setUp runs first (creating self.team)
+    and our setUp can use it:
+
+        class TestFoo(VisualReviewTeamScopedTestMixin, APIBaseTest):
+            def test_thing(self):
+                Repo.objects.create(...)  # auto-scoped
+
+    The `_team_scope_cm` attribute is initialized to None up front so a
+    partial-init failure in setUp (e.g. team_scope() raising during
+    resolve, or super().setUp() raising) doesn't leave tearDown trying
+    to __exit__ an unentered context manager.
+    """
+
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()  # type: ignore[misc]
+        cm = team_scope(self.team.id)  # type: ignore[attr-defined]
+        cm.__enter__()
+        self._team_scope_cm = cm
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            try:
+                self._team_scope_cm.__exit__(None, None, None)
+            finally:
+                self._team_scope_cm = None
+        super().tearDown()  # type: ignore[misc]
+
 
 # --- Local Git Repo Fixtures ---
 
@@ -175,11 +245,25 @@ def mock_github_api(local_git_repo):
 
         # Track status check calls for assertions
         status_checks = []
+        issue_comments = []
+        next_comment_id = [1000]
 
         def status_callback(request):
             data = json.loads(request.body)
             status_checks.append(data)
             return (201, {}, json.dumps({"id": 1, "state": data["state"]}))
+
+        def issue_comment_callback(request):
+            data = json.loads(request.body)
+            comment_id = next_comment_id[0]
+            next_comment_id[0] += 1
+            issue_comments.append({**data, "id": comment_id, "action": "created"})
+            return (201, {}, json.dumps({"id": comment_id, "body": data["body"]}))
+
+        def issue_comment_update_callback(request):
+            data = json.loads(request.body)
+            issue_comments.append({**data, "action": "updated"})
+            return (200, {}, json.dumps({"id": 1, "body": data["body"]}))
 
         rsps.add_callback(
             responses.GET,
@@ -201,8 +285,19 @@ def mock_github_api(local_git_repo):
             re.compile(r"https://api\.github\.com/repos/.+/statuses/.+"),
             callback=status_callback,
         )
+        rsps.add_callback(
+            responses.POST,
+            re.compile(r"https://api\.github\.com/repos/.+/issues/\d+/comments"),
+            callback=issue_comment_callback,
+        )
+        rsps.add_callback(
+            responses.PATCH,
+            re.compile(r"https://api\.github\.com/repos/.+/issues/comments/\d+"),
+            callback=issue_comment_update_callback,
+        )
 
         rsps.status_checks = status_checks  # type: ignore[attr-defined]
+        rsps.issue_comments = issue_comments  # type: ignore[attr-defined]
         yield rsps
 
 
@@ -248,7 +343,7 @@ def mock_github_integration(team, mocker):
 def vr_project_with_github(team, mock_github_integration):
     """Create a visual review repo configured for GitHub."""
     return Repo.objects.create(
-        team=team,
+        team_id=team.id,
         repo_external_id=12345,
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},

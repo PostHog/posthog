@@ -1,8 +1,10 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconBalance, IconInfo, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -12,6 +14,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { alphabet, formatPercentage } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
@@ -86,6 +89,7 @@ export const VariantsPanelCreateFeatureFlag = ({
     disabled = false,
     layout = 'horizontal',
 }: VariantsPanelCreateFeatureFlagProps): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
     const variants = experiment.parameters?.feature_flag_variants || [
@@ -94,7 +98,9 @@ export const VariantsPanelCreateFeatureFlag = ({
     ]
 
     const ensureExperienceContinuity =
-        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ?? false
+        (experiment.parameters as { ensure_experience_continuity?: boolean })?.ensure_experience_continuity ??
+        currentTeam?.flags_persistence_default ??
+        false
 
     const rolloutPercentage =
         experiment.parameters?.rollout_percentage ?? NEW_EXPERIMENT.parameters.rollout_percentage ?? 100
@@ -162,8 +168,31 @@ export const VariantsPanelCreateFeatureFlag = ({
         <div className="flex flex-col gap-4">
             <div className={`flex gap-4 ${layout === 'vertical' ? 'flex-col' : 'flex-row'}`}>
                 <div className="flex-1">
+                    <LemonField.Pure label="Rollout">
+                        <div className="border border-primary rounded p-4 flex flex-col gap-5">
+                            <RolloutPercentageControl
+                                rolloutPercentage={rolloutPercentage}
+                                disabled={disabled}
+                                onChange={updateRolloutPercentage}
+                            />
+                            <TrafficPreview
+                                variants={variants}
+                                rolloutPercentage={rolloutPercentage}
+                                areVariantRolloutsValid={areVariantRolloutsValid}
+                            />
+                        </div>
+                    </LemonField.Pure>
+                </div>
+
+                <div className="flex-1">
                     <LemonField.Pure label="Variants">
                         <div className="border border-primary rounded p-4">
+                            {!disabled && !isEvenlyDistributed(variants) && (
+                                <LemonBanner type="warning" className="mb-3">
+                                    In most cases, experiments work best with an equal split. If you want to limit
+                                    exposure to the test variant, adjust the rollout percentage instead.
+                                </LemonBanner>
+                            )}
                             <table className="w-full">
                                 <thead>
                                     <tr className="text-sm font-bold">
@@ -291,23 +320,6 @@ export const VariantsPanelCreateFeatureFlag = ({
                                     Add variant
                                 </LemonButton>
                             )}
-                        </div>
-                    </LemonField.Pure>
-                </div>
-
-                <div className="flex-1">
-                    <LemonField.Pure label="Rollout">
-                        <div className="border border-primary rounded p-4 flex flex-col gap-5">
-                            <RolloutPercentageControl
-                                rolloutPercentage={rolloutPercentage}
-                                disabled={disabled}
-                                onChange={updateRolloutPercentage}
-                            />
-                            <TrafficPreview
-                                variants={variants}
-                                rolloutPercentage={rolloutPercentage}
-                                areVariantRolloutsValid={areVariantRolloutsValid}
-                            />
                         </div>
                     </LemonField.Pure>
                 </div>

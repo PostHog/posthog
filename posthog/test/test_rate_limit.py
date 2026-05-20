@@ -18,8 +18,8 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AIResearchBurstRateThrottle,
@@ -860,3 +860,17 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(num_requests, 6)
         self.assertEqual(duration, 1200)  # 20 minutes * 60 seconds
+
+    def test_health_issue_refresh_throttle_parses_15_minute_window(self):
+        throttle = rate_limit.HealthIssueRefreshThrottle()
+        num_requests, duration = throttle.parse_rate("1/15minutes")
+
+        self.assertEqual(num_requests, 1)
+        self.assertEqual(duration, 15 * 60)
+
+    def test_health_issue_refresh_throttle_falls_back_to_default_parser(self):
+        throttle = rate_limit.HealthIssueRefreshThrottle()
+        num_requests, duration = throttle.parse_rate("5/hour")
+
+        self.assertEqual(num_requests, 5)
+        self.assertEqual(duration, 3600)

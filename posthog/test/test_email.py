@@ -1,4 +1,7 @@
+import datetime
+import dataclasses
 from decimal import Decimal
+from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
@@ -10,8 +13,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
-from posthog.models import MessagingRecord, Organization, Person, Team, User
+from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.messaging import MessagingRecord
 
 
 class TestEmail(BaseTest):
@@ -222,6 +226,45 @@ class TestEmail(BaseTest):
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
 
+    def test_sanitize_email_properties_handles_dataclasses(self) -> None:
+        # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
+        # silently killing tasks like send_error_tracking_issue_assigned via autoretry.
+        # Mirror the real ErrorTrackingIssueAssignmentNotification shape — in particular
+        # include a datetime field, since dataclasses.asdict() does not recurse into
+        # datetime and the naive fix missed that.
+        @dataclasses.dataclass(frozen=True)
+        class Inner:
+            id: UUID
+            name: str | None
+            description: str | None
+
+        @dataclasses.dataclass(frozen=True)
+        class Outer:
+            id: UUID
+            created_at: datetime.datetime
+            issue: Inner
+
+        outer = Outer(
+            id=UUID("00000000-0000-0000-0000-000000000001"),
+            created_at=datetime.datetime(2024, 1, 1, 12, 0, 0),
+            issue=Inner(
+                id=UUID("00000000-0000-0000-0000-000000000002"),
+                name='<script>alert("xss")</script>',
+                description=None,
+            ),
+        )
+
+        sanitized = sanitize_email_properties({"assignment": outer})
+
+        self.assertEqual(sanitized["assignment"]["id"], "00000000-0000-0000-0000-000000000001")
+        self.assertEqual(sanitized["assignment"]["created_at"], "2024-01-01T12:00:00")
+        self.assertEqual(sanitized["assignment"]["issue"]["id"], "00000000-0000-0000-0000-000000000002")
+        self.assertEqual(
+            sanitized["assignment"]["issue"]["name"],
+            "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;",
+        )
+        self.assertIsNone(sanitized["assignment"]["issue"]["description"])
+
     def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
         # Test that sanitize_email_properties raises TypeError for unsupported types
         properties = {
@@ -279,3 +322,52 @@ class TestEmail(BaseTest):
 
             # Raw email should remain unchanged
             self.assertEqual(message.to[0]["raw_email"], "test@example.com")
+
+    def test_all_http_templates_are_registered_in_customer_io_map(self) -> None:
+        # Every EmailMessage(use_http=True, template_name="X", ...) call in
+        # production code under posthog/ needs "X" in CUSTOMER_IO_TEMPLATE_ID_MAP.
+        # The Customer.io HTTP sender raises "Unknown template name" if it
+        # isn't, and the Celery task wrapper swallows the exception via
+        # capture_exception. Without this test, a new transactional email
+        # added with a forgotten map entry sends zero emails and surfaces
+        # nothing user-visible.
+        import ast
+        from pathlib import Path
+
+        import posthog as posthog_pkg
+
+        posthog_root = Path(posthog_pkg.__file__).parent
+        sources = sorted(
+            p
+            for p in posthog_root.rglob("*.py")
+            if "/test/" not in str(p) and "/tests/" not in str(p) and not p.name.startswith("test_")
+        )
+
+        missing: dict[str, str] = {}  # template_name -> first source path that uses it
+        for source_path in sources:
+            try:
+                tree = ast.parse(source_path.read_text())
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if not (isinstance(node.func, ast.Name) and node.func.id == "EmailMessage"):
+                    continue
+                kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
+                use_http = kwargs.get("use_http")
+                if not (isinstance(use_http, ast.Constant) and use_http.value is True):
+                    continue
+                template_name = kwargs.get("template_name")
+                if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
+                    if template_name.value not in CUSTOMER_IO_TEMPLATE_ID_MAP:
+                        missing.setdefault(template_name.value, str(source_path.relative_to(posthog_root.parent)))
+
+        self.assertEqual(
+            missing,
+            {},
+            "These template_name values use use_http=True in production code but are missing "
+            "from CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry pointing to "
+            "the Customer.io transactional message ID, otherwise the sender will raise "
+            "'Unknown template name' at runtime and capture_exception will swallow it.",
+        )

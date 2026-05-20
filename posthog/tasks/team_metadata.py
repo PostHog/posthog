@@ -16,6 +16,7 @@ import structlog
 from celery import shared_task
 
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,
@@ -30,6 +31,7 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def update_team_metadata_cache_task(team_id: int) -> None:
     """
     Update the metadata cache for a specific team.
@@ -63,7 +65,7 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     This job just prevents expiration-related cache misses.
 
     For initial cache build or schema migrations, use the management command:
-        python manage.py warm_team_metadata_cache [--invalidate-first]
+        python manage.py warm_team_metadata_cache
     """
 
     if not settings.FLAGS_REDIS_URL:
@@ -138,16 +140,6 @@ def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kw
     # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_team_metadata_cache(instance, kinds=kinds)
-
-
-@receiver(pre_delete, sender=Team)
-def clear_project_secret_api_key_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
-    """Clear project secret API key caches when a Team is deleted."""
-    from posthog.models.project_secret_api_key import invalidate_project_secret_api_key_cache
-
-    for key in instance.project_secret_api_keys.all():
-        if key.secure_value:
-            invalidate_project_secret_api_key_cache(key.secure_value)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

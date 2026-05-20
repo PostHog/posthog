@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { isSubscriptionEnabled } from 'scenes/subscriptions/components/SubscriptionsTable'
 
 import { SubscriptionType } from '~/types'
 
@@ -18,10 +22,24 @@ interface SubscriptionListItemProps {
     subscription: SubscriptionType
     onClick: () => void
     onDelete?: () => void
+    onDeliver?: () => void
+    onToggleEnabled?: (enabled: boolean) => void
+    isDelivering?: boolean
+    isToggling?: boolean
 }
 
-export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
+export function SubscriptionListItem({
+    subscription,
+    onClick,
+    onDelete,
+    onDeliver,
+    onToggleEnabled,
+    isDelivering,
+    isToggling,
+}: SubscriptionListItemProps): JSX.Element {
     const selectedInsightsCount = subscription.dashboard_export_insights?.length
+    const enabled = isSubscriptionEnabled(subscription)
+    const sideActionBusy = isDelivering || isToggling
 
     return (
         <LemonButton
@@ -30,11 +48,31 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
             data-attr="subscription-list-item"
             fullWidth
             sideAction={{
-                icon: <IconEllipsis />,
-
+                icon: sideActionBusy ? <Spinner /> : <IconEllipsis />,
+                disabled: sideActionBusy,
                 dropdown: {
                     overlay: (
                         <>
+                            {onToggleEnabled && (
+                                <LemonButton
+                                    onClick={() => onToggleEnabled(!enabled)}
+                                    data-attr="subscription-list-item-toggle-enabled"
+                                    fullWidth
+                                    disabled={isToggling}
+                                >
+                                    {enabled ? 'Disable subscription' : 'Enable subscription'}
+                                </LemonButton>
+                            )}
+                            {onDeliver && enabled && (
+                                <LemonButton
+                                    onClick={onDeliver}
+                                    data-attr="subscription-list-item-manual-deliver"
+                                    fullWidth
+                                    disabled={isDelivering}
+                                >
+                                    Test delivery
+                                </LemonButton>
+                            )}
                             {onDelete && (
                                 <LemonButton
                                     onClick={onDelete}
@@ -42,7 +80,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                                     status="danger"
                                     fullWidth
                                 >
-                                    Delete Subscription
+                                    Delete subscription
                                 </LemonButton>
                             )}
                         </>
@@ -52,13 +90,22 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
         >
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
-                    <div className="text-link font-medium">{subscription.title}</div>
+                    <div className={`font-medium ${enabled ? 'text-link' : 'text-muted'}`}>{subscription.title}</div>
                     <div className="text-sm text-text-3000">
                         {capitalizeFirstLetter(subscription.summary)}
                         {selectedInsightsCount
                             ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
                             : null}
                     </div>
+                    {!enabled ? (
+                        <LemonTag type="danger" size="small" className="mt-1">
+                            Disabled
+                        </LemonTag>
+                    ) : subscription.next_delivery_date ? (
+                        <div className="text-xs text-secondary">
+                            Next delivery: {dayjs(subscription.next_delivery_date).format('ddd, MMM D [at] HH:mm')}
+                        </div>
+                    ) : null}
                 </div>
                 {subscription.target_type === 'email' ? (
                     <ProfileBubbles
@@ -88,8 +135,10 @@ export function ManageSubscriptions({
         dashboardId,
     })
 
-    const { subscriptions, subscriptionsLoading } = useValues(logic)
-    const { deleteSubscription } = useActions(logic)
+    const { subscriptions, subscriptionsLoading, deliveringSubscriptionId, togglingEnabledId } = useValues(logic)
+    const { deleteSubscription, deliverSubscription, setSubscriptionEnabled } = useActions(logic)
+
+    const subscriptionResourceNoun = !insightShortId && dashboardId ? 'dashboard' : 'insight'
 
     return (
         <>
@@ -105,8 +154,7 @@ export function ManageSubscriptions({
                 ) : subscriptions.length ? (
                     <div className="deprecated-space-y-2">
                         <div>
-                            <strong>{subscriptions?.length}</strong>
-                            {' active '}
+                            <strong>{subscriptions?.length}</strong>{' '}
                             {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
                         </div>
 
@@ -117,13 +165,17 @@ export function ManageSubscriptions({
                                     subscription={sub}
                                     onClick={() => onSelect(sub.id)}
                                     onDelete={() => deleteSubscription(sub.id)}
+                                    onDeliver={() => deliverSubscription(sub.id)}
+                                    onToggleEnabled={(enabled) => setSubscriptionEnabled(sub.id, enabled)}
+                                    isDelivering={deliveringSubscriptionId === sub.id}
+                                    isToggling={togglingEnabledId === sub.id}
                                 />
                             ))}
                         </div>
                     </div>
                 ) : (
                     <div className="flex flex-col p-4 items-center text-center">
-                        <h3>There are no subscriptions for this insight</h3>
+                        <h3>There are no subscriptions for this {subscriptionResourceNoun}</h3>
 
                         <p>Once subscriptions are created they will display here. </p>
 

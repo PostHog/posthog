@@ -36,7 +36,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     # When adding a new taggeditem-model relationship, make sure to add the foreign key field and append field name to
     # the `RELATED_OBJECTS` tuple above.
     dashboard = models.ForeignKey(
-        "Dashboard",
+        "dashboards.Dashboard",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -78,7 +78,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     experiment_saved_metric = models.ForeignKey(
-        "ExperimentSavedMetric",
+        "experiments.ExperimentSavedMetric",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -103,7 +103,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
                 for related_field in RELATED_OBJECTS
             ],
             models.CheckConstraint(
-                check=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
+                condition=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
             ),
         ]
 

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -21,6 +21,7 @@ import {
     getGeminiInlineData,
     isAnthropicDocumentMessage,
     isAnthropicImageMessage,
+    isEmptyJSONStructure,
     isGeminiAudioMessage,
     isGeminiDocumentMessage,
     isGeminiImageMessage,
@@ -29,6 +30,7 @@ import {
     isOpenAIImageURLMessage,
     looksLikeXml,
     parsePartialJSON,
+    parseToolArgumentsForDisplay,
 } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
@@ -484,7 +486,87 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
         )
     }
 
+    if (
+        item.type === 'function' &&
+        item.function &&
+        typeof item.function === 'object' &&
+        typeof item.function.name === 'string'
+    ) {
+        const { name, arguments: rawArgs } = item.function
+        const callId = 'id' in item && typeof item.id === 'string' ? item.id : undefined
+        const args = parseToolArgumentsForDisplay(rawArgs)
+        const displayName = name || '(unnamed function)'
+        const hasSearch = !!searchQuery?.trim()
+
+        return (
+            <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs">
+                    <IconWrench className="text-muted shrink-0" />
+                    <span className="font-mono font-semibold">
+                        {hasSearch ? <SearchHighlight string={displayName} substring={searchQuery!} /> : displayName}
+                    </span>
+                    {callId && (
+                        <span className="font-mono text-muted truncate">
+                            {hasSearch ? <SearchHighlight string={callId} substring={searchQuery!} /> : callId}
+                        </span>
+                    )}
+                </div>
+                {args.kind === 'parsed' && (
+                    <HighlightedJSONViewer src={args.value} name={null} collapsed={5} searchQuery={searchQuery} />
+                )}
+                {args.kind === 'raw' &&
+                    (hasSearch ? (
+                        <SearchHighlight
+                            string={args.value}
+                            substring={searchQuery!}
+                            className="font-mono whitespace-pre-wrap text-xs"
+                        />
+                    ) : (
+                        <pre className="font-mono whitespace-pre-wrap text-xs m-0">{args.value}</pre>
+                    ))}
+            </div>
+        )
+    }
+
     return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+}
+
+/** Max characters to render in minimal (table preview) mode. */
+const MINIMAL_PREVIEW_LIMIT = 500
+
+/** Extract a plain-text preview from message content, truncated for table cells. */
+function extractMinimalPreview(content: string | { type: string; content: string } | MultiModalContentItem[]): string {
+    let text: string
+    if (typeof content === 'string') {
+        text = content
+    } else if (Array.isArray(content)) {
+        text = content
+            .map((item) => {
+                if (typeof item === 'string') {
+                    return item
+                }
+                if (item && typeof item === 'object') {
+                    if ('text' in item && typeof item.text === 'string') {
+                        return item.text
+                    }
+                    if ('transcript' in item && typeof item.transcript === 'string') {
+                        return item.transcript
+                    }
+                }
+                return ''
+            })
+            .filter(Boolean)
+            .join(' ')
+    } else if (typeof content === 'object' && content !== null && 'content' in content) {
+        text = typeof content.content === 'string' ? content.content : JSON.stringify(content)
+    } else {
+        text = JSON.stringify(content)
+    }
+
+    if (text.length > MINIMAL_PREVIEW_LIMIT) {
+        return text.slice(0, MINIMAL_PREVIEW_LIMIT) + '…'
+    }
+    return text
 }
 
 export const LLMMessageDisplay = React.memo(
@@ -579,10 +661,7 @@ export const LLMMessageDisplay = React.memo(
                     const parsed = typeof content === 'string' ? parsePartialJSON(content) : content
                     // If the partial parser returned an empty container, the input wasn't
                     // actually JSON (e.g. "[Thinking: ...]" starts with "[" but is plain text)
-                    const isParsedEmpty =
-                        (Array.isArray(parsed) && parsed.length === 0) ||
-                        (isObject(parsed) && Object.keys(parsed as Record<string, unknown>).length === 0)
-                    if (isParsedEmpty) {
+                    if (isEmptyJSONStructure(parsed)) {
                         throw new Error('not JSON')
                     }
                     if (isObject(parsed) && parsed.type === 'image') {
@@ -760,7 +839,9 @@ export const LLMMessageDisplay = React.memo(
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
                                 <MessageActionsMenu
-                                    content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                                    content={
+                                        typeof content === 'string' ? content : (JSON.stringify(content, null, 2) ?? '')
+                                    }
                                     traceId={traceId}
                                 />
                             </>
@@ -769,7 +850,13 @@ export const LLMMessageDisplay = React.memo(
                 )}
                 {show && !!content && (
                     <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
-                        {renderMessageContent(content, searchQuery)}
+                        {minimal ? (
+                            <LemonMarkdown className="whitespace-pre-wrap">
+                                {extractMinimalPreview(content)}
+                            </LemonMarkdown>
+                        ) : (
+                            renderMessageContent(content, searchQuery)
+                        )}
                     </div>
                 )}
                 {show && (!minimal || !content) && Object.keys(additionalKwargsEntries).length > 0 && (

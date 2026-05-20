@@ -40,7 +40,7 @@ export { transformEventToWeb, transformToWeb } from './mobile'
 export { PLACEHOLDER_SVG_DATA_IMAGE_URL } from './mobile/transformer/shared'
 
 // segmenter
-export { createSegments, mapSnapshotsToWindowId } from './segmenter'
+export { createSegments, mergeInactiveSegments, mapSnapshotsToWindowId } from './segmenter'
 
 // snapshot store
 export { SnapshotStore } from './snapshot-store/SnapshotStore'
@@ -56,5 +56,6 @@ export {
     CorsPlugin,
     COMMON_REPLAYER_CONFIG,
     HLSPlayerPlugin,
+    createHLSPlayerPlugin,
     WindowTitlePlugin,
 } from './rrweb-plugins'

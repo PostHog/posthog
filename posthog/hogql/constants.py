@@ -46,7 +46,7 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb"]
 
 type HogQLParserBackend = Literal["python", "cpp-json"]
 
@@ -117,6 +117,7 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    grace_hash_join_initial_buckets: Optional[int] = None
     force_data_skipping_indices: Optional[list[str]] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None
@@ -136,7 +137,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
-    allow_experimental_analyzer: Optional[bool] = None
+    enable_analyzer: Optional[bool] = None
     transform_null_in: Optional[bool] = True
     # A bugfix workaround that stops clauses that look like
     # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`
@@ -156,9 +157,9 @@ def get_default_hogql_global_settings(
 ) -> HogQLGlobalSettings:
     settings = base.model_copy(deep=True) if base is not None else HogQLGlobalSettings()
     # Only enable if not explicitly disabled (None = not set, False = explicitly disabled)
-    if settings.allow_experimental_analyzer is None and team_id is not None:
+    if settings.enable_analyzer is None and team_id is not None:
         from posthog.settings.data_stores import is_enable_analyzer_team
 
         if is_enable_analyzer_team(team_id):
-            settings.allow_experimental_analyzer = True
+            settings.enable_analyzer = True
     return settings

@@ -1,4 +1,4 @@
-import isEqual from 'lodash.isequal'
+import equal from 'fast-deep-equal'
 import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -33,6 +33,7 @@ import {
     ResultCustomizationBy,
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
@@ -99,10 +100,10 @@ export const getDisplayNameFromEntityFilter = (
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
+
     let name = ensureStringIsNotBlank(filter?.name)
-    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
-        name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
-    }
+    name = formatEventName(name) ?? name
+
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
     }
@@ -322,7 +323,7 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
-// Keep in sync with NOT_IN_COHORT_ID in posthog/queries/breakdown_props.py
+// Keep in sync with NOT_IN_COHORT_ID in posthog/hogql_queries/insights/utils/breakdowns.py
 export const NOT_IN_COHORT_ID = 2 ** 52
 
 export function getCohortNameFromId(
@@ -733,7 +734,7 @@ function arraysEqual(arr1: any[], arr2: any[]): boolean {
 
     // Compare each element
     for (let i = 0; i < sorted1.length; i++) {
-        if (!isEqual(sorted1[i], sorted2[i])) {
+        if (!equal(sorted1[i], sorted2[i])) {
             return false
         }
     }
@@ -744,7 +745,7 @@ function deepEqual(val1: any, val2: any): boolean {
     if (Array.isArray(val1) && Array.isArray(val2)) {
         return arraysEqual(val1, val2)
     }
-    return isEqual(val1, val2)
+    return equal(val1, val2)
 }
 
 export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
@@ -825,4 +826,29 @@ export const getOverrideWarningPropsForButton = (
               tooltip: `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`,
           }
         : {}
+}
+
+/** Checks for breakdown features that are unsupported by trend insights with a
+ * data warehouse series. Mirrors backend `ValidateDataWarehouseBreakdown`. */
+export const hasUnsupportedBreakdownForDataWarehouseTrends = (
+    filtersOverride: DashboardFilter | TileFilters | null | undefined
+): boolean => {
+    const breakdownFilter = filtersOverride?.breakdown_filter
+
+    if (!breakdownFilter) {
+        return false
+    }
+
+    const supportedTypes = new Set(['data_warehouse', 'hogql'])
+
+    if (breakdownFilter.breakdowns?.length) {
+        return breakdownFilter.breakdowns.some((b) => !b.type || !supportedTypes.has(b.type))
+    }
+
+    return !!(
+        !breakdownFilter.breakdown ||
+        Array.isArray(breakdownFilter.breakdown) ||
+        !breakdownFilter.breakdown_type ||
+        !supportedTypes.has(breakdownFilter.breakdown_type)
+    )
 }

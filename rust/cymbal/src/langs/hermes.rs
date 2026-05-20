@@ -7,12 +7,11 @@ use sourcemap::Token;
 
 use crate::{
     error::{FrameError, HermesError, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::{
         utils::{add_raw_to_junk, get_token_context},
         CommonFrameMetadata,
     },
-    metric_consts::FRAME_NOT_RESOLVED,
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, hermesmap::ParsedHermesMap, SymbolCatalog},
 };
@@ -124,6 +123,10 @@ impl Display for HermesRef {
 
 impl From<(&RawHermesFrame, HermesError)> for Frame {
     fn from((frame, err): (&RawHermesFrame, HermesError)) -> Self {
+        record_frame_resolution_failure("hermes", err.metric_reason(), &err);
+
+        let resolve_failure = Some(err.to_string());
+
         let mut res = Self {
             frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
@@ -134,7 +137,7 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             resolved_name: None,
             lang: "javascript".to_string(),
             resolved: false,
-            resolve_failure: Some(err.to_string()),
+            resolve_failure,
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             code_variables: None,
@@ -169,6 +172,7 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
             code_variables: None,
@@ -188,8 +192,6 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
 // probably a native function or something else weird
 impl From<&RawHermesFrame> for Frame {
     fn from(raw_frame: &RawHermesFrame) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "hermes").increment(1);
-
         // If this is a source_url: <anonymous> frame, we always assume it's not in_app
         let is_anon = raw_frame.source.eq("<anonymous>");
 
@@ -206,6 +208,7 @@ impl From<&RawHermesFrame> for Frame {
             lang: "javascript".to_string(),
             resolved: true, // Without location information, we're assuming this is not minified
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: None,

@@ -14,10 +14,11 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 
 ## Process logging (for agents/debugging)
 
-`hogli dev:setup --log` enables file logging for all mprocs processes. Logs go to `/tmp/posthog-<process>.log` where `<process>` matches the mprocs process key (see `bin/mprocs.yaml`).
+`hogli dev:setup --log` enables file logging for all phrocs processes. Logs go to `/tmp/posthog-<process>.log` where `<process>` matches the phrocs process key (see `bin/mprocs.yaml`).
 
 ## Key references
 
-- `common/hogli/manifest.yaml` — command definitions (source of truth)
-- `common/hogli/commands.py` — extension point for custom Click commands
-- `common/hogli/README.md` — full developer and architecture docs
+- `hogli.yaml` — command definitions (source of truth)
+- `tools/hogli-commands/hogli_commands/` — PostHog-specific lazy Click command modules
+- `tools/hogli/README.md` — framework documentation
+- `tools/hogli-commands/README.md` — PostHog commands documentation

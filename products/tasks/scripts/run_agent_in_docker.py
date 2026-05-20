@@ -25,8 +25,7 @@ django.setup()
 from django.db import transaction
 
 from posthog.models import FeatureFlag, Integration, PersonalAPIKey, Team, User
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.docker_sandbox import DockerSandbox

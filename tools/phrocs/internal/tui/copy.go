@@ -36,7 +36,7 @@ func (m *Model) applyCopyStyle() {
 			return copyModeStyle
 		}
 		if idx >= lo && idx <= hi {
-			return lipgloss.NewStyle().Background(colorDarkGrey)
+			return lipgloss.NewStyle().Background(selectionBg(m.isDark))
 		}
 		return lipgloss.NewStyle()
 	}

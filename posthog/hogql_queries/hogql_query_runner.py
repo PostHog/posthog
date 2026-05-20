@@ -15,9 +15,10 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
@@ -39,7 +40,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         settings: Optional[HogQLGlobalSettings] = None,
         **kwargs,
     ):
-        self.settings = settings or HogQLGlobalSettings(allow_experimental_analyzer=True)
+        self.settings = settings or HogQLGlobalSettings(enable_analyzer=True)
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
@@ -58,7 +59,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
+            parsed_select = parse_select(
+                self.query.query,
+                timings=self.timings,
+                placeholders=values,
+                cache_origin=CacheOrigin.USER,
+            )
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
@@ -73,7 +79,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 var_values: dict[str, Any] = {"variables": var_dict, **values} if values else {"variables": var_dict}
                 if self.query.variables:
                     for var in list(self.query.variables.values()):
-                        var_values["variables"][var.code_name] = var.value
+                        var_dict[var.code_name] = var.value
                     parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, var_values))
 
         return parsed_select
@@ -82,15 +88,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
-        query = self.to_query()
-        paginator = None
-        if isinstance(query, ast.SelectQuery) and not query.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
-        func = cast(
-            Callable[..., HogQLQueryResponse],
-            execute_hogql_query if paginator is None else paginator.execute_hogql_query,
-        )
-
         if (
             self.is_query_service
             and app_settings.API_QUERIES_LEGACY_TEAM_LIST
@@ -108,6 +105,36 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             )
             if source is None:
                 raise ExposedHogQLError("Invalid connectionId for this team")
+
+        if self.query.sendRawQuery and self.query.connectionId:
+            return execute_hogql_query(
+                query_type="HogQLQuery",
+                query=self.query.query,
+                filters=self.query.filters,
+                modifiers=self.query.modifiers or self.modifiers,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                variables=self.query.variables,
+                connection_id=self.query.connectionId,
+                limit_context=self.limit_context,
+                workload=self.workload,
+                settings=self.settings,
+                send_raw_query=True,
+            )
+
+        query = self.to_query()
+
+        if self.is_query_service:
+            validate_user_query(query, team=self.team)
+
+        paginator = None
+        if isinstance(query, ast.SelectQuery) and not query.limit:
+            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+        func = cast(
+            Callable[..., HogQLQueryResponse],
+            execute_hogql_query if paginator is None else paginator.execute_hogql_query,
+        )
 
         response = func(
             query_type="HogQLQuery",

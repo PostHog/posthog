@@ -14,6 +14,7 @@ async fn service_mode_route_availability() {
                 ("/flags", true),
                 ("/decide", true),
                 ("/flags/definitions", true),
+                ("/api/feature_flag/local_evaluation", true),
             ],
         ),
         (
@@ -22,6 +23,7 @@ async fn service_mode_route_availability() {
                 ("/flags", true),
                 ("/decide", true),
                 ("/flags/definitions", false),
+                ("/api/feature_flag/local_evaluation", false),
             ],
         ),
         (
@@ -30,6 +32,7 @@ async fn service_mode_route_availability() {
                 ("/flags", false),
                 ("/decide", false),
                 ("/flags/definitions", true),
+                ("/api/feature_flag/local_evaluation", true),
             ],
         ),
     ];

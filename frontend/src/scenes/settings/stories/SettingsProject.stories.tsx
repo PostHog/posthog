@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
@@ -45,41 +45,32 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             },
         }),
     ],
+    render: ({ sectionId }: StoryProps) => {
+        useEffect(() => {
+            router.actions.push(urls.settings(sectionId))
+        }, [sectionId])
+
+        return <App />
+    },
 }
 export default meta
 
-const Template: StoryFn<StoryProps> = ({ sectionId }) => {
-    useEffect(() => {
-        router.actions.push(urls.settings(sectionId))
-    }, [sectionId])
-
-    return <App />
-}
-
 // -- Project --
 
-export const SettingsProjectDetails: Story = Template.bind({})
-SettingsProjectDetails.args = { sectionId: 'project-details' }
+export const SettingsProjectDetails: Story = { args: { sectionId: 'project-details' } }
 
-export const SettingsProjectDangerZone: Story = Template.bind({})
-SettingsProjectDangerZone.args = { sectionId: 'project-danger-zone' }
+export const SettingsProjectDangerZone: Story = { args: { sectionId: 'project-danger-zone' } }
 
 // -- Project (legacy) --
 
-export const SettingsProjectAutocapture: Story = Template.bind({})
-SettingsProjectAutocapture.args = { sectionId: 'project-autocapture' }
+export const SettingsProjectAutocapture: Story = { args: { sectionId: 'project-autocapture' } }
 
-export const SettingsProjectProductAnalytics: Story = Template.bind({})
-SettingsProjectProductAnalytics.args = { sectionId: 'project-product-analytics' }
+export const SettingsProjectProductAnalytics: Story = { args: { sectionId: 'project-product-analytics' } }
 
-export const SettingsProjectReplay: Story = Template.bind({})
-SettingsProjectReplay.args = { sectionId: 'project-replay' }
+export const SettingsProjectReplay: Story = { args: { sectionId: 'project-replay' } }
 
-export const SettingsProjectSurveys: Story = Template.bind({})
-SettingsProjectSurveys.args = { sectionId: 'project-surveys' }
+export const SettingsProjectSurveys: Story = { args: { sectionId: 'project-surveys' } }
 
-export const SettingsProjectIntegrations: Story = Template.bind({})
-SettingsProjectIntegrations.args = { sectionId: 'project-integrations' }
+export const SettingsProjectIntegrations: Story = { args: { sectionId: 'project-integrations' } }
 
-export const SettingsProjectAccessControl: Story = Template.bind({})
-SettingsProjectAccessControl.args = { sectionId: 'project-access-control' }
+export const SettingsProjectAccessControl: Story = { args: { sectionId: 'project-access-control' } }

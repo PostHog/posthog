@@ -117,6 +117,38 @@ export interface VercelSDKInputTextMessage {
     text: string
 }
 
+export interface VercelSDKToolCallFunctionMessage {
+    type: 'tool-call'
+    id?: string
+    function: {
+        name: string
+        arguments: string | Record<string, unknown>
+    }
+    toolCallId?: string
+    toolName?: string
+    [key: string]: unknown
+}
+
+export interface VercelSDKToolCallToolNameMessage {
+    type: 'tool-call'
+    id?: string
+    function?: undefined
+    toolCallId?: string
+    toolName: string
+    input?: Record<string, unknown> | string
+    [key: string]: unknown
+}
+
+export type VercelSDKToolCallMessage = VercelSDKToolCallFunctionMessage | VercelSDKToolCallToolNameMessage
+
+export interface VercelSDKToolResultMessage {
+    type: 'tool-result'
+    toolCallId?: string
+    toolName: string
+    output?: unknown
+    [key: string]: unknown
+}
+
 export interface AnthropicToolCallMessage {
     type: 'tool_use'
     id: string
@@ -141,6 +173,43 @@ export type AnthropicCompletionMessage = AnthropicTextMessage | AnthropicToolCal
 export interface AnthropicInputMessage {
     role: string
     content: string | AnthropicCompletionMessage[]
+}
+
+// OpenAI Responses API types (role-less, use `type` instead)
+export interface OpenAIResponsesFunctionCall {
+    type: 'function_call'
+    call_id: string
+    name: string
+    arguments: string
+    id?: string
+    status?: string
+}
+
+export interface OpenAIResponsesFunctionCallOutput {
+    type: 'function_call_output'
+    call_id: string
+    output: string
+}
+
+/** Responses API built-in tool calls (web_search_call, reasoning, etc.) */
+export interface OpenAIResponsesBuiltinToolCall {
+    type:
+        | 'web_search_call'
+        | 'code_interpreter_call'
+        | 'image_generation_call'
+        | 'mcp_call'
+        | 'file_search_call'
+        | 'computer_call'
+    id?: string
+    status?: string
+    [key: string]: unknown
+}
+
+export interface OpenAIResponsesReasoning {
+    type: 'reasoning'
+    id?: string
+    summary?: { type: string; text: string }[]
+    [key: string]: unknown
 }
 
 export type InputMessage = OpenAICompletionMessage | AnthropicInputMessage
@@ -189,10 +258,20 @@ export interface ImageContentItem {
     image: string
 }
 
+export interface FunctionContentItem {
+    type: 'function'
+    id?: string
+    function: {
+        name: string
+        arguments: string | Record<string, unknown> | null
+    }
+}
+
 export type MultiModalContentItem =
     | string
     | TextContentItem
     | ImageContentItem
+    | FunctionContentItem
     | OpenAIImageURLMessage
     | OpenAIFileMessage
     | OpenAIAudioMessage

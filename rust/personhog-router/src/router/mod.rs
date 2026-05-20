@@ -6,37 +6,48 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
-use personhog_common::grpc::ClientInFlightGuard;
-use personhog_proto::personhog::leader::v1::{
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
-};
+use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
+use tonic::metadata::MetadataMap;
 use tonic::Status;
 
 use crate::backend::{LeaderOps, PersonHogBackend};
-use routing::{get_consistency, route_request};
+use routing::{resolve_consistency, route_request};
 
 /// Calls a replica backend method with timing instrumentation.
 macro_rules! call_backend {
     ($self:expr, $method_name:expr, $method:ident, $request:expr) => {{
+        let client = current_client_name();
         counter!(
             "personhog_router_backend_requests_total",
             "method" => $method_name,
-            "backend" => "replica"
+            "backend" => "replica",
+            "client" => client.clone()
         )
         .increment(1);
 
@@ -49,7 +60,8 @@ macro_rules! call_backend {
         histogram!(
             "personhog_router_backend_duration_ms",
             "method" => $method_name,
-            "backend" => "replica"
+            "backend" => "replica",
+            "client" => client.clone()
         )
         .record(duration_ms);
 
@@ -57,7 +69,8 @@ macro_rules! call_backend {
             counter!(
                 "personhog_router_backend_errors_total",
                 "method" => $method_name,
-                "backend" => "replica"
+                "backend" => "replica",
+                "client" => client.clone()
             )
             .increment(1);
         }
@@ -73,10 +86,12 @@ macro_rules! call_leader {
             Status::unimplemented("leader backend not configured for this router")
         })?;
 
+        let client = current_client_name();
         counter!(
             "personhog_router_backend_requests_total",
             "method" => $method_name,
-            "backend" => "leader"
+            "backend" => "leader",
+            "client" => client.clone()
         )
         .increment(1);
 
@@ -87,7 +102,8 @@ macro_rules! call_leader {
         histogram!(
             "personhog_router_backend_duration_ms",
             "method" => $method_name,
-            "backend" => "leader"
+            "backend" => "leader",
+            "client" => client.clone()
         )
         .record(duration_ms);
 
@@ -95,7 +111,8 @@ macro_rules! call_leader {
             counter!(
                 "personhog_router_backend_errors_total",
                 "method" => $method_name,
-                "backend" => "leader"
+                "backend" => "leader",
+                "client" => client.clone()
             )
             .increment(1);
         }
@@ -150,9 +167,14 @@ impl PersonHogRouter {
     fn require_replica(
         &self,
         category: DataCategory,
+        metadata: &MetadataMap,
         read_options: &Option<personhog_proto::personhog::types::v1::ReadOptions>,
     ) -> Result<(), Status> {
-        let decision = route_request(category, OperationType::Read, get_consistency(read_options))?;
+        let decision = route_request(
+            category,
+            OperationType::Read,
+            resolve_consistency(metadata, read_options),
+        )?;
         if decision == RouteDecision::Leader {
             return Err(Status::unimplemented(
                 "strong consistency reads are only supported for get_person",
@@ -165,11 +187,15 @@ impl PersonHogRouter {
     // Person lookups by ID - Person data, read operations
     // ============================================================
 
-    pub async fn get_person(&self, request: GetPersonRequest) -> Result<GetPersonResponse, Status> {
+    pub async fn get_person(
+        &self,
+        metadata: &MetadataMap,
+        request: GetPersonRequest,
+    ) -> Result<GetPersonResponse, Status> {
         let decision = route_request(
             DataCategory::PersonData,
             OperationType::Read,
-            get_consistency(&request.read_options),
+            resolve_consistency(metadata, &request.read_options),
         )?;
         match decision {
             RouteDecision::Leader => call_leader!(self, "GetPerson", get_person, request),
@@ -179,24 +205,30 @@ impl PersonHogRouter {
         }
     }
 
-    pub async fn get_persons(&self, request: GetPersonsRequest) -> Result<PersonsResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+    pub async fn get_persons(
+        &self,
+        metadata: &MetadataMap,
+        request: GetPersonsRequest,
+    ) -> Result<PersonsResponse, Status> {
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(self, "GetPersons", get_persons, request)
     }
 
     pub async fn get_person_by_uuid(
         &self,
+        metadata: &MetadataMap,
         request: GetPersonByUuidRequest,
     ) -> Result<GetPersonResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(self, "GetPersonByUuid", get_person_by_uuid, request)
     }
 
     pub async fn get_persons_by_uuids(
         &self,
+        metadata: &MetadataMap,
         request: GetPersonsByUuidsRequest,
     ) -> Result<PersonsResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(self, "GetPersonsByUuids", get_persons_by_uuids, request)
     }
 
@@ -206,9 +238,10 @@ impl PersonHogRouter {
 
     pub async fn get_person_by_distinct_id(
         &self,
+        metadata: &MetadataMap,
         request: GetPersonByDistinctIdRequest,
     ) -> Result<GetPersonResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(
             self,
             "GetPersonByDistinctId",
@@ -219,9 +252,10 @@ impl PersonHogRouter {
 
     pub async fn get_persons_by_distinct_ids_in_team(
         &self,
+        metadata: &MetadataMap,
         request: GetPersonsByDistinctIdsInTeamRequest,
     ) -> Result<PersonsByDistinctIdsInTeamResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(
             self,
             "GetPersonsByDistinctIdsInTeam",
@@ -232,9 +266,10 @@ impl PersonHogRouter {
 
     pub async fn get_persons_by_distinct_ids(
         &self,
+        metadata: &MetadataMap,
         request: GetPersonsByDistinctIdsRequest,
     ) -> Result<PersonsByDistinctIdsResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(
             self,
             "GetPersonsByDistinctIds",
@@ -249,9 +284,10 @@ impl PersonHogRouter {
 
     pub async fn get_distinct_ids_for_person(
         &self,
+        metadata: &MetadataMap,
         request: GetDistinctIdsForPersonRequest,
     ) -> Result<GetDistinctIdsForPersonResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(
             self,
             "GetDistinctIdsForPerson",
@@ -262,9 +298,10 @@ impl PersonHogRouter {
 
     pub async fn get_distinct_ids_for_persons(
         &self,
+        metadata: &MetadataMap,
         request: GetDistinctIdsForPersonsRequest,
     ) -> Result<GetDistinctIdsForPersonsResponse, Status> {
-        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        self.require_replica(DataCategory::PersonData, metadata, &request.read_options)?;
         call_backend!(
             self,
             "GetDistinctIdsForPersons",
@@ -329,6 +366,46 @@ impl PersonHogRouter {
         )
     }
 
+    pub async fn count_cohort_members(
+        &self,
+        request: CountCohortMembersRequest,
+    ) -> Result<CountCohortMembersResponse, Status> {
+        call_backend!(self, "CountCohortMembers", count_cohort_members, request)
+    }
+
+    pub async fn delete_cohort_member(
+        &self,
+        request: DeleteCohortMemberRequest,
+    ) -> Result<DeleteCohortMemberResponse, Status> {
+        call_backend!(self, "DeleteCohortMember", delete_cohort_member, request)
+    }
+
+    pub async fn delete_cohort_members_bulk(
+        &self,
+        request: DeleteCohortMembersBulkRequest,
+    ) -> Result<DeleteCohortMembersBulkResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteCohortMembersBulk",
+            delete_cohort_members_bulk,
+            request
+        )
+    }
+
+    pub async fn insert_cohort_members(
+        &self,
+        request: InsertCohortMembersRequest,
+    ) -> Result<InsertCohortMembersResponse, Status> {
+        call_backend!(self, "InsertCohortMembers", insert_cohort_members, request)
+    }
+
+    pub async fn list_cohort_member_ids(
+        &self,
+        request: ListCohortMemberIdsRequest,
+    ) -> Result<ListCohortMemberIdsResponse, Status> {
+        call_backend!(self, "ListCohortMemberIds", list_cohort_member_ids, request)
+    }
+
     // ============================================================
     // Groups - Non-person data
     // ============================================================
@@ -346,6 +423,13 @@ impl PersonHogRouter {
         request: GetGroupsBatchRequest,
     ) -> Result<GetGroupsBatchResponse, Status> {
         call_backend!(self, "GetGroupsBatch", get_groups_batch, request)
+    }
+
+    pub async fn list_groups(
+        &self,
+        request: ListGroupsRequest,
+    ) -> Result<ListGroupsResponse, Status> {
+        call_backend!(self, "ListGroups", list_groups, request)
     }
 
     // ============================================================
@@ -396,6 +480,120 @@ impl PersonHogRouter {
             self,
             "GetGroupTypeMappingsByProjectIds",
             get_group_type_mappings_by_project_ids,
+            request
+        )
+    }
+
+    pub async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        request: GetGroupTypeMappingByDashboardIdRequest,
+    ) -> Result<GetGroupTypeMappingByDashboardIdResponse, Status> {
+        call_backend!(
+            self,
+            "GetGroupTypeMappingByDashboardId",
+            get_group_type_mapping_by_dashboard_id,
+            request
+        )
+    }
+
+    // ============================================================
+    // Group writes - Non-person data
+    // ============================================================
+
+    pub async fn create_group(
+        &self,
+        request: CreateGroupRequest,
+    ) -> Result<CreateGroupResponse, Status> {
+        call_backend!(self, "CreateGroup", create_group, request)
+    }
+
+    pub async fn update_group(
+        &self,
+        request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status> {
+        call_backend!(self, "UpdateGroup", update_group, request)
+    }
+
+    pub async fn delete_groups_batch_for_team(
+        &self,
+        request: DeleteGroupsBatchForTeamRequest,
+    ) -> Result<DeleteGroupsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupsBatchForTeam",
+            delete_groups_batch_for_team,
+            request
+        )
+    }
+
+    // ============================================================
+    // Group type mapping writes - Non-person data
+    // ============================================================
+
+    pub async fn update_group_type_mapping(
+        &self,
+        request: UpdateGroupTypeMappingRequest,
+    ) -> Result<UpdateGroupTypeMappingResponse, Status> {
+        call_backend!(
+            self,
+            "UpdateGroupTypeMapping",
+            update_group_type_mapping,
+            request
+        )
+    }
+
+    pub async fn delete_group_type_mapping(
+        &self,
+        request: DeleteGroupTypeMappingRequest,
+    ) -> Result<DeleteGroupTypeMappingResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupTypeMapping",
+            delete_group_type_mapping,
+            request
+        )
+    }
+
+    pub async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        request: DeleteGroupTypeMappingsBatchForTeamRequest,
+    ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeleteGroupTypeMappingsBatchForTeam",
+            delete_group_type_mappings_batch_for_team,
+            request
+        )
+    }
+
+    // ============================================================
+    // Person deletes - Person data, write operations
+    // ============================================================
+
+    /// Delete persons from Postgres.
+    ///
+    /// WARNING: This is a write operation on person data. Per routing rules, it should
+    /// use call_leader! once personhog-leader supports deletes. Currently routed through
+    /// the replica (which uses the primary Postgres pool) as a temporary measure.
+    /// TODO: Migrate to call_leader! before personhog-leader goes live.
+    pub async fn delete_persons(
+        &self,
+        request: DeletePersonsRequest,
+    ) -> Result<DeletePersonsResponse, Status> {
+        call_backend!(self, "DeletePersons", delete_persons, request)
+    }
+
+    /// Delete up to batch_size persons for a team from Postgres.
+    ///
+    /// WARNING: Same routing caveat as delete_persons above.
+    pub async fn delete_persons_batch_for_team(
+        &self,
+        request: DeletePersonsBatchForTeamRequest,
+    ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
+        call_backend!(
+            self,
+            "DeletePersonsBatchForTeam",
+            delete_persons_batch_for_team,
             request
         )
     }

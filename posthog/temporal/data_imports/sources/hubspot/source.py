@@ -3,7 +3,10 @@ from typing import cast
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -14,9 +17,16 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import HubspotSourceConfig
-from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
+from posthog.temporal.data_imports.sources.hubspot.auth import (
+    hubspot_access_token_is_valid,
+    hubspot_refresh_access_token,
+)
 from posthog.temporal.data_imports.sources.hubspot.hubspot import HubspotResumeConfig, hubspot_source
-from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
+from posthog.temporal.data_imports.sources.hubspot.settings import (
+    DEFAULT_PROPS,
+    ENDPOINTS as HUBSPOT_ENDPOINTS,
+    HUBSPOT_ENDPOINTS as HUBSPOT_ENDPOINT_CONFIGS,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -46,7 +56,27 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                 [
                     SourceFieldOauthConfig(
                         name="hubspot_integration_id", label="Hubspot account", required=True, kind="hubspot"
-                    )
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="custom_properties",
+                        label="Customize synced properties",
+                        caption="Specify which properties to sync for each schema. Leave empty to use defaults. Changing properties requires a full resync.",
+                        default=False,
+                        fields=cast(
+                            list[FieldType],
+                            [
+                                SourceFieldInputConfig(
+                                    name=f"{schema_name}_properties",
+                                    label=f"{schema_name.capitalize()} properties",
+                                    type=SourceFieldInputConfigType.TEXTAREA,
+                                    required=False,
+                                    placeholder=", ".join(default_props),
+                                    secret=False,
+                                )
+                                for schema_name, default_props in DEFAULT_PROPS.items()
+                            ],
+                        ),
+                    ),
                 ],
             ),
         )
@@ -70,16 +100,20 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
+        schemas = []
+        for endpoint in HUBSPOT_ENDPOINTS:
+            endpoint_config = HUBSPOT_ENDPOINT_CONFIGS[endpoint]
+            supports_incremental = bool(endpoint_config.cursor_filter_property_field)
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=supports_incremental,
+                    supports_append=supports_incremental,
+                    incremental_fields=endpoint_config.incremental_fields,
+                )
             )
-            for endpoint in HUBSPOT_ENDPOINTS
-        ]
 
         if names is not None:
             names_set = set(names)
@@ -113,10 +147,19 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             else:
                 refresh_token = config_refresh_token
 
-            if not config_hubspot_access_code:
-                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+            if not config_hubspot_access_code or not hubspot_access_token_is_valid(config_hubspot_access_code):
+                hubspot_access_code = hubspot_refresh_access_token(refresh_token, source_id=inputs.source_id)
             else:
                 hubspot_access_code = config_hubspot_access_code
+
+        selected_properties = None
+        if isinstance(config, HubspotSourceConfig) and config.custom_properties and config.custom_properties.enabled:
+            prop_field = f"{inputs.schema_name}_properties"
+            properties_str = getattr(config.custom_properties, prop_field, None)
+            if properties_str and properties_str.strip():
+                selected_properties = [p.strip() for p in properties_str.split(",") if p.strip()]
+
+        use_search_path = self._should_use_search_path(inputs)
 
         return hubspot_source(
             api_key=hubspot_access_code,
@@ -124,4 +167,50 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            selected_properties=selected_properties,
+            source_id=inputs.source_id,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            use_search_path=use_search_path,
         )
+
+    def _should_use_search_path(self, inputs: SourceInputs) -> bool:
+        """Route to the search-based incremental path only when:
+        - the schema is configured for incremental sync,
+        - the endpoint supports incremental (has a cursor filter property),
+        - the initial full sync has completed (so we have a meaningful watermark and the
+          delta is small enough that per-page association backfills are cheap),
+        - the pipeline isn't being reset.
+
+        On the first sync for a newly-incremental schema, this falls back to the GET path
+        so we get a complete one-shot backfill (associations included) and the pipeline
+        establishes the db_incremental_field_last_value watermark for future runs.
+        """
+        if not inputs.should_use_incremental_field:
+            return False
+        if inputs.reset_pipeline:
+            return False
+        endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
+        if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
+            return False
+
+        from products.data_warehouse.backend.models import ExternalDataSchema
+
+        try:
+            schema = ExternalDataSchema.objects.get(id=inputs.schema_id, team_id=inputs.team_id)
+        except ExternalDataSchema.DoesNotExist:
+            # Schema has been deleted (or id is wrong) — safest to fall back to the GET path.
+            inputs.logger.debug(
+                f"Hubspot: ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}) not found; "
+                "defaulting to full-refresh/seed GET path"
+            )
+            return False
+        except Exception:
+            # Any other lookup failure (DB blip, etc.) also falls back, but log with details
+            # so we can debug why incremental routing is disabled.
+            inputs.logger.exception(
+                f"Hubspot: failed to look up ExternalDataSchema(id={inputs.schema_id}, team_id={inputs.team_id}); "
+                "defaulting to full-refresh/seed GET path"
+            )
+            return False
+
+        return bool(schema.initial_sync_complete)

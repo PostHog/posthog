@@ -124,9 +124,9 @@ On Linux you often have separate packages: `postgres` for the tools, `postgres-s
     <code>$PATH</code>. Otherwise the command line will use your system Node.js version instead.
 </blockquote>
 
-2. Install the latest Node.js 22 (the version used by PostHog in production) with `nvm install 22`. You can start using it in the current shell with `nvm use 22`.
+2. Install the Node.js version pinned in `.nvmrc` (the version used by PostHog in production) with `nvm install` (run from the repo root — nvm reads `.nvmrc`). Activate it in the current shell with `nvm use`.
 
-3. Install pnpm by running `corepack enable` and then running `corepack prepare pnpm@10 --activate`. Validate the installation with `pnpm --version`.
+3. Install pnpm by running `corepack enable`. Corepack will activate the version pinned in the root `package.json`'s `packageManager` field on the next `pnpm` invocation. Validate with `pnpm --version`.
 
 4. Install Node packages by running `pnpm i`.
 
@@ -275,7 +275,7 @@ hogli start
 
 To customize which services to run, use `hogli dev:setup` to configure your dev environment interactively. This creates a profile that `hogli start` will use automatically.
 
-> **Note:** This command uses [mprocs](https://github.com/pvolok/mprocs) to run all development processes in a single terminal window. It will be installed automatically for macOS, while for Linux you can install it manually (`cargo` or `npm`) using the official repo guide.
+> **Note:** This command uses [phrocs](https://github.com/PostHog/posthog/blob/master/tools/phrocs/README.md) to run all development processes in a single terminal window. It will be installed automatically for macOS and Linux users (with [Homebrew](https://brew.sh/) installed and from our [Homebrew Tap](https://github.com/PostHog/homebrew-tap)) when running `hogli start`.
 
 > **Friendly tip:** If you get the error `Configuration property "enable.ssl.certificate.verification" not supported in this build: OpenSSL not available at build time`, make sure your environment is using the right `openssl` version by setting [those](https://github.com/xmlsec/python-xmlsec/issues/261#issuecomment-1630889826) environment variables, and then run `hogli start` again.
 

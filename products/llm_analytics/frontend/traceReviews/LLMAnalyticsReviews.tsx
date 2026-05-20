@@ -1,13 +1,24 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconDownload } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonMenu,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+} from '@posthog/lemon-ui'
 
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
+import { ExporterFormat } from '~/types'
 
 import { llmAnalyticsReviewsLogic, TRACE_REVIEWS_PER_PAGE } from './llmAnalyticsReviewsLogic'
 import { TraceReviewValue } from './TraceReviewValue'
@@ -19,7 +30,8 @@ function formatTraceId(traceId: string): string {
 
 export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element {
     const logic = useMountedLogic(llmAnalyticsReviewsLogic({ tabId }))
-    const { setFilters } = useActions(logic)
+    const { setFilters, copyReviewsToClipboard } = useActions(logic)
+    const { startExport } = useActions(exportsLogic)
     const {
         reviews,
         reviewsLoading,
@@ -27,9 +39,27 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
         pagination,
         filters,
         reviewCountLabel,
+        exportPath,
         scoreDefinitionOptions,
         scoreDefinitionOptionsLoading,
     } = useValues(logic)
+
+    const triggerFileExport = (format: ExporterFormat, extension: 'csv' | 'xlsx'): void => {
+        startExport({
+            export_format: format,
+            export_context: {
+                path: exportPath,
+                method: 'GET',
+                filename: `trace_reviews.${extension}`,
+            },
+        })
+    }
+
+    const hasLoadedReviews = reviews.results.length > 0
+    let exportDisabledReason: string | undefined
+    if (!hasLoadedReviews) {
+        exportDisabledReason = reviewsLoading ? 'Loading reviews...' : 'No reviews to export'
+    }
 
     const columns: LemonTableColumns<TraceReview> = [
         {
@@ -46,7 +76,7 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
 
                 return (
                     <Tooltip title={value}>
-                        <Link to={urls.llmAnalyticsTrace(value)} data-attr="trace-review-trace-link">
+                        <Link to={urls.llmAnalyticsTrace(value)} data-attr="llma-trace-review-trace-link">
                             {formatTraceId(value)}
                         </Link>
                     </Tooltip>
@@ -107,7 +137,7 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                         value={filters.search}
                         onChange={(value) => setFilters({ search: value })}
                         className="max-w-md"
-                        data-attr="trace-reviews-search-input"
+                        data-attr="llma-trace-reviews-search-input"
                     />
                     <LemonSelect
                         value={filters.definition_id || undefined}
@@ -122,10 +152,59 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                         placeholder="Filter by scorer"
                         loading={scoreDefinitionOptionsLoading}
                         className="min-w-60"
-                        data-attr="trace-reviews-definition-filter"
+                        data-attr="llma-trace-reviews-definition-filter"
                     />
                 </div>
-                <div className="text-muted-alt">{reviewCountLabel}</div>
+                <div className="flex gap-2 items-center">
+                    <span className="text-muted-alt">{reviewCountLabel}</span>
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Export current columns',
+                                items: [
+                                    {
+                                        label: 'CSV',
+                                        onClick: () => triggerFileExport(ExporterFormat.CSV, 'csv'),
+                                    },
+                                    {
+                                        label: 'XLSX',
+                                        onClick: () => triggerFileExport(ExporterFormat.XLSX, 'xlsx'),
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Copy to clipboard',
+                                items: [
+                                    {
+                                        label: 'CSV',
+                                        onClick: () => copyReviewsToClipboard('csv'),
+                                        'data-attr': 'copy-csv-to-clipboard',
+                                    },
+                                    {
+                                        label: 'JSON',
+                                        onClick: () => copyReviewsToClipboard('json'),
+                                        'data-attr': 'copy-json-to-clipboard',
+                                    },
+                                    {
+                                        label: 'Excel',
+                                        onClick: () => copyReviewsToClipboard('tsv'),
+                                        'data-attr': 'copy-excel-to-clipboard',
+                                    },
+                                ],
+                            },
+                        ]}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconDownload />}
+                            size="small"
+                            disabledReason={exportDisabledReason}
+                            data-attr="llma-trace-reviews-export-menu"
+                        >
+                            Export
+                        </LemonButton>
+                    </LemonMenu>
+                </div>
             </div>
 
             <LemonTable

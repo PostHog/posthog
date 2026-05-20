@@ -37,7 +37,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not request.path.startswith("/scim/"):
             return None
 
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        auth_header = request.headers.get("authorization", "")
         token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
 
         if not token:

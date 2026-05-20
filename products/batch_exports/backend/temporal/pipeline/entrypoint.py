@@ -51,8 +51,9 @@ class _ComposedBatchExportInputsProtocol(typing.Protocol):
 InputsType = typing.TypeVar("InputsType", bound=_BatchExportInputsProtocol)
 ComposedInputsType = typing.TypeVar("ComposedInputsType", bound=_ComposedBatchExportInputsProtocol)
 
+BatchExportResultType = typing.TypeVar("BatchExportResultType", bound=BatchExportResult)
 BatchExportInsertActivity = collections.abc.Callable[
-    [InputsType | ComposedInputsType], collections.abc.Awaitable[BatchExportResult]
+    [InputsType | ComposedInputsType], collections.abc.Awaitable[BatchExportResultType]
 ]
 
 INITIAL_RETRY_INTERVAL_SECONDS = 1
@@ -72,7 +73,7 @@ async def execute_batch_export_using_internal_stage(
     override_start_to_close_timeout_seconds: int | None = None,
     num_partitions: int | None = None,
     is_workflows: bool = False,
-) -> None:
+) -> BatchExportResultType:
     """
     This is the entrypoint for a new version of the batch export insert activity.
 
@@ -101,7 +102,7 @@ async def execute_batch_export_using_internal_stage(
             activity.
     """
     if hasattr(inputs, "batch_export"):
-        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export
+        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
     else:
         batch_export_inputs = inputs
 
@@ -189,6 +190,7 @@ async def execute_batch_export_using_internal_stage(
         )
         finish_inputs.records_completed = result.records_completed
         finish_inputs.bytes_exported = result.bytes_exported
+        finish_inputs.records_failed = result.records_failed
         if result.error_repr:
             finish_inputs.latest_error = result.error_repr
             finish_inputs.status = BatchExportRun.Status.FAILED
@@ -221,3 +223,5 @@ async def execute_batch_export_using_internal_stage(
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
+
+    return result

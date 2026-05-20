@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from blake3 import blake3
 
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
@@ -57,9 +58,13 @@ class Command(BaseCommand):
             self.stderr.write(f"Team {team_id} not found")
             return
 
+        with team_scope(team_id):
+            self._seed(team, num_runs, snapshots_per_run, repo_name)
+
+    def _seed(self, team, num_runs, snapshots_per_run, repo_name):
         # Get or create repo
         repo, created = Repo.objects.get_or_create(
-            team=team,
+            team_id=team.id,
             repo_external_id=0,
             defaults={
                 "repo_full_name": repo_name,
@@ -196,6 +201,7 @@ class Command(BaseCommand):
         # Create run
         run = Run.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             status=RunStatus.COMPLETED,
             run_type=run_type,
             commit_sha=pr_data["commit_sha"],
@@ -232,6 +238,7 @@ class Command(BaseCommand):
 
                 artifact = Artifact.objects.create(
                     repo=repo,
+                    team_id=repo.team_id,
                     content_hash=content_hash,
                     storage_path=storage_path,
                     width=random.randint(800, 1920),
@@ -262,6 +269,7 @@ class Command(BaseCommand):
 
             RunSnapshot.objects.create(
                 run=run,
+                team_id=repo.team_id,
                 identifier=identifier,
                 current_hash=content_hash if artifact else "",
                 baseline_hash=baseline_hash,

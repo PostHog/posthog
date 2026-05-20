@@ -7,6 +7,10 @@ on:
             - 'docs/published/surveys/**'
             - 'frontend/bin/build-survey-sdk-docs.ts'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
     pull-requests: write
@@ -15,6 +19,7 @@ jobs:
     check-sdk-requirements:
         name: Check for SDK version requirements
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
 
         steps:
             - name: Check for SDK-related changes

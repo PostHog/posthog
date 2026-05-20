@@ -97,7 +97,9 @@ def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, in
 
 def _update_distinct_id_in_postgres(distinct_id: str, version: int, team_id: int) -> Optional[PersonDistinctId]:
     person_distinct_id = (
-        PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).select_related("person").first()
+        PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id)  # nosemgrep: no-direct-persons-db-orm
+        .select_related("person")
+        .first()  # nosemgrep: no-direct-persons-db-orm
     )
     if person_distinct_id is None:
         logger.info(f"Distinct id {distinct_id} hasn't been re-used yet and can cause problems in the future")
@@ -136,7 +138,12 @@ def _reset_person_in_clickhouse(team_id: int, person: Person, db_alias: str) -> 
 
     # Update Postgres version so future updates from the plugin-server
     # (which reads version from Postgres) won't be ignored by ClickHouse
-    Person.objects.using(db_alias).filter(pk=person.pk, version__lt=new_version).update(version=new_version)
+    # nosemgrep: no-direct-persons-db-orm
+    Person.objects.using(db_alias).filter(
+        pk=person.pk, version__lt=new_version
+    ).update(  # nosemgrep: no-direct-persons-db-orm
+        version=new_version
+    )  # nosemgrep: no-direct-persons-db-orm
 
     create_person(
         uuid=person_uuid,

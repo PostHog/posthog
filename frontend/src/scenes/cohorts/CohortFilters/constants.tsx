@@ -3,6 +3,7 @@ import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import {
     CohortEventFiltersField,
+    CohortMathOperatorField,
     CohortNumberField,
     CohortPersonPropertiesValuesField,
     CohortRelativeAndExactTimeField,
@@ -433,6 +434,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
             },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
+            },
         ],
     },
     [BehavioralEventType.NotPerformedEvent]: {
@@ -459,6 +465,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 fieldKey: 'explicit_datetime',
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
+            },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
             },
         ],
     },
@@ -500,6 +511,11 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
                 fieldKey: 'explicit_datetime',
                 type: FilterType.RelativeAndExactTime,
                 defaultValue: '-30d',
+            },
+            {
+                fieldKey: 'explicit_datetime_to',
+                type: FilterType.RelativeAndExactTime,
+                hide: true,
             },
         ],
     },
@@ -932,15 +948,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.DateOperators]} />
     },
     [FilterType.MathOperator]: function _renderField(p) {
-        return (
-            <CohortSelectorField
-                {...p}
-                fieldOptionGroupTypes={[
-                    FieldOptionsType.CohortMathOperators,
-                    FieldOptionsType.SingleFieldDateOperators,
-                ]}
-            />
-        )
+        return <CohortMathOperatorField {...p} />
     },
     [FilterType.EventsAndActionsMathOperator]: function _renderField(p) {
         return <CohortSelectorField {...p} fieldOptionGroupTypes={[FieldOptionsType.EventsAndActionsMathOperators]} />

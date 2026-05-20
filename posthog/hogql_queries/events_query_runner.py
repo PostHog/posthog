@@ -13,19 +13,25 @@ from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQue
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.property import (
+    action_to_expr,
+    has_aggregation,
+    map_virtual_properties,
+    property_to_expr,
+    steps_to_expr,
+)
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
-from posthog.models import Action, Person
+from posthog.models import Action, Person, PropertyDefinition
+from posthog.models.action.action import ActionStepJSON
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +73,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             InsightActorsQueryRunner,
             get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
         )
+
+    def validate(self) -> None:
+        super().validate()
+        if self.query.source is not None:
+            self.source_runner.validate()
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
@@ -149,12 +160,54 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             return val.isoformat()
         return str(val)
 
+    def _raise_on_restricted_property_select(self, select: list[ast.Expr]) -> None:
+        # User-authored ``select`` entries that explicitly reference a restricted event or person
+        # property must fail loudly — the printer's silent JSONDropKeys strip would otherwise turn
+        # the request into an empty string, which is surprising when the field name was typed by hand.
+        from posthog.hogql.errors import ResolutionError
+        from posthog.hogql.visitor import TraversingVisitor
+
+        from products.access_control.backend.property_access_control import get_restricted_property_names
+
+        restricted_event_props = get_restricted_property_names(
+            team_id=self.team.pk,
+            user=self.user,
+            property_type=PropertyDefinition.Type.EVENT,
+        )
+        restricted_person_props = get_restricted_property_names(
+            team_id=self.team.pk,
+            user=self.user,
+            property_type=PropertyDefinition.Type.PERSON,
+        )
+        if not restricted_event_props and not restricted_person_props:
+            return
+
+        class _Checker(TraversingVisitor):
+            def visit_field(self, node: ast.Field) -> None:
+                chain = [str(c) for c in node.chain]
+                # ``properties.<name>`` on the events table.
+                if len(chain) >= 2 and chain[0] == "properties" and chain[1] in restricted_event_props:
+                    raise ResolutionError(f"Access to property '{chain[1]}' is restricted")
+                # ``person.properties.<name>`` (or ``poe.properties.<name>``) on the joined person.
+                if (
+                    len(chain) >= 3
+                    and chain[0] in ("person", "poe")
+                    and chain[1] == "properties"
+                    and chain[2] in restricted_person_props
+                ):
+                    raise ResolutionError(f"Access to property '{chain[2]}' is restricted")
+
+        checker = _Checker()
+        for expr in select:
+            checker.visit(expr)
+
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
         with self.timings.measure("build_ast"):
             # columns & group_by
             with self.timings.measure("columns"):
                 select_input, select = self.select_cols()
+                self._raise_on_restricted_property_select(select)
 
             with self.timings.measure("aggregations"):
                 group_by: list[ast.Expr] = [column for column in select if not has_aggregation(column)]
@@ -202,11 +255,27 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         if not action.steps:
                             raise Exception("Action does not have any match groups")
                         where_exprs.append(action_to_expr(action))
+                elif self.query.actionSteps:
+                    with self.timings.measure("action_steps"):
+                        steps = [
+                            ActionStepJSON(
+                                event=s.event,
+                                tag_name=s.tag_name,
+                                text=s.text,
+                                text_matching=s.text_matching.value if s.text_matching else None,
+                                href=s.href,
+                                href_matching=s.href_matching.value if s.href_matching else None,
+                                selector=s.selector,
+                                url=s.url,
+                                url_matching=s.url_matching.value if s.url_matching else None,
+                                properties=[p.model_dump() for p in s.properties] if s.properties else None,
+                            )
+                            for s in self.query.actionSteps
+                        ]
+                        where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Person | None = get_pk_or_uuid(
-                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
-                        ).first()
+                        person: Person | None = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
@@ -354,6 +423,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
 
         # Convert star field from tuple to dict in each result
@@ -419,6 +489,18 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                                 if person_distinct_id in requested_batch:
                                     distinct_to_person[person_distinct_id] = person
 
+                # Load restricted person properties to strip from the side-channel result
+                from products.access_control.backend.property_access_control import (
+                    get_restricted_property_names,
+                    strip_restricted_properties,
+                )
+
+                restricted_person_props = get_restricted_property_names(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    property_type=PropertyDefinition.Type.PERSON,
+                )
+
                 # Loop over all columns in case there is more than one "person" column
                 for column_index in person_indices:
                     for index, result in enumerate(self.paginator.results):
@@ -426,10 +508,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         self.paginator.results[index] = list(result)
                         if distinct_to_person.get(distinct_id):
                             person = distinct_to_person[distinct_id]
+                            properties = strip_restricted_properties(person.properties or {}, restricted_person_props)
                             self.paginator.results[index][column_index] = {
                                 "uuid": person.uuid,
                                 "created_at": person.created_at,
-                                "properties": person.properties or {},
+                                "properties": properties,
                                 "distinct_id": distinct_id,
                             }
                         else:

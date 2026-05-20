@@ -1,4 +1,5 @@
 import { getUserAgent } from '@/lib/constants'
+import { PostHogApiError } from '@/lib/errors'
 
 import type { ApiConfig } from './client'
 import { globalRateLimiter } from './rate-limiter'
@@ -28,11 +29,14 @@ export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
 
                 const headers = new Headers()
                 headers.set('Authorization', `Bearer ${config.apiToken}`)
-                headers.set('User-Agent', getUserAgent(config.clientUserAgent))
+                headers.set('User-Agent', getUserAgent({ clientUserAgent: config.clientUserAgent }))
                 if (config.clientUserAgent) {
                     // Forward the originating client's User-Agent so the PostHog API can
                     // attach it to analytics events for MCP source attribution.
                     headers.set('x-posthog-mcp-user-agent', config.clientUserAgent)
+                }
+                if (config.mcpConsumer) {
+                    headers.set('x-posthog-mcp-consumer', config.mcpConsumer)
                 }
                 if (config.oauthClientName) {
                     headers.set('x-posthog-mcp-oauth-client-name', config.oauthClientName)
@@ -92,7 +96,15 @@ export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
 
                 if (!response.ok) {
                     const errorResponse = await response.json()
-                    throw new Error(`Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`)
+                    const errorBody = JSON.stringify(errorResponse)
+                    throw new PostHogApiError({
+                        status: response.status,
+                        statusText: response.statusText,
+                        body: errorBody,
+                        url: input.url.toString(),
+                        method: input.method.toUpperCase(),
+                        message: `Failed request: [${response.status}] ${errorBody}`,
+                    })
                 }
 
                 return response

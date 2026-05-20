@@ -21,7 +21,7 @@ logging.getLogger("google_genai").setLevel(logging.ERROR)
 logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 # Initialize posthoganalytics default_client so the LLM wrapper (which requires it) works
-posthoganalytics.default_client = Posthog(
+posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
     os.environ.get("POSTHOG_PROJECT_API_KEY", "phx_unused"),
     host=os.environ.get("POSTHOG_HOST", "http://localhost:8010"),
     disabled=True,
@@ -44,6 +44,10 @@ def pytest_addoption(parser):
     parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
     parser.addoption("--no-capture", action="store_true", default=False, help="Skip emitting eval results to PostHog")
     parser.addoption("--online", action="store_true", default=False, help="Capture as online eval")
+    parser.addoption("--strategy", default="example_strategy", help="Strategy module name (default: example_strategy)")
+    parser.addoption(
+        "--safe", action="store_true", default=False, help="Filter to safe signals only, skip safety_filter step"
+    )
 
 
 @pytest.fixture
@@ -83,8 +87,10 @@ def posthog_client(no_capture, db):
 
 
 @pytest.fixture
-def openai_client(posthog_client):
-    return AsyncOpenAI(posthog_client=posthog_client)
+async def openai_client(posthog_client):
+    client = AsyncOpenAI(posthog_client=posthog_client)
+    yield client
+    await client.close()
 
 
 @pytest.fixture

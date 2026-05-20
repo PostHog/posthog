@@ -85,6 +85,24 @@
   GROUP BY toString(metaads_campaigns.name), toString(metaads_campaigns.id)
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_meta_ads_query_at_hierarchy_levels_0_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(metaads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(metaads_campaigns.id), 'unknown') AS id, toString('meta') AS source, toString(metaads_adsets.name) AS ad_group_name, toString(metaads_adsets.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(metaads_adset_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(metaads_adset_stats.clicks), 0))) AS clicks, SUM(ifNull(toFloat(metaads_adset_stats.spend), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
+  FROM metaads_adsets LEFT JOIN metaads_adset_stats ON equals(metaads_adsets.id, metaads_adset_stats.adset_id) LEFT JOIN metaads_campaigns ON equals(metaads_adsets.campaign_id, metaads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(metaads_adset_stats.date_stop), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(metaads_adset_stats.date_stop), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(metaads_campaigns.name), 'Unknown campaign'), coalesce(toString(metaads_campaigns.id), 'unknown'), toString(metaads_adsets.name), toString(metaads_adsets.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_meta_ads_query_at_hierarchy_levels_1_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(metaads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(metaads_campaigns.id), 'unknown') AS id, toString('meta') AS source, coalesce(toString(metaads_adsets.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(metaads_adsets.id), 'unknown') AS ad_group_id, toString(metaads_ads.name) AS ad_name, toString(metaads_ads.id) AS ad_id, toFloat(SUM(ifNull(toFloat(metaads_ad_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(metaads_ad_stats.clicks), 0))) AS clicks, SUM(ifNull(toFloat(metaads_ad_stats.spend), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
+  FROM metaads_ads LEFT JOIN metaads_ad_stats ON equals(metaads_ads.id, metaads_ad_stats.ad_id) LEFT JOIN metaads_adsets ON equals(metaads_ads.adset_id, metaads_adsets.id) LEFT JOIN metaads_campaigns ON equals(metaads_adsets.campaign_id, metaads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(metaads_ad_stats.date_stop), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(metaads_ad_stats.date_stop), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(metaads_campaigns.name), 'Unknown campaign'), coalesce(toString(metaads_campaigns.id), 'unknown'), coalesce(toString(metaads_adsets.name), 'Unknown ad group'), coalesce(toString(metaads_adsets.id), 'unknown'), toString(metaads_ads.name), toString(metaads_ads.id)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_meta_ads_query_generation
   '''
   
@@ -92,6 +110,141 @@
   FROM meta_campaigns LEFT JOIN meta_campaign_stats ON equals(meta_campaigns.id, meta_campaign_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(meta_campaign_stats.date_stop), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(meta_campaign_stats.date_stop), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(meta_campaigns.name), toString(meta_campaigns.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_00_google_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(googleads_campaign.campaign_id), 'unknown') AS id, toString('google') AS source, toString(googleads_ad_group.ad_group_name) AS ad_group_name, toString(googleads_ad_group.ad_group_id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(googleads_ad_group_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(googleads_ad_group_stats.metrics_clicks), 0))) AS clicks, toFloat(SUM(toFloat(divide(googleads_ad_group_stats.metrics_cost_micros, 1000000)))) AS cost, toFloat(SUM(ifNull(toFloat(googleads_ad_group_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(googleads_ad_group_stats.metrics_conversions_value), 0))) AS reported_conversion_value 
+  FROM googleads_ad_group LEFT JOIN googleads_ad_group_stats ON equals(googleads_ad_group.ad_group_id, googleads_ad_group_stats.ad_group_id) LEFT JOIN googleads_campaign ON equals(googleads_ad_group.campaign_id, googleads_campaign.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(googleads_ad_group_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(googleads_ad_group_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign'), coalesce(toString(googleads_campaign.campaign_id), 'unknown'), toString(googleads_ad_group.ad_group_name), toString(googleads_ad_group.ad_group_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_01_google_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(googleads_campaign.campaign_id), 'unknown') AS id, toString('google') AS source, coalesce(toString(googleads_ad_group.ad_group_name), 'Unknown ad group') AS ad_group_name, coalesce(toString(googleads_ad_group.ad_group_id), 'unknown') AS ad_group_id, toString(googleads_ad.ad_group_ad_ad_id) AS ad_name, toString(googleads_ad.ad_group_ad_ad_id) AS ad_id, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_clicks), 0))) AS clicks, toFloat(SUM(toFloat(divide(googleads_ad_stats.metrics_cost_micros, 1000000)))) AS cost, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_conversions_value), 0))) AS reported_conversion_value 
+  FROM googleads_ad LEFT JOIN googleads_ad_stats ON equals(googleads_ad.ad_group_ad_ad_id, googleads_ad_stats.ad_group_ad_ad_id) LEFT JOIN googleads_ad_group ON equals(googleads_ad.ad_group_id, googleads_ad_group.ad_group_id) LEFT JOIN googleads_campaign ON equals(googleads_ad_group.campaign_id, googleads_campaign.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(googleads_ad_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(googleads_ad_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign'), coalesce(toString(googleads_campaign.campaign_id), 'unknown'), coalesce(toString(googleads_ad_group.ad_group_name), 'Unknown ad group'), coalesce(toString(googleads_ad_group.ad_group_id), 'unknown'), toString(googleads_ad.ad_group_ad_ad_id), toString(googleads_ad.ad_group_ad_ad_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_02_google_no_adset_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(googleads_campaign.campaign_id), 'unknown') AS id, toString('google') AS source, 'No sync' AS ad_group_name, 'No sync' AS ad_group_id, toString(googleads_ad.ad_group_ad_ad_id) AS ad_name, toString(googleads_ad.ad_group_ad_ad_id) AS ad_id, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_clicks), 0))) AS clicks, toFloat(SUM(toFloat(divide(googleads_ad_stats.metrics_cost_micros, 1000000)))) AS cost, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(googleads_ad_stats.metrics_conversions_value), 0))) AS reported_conversion_value 
+  FROM googleads_ad LEFT JOIN googleads_ad_stats ON equals(googleads_ad.ad_group_ad_ad_id, googleads_ad_stats.ad_group_ad_ad_id) LEFT JOIN googleads_campaign ON equals(googleads_ad.campaign_id, googleads_campaign.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(googleads_ad_stats.segments_date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(googleads_ad_stats.segments_date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(googleads_campaign.campaign_name), 'Unknown campaign'), coalesce(toString(googleads_campaign.campaign_id), 'unknown'), 'No sync', 'No sync', toString(googleads_ad.ad_group_ad_ad_id), toString(googleads_ad.ad_group_ad_ad_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_03_tiktok_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown') AS id, toString('tiktok') AS source, toString(tiktokads_ad_groups.adgroup_name) AS ad_group_name, toString(tiktokads_ad_groups.adgroup_id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(tiktokads_ad_group_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(tiktokads_ad_group_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(tiktokads_ad_group_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(tiktokads_ad_group_report.conversion), 0))) AS reported_conversion, 0 AS reported_conversion_value 
+  FROM tiktokads_ad_groups LEFT JOIN tiktokads_ad_group_report ON equals(tiktokads_ad_groups.adgroup_id, tiktokads_ad_group_report.adgroup_id) LEFT JOIN tiktokads_campaigns ON equals(tiktokads_ad_groups.campaign_id, tiktokads_campaigns.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(tiktokads_ad_group_report.stat_time_day), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(tiktokads_ad_group_report.stat_time_day), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign'), coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown'), toString(tiktokads_ad_groups.adgroup_name), toString(tiktokads_ad_groups.adgroup_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_04_tiktok_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign') AS campaign, coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown') AS id, toString('tiktok') AS source, coalesce(toString(tiktokads_ad_groups.adgroup_name), 'Unknown ad group') AS ad_group_name, coalesce(toString(tiktokads_ad_groups.adgroup_id), 'unknown') AS ad_group_id, toString(tiktokads_ads.ad_name) AS ad_name, toString(tiktokads_ads.ad_id) AS ad_id, toFloat(SUM(ifNull(toFloat(tiktokads_ad_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(tiktokads_ad_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(tiktokads_ad_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(tiktokads_ad_report.conversion), 0))) AS reported_conversion, 0 AS reported_conversion_value 
+  FROM tiktokads_ads LEFT JOIN tiktokads_ad_report ON equals(tiktokads_ads.ad_id, tiktokads_ad_report.ad_id) LEFT JOIN tiktokads_ad_groups ON equals(tiktokads_ads.adgroup_id, tiktokads_ad_groups.adgroup_id) LEFT JOIN tiktokads_campaigns ON equals(tiktokads_ad_groups.campaign_id, tiktokads_campaigns.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(tiktokads_ad_report.stat_time_day), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(tiktokads_ad_report.stat_time_day), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(tiktokads_campaigns.campaign_name), 'Unknown campaign'), coalesce(toString(tiktokads_campaigns.campaign_id), 'unknown'), coalesce(toString(tiktokads_ad_groups.adgroup_name), 'Unknown ad group'), coalesce(toString(tiktokads_ad_groups.adgroup_id), 'unknown'), toString(tiktokads_ads.ad_name), toString(tiktokads_ads.ad_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_05_reddit_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(redditads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(redditads_campaigns.id), 'unknown') AS id, toString('reddit') AS source, toString(redditads_ad_groups.name) AS ad_group_name, toString(redditads_ad_groups.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(redditads_ad_group_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(redditads_ad_group_report.clicks), 0))) AS clicks, SUM(toFloat(divide(redditads_ad_group_report.spend, 1000000))) AS cost, toFloat(SUM(ifNull(toFloat(redditads_ad_group_report.key_conversion_total_count), 0))) AS reported_conversion, toFloat(plus(SUM(ifNull(divide(toFloat(redditads_ad_group_report.conversion_purchase_total_value), 100), 0)), SUM(ifNull(divide(toFloat(redditads_ad_group_report.conversion_signup_total_value), 100), 0)))) AS reported_conversion_value 
+  FROM redditads_ad_groups LEFT JOIN redditads_ad_group_report ON equals(redditads_ad_groups.id, redditads_ad_group_report.ad_group_id) LEFT JOIN redditads_campaigns ON equals(redditads_ad_groups.campaign_id, redditads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(redditads_ad_group_report.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(redditads_ad_group_report.date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(redditads_campaigns.name), 'Unknown campaign'), coalesce(toString(redditads_campaigns.id), 'unknown'), toString(redditads_ad_groups.name), toString(redditads_ad_groups.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_06_reddit_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(redditads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(redditads_campaigns.id), 'unknown') AS id, toString('reddit') AS source, coalesce(toString(redditads_ad_groups.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(redditads_ad_groups.id), 'unknown') AS ad_group_id, toString(redditads_ads.name) AS ad_name, toString(redditads_ads.id) AS ad_id, toFloat(SUM(ifNull(toFloat(redditads_ad_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(redditads_ad_report.clicks), 0))) AS clicks, SUM(toFloat(divide(redditads_ad_report.spend, 1000000))) AS cost, toFloat(SUM(ifNull(toFloat(redditads_ad_report.key_conversion_total_count), 0))) AS reported_conversion, toFloat(plus(SUM(ifNull(divide(toFloat(redditads_ad_report.conversion_purchase_total_value), 100), 0)), SUM(ifNull(divide(toFloat(redditads_ad_report.conversion_signup_total_value), 100), 0)))) AS reported_conversion_value 
+  FROM redditads_ads LEFT JOIN redditads_ad_report ON equals(redditads_ads.id, redditads_ad_report.ad_id) LEFT JOIN redditads_ad_groups ON equals(redditads_ads.ad_group_id, redditads_ad_groups.id) LEFT JOIN redditads_campaigns ON equals(redditads_ad_groups.campaign_id, redditads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(redditads_ad_report.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(redditads_ad_report.date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(redditads_campaigns.name), 'Unknown campaign'), coalesce(toString(redditads_campaigns.id), 'unknown'), coalesce(toString(redditads_ad_groups.name), 'Unknown ad group'), coalesce(toString(redditads_ad_groups.id), 'unknown'), toString(redditads_ads.name), toString(redditads_ads.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_07_pinterest_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(pinterestads_campaigns.id), 'unknown') AS id, toString('pinterest') AS source, toString(pinterestads_ad_groups.name) AS ad_group_name, toString(pinterestads_ad_groups.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(0) AS impressions, toFloat(0) AS clicks, toFloat(0) AS cost, toFloat(0) AS reported_conversion, toFloat(0) AS reported_conversion_value 
+  FROM pinterestads_ad_groups LEFT JOIN pinterestads_ad_group_analytics ON equals(pinterestads_ad_groups.id, pinterestads_ad_group_analytics.ad_group_id) LEFT JOIN pinterestads_campaigns ON equals(pinterestads_ad_groups.campaign_id, pinterestads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(pinterestads_ad_group_analytics.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(pinterestads_ad_group_analytics.date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign'), coalesce(toString(pinterestads_campaigns.id), 'unknown'), toString(pinterestads_ad_groups.name), toString(pinterestads_ad_groups.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_08_pinterest_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(pinterestads_campaigns.id), 'unknown') AS id, toString('pinterest') AS source, coalesce(toString(pinterestads_ad_groups.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(pinterestads_ad_groups.id), 'unknown') AS ad_group_id, toString(pinterestads_ads.name) AS ad_name, toString(pinterestads_ads.id) AS ad_id, toFloat(0) AS impressions, toFloat(0) AS clicks, toFloat(0) AS cost, toFloat(0) AS reported_conversion, toFloat(0) AS reported_conversion_value 
+  FROM pinterestads_ads LEFT JOIN pinterestads_ad_analytics ON equals(pinterestads_ads.id, pinterestads_ad_analytics.ad_id) LEFT JOIN pinterestads_ad_groups ON equals(pinterestads_ads.ad_group_id, pinterestads_ad_groups.id) LEFT JOIN pinterestads_campaigns ON equals(pinterestads_ad_groups.campaign_id, pinterestads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(pinterestads_ad_analytics.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(pinterestads_ad_analytics.date), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(pinterestads_campaigns.name), 'Unknown campaign'), coalesce(toString(pinterestads_campaigns.id), 'unknown'), coalesce(toString(pinterestads_ad_groups.name), 'Unknown ad group'), coalesce(toString(pinterestads_ad_groups.id), 'unknown'), toString(pinterestads_ads.name), toString(pinterestads_ads.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_09_snapchat_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(snapchatads_campaigns.id), 'unknown') AS id, toString('snapchat') AS source, toString(snapchatads_ad_squads.name) AS ad_group_name, toString(snapchatads_ad_squads.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(snapchatads_ad_squad_stats_daily.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(snapchatads_ad_squad_stats_daily.swipes), 0))) AS clicks, SUM(ifNull(divide(toFloat(snapchatads_ad_squad_stats_daily.spend), 1000000), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
+  FROM snapchatads_ad_squads LEFT JOIN snapchatads_ad_squad_stats_daily ON equals(snapchatads_ad_squads.id, snapchatads_ad_squad_stats_daily.id) LEFT JOIN snapchatads_campaigns ON equals(snapchatads_ad_squads.campaign_id, snapchatads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(snapchatads_ad_squad_stats_daily.start_time), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(snapchatads_ad_squad_stats_daily.start_time), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign'), coalesce(toString(snapchatads_campaigns.id), 'unknown'), toString(snapchatads_ad_squads.name), toString(snapchatads_ad_squads.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_10_snapchat_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign') AS campaign, coalesce(toString(snapchatads_campaigns.id), 'unknown') AS id, toString('snapchat') AS source, coalesce(toString(snapchatads_ad_squads.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(snapchatads_ad_squads.id), 'unknown') AS ad_group_id, toString(snapchatads_ads.name) AS ad_name, toString(snapchatads_ads.id) AS ad_id, toFloat(SUM(ifNull(toFloat(snapchatads_ad_stats_daily.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(snapchatads_ad_stats_daily.swipes), 0))) AS clicks, SUM(ifNull(divide(toFloat(snapchatads_ad_stats_daily.spend), 1000000), 0)) AS cost, 0 AS reported_conversion, 0 AS reported_conversion_value 
+  FROM snapchatads_ads LEFT JOIN snapchatads_ad_stats_daily ON equals(snapchatads_ads.id, snapchatads_ad_stats_daily.id) LEFT JOIN snapchatads_ad_squads ON equals(snapchatads_ads.ad_squad_id, snapchatads_ad_squads.id) LEFT JOIN snapchatads_campaigns ON equals(snapchatads_ad_squads.campaign_id, snapchatads_campaigns.id) 
+  WHERE and(greaterOrEquals(toDateTime(snapchatads_ad_stats_daily.start_time), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(snapchatads_ad_stats_daily.start_time), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(snapchatads_campaigns.name), 'Unknown campaign'), coalesce(toString(snapchatads_campaigns.id), 'unknown'), coalesce(toString(snapchatads_ad_squads.name), 'Unknown ad group'), coalesce(toString(snapchatads_ad_squads.id), 'unknown'), toString(snapchatads_ads.name), toString(snapchatads_ads.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_11_linkedin_ad_group
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign') AS campaign, coalesce(toString(linkedinads_campaign_groups.id), 'unknown') AS id, toString('linkedin') AS source, toString(linkedinads_campaigns.name) AS ad_group_name, toString(linkedinads_campaigns.id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.clicks), 0))) AS clicks, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.cost_in_usd), 0))) AS cost, toFloat(SUM(ifNull(toFloat(linkedinads_campaign_stats.external_website_conversions), 0))) AS reported_conversion, 0 AS reported_conversion_value 
+  FROM linkedinads_campaigns LEFT JOIN linkedinads_campaign_stats ON equals(linkedinads_campaigns.id, linkedinads_campaign_stats.campaign_id) LEFT JOIN linkedinads_campaign_groups ON equals(linkedinads_campaigns.campaign_group_id, linkedinads_campaign_groups.id) 
+  WHERE and(greaterOrEquals(toDateTime(linkedinads_campaign_stats.date_start), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(linkedinads_campaign_stats.date_start), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign'), coalesce(toString(linkedinads_campaign_groups.id), 'unknown'), toString(linkedinads_campaigns.name), toString(linkedinads_campaigns.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_12_linkedin_ad
+  '''
+  
+  SELECT '' AS match_key, coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign') AS campaign, coalesce(toString(linkedinads_campaign_groups.id), 'unknown') AS id, toString('linkedin') AS source, coalesce(toString(linkedinads_campaigns.name), 'Unknown ad group') AS ad_group_name, coalesce(toString(linkedinads_campaigns.id), 'unknown') AS ad_group_id, toString(linkedinads_creatives.name) AS ad_name, toString(linkedinads_creatives.id) AS ad_id, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.clicks), 0))) AS clicks, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.cost_in_usd), 0))) AS cost, toFloat(SUM(ifNull(toFloat(linkedinads_creative_stats.external_website_conversions), 0))) AS reported_conversion, 0 AS reported_conversion_value 
+  FROM linkedinads_creatives LEFT JOIN linkedinads_creative_stats ON equals(linkedinads_creatives.id, linkedinads_creative_stats.creative_id) LEFT JOIN linkedinads_campaigns ON equals(linkedinads_creatives.campaign_id, linkedinads_campaigns.id) LEFT JOIN linkedinads_campaign_groups ON equals(linkedinads_campaigns.campaign_group_id, linkedinads_campaign_groups.id) 
+  WHERE and(greaterOrEquals(toDateTime(linkedinads_creative_stats.date_start), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(linkedinads_creative_stats.date_start), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY coalesce(toString(linkedinads_campaign_groups.name), 'Unknown campaign'), coalesce(toString(linkedinads_campaign_groups.id), 'unknown'), coalesce(toString(linkedinads_campaigns.name), 'Unknown ad group'), coalesce(toString(linkedinads_campaigns.id), 'unknown'), toString(linkedinads_creatives.name), toString(linkedinads_creatives.id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_13_bing_ad_group
+  '''
+  
+  SELECT '' AS match_key, toString(bingads_ad_group_performance_report.campaign_name) AS campaign, toString(bingads_ad_group_performance_report.campaign_id) AS id, toString('bing') AS source, toString(bingads_ad_group_performance_report.ad_group_name) AS ad_group_name, toString(bingads_ad_group_performance_report.ad_group_id) AS ad_group_id, NULL AS ad_name, NULL AS ad_id, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(bingads_ad_group_performance_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(bingads_ad_group_performance_report.revenue), 0))) AS reported_conversion_value 
+  FROM bingads_ad_group_performance_report 
+  WHERE and(greaterOrEquals(toDateTime(bingads_ad_group_performance_report.time_period), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(bingads_ad_group_performance_report.time_period), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(bingads_ad_group_performance_report.campaign_name), toString(bingads_ad_group_performance_report.campaign_id), toString(bingads_ad_group_performance_report.ad_group_name), toString(bingads_ad_group_performance_report.ad_group_id)
+  '''
+# ---
+# name: TestMarketingAnalyticsAdapters.test_native_adapter_query_at_hierarchy_levels_14_bing_ad
+  '''
+  
+  SELECT '' AS match_key, toString(bingads_ad_performance_report.campaign_name) AS campaign, toString(bingads_ad_performance_report.campaign_id) AS id, toString('bing') AS source, toString(bingads_ad_performance_report.ad_group_name) AS ad_group_name, toString(bingads_ad_performance_report.ad_group_id) AS ad_group_id, toString(bingads_ad_performance_report.ad_title) AS ad_name, toString(bingads_ad_performance_report.ad_id) AS ad_id, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(bingads_ad_performance_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(bingads_ad_performance_report.revenue), 0))) AS reported_conversion_value 
+  FROM bingads_ad_performance_report 
+  WHERE and(greaterOrEquals(toDateTime(bingads_ad_performance_report.time_period), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(bingads_ad_performance_report.time_period), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(bingads_ad_performance_report.campaign_name), toString(bingads_ad_performance_report.campaign_id), toString(bingads_ad_performance_report.ad_group_name), toString(bingads_ad_performance_report.ad_group_id), toString(bingads_ad_performance_report.ad_title), toString(bingads_ad_performance_report.ad_id)
   '''
 # ---
 # name: TestMarketingAnalyticsAdapters.test_pinterest_ads_native_query_generation
@@ -106,7 +259,7 @@
 # name: TestMarketingAnalyticsAdapters.test_reddit_ads_query_generation
   '''
   
-  SELECT toString(reddit_campaign.name) AS match_key, toString(reddit_campaign.name) AS campaign, toString(reddit_campaign.id) AS id, toString('reddit') AS source, toFloat(SUM(ifNull(toFloat(reddit_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(reddit_stats.clicks), 0))) AS clicks, SUM(toFloat(divide(reddit_stats.spend, 1000000))) AS cost, toFloat(SUM(ifNull(toFloat(reddit_stats.key_conversion_total_count), 0))) AS reported_conversion, toFloat(plus(SUM(ifNull(toFloat(reddit_stats.conversion_purchase_total_value), 0)), SUM(ifNull(toFloat(reddit_stats.conversion_signup_total_value), 0)))) AS reported_conversion_value 
+  SELECT toString(reddit_campaign.name) AS match_key, toString(reddit_campaign.name) AS campaign, toString(reddit_campaign.id) AS id, toString('reddit') AS source, toFloat(SUM(ifNull(toFloat(reddit_stats.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(reddit_stats.clicks), 0))) AS clicks, SUM(toFloat(divide(reddit_stats.spend, 1000000))) AS cost, toFloat(SUM(ifNull(toFloat(reddit_stats.key_conversion_total_count), 0))) AS reported_conversion, toFloat(plus(SUM(ifNull(divide(toFloat(reddit_stats.conversion_purchase_total_value), 100), 0)), SUM(ifNull(divide(toFloat(reddit_stats.conversion_signup_total_value), 100), 0)))) AS reported_conversion_value 
   FROM reddit_campaign LEFT JOIN reddit_stats ON equals(reddit_campaign.id, reddit_stats.campaign_id) 
   WHERE and(greaterOrEquals(toDateTime(reddit_stats.date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(reddit_stats.date), toDateTime('2024-12-31 23:59:59'))) 
   GROUP BY toString(reddit_campaign.name), toString(reddit_campaign.id)

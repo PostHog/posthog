@@ -29,11 +29,18 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestPreflight.test_cloud_preflight_limited_db_queries.1
@@ -59,6 +66,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -104,6 +112,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",

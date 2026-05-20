@@ -27,8 +27,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         # Enable access control features
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
             {
                 "key": AvailableFeature.ROLE_BASED_ACCESS,
@@ -56,7 +56,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             created_by=created_by or self.user,
             prefix="test",
             job_inputs={
-                "stripe_secret_key": "sk_test_123",
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
             },
         )
 

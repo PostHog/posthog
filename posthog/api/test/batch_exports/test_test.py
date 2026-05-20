@@ -350,14 +350,32 @@ def bigquery_config() -> dict[str, str]:
     }
 
 
+@pytest.fixture
+def bigquery_integration(team, user):
+    """Create a Google Cloud Service Account integration for BigQuery."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id="test-bigquery-service-account",
+        config={"project_id": "project", "service_account_email": "client_email"},
+        sensitive_config={
+            "private_key": "private_key",
+            "private_key_id": "private_key_id",
+            "token_uri": "token_uri",
+        },
+        created_by=user,
+    )
+
+
 def test_can_run_bigquery_test_step_with_castable_type(
-    client: HttpClient, bigquery_config, temporal, organization, team, user
+    client: HttpClient, bigquery_config, bigquery_integration, temporal, organization, team, user
 ):
     """Test a destination test with invalid types that can be casted to required types."""
     config = {"use_json_type": "True", **bigquery_config}  # "True" (string) can be casted to True (bool)
 
     destination_data = {
         "type": "BigQuery",
+        "integration_id": bigquery_integration.id,
         "config": config,
     }
 
@@ -409,29 +427,8 @@ def databricks_integration(team, user):
     )
 
 
-@pytest.fixture
-def enable_databricks(team):
-    with unittest.mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ) as feature_enabled:
-        yield
-        feature_enabled.assert_called_once_with(
-            "databricks-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-
 def test_can_run_databricks_test_step_for_new_destination(
-    client: HttpClient, organization, team, user, databricks_integration, enable_databricks
+    client: HttpClient, organization, team, user, databricks_integration
 ):
     destination_data = {
         "type": "Databricks",
@@ -474,6 +471,7 @@ def test_can_run_databricks_test_step_for_new_destination(
                 "server_hostname": "my-server-hostname",
                 "client_id": "my-client-id",
                 "client_secret": "my-client-secret",
+                "integration": databricks_integration,
             }
         )
 
@@ -490,7 +488,6 @@ def test_integration_is_required_for_databricks_destination_tests(
     organization,
     team,
     user,
-    enable_databricks,
 ):
     destination_data = {
         "type": "Databricks",

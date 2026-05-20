@@ -33,7 +33,7 @@ operations = [
     # Add expires_at column to distributed table
     run_sql_with_exceptions(
         ADD_EXPIRES_AT_COLUMN.format(table=DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

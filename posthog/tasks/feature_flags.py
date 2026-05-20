@@ -21,6 +21,7 @@ from posthog.models.feature_flag.local_evaluation import (
     update_flag_caches,
 )
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
@@ -28,6 +29,7 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@skip_team_scope_audit
 def update_team_flags_cache(team_id: int) -> None:
     try:
         team = Team.objects.get(id=team_id)
@@ -39,6 +41,7 @@ def update_team_flags_cache(team_id: int) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@skip_team_scope_audit
 def update_team_service_flags_cache(team_id: int) -> None:
     """
     Update the service flags cache for a specific team.
@@ -70,7 +73,7 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
     This job just prevents expiration-related cache misses.
 
     For initial cache build or schema migrations, use the management command:
-        python manage.py warm_flags_cache [--invalidate-first]
+        python manage.py warm_flags_cache
     """
 
     if not settings.FLAGS_REDIS_URL:
@@ -159,6 +162,7 @@ def _set_ranked_team_gauge(gauge: Gauge, rows: list[dict], value_key: str) -> No
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+@skip_team_scope_audit
 def compute_feature_flag_metrics(self: PushGatewayTask) -> None:
     """
     Compute and push feature flag metrics for Grafana dashboards.

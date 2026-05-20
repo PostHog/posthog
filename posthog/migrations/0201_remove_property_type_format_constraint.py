@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="propertydefinition",
             constraint=models.CheckConstraint(
-                check=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean"])),
+                condition=models.Q(("property_type__in", ["DateTime", "String", "Numeric", "Boolean"])),
                 name="property_type_is_valid",
             ),
         ),

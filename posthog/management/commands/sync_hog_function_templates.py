@@ -23,6 +23,8 @@ TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionTyp
 TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
     "template-slack",
     "template-warehouse-source-stripe",
+    "template-warehouse-source-customer-io",
+    "template-warehouse-source-slack",
     "template-warehouse-source-default",
 ]
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
@@ -151,7 +153,7 @@ class Command(BaseCommand):
         duration = time.time() - start_time
         self.stdout.write(
             self.style.SUCCESS(
-                f"Sync completed in {duration:.2f}s. "
+                f"Hog function template sync complete in {duration:.2f}s. "
                 f"Templates: {total_templates}, "
                 f"Created or updated: {updated_count}, "
                 f"Deleted: {deleted_count}, "

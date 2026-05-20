@@ -15,13 +15,13 @@
                     "type": "null"
                 }
             ],
-            "description": "Name of the action (must be unique within the project)."
+            "description": "Name of the action (must be unique within the project)"
         },
         "pinned_at": {
             "anyOf": [
                 {
                     "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
                 },
                 {
@@ -68,17 +68,9 @@
                     "href_matching": {
                         "anyOf": [
                             {
-                                "anyOf": [
-                                    {
-                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
-                                        "enum": ["contains", "regex", "exact"],
-                                        "type": "string"
-                                    },
-                                    {
-                                        "const": null,
-                                        "type": "null"
-                                    }
-                                ]
+                                "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                "enum": ["contains", "regex", "exact"],
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -113,7 +105,7 @@
                                                 },
                                                 "type": {
                                                     "default": "event",
-                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
                                                     "enum": [
                                                         "event",
                                                         "event_metadata",
@@ -136,6 +128,9 @@
                                                         "log",
                                                         "log_attribute",
                                                         "log_resource_attribute",
+                                                        "span",
+                                                        "span_attribute",
+                                                        "span_resource_attribute",
                                                         "revenue_analytics",
                                                         "flag",
                                                         "workflow_variable"
@@ -165,7 +160,7 @@
                                                 },
                                                 "type": {
                                                     "default": "event",
-                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
                                                     "enum": [
                                                         "event",
                                                         "event_metadata",
@@ -188,6 +183,9 @@
                                                         "log",
                                                         "log_attribute",
                                                         "log_resource_attribute",
+                                                        "span",
+                                                        "span_attribute",
+                                                        "span_resource_attribute",
                                                         "revenue_analytics",
                                                         "flag",
                                                         "workflow_variable"
@@ -217,7 +215,7 @@
                                                 },
                                                 "type": {
                                                     "default": "event",
-                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
                                                     "enum": [
                                                         "event",
                                                         "event_metadata",
@@ -240,6 +238,9 @@
                                                         "log",
                                                         "log_attribute",
                                                         "log_resource_attribute",
+                                                        "span",
+                                                        "span_attribute",
+                                                        "span_resource_attribute",
                                                         "revenue_analytics",
                                                         "flag",
                                                         "workflow_variable"
@@ -272,7 +273,7 @@
                                                 },
                                                 "type": {
                                                     "default": "event",
-                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
                                                     "enum": [
                                                         "event",
                                                         "event_metadata",
@@ -295,6 +296,9 @@
                                                         "log",
                                                         "log_attribute",
                                                         "log_resource_attribute",
+                                                        "span",
+                                                        "span_attribute",
+                                                        "span_resource_attribute",
                                                         "revenue_analytics",
                                                         "flag",
                                                         "workflow_variable"
@@ -323,7 +327,7 @@
                                                 },
                                                 "type": {
                                                     "default": "event",
-                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                                                    "description": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
                                                     "enum": [
                                                         "event",
                                                         "event_metadata",
@@ -346,6 +350,9 @@
                                                         "log",
                                                         "log_attribute",
                                                         "log_resource_attribute",
+                                                        "span",
+                                                        "span_attribute",
+                                                        "span_resource_attribute",
                                                         "revenue_analytics",
                                                         "flag",
                                                         "workflow_variable"
@@ -412,17 +419,9 @@
                     "text_matching": {
                         "anyOf": [
                             {
-                                "anyOf": [
-                                    {
-                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
-                                        "enum": ["contains", "regex", "exact"],
-                                        "type": "string"
-                                    },
-                                    {
-                                        "const": null,
-                                        "type": "null"
-                                    }
-                                ]
+                                "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                "enum": ["contains", "regex", "exact"],
+                                "type": "string"
                             },
                             {
                                 "type": "null"
@@ -444,17 +443,9 @@
                     "url_matching": {
                         "anyOf": [
                             {
-                                "anyOf": [
-                                    {
-                                        "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
-                                        "enum": ["contains", "regex", "exact"],
-                                        "type": "string"
-                                    },
-                                    {
-                                        "const": null,
-                                        "type": "null"
-                                    }
-                                ]
+                                "description": "* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                                "enum": ["contains", "regex", "exact"],
+                                "type": "string"
                             },
                             {
                                 "type": "null"

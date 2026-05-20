@@ -1,17 +1,18 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import api, { PaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectClean } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
@@ -43,7 +44,10 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     tags: [],
 }
 
-export type DashboardFuse = Fuse<DashboardBasicType> // This is exported for kea-typegen
+/** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
+function urlSearchParamToString(value: unknown): string {
+    return `${value ?? ''}`
+}
 
 export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
@@ -86,6 +90,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         ...state,
                         ...filters,
                     }),
+                setSearch: (state, { search }) => ({ ...state, search }),
             },
         ],
         tagSearch: [
@@ -99,6 +104,49 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             false,
             {
                 setShowTagPopover: (_, { visible }) => visible,
+            },
+        ],
+    }),
+
+    loaders({
+        searchedDashboards: [
+            null as DashboardBasicType[] | null,
+            {
+                /**
+                 * Server-side fuzzy search via the dashboards list endpoint. Returns null when
+                 * there's no active search term, in which case the dashboards selector falls
+                 * back to the in-memory `dashboardsModel` list.
+                 *
+                 * The 250ms `breakpoint` runs before the empty-term short-circuit so a stale
+                 * in-flight request can't clobber a freshly cleared search.
+                 */
+                loadSearchedDashboards: async ({ search, tags }: { search: string; tags: string[] }, breakpoint) => {
+                    await breakpoint(250)
+                    const term = search.trim()
+                    if (!term) {
+                        return null
+                    }
+                    const teamId = teamLogic.values.currentTeamId
+                    if (teamId == null) {
+                        return null
+                    }
+                    const params = new URLSearchParams({
+                        search: term,
+                        limit: '200',
+                        exclude_generated: 'true',
+                    })
+                    // Push tag filtering to the server so MCP and API clients see the same
+                    // result shape as the UI (and so the limit:200 cap operates on the right
+                    // population — pre-tag-filtered, not post).
+                    for (const tag of tags) {
+                        params.append('tags', tag)
+                    }
+                    const response: PaginatedResponse<DashboardBasicType> = await api.get(
+                        `api/environments/${teamId}/dashboards/?${params.toString()}`
+                    )
+                    breakpoint()
+                    return response.results ?? []
+                },
             },
         ],
     }),
@@ -123,12 +171,27 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
         dashboards: [
-            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse, s.currentTab, s.user],
-            (dashboards, filters, fuse, currentTab, user) => {
-                let haystack = dashboards
-                if (filters.search) {
-                    haystack = fuse.search(filters.search).map((result) => result.item)
-                }
+            (s) => [
+                dashboardsModel.selectors.nameSortedDashboards,
+                dashboardsModel.selectors.rawDashboards,
+                s.searchedDashboards,
+                s.filters,
+                s.currentTab,
+                s.user,
+            ],
+            (allDashboards, rawDashboards, searchedDashboards, filters, currentTab, user) => {
+                // When a search term is active we trust the server's trigram word similarity
+                // ranking; otherwise we use the model's alphabetised list. This keeps the exact
+                // match at the top.
+                //
+                // For the search branch we re-hydrate each row from `rawDashboards` so that
+                // pin/unpin/rename mutations driven by `dashboardsModel` show up immediately
+                // in the search results — without this, `searchedDashboards` would freeze at
+                // the API response state until the next refetch.
+                let haystack: DashboardBasicType[] =
+                    filters.search && searchedDashboards
+                        ? searchedDashboards.map((d) => (rawDashboards[d.id] as DashboardBasicType | undefined) ?? d)
+                        : allDashboards
                 if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
@@ -147,16 +210,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     haystack = haystack.filter((d) => filters.tags?.some((tag) => d.tags?.includes(tag)))
                 }
                 return haystack
-            },
-        ],
-
-        fuse: [
-            () => [dashboardsModel.selectors.nameSortedDashboards],
-            (dashboards): DashboardFuse => {
-                return new Fuse<DashboardBasicType>(dashboards, {
-                    keys: ['key', 'name', 'description', 'tags'],
-                    threshold: 0.3,
-                })
             },
         ],
 
@@ -184,17 +237,22 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 return
             }
 
-            router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
+            router.actions.push(router.values.location.pathname, {
+                ...router.values.searchParams,
+                tab,
+            })
         },
         setSearch: ({ search }) => {
             const nextSearch = search ?? ''
-            const currentSearch = (router.values.searchParams['search'] as string | undefined) ?? ''
+            const currentSearch = urlSearchParamToString(router.values.searchParams['search'])
 
             if (nextSearch === currentSearch) {
                 return
             }
 
-            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            const searchParams: Record<string, any> = {
+                ...router.values.searchParams,
+            }
 
             if (nextSearch) {
                 searchParams['search'] = nextSearch
@@ -210,21 +268,24 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
             actions.setCurrentTab(tab)
 
-            const search = typeof searchParams['search'] === 'string' ? searchParams['search'] : ''
-            actions.setFilters({ search })
+            const search = urlSearchParamToString(searchParams['search'])
+            actions.setSearch(search)
         },
     })),
-    listeners(() => ({
-        [dashboardsModel.actionTypes.loadDashboardsSuccess]: ({
-            pagedDashboards,
-        }: {
-            pagedDashboards: { results?: Pick<DashboardBasicType, 'id'>[] } | null
-        }) => {
-            pagedDashboards?.results?.forEach((dashboard) => {
-                if (dashboard.id != null) {
-                    refreshTreeItem('dashboard', String(dashboard.id))
-                }
-            })
+    listeners(({ actions, values }) => ({
+        setSearch: ({ search }) => {
+            actions.loadSearchedDashboards({ search, tags: values.filters.tags ?? [] })
+        },
+        setFilters: ({ filters }) => {
+            // Tag changes refetch when a search is active so server-side filtering stays
+            // accurate. Other filter keys (pinned/shared/createdBy/currentTab) are still
+            // applied client-side over the in-memory list so they don't refetch.
+            if ('tags' in filters && values.filters.search) {
+                actions.loadSearchedDashboards({
+                    search: values.filters.search,
+                    tags: values.filters.tags ?? [],
+                })
+            }
         },
     })),
 ])

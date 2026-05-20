@@ -373,7 +373,7 @@ class MyWorfklow:
 
 When developing a workflow or activity, you will most likely want **all** your logs to have Temporal context variables (like `activity_type`, `attempt`, or `workflow_id`). Thus, the logging pipeline is configured to **automatically** populate the context with the activity's or workflow's information. All the logs from the previous example would have these variables set in the context.
 
-This logging pipeline also works locally, both when running a worker locally either with `mprocs` or manually running `start_temporal_worker.py`, and if you run your unit tests with:
+This logging pipeline also works locally, both when running a worker locally either with `phrocs` or manually running `start_temporal_worker.py`, and if you run your unit tests with:
 
 ```sh
 DEBUG=1 pytest path/to/your/tests.py -s
@@ -473,7 +473,7 @@ There are examples on how to achieve this throughout the codebase: Batch exports
 
 ## Develop locally with Temporal
 
-The development stack includes: A Temporal service to act as a local orchestrator, a Temporal UI, and, if you are using `mprocs`, multiple Temporal workers that are started automatically, one per task queue. These workers includes a worker listening on the shared `general-purpose-task-queue`, which can be used for development. If you have deployed a new set of workers, add it to `bin/mprocs.yaml` so that a worker can start automatically for folks doing local development.
+The development stack includes: A Temporal service to act as a local orchestrator, a Temporal UI, and, if you are using `phrocs`, multiple Temporal workers that are started automatically, one per task queue. These workers includes a worker listening on the shared `general-purpose-task-queue`, which can be used for development. If you have deployed a new set of workers, add it to `bin/mprocs.yaml` so that a worker can start automatically for folks doing local development.
 
 By default, Temporal workers automatically hot reload when Python files change (similar to backend and celery workers). If you need to disable hot reloading, set `TEMPORAL_DISABLE_HOT_RELOAD=1`.
 

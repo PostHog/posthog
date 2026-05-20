@@ -12,7 +12,7 @@ operations = [
     # Drop the "ai_large" property group column from events
     run_sql_with_exceptions(
         "ALTER TABLE events DROP COLUMN IF EXISTS properties_group_ai_large",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

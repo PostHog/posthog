@@ -107,7 +107,6 @@ export type MergeMode =
       }
     | {
           type: 'ASYNC'
-          topic: string
           limit: number
       }
 
@@ -153,14 +152,12 @@ export function createDefaultSyncMergeMode(): MergeMode {
 export function determineMergeMode(
     personMergeMoveDistinctIdLimit: number,
     personMergeAsyncEnabled: boolean,
-    personMergeAsyncTopic: string,
     personMergeSyncBatchSize: number
 ): MergeMode {
-    // If async merge is enabled and topic is configured, use async mode for over-limit merges
-    if (personMergeAsyncEnabled && personMergeAsyncTopic && personMergeMoveDistinctIdLimit > 0) {
+    // If async merge is enabled, use async mode for over-limit merges
+    if (personMergeAsyncEnabled && personMergeMoveDistinctIdLimit > 0) {
         return {
             type: 'ASYNC',
-            topic: personMergeAsyncTopic,
             limit: personMergeMoveDistinctIdLimit,
         }
     }

@@ -14,8 +14,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import User
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.models.utils import mask_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import hash_key_value, mask_key_value
 
 DEV_API_KEY = settings.DEV_API_KEY
 DEV_USER_EMAIL = "test@posthog.com"
@@ -36,7 +36,7 @@ class Command(BaseCommand):
             "--scopes",
             nargs="*",
             default=None,
-            help='Scopes to grant (e.g. --scopes llm_gateway:read project:read). Use --scopes "*" for all-access. Omit for no scopes.',
+            help='Scopes to grant (e.g. --scopes llm_gateway:read project:read). Use --scopes "*" for all-access. Defaults to all-access when omitted.',
         )
         parser.add_argument(
             "--add-scopes",
@@ -58,6 +58,9 @@ class Command(BaseCommand):
         if scopes is not None and add_scopes is not None:
             raise CommandError("Cannot use --scopes and --add-scopes together")
 
+        if scopes is None and add_scopes is None:
+            scopes = ["*"]
+
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
@@ -69,7 +72,7 @@ class Command(BaseCommand):
         existing_key = PersonalAPIKey.objects.filter(secure_value=secure_value).first()
         if existing_key:
             if add_scopes:
-                current = set(existing_key.scopes or [])
+                current = set(existing_key.scopes)
                 merged = sorted(current | set(add_scopes))
                 if merged != sorted(current):
                     existing_key.scopes = merged
@@ -78,7 +81,7 @@ class Command(BaseCommand):
                 else:
                     print(f"Scopes already present for user '{existing_key.user.email}'")
             elif scopes is not None and existing_key.scopes != scopes:
-                existing_key.scopes = scopes or None
+                existing_key.scopes = scopes
                 existing_key.save(update_fields=["scopes"])
                 print(f"Updated scopes to {existing_key.scopes} for user '{existing_key.user.email}'")
             else:
@@ -88,7 +91,7 @@ class Command(BaseCommand):
 
         PersonalAPIKey.objects.filter(user=user, label=DEV_KEY_LABEL).delete()
 
-        create_scopes = scopes or add_scopes or None
+        create_scopes = scopes if scopes is not None else add_scopes
 
         PersonalAPIKey.objects.create(
             user=user,

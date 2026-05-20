@@ -4,10 +4,20 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from posthog.schema import CachedHogQLQueryResponse, HogQLFilters, HogQLPropertyFilter, HogQLQuery, HogQLVariable
+from parameterized import parameterized
+
+from posthog.schema import (
+    CachedHogQLQueryResponse,
+    HogQLFilters,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLQueryResponse,
+    HogQLVariable,
+)
 
 from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
@@ -191,6 +201,53 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
 
+    @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
+    def test_send_raw_query_uses_raw_query_string_for_direct_connections(self, mock_execute_hogql_query):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(1,)], columns=["value"], types=[])
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select 1::int as value",
+                connectionId=str(source.id),
+                sendRawQuery=True,
+            )
+        )
+
+        response = runner.calculate()
+
+        self.assertEqual(response.results, [(1,)])
+        mock_execute_hogql_query.assert_called_once()
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["query"], "select 1::int as value")
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["connection_id"], str(source.id))
+        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["send_raw_query"], True)
+
+    @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
+    def test_send_raw_query_is_ignored_without_direct_connection(self, mock_execute_hogql_query):
+        mock_execute_hogql_query.return_value = HogQLQueryResponse(results=[(10,)], columns=["count"], types=[])
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select count(event) from events limit 100",
+                sendRawQuery=True,
+            )
+        )
+
+        response = runner.calculate()
+
+        self.assertEqual(response.results, [(10,)])
+        mock_execute_hogql_query.assert_called_once()
+        self.assertIsInstance(mock_execute_hogql_query.call_args.kwargs["query"], ast.SelectQuery)
+        self.assertNotIn("send_raw_query", mock_execute_hogql_query.call_args.kwargs)
+
     def test_soft_deleted_connection_id_raises_exposed_hogql_error(self):
         source = ExternalDataSource.objects.create(
             source_id="selected-upstream-source",
@@ -231,3 +288,64 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(ExposedHogQLError):
             runner.calculate()
+
+    @parameterized.expand(
+        [
+            # Plain OFFSET on SelectQuery
+            ("top_level", "select event from events limit 10 offset 5"),
+            # Recursion into a subquery
+            ("subquery", "select * from (select event from events limit 10 offset 5) sub"),
+            # Distinct AST node: SelectSetQuery.offset (OFFSET at UNION level)
+            (
+                "select_set_outer",
+                "(select event from events limit 5) union all (select event from events limit 5) limit 10 offset 5",
+            ),
+            # Distinct AST node: LimitByExpr.offset_value
+            ("limit_by", "select event, timestamp from events limit 5 by event offset 10"),
+            # OFFSET arrives via placeholder — proves hook runs after to_query() substitution.
+            ("placeholder", "select event from events limit 10 offset {o}"),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_query_service_rejects_offset(self, _name, sql, _mock_flag):
+        values = {"o": 50} if "{o}" in sql else None
+        runner = self._create_runner(HogQLQuery(query=sql, values=values))
+        runner.is_query_service = True
+
+        with self.assertRaises(QueryError) as ctx:
+            runner.calculate()
+        self.assertEqual(OFFSET_NOT_ALLOWED_MESSAGE, str(ctx.exception))
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_query_service_allows_offset_when_org_on_allow_list(self, _mock_flag):
+        # Grandfathered via the allow-list flag → query passes through to execution.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+        runner.is_query_service = True
+
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 5)
+
+    def test_query_service_fails_open_when_flag_service_errors(self):
+        # Flag-service outage must not cascade into rejecting previously-valid traffic.
+        # Scope the error to our flag only — a blanket raise would break unrelated flag checks
+        # downstream in the query execution path.
+        def flag_side_effect(flag, *_args, **_kwargs):
+            if flag == HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG:
+                raise RuntimeError("flag service down")
+            return False
+
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+        runner.is_query_service = True
+
+        with patch("posthoganalytics.feature_enabled", side_effect=flag_side_effect):
+            response = runner.calculate()
+        self.assertEqual(len(response.results), 5)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_non_query_service_allows_offset(self, _mock_flag):
+        # Product queries (Trends/Funnels/etc.) have is_query_service=False — must pass through
+        # even when the flag says "deny everything." Guards the `if self.is_query_service:` gate.
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 10 offset 5"))
+
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 5)

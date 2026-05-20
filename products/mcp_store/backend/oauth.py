@@ -8,10 +8,9 @@ from urllib.parse import urlparse
 import requests
 import structlog
 
-from posthog.models.integration import OauthIntegration
 from posthog.security.url_validation import is_url_allowed
 
-from .models import MCPServer, MCPServerInstallation
+from .models import MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +58,11 @@ def _fetch_auth_server_metadata(auth_server_url: str) -> dict:
 def _cross_validate_issuer(declared_issuer: str) -> dict:
     metadata = _fetch_auth_server_metadata(declared_issuer)
     if metadata.get("issuer", "").rstrip("/") != declared_issuer.rstrip("/"):
+        logger.warning(
+            "OAuth issuer mismatch during cross-validation",
+            declared_issuer=declared_issuer,
+            metadata_issuer=metadata.get("issuer", ""),
+        )
         raise ValueError("Issuer mismatch in authorization server metadata")
     return metadata
 
@@ -70,6 +74,38 @@ def _resolve_issuer(metadata: dict, expected_issuer: str) -> dict:
         return _cross_validate_issuer(declared_issuer)
     metadata.setdefault("issuer", expected_issuer)
     return metadata
+
+
+def _validate_endpoints_bound_to_issuer(metadata: dict) -> None:
+    """Reject metadata where OAuth endpoints don't share the issuer's origin.
+
+    Without this, a malicious metadata source can mix endpoints from a real
+    provider with an attacker-controlled token_endpoint, exfiltrating
+    authorization codes, PKCE verifiers, and DCR-minted client_secrets while
+    the user authorizes against the legitimate provider.
+    """
+    issuer = (metadata.get("issuer") or "").rstrip("/")
+    if not issuer:
+        raise ValueError("OAuth metadata is missing issuer")
+
+    parsed_issuer = urlparse(issuer)
+    if not parsed_issuer.scheme or not parsed_issuer.netloc:
+        raise ValueError("OAuth metadata issuer is not an absolute URL")
+    issuer_origin = (parsed_issuer.scheme, parsed_issuer.netloc)
+
+    for field in ("authorization_endpoint", "token_endpoint", "registration_endpoint"):
+        url = metadata.get(field)
+        if not url:
+            continue
+        parsed = urlparse(url)
+        if (parsed.scheme, parsed.netloc) != issuer_origin:
+            logger.warning(
+                "OAuth endpoint origin does not match issuer",
+                issuer=issuer,
+                field=field,
+                endpoint=url,
+            )
+            raise ValueError(f"OAuth endpoint '{field}' origin does not match issuer")
 
 
 def discover_oauth_metadata(server_url: str) -> dict:
@@ -96,15 +132,28 @@ def discover_oauth_metadata(server_url: str) -> dict:
             # server metadata doesn't declare them (e.g. Asana).
             if "scopes_supported" not in metadata and "scopes_supported" in resource_data:
                 metadata["scopes_supported"] = resource_data["scopes_supported"]
+            _validate_endpoints_bound_to_issuer(metadata)
             return metadata
 
     # Step 2: Fall back to fetching authorization server metadata directly from the origin.
     # Many MCP servers (e.g. Linear) serve /.well-known/oauth-authorization-server
     # without implementing the protected resource metadata endpoint.
-    return _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
+    logger.info(
+        "RFC 9728 protected resource metadata not available, falling back to direct discovery", server_url=server_url
+    )
+    metadata = _resolve_issuer(_fetch_auth_server_metadata(origin), origin)
+    _validate_endpoints_bound_to_issuer(metadata)
+    return metadata
 
 
-def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
+def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | None]:
+    """Run RFC 7591 Dynamic Client Registration.
+
+    Returns ``(client_id, client_secret)``. Some servers (e.g. Supabase) ignore
+    our ``token_endpoint_auth_method: "none"`` request and register a
+    confidential client — in which case we must keep the returned secret or
+    token exchange fails with ``Required parameter: client_secret``.
+    """
     registration_endpoint = metadata.get("registration_endpoint")
     if not registration_endpoint:
         raise ValueError("Authorization server does not support Dynamic Client Registration")
@@ -130,13 +179,15 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> str:
         )
         resp.raise_for_status()
     data = resp.json()
-    data.pop("client_secret", None)  # Not used for public clients; don't store in plaintext
 
     client_id = data.get("client_id")
     if not client_id:
         raise ValueError("No client_id in DCR response")
 
-    return client_id
+    returned_secret = data.get("client_secret")
+    client_secret = returned_secret if returned_secret and data.get("token_endpoint_auth_method") != "none" else None
+
+    return client_id, client_secret
 
 
 def generate_pkce() -> tuple[str, str]:
@@ -161,6 +212,49 @@ class TokenRefreshError(Exception):
     pass
 
 
+def resolve_installation_oauth_context(installation: MCPServerInstallation) -> tuple[dict, str, str | None]:
+    """Resolve the OAuth metadata + client credentials for an installation.
+
+    Returns ``(metadata, client_id, client_secret)``. Secrets come from the
+    shared template when set, or from the installation's encrypted
+    ``sensitive_configuration`` for user-added servers.
+
+    Raises ``ValueError`` if the installation is missing required OAuth state.
+    """
+    sensitive = installation.sensitive_configuration or {}
+
+    template = installation.template
+    if template is not None:
+        credentials = template.oauth_credentials or {}
+        shared_client_id = credentials.get("client_id", "")
+        if shared_client_id:
+            # Shared-creds template: every installation of this template
+            # authenticates with the same client against the admin-seeded
+            # metadata on the template.
+            metadata = dict(template.oauth_metadata or {})
+            if not metadata:
+                raise ValueError("Template missing OAuth metadata")
+            client_secret = credentials.get("client_secret") or None
+            return metadata, shared_client_id, client_secret
+        # DCR template: each installation ran discovery + DCR at install
+        # time. Both the metadata and the minted client live on the
+        # installation — the template is never written back to, so a
+        # first-installer can't poison state for other users of the template.
+        metadata = dict(installation.oauth_metadata or {})
+        client_id = sensitive.get("dcr_client_id", "")
+        client_secret = sensitive.get("dcr_client_secret") or None
+        if not metadata or not client_id:
+            raise ValueError("DCR template installation missing OAuth metadata or dcr_client_id")
+        return metadata, client_id, client_secret
+
+    metadata = dict(installation.oauth_metadata or {})
+    client_id = sensitive.get("dcr_client_id", "")
+    client_secret = sensitive.get("dcr_client_secret") or None
+    if not metadata or not client_id:
+        raise ValueError("Installation missing OAuth metadata or client_id")
+    return metadata, client_id, client_secret
+
+
 def refresh_oauth_token(
     *,
     token_url: str,
@@ -182,11 +276,18 @@ def refresh_oauth_token(
         resp.raise_for_status()
     except SSRFBlockedError:
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        logger.warning(
+            "OAuth token refresh request failed",
+            token_url=token_url,
+            status_code=status_code,
+        )
         raise TokenRefreshError("Token refresh request failed")
 
     token_data = resp.json()
     if "access_token" not in token_data:
+        logger.warning("OAuth token refresh response missing access_token", token_url=token_url)
         raise TokenRefreshError("Token refresh response missing access_token")
 
     return token_data
@@ -196,29 +297,17 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     sensitive = installation.sensitive_configuration or {}
     refresh_token_value = sensitive.get("refresh_token")
     if not refresh_token_value:
+        logger.warning("No refresh token available for installation", installation_id=str(installation.id))
         raise TokenRefreshError("No refresh token available")
 
-    server = installation.server
-    kind = server.oauth_provider_kind if server else ""
-    token_url = ""
-    client_id = ""
-    client_secret: str | None = None
+    try:
+        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+    except ValueError as exc:
+        raise TokenRefreshError(str(exc))
 
-    if kind:
-        try:
-            oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-            token_url = oauth_config.token_url
-            client_id = oauth_config.client_id
-            client_secret = oauth_config.client_secret
-        except NotImplementedError:
-            kind = ""
-
-    if not kind:
-        metadata = server.oauth_metadata if server else {}
-        token_url = metadata.get("token_endpoint", "")
-        client_id = server.oauth_client_id if server else ""
-        if not token_url or not client_id:
-            raise TokenRefreshError("Missing OAuth metadata for token refresh")
+    token_url = metadata.get("token_endpoint", "")
+    if not token_url:
+        raise TokenRefreshError("Missing OAuth metadata for token refresh")
 
     token_data = refresh_oauth_token(
         token_url=token_url,
@@ -227,59 +316,46 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
         client_secret=client_secret,
     )
 
-    updated: dict = {
-        "access_token": token_data["access_token"],
-        "token_retrieved_at": int(time.time()),
-        "refresh_token": token_data.get("refresh_token", refresh_token_value),
-    }
+    # Preserve non-token keys (needs_reauth, dcr_client_id, dcr_client_secret, etc.) across refresh.
+    updated: dict = dict(sensitive)
+    updated["access_token"] = token_data["access_token"]
+    updated["token_retrieved_at"] = int(time.time())
+    updated["refresh_token"] = token_data.get("refresh_token", refresh_token_value)
     if "expires_in" in token_data:
         updated["expires_in"] = token_data["expires_in"]
-    elif "expires_in" in sensitive:
-        updated["expires_in"] = sensitive["expires_in"]
 
     installation.sensitive_configuration = updated
     installation.save(update_fields=["sensitive_configuration", "updated_at"])
 
+    logger.info("OAuth token refreshed successfully", installation_id=str(installation.id))
     return updated
 
 
-def exchange_known_provider_token(*, kind: str, code: str, redirect_uri: str) -> dict:
-    oauth_config = OauthIntegration.oauth_config_for_kind(kind)
-
-    token_response = requests.post(
-        oauth_config.token_url,
-        data={
-            "client_id": oauth_config.client_id,
-            "client_secret": oauth_config.client_secret,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-        },
-        timeout=TIMEOUT,
-    )
-
-    if token_response.status_code != 200:
-        logger.error("OAuth token exchange failed", status_code=token_response.status_code, error=token_response.text)
-        raise OAuthTokenExchangeError("Failed to exchange authorization code")
-
-    return token_response.json()
-
-
-def exchange_dcr_token(
+def exchange_oauth_token(
     *,
-    server: MCPServer,
+    installation: MCPServerInstallation,
     code: str,
     pkce_verifier: str,
     redirect_uri: str,
     is_https: Callable[[str], bool],
 ) -> dict:
+    """Exchange an authorization code for tokens using the installation's resolved client creds.
+
+    Works for both template-backed installs (shared client creds from
+    ``MCPServerTemplate.oauth_credentials``) and user-added installs (per-user
+    DCR creds stored in ``sensitive_configuration``).
+    """
     if not pkce_verifier:
         raise OAuthTokenExchangeError("Missing PKCE verifier")
 
-    if not server.oauth_metadata or not server.oauth_client_id:
-        raise OAuthTokenExchangeError("Server missing OAuth configuration")
+    try:
+        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+    except ValueError as exc:
+        raise OAuthTokenExchangeError(str(exc))
 
-    token_endpoint = server.oauth_metadata["token_endpoint"]
+    token_endpoint = metadata.get("token_endpoint", "")
+    if not token_endpoint:
+        raise OAuthTokenExchangeError("Missing token_endpoint in OAuth metadata")
 
     allowed, reason = is_url_allowed(token_endpoint)
     if not allowed:
@@ -289,20 +365,25 @@ def exchange_dcr_token(
     if not is_https(token_endpoint):
         raise OAuthTokenExchangeError("Token endpoint must use HTTPS")
 
-    token_response = requests.post(
-        token_endpoint,
-        data={
-            "client_id": server.oauth_client_id,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code",
-            "code_verifier": pkce_verifier,
-        },
-        timeout=TIMEOUT,
-    )
+    form: dict[str, str] = {
+        "client_id": client_id,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+        "code_verifier": pkce_verifier,
+    }
+    if client_secret:
+        form["client_secret"] = client_secret
 
-    if token_response.status_code != 200:
-        logger.error("DCR token exchange failed", status_code=token_response.status_code, error=token_response.text)
+    token_response = requests.post(token_endpoint, data=form, timeout=TIMEOUT)
+
+    # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
+    if not token_response.ok:
+        logger.error(
+            "OAuth token exchange failed",
+            status_code=token_response.status_code,
+            error=token_response.text,
+        )
         raise OAuthTokenExchangeError("Failed to exchange authorization code")
 
     return token_response.json()

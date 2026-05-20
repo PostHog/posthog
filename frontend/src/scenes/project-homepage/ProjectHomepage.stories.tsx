@@ -97,7 +97,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const ProjectHomepage: Story = {}
 
 const teamWithNoPrimaryDashboard = { ...MOCK_DEFAULT_TEAM, primary_dashboard: null }

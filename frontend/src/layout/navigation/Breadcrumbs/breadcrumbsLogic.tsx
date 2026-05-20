@@ -208,11 +208,12 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
     })),
     afterMount(({ cache }) => {
         cache.syncTitle = (): void => {
-            if (
-                document.visibilityState === 'visible' &&
-                cache.desiredTitle != null &&
-                document.title !== cache.desiredTitle
-            ) {
+            if (cache.desiredTitle == null || document.title === cache.desiredTitle) {
+                return
+            }
+            // Chrome treats background title updates as a reason to keep a tab alive,
+            // so we always defer syncing until the page is visible again.
+            if (document.visibilityState === 'visible') {
                 document.title = cache.desiredTitle
             }
         }

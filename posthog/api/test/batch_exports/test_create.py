@@ -1049,28 +1049,8 @@ def databricks_integration(team, user):
     )
 
 
-@pytest.fixture
-def enable_databricks(team):
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True
-    ) as feature_enabled:
-        yield
-        feature_enabled.assert_any_call(
-            "databricks-batch-exports",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
-
 def test_creating_databricks_batch_export_using_integration(
-    client: HttpClient, temporal, organization, team, user, databricks_integration, enable_databricks
+    client: HttpClient, temporal, organization, team, user, databricks_integration
 ):
     """Test that we can create a Databricks batch export using an integration.
 
@@ -1115,42 +1095,8 @@ def test_creating_databricks_batch_export_using_integration(
     assert schedule.schedule.action.workflow == "databricks-export"
 
 
-def test_creating_databricks_batch_export_fails_if_feature_flag_is_not_enabled(
-    client: HttpClient, temporal, organization, team, user, databricks_integration
-):
-    """Test that creating a Databricks batch export fails if the feature flag is not enabled."""
-
-    destination_data = {
-        "type": "Databricks",
-        "config": {
-            "http_path": "my-http-path",
-            "catalog": "my-catalog",
-            "schema": "my-schema",
-            "table_name": "my-table-name",
-        },
-        "integration": databricks_integration.id,
-    }
-
-    batch_export_data = {
-        "name": "my-databricks-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    response = create_batch_export(
-        client,
-        team.pk,
-        batch_export_data,
-    )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    assert "The Databricks destination is not enabled for this team." in response.json()["detail"]
-
-
 def test_creating_databricks_batch_export_fails_if_integration_is_missing(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is missing.
 
@@ -1190,7 +1136,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is invalid.
 
@@ -1282,7 +1228,7 @@ def test_creating_databricks_batch_export_fails_if_integration_does_not_exist(
 
 
 def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correct_type(
-    client: HttpClient, temporal, organization, team, user, enable_databricks
+    client: HttpClient, temporal, organization, team, user
 ):
     """Test that creating a Databricks batch export fails if the integration is not the correct type.
 
@@ -1327,41 +1273,6 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     assert response.json()["detail"] == "Integration is not a Databricks integration."
 
 
-def test_creating_azure_blob_batch_export_fails_if_feature_flag_is_not_enabled(
-    client: HttpClient,
-    team,
-    user,
-):
-    """Test that creating an Azure Blob batch export fails if the feature flag is not enabled."""
-    destination_data = {
-        "type": "AzureBlob",
-        "config": {
-            "container_name": "test-container",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-azure-blob-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
-    client.force_login(user)
-
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=False,
-    ):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-    assert "Azure Blob Storage batch exports are not enabled for this team." in response.json()["detail"]
-
-
 @pytest.fixture
 def azure_blob_integration(team, user):
     """Create an Azure Blob integration."""
@@ -1398,15 +1309,11 @@ def test_creating_azure_blob_batch_export_using_integration(
 
     client.force_login(user)
 
-    with mock.patch(
-        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
-        return_value=True,
-    ):
-        response = create_batch_export(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
     assert response.status_code == status.HTTP_201_CREATED, response.json()
 
@@ -1466,61 +1373,23 @@ def test_creating_http_batch_export_only_allows_events_model(
         assert response.json()["detail"] == expected_error
 
 
+_S3_FILTER_TEST_CONFIG = {
+    "bucket_name": "my-s3-bucket",
+    "region": "us-east-1",
+    "prefix": "posthog-events/",
+    "aws_access_key_id": "abc123",
+    "aws_secret_access_key": "secret",
+}
+
+
 @pytest.mark.parametrize(
-    "type,filters,config,expected_status,expected_error",
+    "filters,expected_status,expected_error",
     [
+        ({"filters": {"filter_something": 123}}, status.HTTP_400_BAD_REQUEST, "should be an array"),
+        (None, status.HTTP_201_CREATED, None),
+        ([], status.HTTP_201_CREATED, None),
         (
-            "BigQuery",
-            {"filters": {"filter_something": 123}},
-            {
-                "project_id": "test",
-                "dataset_id": "test",
-                "private_key": "pkey",
-                "private_key_id": "pkey_id",
-                "token_uri": "token",
-                "client_email": "email",
-            },
-            status.HTTP_400_BAD_REQUEST,
-            "should be an array",
-        ),
-        (
-            "BigQuery",
-            None,
-            {
-                "project_id": "test",
-                "dataset_id": "test",
-                "private_key": "pkey",
-                "private_key_id": "pkey_id",
-                "token_uri": "token",
-                "client_email": "email",
-            },
-            status.HTTP_201_CREATED,
-            None,
-        ),
-        (
-            "BigQuery",
-            [],
-            {
-                "project_id": "test",
-                "dataset_id": "test",
-                "private_key": "pkey",
-                "private_key_id": "pkey_id",
-                "token_uri": "token",
-                "client_email": "email",
-            },
-            status.HTTP_201_CREATED,
-            None,
-        ),
-        (
-            "S3",
             [{"data_interval_start": "2025-01-01"}],
-            {
-                "bucket_name": "my-s3-bucket",
-                "region": "us-east-1",
-                "prefix": "posthog-events/",
-                "aws_access_key_id": "abc123",
-                "aws_secret_access_key": "secret",
-            },
             status.HTTP_400_BAD_REQUEST,
             "not 'filters'. Trigger a backfill",
         ),
@@ -1532,17 +1401,15 @@ def test_creating_batch_export_with_filters(
     organization,
     team,
     user,
-    type,
     filters,
-    config,
     expected_status,
     expected_error,
 ):
     """Test validation of the filters field when creating a batch export."""
 
     destination_data = {
-        "type": type,
-        "config": config,
+        "type": "S3",
+        "config": _S3_FILTER_TEST_CONFIG,
     }
 
     batch_export_data = {

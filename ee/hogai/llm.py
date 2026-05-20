@@ -1,10 +1,12 @@
 import datetime
 from collections.abc import Mapping
-from typing import Any
+from functools import cached_property
+from typing import Any, cast
 
 from django.conf import settings
 
 import pytz
+import anthropic
 import structlog
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
@@ -30,13 +32,27 @@ BILLING_SKIPPED_COUNTER = Counter(
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
 The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
-All PostHog app URLs (known by domains us.posthog.com, eu.posthog.com, app.posthog.com) must use absolute paths without a domain, and omitting the `/project/:id/` prefix.
-Use Markdown, for example "Find cohorts [in the Cohorts view](/cohorts)".
+All PostHog app URLs must use relative paths without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs.
+Use Markdown with descriptive anchor text, for example "[Cohorts view](/cohorts)".
+
+Key URL patterns:
+- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
+- Data management: `/data-management/events`, `/data-management/properties`
+- Billing: `/organization/billing`
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
+{{#person_on_events_enabled}}
+Person-on-events mode is enabled. When querying `person.properties.*` on the events table, values reflect what was set at the time the event was ingested, not the person's current value. The same person can have different property values across different events. Do not suggest workarounds for "query-time" person properties.
+{{/person_on_events_enabled}}
+{{^person_on_events_enabled}}
+Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred.
+{{/person_on_events_enabled}}
 """.strip()
 
 # https://platform.openai.com/docs/guides/flex-processing
 OPENAI_FLEX_MODELS = ["o3", "o4-mini", "gpt5", "gpt5-mini", "gpt5-nano"]
+
+# Map "http://", "https://", and "all://" to None in Client's mounts to bypass proxies for MaxChatAnthropic.
+_BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all://": None}
 
 
 class MaxChatMixin(BaseModel):
@@ -92,6 +108,7 @@ class MaxChatMixin(BaseModel):
             "user_full_name": self.user.get_full_name(),
             "user_email": self.user.email,
             "deployment_region": region,
+            "person_on_events_enabled": self.team.person_on_events_querying_enabled,
         }
 
     @sync_to_async
@@ -152,7 +169,7 @@ class MaxChatMixin(BaseModel):
         posthog_props = dict(self.posthog_properties or {})
         posthog_props["$ai_billable"] = self._get_effective_billable()
         posthog_props["team_id"] = self.team.id
-        posthog_props["ai_product"] = "posthog_ai"
+        posthog_props.setdefault("ai_product", "posthog_ai")
 
         metadata["posthog_properties"] = posthog_props
         new_kwargs["metadata"] = metadata
@@ -231,6 +248,49 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     This subclass automatically injects project, organization, and user context as the final part of the system prompt.
     It also makes sure we retry automatically in case of errors.
     """
+
+    bypass_proxy: bool = False
+    """
+    If True, bypasses egress proxies (HTTP_PROXY/etc)—use for private LLM gateway; if False, default behavior.
+    """
+
+    @cached_property
+    def _client(self) -> anthropic.Client:
+        if not self.bypass_proxy:
+            # Defer to upstream so the lru_cache'd httpx client and default proxy behavior are preserved.
+            return cast(anthropic.Client, ChatAnthropic._client.func(self))  # type: ignore[attr-defined]
+        return anthropic.Client(
+            **self._client_params,
+            http_client=anthropic.DefaultHttpxClient(**self._bypass_http_client_kwargs()),
+        )
+
+    @cached_property
+    def _async_client(self) -> anthropic.AsyncClient:
+        if not self.bypass_proxy:
+            return cast(anthropic.AsyncClient, ChatAnthropic._async_client.func(self))  # type: ignore[attr-defined]
+        return anthropic.AsyncClient(
+            **self._client_params,
+            http_client=anthropic.DefaultAsyncHttpxClient(**self._bypass_http_client_kwargs()),
+        )
+
+    def _bypass_http_client_kwargs(self) -> dict[str, Any]:
+        """Builds kwargs for ``anthropic.DefaultHttpxClient`` / ``DefaultAsyncHttpxClient`` to bypass the Smokescreen egress proxy without altering other SDK defaults.
+
+        Instead of using ``trust_env=False``, which is ineffective due to SDK internals, we set ``mounts={"http://": None, "https://": None, "all://": None}`` to override environment proxy settings. This approach preserves all other Anthropic SDK connection defaults, such as timeouts, pool limits, and transport settings.
+
+        This depends on the SDK merging the ``mounts`` kwarg on top of its proxy settings and retaining its defaults—guarded by tests in ``test_llm.py``.
+        """
+
+        client_params = self._client_params
+        kwargs: dict[str, Any] = {
+            "base_url": client_params["base_url"],
+            "mounts": dict(_BYPASS_PROXY_MOUNTS),
+        }
+        if "timeout" in client_params:
+            # Forward the caller's timeout (langchain-anthropic always sets this key, even when
+            # the value is None) so the bypass path matches the non-bypass path's timeout exactly.
+            kwargs["timeout"] = client_params["timeout"]
+        return kwargs
 
     def generate(
         self,

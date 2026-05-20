@@ -5,6 +5,7 @@ from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_EVENTS_JSON,
+    CONSUMER_GROUP_EVENTS_JSON_WS,
     KAFKA_COLUMNS,
     STORAGE_POLICY,
     kafka_engine,
@@ -71,62 +72,29 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 """
 
 
+# Shared per-team allocation: each team picks its slots independently from this range, and
+# (team_id, slot_index) → property_name is resolved at write/read time via the dmat dictionary.
+# Cap matches MAX_SLOTS_PER_TEAM so every team can fully saturate its slots.
+DMAT_STRING_COLUMN_COUNT = 10
+
+
 def EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
-    s = []
-
-    # Add string columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_string_{i}` Nullable(String)")
-
-    # Add numeric columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_numeric_{i}` Nullable(Float64)")
-
-    # Add bool columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_bool_{i}` Nullable(UInt8)")
-
-    # Add datetime columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
-
+    s = [f"`dmat_string_{i}` Nullable(String)" for i in range(DMAT_STRING_COLUMN_COUNT)]
     return f"    , {'\n    , '.join(s)}"
 
 
 def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
-    s = []
+    return ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table, 0, DMAT_STRING_COLUMN_COUNT)
 
-    # Add string columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)")
 
-    # Add numeric columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_numeric_{i}` Nullable(Float64)")
-
-    # Add bool columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_bool_{i}` Nullable(UInt8)")
-
-    # Add datetime columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
-
-    separator = ",\n"
-    return f"ALTER TABLE {table} \n {separator.join(s)}"
+def ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table: str, start: int, end_exclusive: int) -> str:
+    """ALTER TABLE statement adding dmat_string columns in a half-open index range."""
+    pieces = [f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)" for i in range(start, end_exclusive)]
+    return f"ALTER TABLE {table} \n {',\n'.join(pieces)}"
 
 
 def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
-    s = []
-    for i in range(10):
-        s.append(f"dmat_string_{i}")
-    for i in range(10):
-        s.append(f"dmat_numeric_{i}")
-    for i in range(10):
-        s.append(f"dmat_bool_{i}")
-    for i in range(10):
-        s.append(f"dmat_datetime_{i}")
-    return ",\n".join(s)
+    return ",\n".join(f"dmat_string_{i}" for i in range(DMAT_STRING_COLUMN_COUNT))
 
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
@@ -149,6 +117,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$session_id_uuid` `$session_id_uuid` TYPE minmax GRANULARITY 1
     , {", ".join(property_groups.get_create_table_pieces("sharded_events"))}
 """
 
@@ -198,7 +167,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 
 EVENTS_TABLE_INSERTED_AT_INDEX_SQL = """
 ALTER TABLE {table_name} ON CLUSTER {cluster}
-ADD INDEX `minmax_inserted_at` COALESCE(`inserted_at`, `_timestamp`)
+ADD INDEX IF NOT EXISTS `minmax_inserted_at` COALESCE(`inserted_at`, `_timestamp`)
 TYPE minmax
 GRANULARITY 1
 """.format(table_name=EVENTS_DATA_TABLE(), cluster=settings.CLICKHOUSE_CLUSTER)
@@ -213,8 +182,14 @@ MATERIALIZE INDEX `minmax_inserted_at`
 # the max block size to consume from kafka such that we skip _all_ broken messages
 # this is an added safety mechanism given we control payloads to this topic
 
+KAFKA_EVENTS_JSON_TABLE = "kafka_events_json"
+EVENTS_JSON_MV = "events_json_mv"
 
-def KAFKA_EVENTS_TABLE_JSON_SQL():
+DROP_KAFKA_EVENTS_JSON_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_EVENTS_JSON_TABLE}"
+DROP_EVENTS_JSON_MV_SQL = f"DROP TABLE IF EXISTS {EVENTS_JSON_MV}"
+
+
+def KAFKA_EVENTS_TABLE_JSON_SQL(on_cluster=True):
     return (
         EVENTS_TABLE_BASE_SQL
         + """
@@ -222,7 +197,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
 """
     ).format(
         table_name="kafka_events_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON),
         extra_fields="",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
@@ -231,9 +206,28 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
     )
 
 
-EVENTS_TABLE_JSON_MV_SQL = (
-    lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER '{cluster}'
+# NOTE: All parameters must have defaults - zero-argument calls must remain valid.
+# 8+ frozen migrations and schema.py reference this function without parameters.
+#
+# Override parameters to create separate pipelines that reuse the events schema:
+# - mv_name: unique MV name to avoid conflicts with the main events_json_mv
+# - kafka_table: different Kafka table consuming from a different topic
+# - target_table: different target table for the MV to write to
+# - on_cluster: False when running on specific node roles (e.g., ingestion layer)
+#
+# Example: error_tracking_events_test uses custom values to create a parallel
+# pipeline for validating Node.js ingestion output against the Python pipeline.
+def EVENTS_TABLE_JSON_MV_SQL(
+    mv_name="events_json_mv",
+    kafka_table="kafka_events_json",
+    target_table=None,
+    on_cluster=True,
+):
+    if target_table is None:
+        target_table = WRITABLE_EVENTS_DATA_TABLE()
+
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -269,14 +263,54 @@ arrayMap(
         arrayEnumerate(_headers.name)
     )
 ) as consumer_breadcrumbs
-FROM {database}.kafka_events_json
+FROM {database}.{kafka_table}
 """.format(
-        target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        mv_name=mv_name,
+        kafka_table=kafka_table,
+        target_table=target_table,
         dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
     )
-)
+
+
+# WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
+
+KAFKA_EVENTS_JSON_WS_TABLE = "kafka_events_json_ws"
+EVENTS_JSON_WS_MV = "events_json_ws_mv"
+
+DROP_KAFKA_EVENTS_JSON_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_EVENTS_JSON_WS_TABLE}"
+DROP_EVENTS_JSON_WS_MV_SQL = f"DROP TABLE IF EXISTS {EVENTS_JSON_WS_MV}"
+
+
+def KAFKA_EVENTS_TABLE_JSON_WS_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """
+    SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_num_consumers = 1
+"""
+    ).format(
+        table_name=KAFKA_EVENTS_JSON_WS_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_EVENTS_JSON,
+            group=CONSUMER_GROUP_EVENTS_JSON_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        materialized_columns="",
+        indexes="",
+    )
+
+
+def EVENTS_TABLE_JSON_WS_MV_SQL():
+    return EVENTS_TABLE_JSON_MV_SQL(
+        mv_name=EVENTS_JSON_WS_MV,
+        kafka_table=KAFKA_EVENTS_JSON_WS_TABLE,
+        on_cluster=False,
+    )
+
 
 # Events recent tables
 

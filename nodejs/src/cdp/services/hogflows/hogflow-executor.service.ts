@@ -28,6 +28,7 @@ import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
+import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import {
     actionIdForLogging,
@@ -78,11 +79,14 @@ export function createHogFlowInvocation(
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
+    private readonly duplicateObserver: HogFlowDuplicateObserverService | null
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
-        recipientPreferencesService: RecipientPreferencesService
+        recipientPreferencesService: RecipientPreferencesService,
+        duplicateObserver?: HogFlowDuplicateObserverService
     ) {
+        this.duplicateObserver = duplicateObserver ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -146,6 +150,13 @@ export class HogFlowExecutorService {
             metrics,
             logs,
         }
+    }
+
+    private async observeDuplicateInvocation(
+        invocation: CyclotronJobInvocationHogFlow,
+        currentAction: HogFlowAction
+    ): Promise<void> {
+        await this.duplicateObserver?.observe(invocation, currentAction)
     }
 
     async execute(
@@ -337,6 +348,8 @@ export class HogFlowExecutorService {
 
                 return result
             }
+
+            await this.observeDuplicateInvocation(invocation, currentAction)
 
             result.logs.push({
                 level: 'debug',

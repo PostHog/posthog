@@ -11,26 +11,26 @@ permissions:
     pull-requests: write
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 jobs:
     check-version:
         name: Check version legitimacy
         runs-on: ubuntu-22.04
+        timeout-minutes: 5
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
                   filter: blob:none
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
-              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
-                  since_last_remote_commit: true
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
@@ -41,18 +41,28 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
-                  FORK_MESSAGE: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || '' }}
+                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   parser_release_needed='false'
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
                     published=$(curl -fSsl https://pypi.org/pypi/hogql-parser/json | jq -r '.info.version')
-                    local=$(python common/hogql_parser/setup.py --version)
+                    local=$(cd common/hogql_parser && python setup.py --version)
                     if [[ "$published" != "$local" ]]; then
                       parser_release_needed='true'
                     else
-                      message_body="It looks like the code of \`hogql-parser\` has changed since last push, but its version stayed the same at $local. 👀\nMake sure to resolve this in \`hogql_parser/setup.py\` before merging!$FORK_MESSAGE"
-                      gh pr comment "$PR_NUMBER" --body "$message_body"
+                      message_body="It looks like the code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local. 👀"
+                      message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/setup.py\` before merging!"
+                      if [[ "$IS_FORK" == 'true' ]]; then
+                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
+                      fi
+                      # Post once, then edit in place on subsequent pushes
+                      existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser.*version stayed the same.*👀")) | .id' | tail -1)
+                      if [[ -n "$existing" ]]; then
+                        gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                      else
+                        gh pr comment "$PR_NUMBER" --body "$message_body"
+                      fi
                     fi
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
@@ -66,10 +76,7 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         strategy:
             matrix:
-                # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
-                # (20x longer) on the Linux runners (while being reasonable on the macOS runners). Hence, we use
-                # BuildJet as a provider of ARM runners - this solution saves a lot of time and consequently some money.
-                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-14, macos-15-intel]
+                os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, macos-15-intel]
                 include:
                     - os: macos-14
                       cibw_archs_macos: arm64
@@ -80,12 +87,12 @@ jobs:
                     - os: ubuntu-22.04
                       cibw_archs_linux: x86_64
                       MACOSX_DEPLOYMENT_TARGET: ''
-                    - os: buildjet-2vcpu-ubuntu-2204-arm
+                    - os: ubuntu-22.04-arm
                       cibw_archs_linux: aarch64
                       MACOSX_DEPLOYMENT_TARGET: ''
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -103,6 +110,7 @@ jobs:
             - name: Build wheels
               run: cd common/hogql_parser && python -m cibuildwheel --output-dir dist
               env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   CIBW_ARCHS_MACOS: ${{ matrix.cibw_archs_macos }}
                   CIBW_ARCHS_LINUX: ${{ matrix.cibw_archs_linux }}
                   MACOSX_DEPLOYMENT_TARGET: ${{ matrix.MACOSX_DEPLOYMENT_TARGET }}
@@ -123,6 +131,7 @@ jobs:
         permissions:
             id-token: write
         runs-on: ubuntu-22.04
+        timeout-minutes: 10
         steps:
             - name: Download wheels from ubuntu-22.04
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -130,10 +139,10 @@ jobs:
                   name: wheels-ubuntu-22.04
                   path: dist
 
-            - name: Download wheels from buildjet-2vcpu-ubuntu-2204-arm
+            - name: Download wheels from ubuntu-22.04-arm
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  name: wheels-buildjet-2vcpu-ubuntu-2204-arm
+                  name: wheels-ubuntu-22.04-arm
                   path: dist
 
             - name: Download wheels from macos-14
@@ -154,12 +163,12 @@ jobs:
             # Use GitHub app token so Actions run after commiting changes
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   token: ${{ steps.app-token.outputs.token }}
@@ -183,9 +192,15 @@ jobs:
               env:
                   RETRIES: 20
               run: |
-                  # In case the version is not available yet, try up to $RETRIES times
-                  for i in {1..$RETRIES}; do
-                      if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
+                  # setuptools isn't installed by default after actions/setup-python, but
+                  # `python setup.py --version` needs it. Mirrors the sdist step above.
+                  pip install setuptools==80.9.0
+                  VERSION=$(cd common/hogql_parser && python setup.py --version)
+                  # `--refresh-package` bypasses the restored uv index cache, which
+                  # otherwise won't have the version we just published. Retry anyway
+                  # in case PyPI propagation lags the publish step.
+                  for i in $(seq 1 "$RETRIES"); do
+                      if uv add --refresh-package hogql-parser "hogql-parser==$VERSION"; then
                           break
                       fi
                       if [[ $i -eq $RETRIES ]]; then
@@ -195,9 +210,23 @@ jobs:
                       sleep 0.5
                   done
 
-            - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
+            - uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
+              id: commit-pin
               with:
-                  add: '["pyproject.toml", "uv.lock"]'
+                  add: |
+                      pyproject.toml
+                      uv.lock
                   message: 'Use new hogql-parser version'
                   default_author: github_actions
                   github_token: ${{ steps.app-token.outputs.token }}
+
+            - name: Fail if pin update produced no commit
+              shell: bash
+              env:
+                  PUSHED: ${{ steps.commit-pin.outputs.pushed }}
+              run: |
+                  if [[ "$PUSHED" != "true" ]]; then
+                    echo "::error::hogql-parser wheel was published to PyPI but pyproject.toml pin was not updated."
+                    echo "Check the 'Update hogql-parser in requirements' step above for why uv add did not produce a diff."
+                    exit 1
+                  fi

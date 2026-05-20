@@ -17,6 +17,7 @@ jobs:
     # When a non-draft PR is labeled "priority-review", or a labeled PR is undrafted
     notify-priority-review:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: >-
             github.event.pull_request.head.repo.full_name == github.repository
             && (
@@ -32,7 +33,7 @@ jobs:
         steps:
             - name: Get author display name and escape PR title
               id: meta
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const { data: user } = await github.rest.users.getByUsername({
@@ -55,7 +56,7 @@ jobs:
 
             - name: Post to Slack
               id: slack
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -81,7 +82,7 @@ jobs:
                     '{channel: $channel, ts: $ts}' > .priority-review-slack
 
             - name: Cache Slack message info
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
@@ -89,12 +90,13 @@ jobs:
     # When a priority-review PR is closed or merged, update the Slack message
     cleanup-closed:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: >-
             github.event.action == 'closed'
             && contains(github.event.pull_request.labels.*.name, 'priority-review')
         steps:
             - name: Restore Slack message info
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
@@ -113,7 +115,7 @@ jobs:
             - name: Escape PR title and determine status
               if: steps.slack_msg.outputs.found == 'true'
               id: meta
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       function escapeSlack(str) {
@@ -134,7 +136,7 @@ jobs:
             - name: Update Slack message
               if: steps.slack_msg.outputs.found == 'true'
               continue-on-error: true
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -152,13 +154,14 @@ jobs:
     # When a priority-review PR is approved, update the Slack message
     notify-reviewed:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: >-
             github.event.action == 'submitted'
             && github.event.review.state == 'approved'
             && contains(github.event.pull_request.labels.*.name, 'priority-review')
         steps:
             - name: Restore Slack message info
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .priority-review-slack
                   key: priority-review-slack-pr-${{ github.event.pull_request.number }}
@@ -177,7 +180,7 @@ jobs:
             - name: Get display names and escape PR title
               if: steps.slack_msg.outputs.found == 'true'
               id: meta
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       function escapeSlack(str) {
@@ -202,7 +205,7 @@ jobs:
             - name: Add checkmark reaction
               if: steps.slack_msg.outputs.found == 'true'
               continue-on-error: true # already_reacted is expected on multi-approval PRs
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: reactions.add
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -215,7 +218,7 @@ jobs:
             - name: Update main message
               if: steps.slack_msg.outputs.found == 'true'
               continue-on-error: true
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}

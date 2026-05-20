@@ -4,10 +4,11 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.models import Experiment, FeatureFlag
+from posthog.models import FeatureFlag
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.experiments.backend.max_tools import SessionReplaySummaryTool
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.hogai.utils.types import AssistantState
 

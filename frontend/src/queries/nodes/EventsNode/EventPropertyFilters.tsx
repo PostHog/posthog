@@ -56,6 +56,9 @@ export function EventPropertyFilters<
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
                     TaxonomicFilterGroupType.HogQLExpression,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.Screens,
+                    TaxonomicFilterGroupType.EmailAddresses,
                 ]
             }
             onChange={(value: AnyPropertyFilter[]) => {

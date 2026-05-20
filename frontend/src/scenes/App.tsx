@@ -1,40 +1,54 @@
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import React, { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { Command } from 'lib/components/Command/Command'
-import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { GlobalModals } from '~/layout/GlobalModals'
-import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
-import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
-import { MaxInstance } from './max/Max'
+import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
+
+const AuthenticatedShell = React.lazy(() => import('./AuthenticatedShell'))
 
 window.process = MOCK_NODE_PROCESS
+
+/**
+ * Wraps each rendered scene so that when the scene unmounts (on tab change
+ * or scene swap), every running CSS / Web Animation under it is cancelled
+ * before the DOM detaches. This severs the `DocumentTimeline -> animation
+ * -> element` chain that otherwise pins detached scene trees in memory
+ * across SPA navigation, and lets the browser GC the trees normally.
+ *
+ * `display: contents` keeps the wrapper transparent to layout.
+ */
+function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.Element {
+    const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
+    return (
+        // `className="contents"` is load-bearing: the wrapper must take a DOM
+        // node so the ref has something to attach to (we need an element to
+        // call `getAnimations({ subtree: true })` on), but it must also be
+        // transparent to layout. `display: contents` removes it from the box
+        // tree so children render as if there's no wrapper.
+        <div ref={ref} className="contents">
+            {children}
+        </div>
+    )
+}
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
-    useMountedLogic(apiStatusLogic)
-    useMountedLogic(eventIngestionRestrictionLogic)
-    useMountedLogic(globalSetupLogic)
 
     useThemedHtml()
 
@@ -51,7 +65,6 @@ export function App(): JSX.Element | null {
 }
 
 function AppScene(): JSX.Element | null {
-    useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
     const {
         activeSceneId,
@@ -60,15 +73,28 @@ function AppScene(): JSX.Element | null {
         activeSceneLogicPropsWithTabId,
         sceneConfig,
     } = useValues(sceneLogic)
-    const { showingDelayedSpinner, hasExitedAIOnlyMode } = useValues(appLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    // Highlight any relevant element after navigation from the quick start guide
-    useSetupHighlight()
+    // Once we know the user is authenticated, kick off an idle prefetch of the
+    // AuthenticatedShell chunk so the Suspense fallback rarely actually fires
+    // when the shell mounts. No-op on prefetch failure — Suspense still works.
+    useEffect(() => {
+        if (!user) {
+            return
+        }
+        const idle =
+            typeof window.requestIdleCallback === 'function'
+                ? window.requestIdleCallback.bind(window)
+                : (cb: () => void) => setTimeout(cb, 200)
+        idle(() => {
+            void import('./AuthenticatedShell').catch(() => {
+                /* prefetch is best-effort; the real Suspense load will surface failures */
+            })
+        })
+    }, [user])
 
-    const toastContainer = (
+    const unauthToastContainer = (
         <ToastContainer
             autoClose={6000}
             transition={Slide}
@@ -78,53 +104,37 @@ function AppScene(): JSX.Element | null {
         />
     )
 
-    if (featureFlags[FEATURE_FLAGS.AI_ONLY_MODE] && !hasExitedAIOnlyMode) {
-        return (
-            <>
-                <div
-                    className="fixed inset-0 bg-surface-secondary flex flex-col overflow-auto"
-                    ref={() => {
-                        // HACK: Normally DebugNotice removes the HTML-level debug bar, but in this case we don't have the nav rendering DebugNotice
-                        document.getElementById('bottom-notice')?.remove()
-                    }}
-                >
-                    <MaxInstance tabId="ai-only-mode" sidePanel isAIOnlyMode />
-                </div>
-                {toastContainer}
-            </>
-        )
-    }
-
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {
         const { component: SceneComponent } = activeExportedScene
         sceneElement = (
-            <SceneComponent
-                key={`tab-${activeSceneLogicPropsWithTabId.tabId}`}
-                user={user}
-                {...activeSceneComponentParamsWithTabId}
-            />
+            <SceneAnimationRoot key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}>
+                <SceneComponent user={user} {...activeSceneComponentParamsWithTabId} />
+            </SceneAnimationRoot>
         )
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
+
+    const sceneContent = activeExportedScene?.logic ? (
+        <BindLogic
+            key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
+            logic={activeExportedScene.logic}
+            props={activeSceneLogicPropsWithTabId}
+        >
+            {sceneElement}
+        </BindLogic>
+    ) : (
+        sceneElement
+    )
 
     const wrappedSceneElement = (
         <ErrorBoundary
             key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
             exceptionProps={{ feature: activeSceneId }}
         >
-            {activeExportedScene?.logic ? (
-                <BindLogic
-                    key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
-                    logic={activeExportedScene.logic}
-                    props={activeSceneLogicPropsWithTabId}
-                >
-                    {sceneElement}
-                </BindLogic>
-            ) : (
-                sceneElement
-            )}
+            {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
+            <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>
     )
 
@@ -132,19 +142,23 @@ function AppScene(): JSX.Element | null {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <>
                 {wrappedSceneElement}
-                {toastContainer}
+                {unauthToastContainer}
             </>
         ) : null
     }
 
     return (
-        <div className="contents isolate">
-            <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
-            {toastContainer}
-            <GlobalModals />
-            <GlobalShortcuts />
-            <Command />
-            <ImpersonationNotice />
-        </div>
+        <ChunkLoadErrorBoundary>
+            <Suspense
+                fallback={
+                    // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.
+                    <div className="relative h-screen">
+                        <SpinnerOverlay sceneLevel />
+                    </div>
+                }
+            >
+                <AuthenticatedShell>{wrappedSceneElement}</AuthenticatedShell>
+            </Suspense>
+        </ChunkLoadErrorBoundary>
     )
 }

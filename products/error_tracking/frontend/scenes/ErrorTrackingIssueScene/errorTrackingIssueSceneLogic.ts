@@ -5,7 +5,12 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import {
+    ErrorEventProperties,
+    ErrorEventType,
+    ErrorTrackingFingerprint,
+    ErrorTrackingSpikeEvent,
+} from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
@@ -26,13 +31,14 @@ import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } fro
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
+    DEFAULT_DATE_RANGE,
     issueFiltersLogic,
     triggerFilterActions,
     updateFilterSearchParams,
 } from '../../components/IssueFilters/issueFiltersLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery, errorTrackingSimilarIssuesQuery } from '../../queries'
 import { syncSearchParams } from '../../utils'
-import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../../utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, dateRangeToIsoBounds } from '../../utils'
 import {
     DEFAULT_CATEGORY,
     ErrorTrackingIssueSceneCategory,
@@ -84,6 +90,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         loadIssue: true,
         loadSummary: true,
         loadInitialEvent: (timestamp: string) => ({ timestamp }),
+        setMobileDetailOpen: (mobileDetailOpen: boolean) => ({ mobileDetailOpen }),
         setInitialEventTimestamp: (timestamp: string | null) => ({ timestamp }),
         setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         setLastSeen: (lastSeen: string) => ({ lastSeen }),
@@ -99,6 +106,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
         setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
+        setListDateRange: (dateRange: DateRange) => ({ dateRange }),
     }),
 
     defaults({
@@ -108,10 +116,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         lastSeen: null as Dayjs | null,
         initialEvent: null as ErrorEventType | null,
         selectedEvent: null as ErrorEventType | null,
+        mobileDetailOpen: false as boolean,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
         similarIssuesMaxDistance: 0.2 as number,
         similarIssuesError: null as string | null,
+        listDateRange: null as DateRange | null,
     }),
 
     reducers(({ values }) => ({
@@ -148,6 +158,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return event
             },
+        },
+        mobileDetailOpen: {
+            setMobileDetailOpen: (_, { mobileDetailOpen }) => mobileDetailOpen,
+        },
+        listDateRange: {
+            setListDateRange: (_, { dateRange }) => dateRange,
         },
     })),
 
@@ -278,24 +294,38 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
             },
         ],
+        spikeEvents: [
+            [] as ErrorTrackingSpikeEvent[],
+            {
+                loadSpikeEvents: async () => {
+                    const { dateFrom, dateTo } = dateRangeToIsoBounds(values.dateRange)
+                    const response = await api.errorTracking.getSpikeEvents({
+                        issueIds: [props.id],
+                        dateFrom,
+                        dateTo,
+                    })
+                    return response.results
+                },
+            },
+        ],
     })),
 
     selectors(({ actions }) => ({
         breadcrumbs: [
-            (s) => [s.issue, s.dateRange, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (s) => [s.issue, s.listDateRange, s.filterTestAccounts, s.filterGroup, s.searchQuery],
             (
                 issue: ErrorTrackingRelationalIssue | null,
-                dateRange: DateRange,
+                listDateRange: DateRange | null,
                 filterTestAccounts: boolean,
                 filterGroup: UniversalFiltersGroup,
                 searchQuery: string
             ): Breadcrumb[] => {
                 const exceptionType: string = issue?.name || 'Issue'
-                // We want to keep params in sync between listing and details views
+                // Use the original list date range for back navigation
                 const urlParams = updateFilterSearchParams(
                     {},
                     {
-                        dateRange,
+                        dateRange: listDateRange ?? DEFAULT_DATE_RANGE,
                         filterTestAccounts,
                         filterGroup,
                         searchQuery,
@@ -383,7 +413,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ props, values, actions }) => {
         return {
-            setDateRange: actions.loadSummary,
+            setDateRange: () => {
+                actions.loadSummary()
+                actions.loadSpikeEvents()
+            },
             setFilterGroup: actions.loadSummary,
             setFilterTestAccounts: actions.loadSummary,
             setSearchQuery: actions.loadSummary,
@@ -438,6 +471,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
+            actions.loadSpikeEvents()
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),
@@ -445,6 +479,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     urlToAction(({ actions, values }) => {
         return {
             '**/error_tracking/:id': (_, params) => {
+                if (values.listDateRange == null) {
+                    actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
+                }
                 triggerFilterActions(params, values, actions)
                 const tab = params.tab as ErrorTrackingIssueSceneCategory | undefined
                 const category = tab && VALID_CATEGORIES.includes(tab) ? tab : DEFAULT_CATEGORY

@@ -21,6 +21,15 @@ if (request.method != 'POST') {
 }
 
 if (not inputs.bypass_signature_check) {
+  if (empty(inputs.signing_secret)) {
+    return {
+      'httpResponse': {
+        'status': 400,
+        'body': 'Signing secret not configured',
+      }
+    }
+  }
+
   let body := request.stringBody
   let signatureHeader := request.headers['stripe-signature']
 
@@ -127,11 +136,11 @@ produceToWarehouseWebhooks(request.body, schemaId)""",
             "hidden": True,
         },
         {
-            "type": "json",
-            "key": "schema_ids",
-            "label": "Schema IDs",
-            "description": "Internal mapping of Stripe object types to ExternalDataSchema IDs used for webhook detection",
-            "required": False,
+            "type": "string",
+            "key": "source_id",
+            "label": "Source ID",
+            "description": "The ExternalDataSource ID this webhook is associated with",
+            "required": True,
             "secret": False,
             "hidden": True,
         },

@@ -91,6 +91,58 @@ describe('universalFiltersLogic', () => {
         })
     })
 
+    it('addGroupFilter applies full property filter from recent taxonomic item', async () => {
+        const fullFilter: AnyPropertyFilter = {
+            key: '$browser',
+            value: 'Chrome',
+            operator: PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        }
+        const item = {
+            name: '$browser',
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                sourceGroupName: 'Event properties',
+                propertyFilter: fullFilter,
+            },
+        }
+        await expectLogic(logic, () => {
+            logic.actions.addGroupFilter(
+                { type: TaxonomicFilterGroupType.RecentFilters } as TaxonomicFilterGroup,
+                '$browser',
+                item
+            )
+        }).toMatchValues({
+            filterGroup: {
+                ...defaultFilter,
+                values: [...defaultFilter.values, fullFilter],
+            },
+        })
+    })
+
+    it('addGroupFilter pre-fills value when search matched on a property value', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.addGroupFilter(
+                { type: TaxonomicFilterGroupType.PersonProperties } as TaxonomicFilterGroup,
+                'user.email',
+                { matchedOn: 'value', matchedValue: 'frank@posthog.com' } as any
+            )
+        }).toMatchValues({
+            filterGroup: {
+                ...defaultFilter,
+                values: [
+                    ...defaultFilter.values,
+                    {
+                        key: 'user.email',
+                        value: ['frank@posthog.com'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Person,
+                    },
+                ],
+            },
+        })
+    })
+
     it('addGroupFilter', async () => {
         const property = {
             key: 'property_key',

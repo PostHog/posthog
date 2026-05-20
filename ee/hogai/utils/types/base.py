@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -22,6 +22,7 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantMessage,
     AssistantRetentionQuery,
     AssistantToolCall,
@@ -30,6 +31,7 @@ from posthog.schema import (
     AssistantUpdateEvent,
     BaseAssistantMessage,
     ContextMessage,
+    DataVisualizationNode,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
@@ -93,7 +95,12 @@ AssistantOutput = (
 )
 
 AnyAssistantGeneratedQuery = (
-    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantLifecycleQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
+    | DataVisualizationNode
 )
 AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
 
@@ -142,7 +149,7 @@ def replace_supermode(left: AgentMode | str | None, right: AgentMode | str | Non
     # If it's in left (current state), that's a bug - treat as None
     if result == CLEAR_SUPERMODE:
         return None
-    return result  # type: ignore[return-value]
+    return cast("AgentMode", result)
 
 
 def append(left: Sequence, right: Sequence) -> Sequence:
@@ -251,7 +258,9 @@ class InsightArtifact(TaskArtifact):
     An insight artifact created by a task.
     """
 
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    query: Union[
+        AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery, DataVisualizationNode
+    ]
 
 
 class TaskResult(BaseModel):
@@ -560,6 +569,7 @@ class AssistantGraphName(StrEnum):
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"
+    SUPPORT = "support_graph"
 
 
 class AssistantMode(StrEnum):
@@ -602,7 +612,14 @@ class UpdateAction(BaseModel):
     content: str | AssistantToolCall
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+class ConversationTitleAction(BaseModel):
+    type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
+    title: str
+
+
+AssistantActionUnion = (
+    MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction | ConversationTitleAction
+)
 
 
 class NodePath(BaseModel):

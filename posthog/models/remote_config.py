@@ -1,12 +1,10 @@
-import os
 import json
-from typing import Any, Optional
+from typing import Any
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.http import HttpRequest
 from django.utils import timezone
 
 import requests
@@ -14,33 +12,28 @@ import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
 from posthog.models.plugin import PluginConfig
-from posthog.models.surveys.survey import Survey
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 tracer = trace.get_tracer(__name__)
 
 CELERY_TASK_REMOTE_CONFIG_SYNC = Counter(
     "posthog_remote_config_sync",
     "Number of times the remote config sync task has been run",
-    labelnames=["result"],
-)
-
-REMOTE_CONFIG_CACHE_COUNTER = Counter(
-    "posthog_remote_config_via_cache",
-    "Metric tracking whether a remote config was fetched from cache or not",
     labelnames=["result"],
 )
 
@@ -54,45 +47,11 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
-# Load the JS content from the frontend build
-_array_js_content: Optional[str] = None
-
-
-@tracer.start_as_current_span("RemoteConfig.get_array_js_content")
-def get_array_js_content():
-    global _array_js_content
-
-    if _array_js_content is None:
-        with open(os.path.join(settings.BASE_DIR, "frontend/dist/array.js")) as f:
-            _array_js_content = f.read()
-
-    return _array_js_content
-
-
 @tracer.start_as_current_span("RemoteConfig.indent_js")
 def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
-
-
-@tracer.start_as_current_span("RemoteConfig.sanitize_config_for_public_cdn")
-def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] = None) -> dict:
-    from posthog.api.utils import on_permitted_recording_domain
-
-    # Remove domains from session recording
-    if config.get("sessionRecording"):
-        if "domains" in config["sessionRecording"]:
-            domains = config["sessionRecording"].pop("domains")
-
-            # Empty list of domains means always permitted
-            if request and domains:
-                if not on_permitted_recording_domain(domains, request=request):
-                    config["sessionRecording"] = False
-
-    # Remove site apps JS
-    config.pop("siteAppsJS", None)
-    return config
 
 
 class RemoteConfig(UUIDTModel):
@@ -121,16 +80,126 @@ class RemoteConfig(UUIDTModel):
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
+            # Route writes to the dedicated cache the Rust feature-flags service reads from.
+            # Without this, prod writes land in the shared cache while Rust reads from the
+            # dedicated one, forcing every /flags config_response to fall through to S3.
+            cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
         )
+
+    def _build_session_recording_config(self, team: Team) -> dict:
+        """
+        Build session recording configuration with V1/V2 support.
+
+        V2: If team.session_recording_trigger_groups is set, use new trigger groups format
+        V1: Otherwise, use legacy trigger fields for backward compatibility
+        """
+        # Build base config (common to both V1 and V2)
+        capture_console_logs = True if team.capture_console_log_opt_in else False
+        minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+        rrweb_script_config = None
+        recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+        if not recorder_script and settings.DEBUG:
+            recorder_script = "posthog-recorder"
+        if recorder_script:
+            rrweb_script_config = {"script": recorder_script}
+
+        record_canvas = False
+        canvas_fps = None
+        canvas_quality = None
+        if isinstance(team.session_replay_config, dict):
+            record_canvas = team.session_replay_config.get("record_canvas", False)
+            if record_canvas:
+                canvas_fps = 3
+                canvas_quality = "0.4"
+
+        base_config = {
+            "endpoint": "/s/",
+            "consoleLogRecordingEnabled": capture_console_logs,
+            "recorderVersion": "v2",
+            "minimumDurationMilliseconds": minimum_duration,
+            "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+            "masking": team.session_recording_masking_config or None,
+            "urlBlocklist": team.session_recording_url_blocklist_config,
+            "scriptConfig": rrweb_script_config,
+            "domains": team.recording_domains or [],
+            "recordCanvas": record_canvas,
+            "canvasFps": canvas_fps,
+            "canvasQuality": canvas_quality,
+        }
+
+        # Build V1 fields (for backward compatibility with old SDKs)
+        sample_rate = (
+            str(team.session_recording_sample_rate.normalize())
+            if team.session_recording_sample_rate is not None
+            else None
+        )
+        if sample_rate == "1":
+            sample_rate = None
+
+        linked_flag = None
+        linked_flag_config = team.session_recording_linked_flag or None
+        if isinstance(linked_flag_config, dict):
+            linked_flag_key = linked_flag_config.get("key", None)
+            linked_flag_variant = linked_flag_config.get("variant", None)
+            if linked_flag_variant is not None:
+                linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
+            else:
+                linked_flag = linked_flag_key
+
+        v1_fields = {
+            "sampleRate": sample_rate,
+            "linkedFlag": linked_flag,
+            "urlTriggers": team.session_recording_url_trigger_config,
+            "eventTriggers": team.session_recording_event_trigger_config,
+            "triggerMatchType": team.session_recording_trigger_match_type_config,
+        }
+
+        # V2: If trigger groups configured, send V2 + V1 fallback fields
+        if team.session_recording_trigger_groups:
+            trigger_groups_config = team.session_recording_trigger_groups
+            groups = trigger_groups_config.get("groups", [])
+
+            # Normalize events to objects for SDK: ["purchase"] -> [{"name": "purchase"}]
+            # This future-proofs the contract so WHERE clauses (property filters on events)
+            # can be added later without a breaking SDK change.
+            # Build normalized copies to avoid mutating the team's stored data.
+            normalized_groups = []
+            for group in groups:
+                conditions = group.get("conditions", {})
+                if "events" in conditions:
+                    group = {
+                        **group,
+                        "conditions": {
+                            **conditions,
+                            "events": [{"name": e} if isinstance(e, str) else e for e in conditions["events"]],
+                        },
+                    }
+                normalized_groups.append(group)
+
+            return {
+                **base_config,
+                "version": 2,
+                "triggerGroups": normalized_groups,
+                # Include V1 fields for backward compatibility with old SDKs
+                **v1_fields,
+            }
+
+        # V1 only: Use legacy trigger fields
+        return {
+            **base_config,
+            "version": 1,
+            **v1_fields,
+        }
 
     @tracer.start_as_current_span("RemoteConfig.build_config")
     def build_config(self):
-        from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -177,64 +246,7 @@ class RemoteConfig(UUIDTModel):
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
         if team.session_recording_opt_in:
-            capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = (
-                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
-            )
-
-            if sample_rate == "1.00":
-                sample_rate = None
-
-            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
-
-            linked_flag = None
-            linked_flag_config = team.session_recording_linked_flag or None
-            if isinstance(linked_flag_config, dict):
-                linked_flag_key = linked_flag_config.get("key", None)
-                linked_flag_variant = linked_flag_config.get("variant", None)
-                if linked_flag_variant is not None:
-                    linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-                else:
-                    linked_flag = linked_flag_key
-
-            rrweb_script_config = None
-
-            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
-            if not recorder_script and settings.DEBUG:
-                recorder_script = "posthog-recorder"
-            if recorder_script:
-                rrweb_script_config = {
-                    "script": recorder_script,
-                }
-
-            session_recording_config_response = {
-                "endpoint": "/s/",
-                "consoleLogRecordingEnabled": capture_console_logs,
-                "recorderVersion": "v2",
-                "sampleRate": sample_rate,
-                "minimumDurationMilliseconds": minimum_duration,
-                "linkedFlag": linked_flag,
-                "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
-                "masking": team.session_recording_masking_config or None,
-                "urlTriggers": team.session_recording_url_trigger_config,
-                "urlBlocklist": team.session_recording_url_blocklist_config,
-                "eventTriggers": team.session_recording_event_trigger_config,
-                "triggerMatchType": team.session_recording_trigger_match_type_config,
-                "scriptConfig": rrweb_script_config,
-                # NOTE: This is cached but stripped out at the api level depending on the caller
-                "domains": team.recording_domains or [],
-            }
-
-            if isinstance(team.session_replay_config, dict):
-                record_canvas = team.session_replay_config.get("record_canvas", False)
-                session_recording_config_response.update(
-                    {
-                        "recordCanvas": record_canvas,
-                        # hard coded during beta while we decide on sensible values
-                        "canvasFps": 3 if record_canvas else None,
-                        "canvasQuality": "0.4" if record_canvas else None,
-                    }
-                )
+            session_recording_config_response = self._build_session_recording_config(team)
 
         config["sessionRecording"] = session_recording_config_response
 
@@ -317,6 +329,11 @@ class RemoteConfig(UUIDTModel):
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 
+        # MARK: Snippet versioning — store requested version, resolved at request time
+        if settings.POSTHOG_JS_S3_BUCKET:
+            snippet_config = get_or_create_team_extension(team, TeamJsSnippetConfig)
+            config["sdkVersion"] = {"requested": snippet_config.js_snippet_version or DEFAULT_SNIPPET_VERSION}
+
         return config
 
     @tracer.start_as_current_span("RemoteConfig._build_site_apps_js")
@@ -338,7 +355,12 @@ class RemoteConfig(UUIDTModel):
             )
         site_functions = (
             HogFunction.objects.select_related("team")
-            .filter(team=self.team, enabled=True, deleted=False, type__in=("site_destination", "site_app"))
+            .filter(
+                team=self.team,
+                enabled=True,
+                deleted=False,
+                type__in=("site_destination", "site_app"),
+            )
             .all()
         )
 
@@ -360,63 +382,6 @@ class RemoteConfig(UUIDTModel):
                 pass
 
         return site_apps_js + site_functions_js
-
-    @classmethod
-    def _get_config_via_cache(cls, token: str) -> dict:
-        # source tells us where the result came from ("redis", "s3", or None).
-        # When data is None, source disambiguates: a cache hit returning None means
-        # the team was explicitly cached as missing, while no source means a true cache miss.
-        data, source = cls.get_hypercache().get_from_cache_with_source(token)
-
-        if data is None:
-            if source in ("redis", "s3"):
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit_but_missing").inc()
-            else:
-                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise cls.DoesNotExist()
-
-        if source in ("redis", "s3"):
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="hit").inc()
-        else:
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss").inc()
-        return data
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_via_token")
-    def get_config_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> dict:
-        config = cls._get_config_via_cache(token)
-        config = sanitize_config_for_public_cdn(config, request=request)
-
-        return config
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_config_js_via_token")
-    def get_config_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        config = cls._get_config_via_cache(token)
-        # Get the site apps JS so we can render it in the JS
-        site_apps_js = config.pop("siteAppsJS", None)
-        # We don't want to include the minimal site apps content as we have the JS now
-        config.pop("siteApps", None)
-        config = sanitize_config_for_public_cdn(config, request=request)
-
-        js_content = f"""(function() {{
-  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
-  window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
-    config: {json.dumps(config)},
-    siteApps: [{",".join(site_apps_js)}]
-  }}
-}})();
-        """.strip()
-
-        return js_content
-
-    @classmethod
-    @tracer.start_as_current_span("RemoteConfig.get_array_js_via_token")
-    def get_array_js_via_token(cls, token: str, request: Optional[HttpRequest] = None) -> str:
-        # NOTE: Unlike the other methods we dont store this in the cache as it is cheap to build at runtime
-        js_content = cls.get_config_js_via_token(token, request=request)
-
-        return f"""{get_array_js_content()}\n\n{js_content}"""
 
     def sync(self, force: bool = False):
         """
@@ -468,7 +433,6 @@ class RemoteConfig(UUIDTModel):
             full_domain = domain if domain.startswith("https://") else f"https://{domain}"
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config"})
             data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/config.js"})
-            data["files"].append({"url": f"{full_domain}/array/{self.team.api_token}/array.js"})
 
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 
@@ -488,6 +452,28 @@ class RemoteConfig(UUIDTModel):
         else:
             REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
 
+    @staticmethod
+    def purge_cdn_by_tag(tag: str):
+        """Purge all CDN entries matching a Cache-Tag."""
+        if not settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT or not settings.REMOTE_CONFIG_CDN_PURGE_TOKEN:
+            return
+
+        data = {"tags": [tag]}
+
+        try:
+            res = requests.post(
+                settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
+                headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
+                json=data,
+            )
+            if res.status_code != 200:
+                raise Exception(f"Failed to purge CDN by tag {tag}: {res.status_code} {res.text}")
+        except Exception:
+            logger.exception(f"Failed to purge CDN by tag {tag}")
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="failure").inc()
+        else:
+            REMOTE_CONFIG_CDN_PURGE_COUNTER.labels(result="success").inc()
+
     def __str__(self):
         return f"RemoteConfig {self.team_id}"
 
@@ -498,29 +484,9 @@ def _update_team_remote_config(team_id: int):
     update_team_remote_config.delay(team_id)
 
 
-@receiver(pre_save, sender=Team)
-def team_pre_save(sender, instance: "Team", **kwargs):
-    """Capture old api_token value before save for cache cleanup."""
-    from posthog.storage.team_access_cache_signal_handlers import capture_old_api_token
-
-    capture_old_api_token(instance, **kwargs)
-
-
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.id))
-
-    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache
-
-    transaction.on_commit(lambda: update_team_authentication_cache(instance, created, **kwargs))
-
-
-@receiver(post_delete, sender=Team)
-def team_deleted(sender, instance: "Team", **kwargs):
-    """Handle team deletion for access cache."""
-    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
-
-    transaction.on_commit(lambda: update_team_authentication_cache_on_delete(instance, **kwargs))
 
 
 @receiver(post_save, sender=FeatureFlag)
@@ -538,8 +504,9 @@ def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
 
 
 @receiver(post_save, sender=HogFunction)
-def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
-    if instance.enabled and instance.type in ("site_destination", "site_app"):
+@receiver(post_delete, sender=HogFunction)
+def site_function_changed(sender, instance: "HogFunction", **kwargs):
+    if instance.type in ("site_destination", "site_app"):
         transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
@@ -591,125 +558,6 @@ def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppre
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
-@receiver(post_save, sender=PersonalAPIKey)
-def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs):
-    """
-    Handle PersonalAPIKey save for team access cache invalidation.
-
-    Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
-    during authentication requests.
-    """
-    # Skip cache updates if only last_used_at is being updated
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and set(update_fields) == {"last_used_at"}:
-        return
-
-    # Capture user_id now (not the instance) for clean serialization to Celery
-    user_id = instance.user_id
-
-    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
-
-    transaction.on_commit(lambda: warm_personal_api_key_teams_cache_task.delay(user_id))
-
-
-@receiver(post_delete, sender=PersonalAPIKey)
-def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
-    """
-    Handle PersonalAPIKey delete for team access cache invalidation.
-    """
-    # Capture data now (not the instance) for clean serialization to Celery
-    user_id = instance.user_id
-    scoped_team_ids = list(instance.scoped_teams) if instance.scoped_teams else None
-
-    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_deleted_cache_task
-
-    transaction.on_commit(lambda: warm_personal_api_key_deleted_cache_task.delay(user_id, scoped_team_ids))
-
-
-@receiver(post_save, sender=User)
-def user_saved(sender, instance: "User", created, **kwargs):
-    """
-    Handle User save for team access cache updates when is_active changes.
-
-    When a user's is_active status changes, their Personal API Keys need to be
-    added or removed from team authentication caches.
-
-    We track the original is_active value via User.from_db() to detect actual changes,
-    avoiding unnecessary cache warming on unrelated user saves.
-
-    Security consideration:
-    - Deactivation (is_active: True → False): Cache invalidation runs SYNCHRONOUSLY
-      to immediately revoke access. This prevents a race condition where a deactivated
-      user could continue using their API keys during Celery queue delays.
-    - Activation (is_active: False → True): Cache warming runs ASYNCHRONOUSLY via Celery
-      since there's no security concern with a slight delay in granting access.
-    """
-    original_is_active = getattr(instance, "_original_is_active", instance.is_active)
-    is_active_changed = created or instance.is_active != original_is_active
-
-    if not is_active_changed:
-        logger.debug(f"User {instance.id} saved but is_active unchanged, skipping cache update")
-        return
-
-    # Update the snapshot to prevent double-fires if the same instance is saved again
-    instance._original_is_active = instance.is_active
-
-    # Capture user_id now (not the instance) for clean serialization to Celery
-    user_id = instance.id
-
-    if instance.is_active:
-        # User activated - async is fine, no security concern with delay
-        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
-
-        transaction.on_commit(lambda: warm_user_teams_cache_task.delay(user_id))
-    else:
-        # User deactivated - sync to immediately revoke access (security-critical)
-        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_sync
-
-        transaction.on_commit(lambda: warm_user_teams_cache_sync(user_id))
-
-
-@receiver(post_save, sender=OrganizationMembership)
-def organization_membership_saved(sender, instance: "OrganizationMembership", created, **kwargs):
-    """
-    Handle OrganizationMembership creation for team access cache updates.
-
-    When a user is added to an organization, their unscoped personal API keys
-    should gain access to teams within that organization. This ensures
-    that the authentication cache is updated to reflect the new access rights.
-
-    Note: We intentionally only handle creation (created=True), not updates.
-    Changes to membership level (e.g., MEMBER → ADMIN) don't affect API key
-    access - Personal API keys grant access based on organization membership
-    existence, not role level.
-    """
-    if created:
-        # Capture data now (not the instance) for clean serialization to Celery
-        organization_id = str(instance.organization_id)
-        user_id = instance.user_id
-
-        from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
-
-        transaction.on_commit(
-            lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "added to organization")
-        )
-
-
-@receiver(post_delete, sender=OrganizationMembership)
-def organization_membership_deleted(sender, instance: "OrganizationMembership", **kwargs):
-    """
-    Handle OrganizationMembership deletion for team access cache invalidation.
-
-    When a user is removed from an organization, their unscoped personal API keys
-    should no longer have access to teams within that organization. This ensures
-    that the authentication cache is updated to reflect the change in access rights.
-    """
-    # Capture data now (not the instance) for clean serialization to Celery
-    organization_id = str(instance.organization_id)
-    user_id = instance.user_id
-
-    from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
-
-    transaction.on_commit(
-        lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "removed from organization")
-    )
+@receiver(post_save, sender="posthog.TeamJsSnippetConfig")
+def js_snippet_config_saved(sender, instance, created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))

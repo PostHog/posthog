@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -12,6 +12,7 @@ import {
     LemonTabs,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -42,6 +43,7 @@ import { OfflineEvaluationsTab } from './components/OfflineEvaluationsTab'
 import { EvaluationStats, evaluationMetricsLogic } from './evaluationMetricsLogic'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { statusReasonLabel } from './statusDisplay'
 import { EvaluationConfig } from './types'
 
 export const scene: SceneExport = {
@@ -79,6 +81,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
         evaluationsFilter,
         dateFilter,
         unhealthyProviderKeysUsedByEvaluations,
+        canEnableEvaluation,
     } = useValues(evaluationsLogic)
     const { setEvaluationsFilter, toggleEvaluationEnabled, duplicateEvaluation, loadEvaluations, setDates } =
         useActions(evaluationsLogic)
@@ -113,26 +116,57 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
         },
         {
             title: 'Status',
-            key: 'enabled',
-            render: (_, evaluation) => (
-                <div className="flex items-center gap-2">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonSwitch
-                            checked={evaluation.enabled}
-                            onChange={() => toggleEvaluationEnabled(evaluation.id)}
-                            size="small"
-                            data-attr="toggle-evaluation-enabled"
-                        />
-                    </AccessControlAction>
-                    <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                </div>
-            ),
-            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
+            key: 'status',
+            render: (_, evaluation) => {
+                // When the system has marked an eval as errored, the toggle is misleading — flipping it
+                // would just fail. Show an error pill instead so the row is visibly different and users
+                // click through to the detail page to see what's wrong and how to fix it.
+                if (evaluation.status === 'error') {
+                    return (
+                        <Tooltip title={`${statusReasonLabel(evaluation.status_reason)}. Open to fix.`}>
+                            <LemonTag type="danger" icon={<IconWarning />} data-attr="evaluation-status-error">
+                                Error
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                }
+                const canEnable = canEnableEvaluation(evaluation)
+                const isBlocked = !canEnable && !evaluation.enabled
+                return (
+                    <div className="flex items-center gap-2">
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <Tooltip
+                                title={
+                                    isBlocked
+                                        ? 'Trial evaluation limit reached. Add a provider API key to re-enable.'
+                                        : undefined
+                                }
+                            >
+                                <span>
+                                    <LemonSwitch
+                                        checked={evaluation.enabled}
+                                        onChange={() => toggleEvaluationEnabled(evaluation.id)}
+                                        size="small"
+                                        disabled={isBlocked}
+                                        data-attr="toggle-evaluation-enabled"
+                                    />
+                                </span>
+                            </Tooltip>
+                        </AccessControlAction>
+                        <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
+                            {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                )
+            },
+            // Sort: errors first (most attention-demanding), then enabled, then paused.
+            sorter: (a, b) => {
+                const rank = (e: EvaluationConfig): number => (e.status === 'error' ? 0 : e.enabled ? 1 : 2)
+                return rank(a) - rank(b)
+            },
         },
         {
             title: 'Method',
@@ -165,13 +199,16 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             key: 'conditions',
             render: (_, evaluation) => (
                 <div className="flex flex-wrap gap-1">
-                    {evaluation.conditions.map((condition) => (
-                        <LemonTag key={condition.id} type="option">
-                            {parseFloat(condition.rollout_percentage.toFixed(2))}%
-                            {condition.properties.length > 0 &&
-                                ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
-                        </LemonTag>
-                    ))}
+                    {evaluation.conditions.map((condition) => {
+                        const propertyCount = condition.properties?.length ?? 0
+                        return (
+                            <LemonTag key={condition.id} type="option">
+                                {parseFloat((condition.rollout_percentage ?? 0).toFixed(2))}%
+                                {propertyCount > 0 &&
+                                    ` when ${propertyCount} condition${propertyCount !== 1 ? 's' : ''}`}
+                            </LemonTag>
+                        )
+                    })}
                     {evaluation.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
                 </div>
             ),

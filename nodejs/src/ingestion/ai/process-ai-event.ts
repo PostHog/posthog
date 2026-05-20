@@ -15,12 +15,13 @@ import { EventWithProperties, extractCoreModelParams, processCost } from './cost
 import { processAiErrorNormalization } from './errors'
 import { processAiToolCallExtraction } from './tools'
 
-export { EventWithProperties } from './costs'
+export type { EventWithProperties } from './costs'
 
 const isEventWithProperties = (event: PluginEvent): event is EventWithProperties => {
     return event.properties !== undefined && event.properties !== null
 }
 
+// Canonical Node.js list. Python mirror: posthog/hogql_queries/ai/ai_table_resolver.py
 export const AI_EVENT_TYPES = new Set([
     '$ai_generation',
     '$ai_embedding',

@@ -7,9 +7,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.models.experiment import Experiment, ExperimentMetricResult
 from posthog.models.feature_flag import FeatureFlag
-from posthog.temporal.experiments.activities import _check_significance_transition
+from posthog.temporal.experiments.utils import check_significance_transition
+
+from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
 
 METRIC_DICT = {
     "uuid": "metric-123",
@@ -63,7 +64,7 @@ class TestCheckSignificanceTransition(BaseTest):
             ("previous_significant_new_not_significant", ["test"], [], False),
         ]
     )
-    @patch("posthog.temporal.experiments.activities.produce_internal_event")
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
     def test_significance_transition(
         self,
         _name: str,
@@ -100,7 +101,7 @@ class TestCheckSignificanceTransition(BaseTest):
                 )
 
         result_dict = _make_result(new_significant)
-        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
 
         if expect_event:
             mock_produce.assert_called_once()
@@ -118,7 +119,7 @@ class TestCheckSignificanceTransition(BaseTest):
         else:
             mock_produce.assert_not_called()
 
-    @patch("posthog.temporal.experiments.activities.produce_internal_event")
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
     def test_only_newly_significant_variants_fire(self, mock_produce: MagicMock) -> None:
         experiment = self._create_experiment()
         metric_uuid = "metric-123"
@@ -136,7 +137,7 @@ class TestCheckSignificanceTransition(BaseTest):
         )
 
         result_dict = _make_result(["test", "control"])
-        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
 
         mock_produce.assert_called_once()
         event = (
@@ -146,7 +147,7 @@ class TestCheckSignificanceTransition(BaseTest):
         )
         assert event.properties["variant_key"] == "control"
 
-    @patch("posthog.temporal.experiments.activities.produce_internal_event")
+    @patch("posthog.temporal.experiments.utils.produce_internal_event")
     def test_metric_name_fallback_to_event_name(self, mock_produce: MagicMock) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -169,7 +170,7 @@ class TestCheckSignificanceTransition(BaseTest):
         )
 
         result_dict = _make_result(["test"])
-        _check_significance_transition(
+        check_significance_transition(
             experiment, "metric-456", "fp", result_dict, datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
         )
 

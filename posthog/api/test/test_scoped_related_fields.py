@@ -3,8 +3,10 @@ from posthog.test.base import BaseTest
 from rest_framework import serializers
 
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField, TeamScopedPrimaryKeyRelatedField
-from posthog.models import Dashboard, Organization, Team
+from posthog.models import Organization, Team
 from posthog.models.uploaded_media import UploadedMedia
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 
 class TestTeamScopedPrimaryKeyRelatedField(BaseTest):
@@ -18,7 +20,7 @@ class TestTeamScopedPrimaryKeyRelatedField(BaseTest):
         field = TeamScopedPrimaryKeyRelatedField(queryset=Dashboard.objects.all())
         parent: serializers.Serializer = serializers.Serializer(context=context)
         field.bind("test_field", parent)
-        return field
+        return field  # ty: ignore[invalid-return-type]
 
     def test_filters_by_team_id(self):
         field = self._make_field({"team_id": self.team.id})
@@ -62,7 +64,7 @@ class TestOrgScopedPrimaryKeyRelatedField(BaseTest):
         field = OrgScopedPrimaryKeyRelatedField(queryset=UploadedMedia.objects.all())
         parent: serializers.Serializer = serializers.Serializer(context=context)
         field.bind("test_field", parent)
-        return field
+        return field  # ty: ignore[invalid-return-type]
 
     def test_filters_by_organization(self):
         field = self._make_field({"get_organization": lambda: self.organization})

@@ -1,1 +1,1 @@
-0030_externaldataschema_description
+0052_externaldataschema_enabled_columns

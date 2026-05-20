@@ -11,7 +11,7 @@ on:
             - '.github/workflows/ci-agent-skills.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -25,12 +25,19 @@ jobs:
         outputs:
             skills: ${{ steps.filter.outputs.skills || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push'
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       skills:
                         - 'products/*/skills/**'
@@ -41,13 +48,14 @@ jobs:
     check-skills:
         name: Check agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.skills == 'true'
         permissions:
             contents: read
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Start Docker services
               env:
@@ -78,7 +86,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-skills'
                   workspaces: rust
@@ -124,13 +132,14 @@ jobs:
     release-skills:
         name: Release agent skills
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         needs: check-skills
         if: github.ref == 'refs/heads/master'
         permissions:
             contents: write
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
 
@@ -163,7 +172,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-skills'
                   workspaces: rust
@@ -206,6 +215,7 @@ jobs:
             - name: Determine next version
               id: version
               run: |
+                  git fetch --tags --force
                   LATEST_TAG=$(git tag -l 'agent-skills-v*' | grep -E '^agent-skills-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
                   if [ -z "$LATEST_TAG" ]; then LATEST_TAG="agent-skills-v0.0.0"; fi
                   MINOR=$(echo "${LATEST_TAG#agent-skills-v}" | cut -d. -f2)

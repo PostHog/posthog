@@ -16,7 +16,7 @@ const PROD_INTEREST_TO_PRODUCT: Record<WebsiteBrowsingHistoryProdInterest, Produ
     'llm-analytics': ProductKey.LLM_ANALYTICS,
     workflows: ProductKey.WORKFLOWS,
     'revenue-analytics': null,
-    logs: null,
+    logs: ProductKey.LOGS,
     endpoints: null,
 }
 
@@ -47,16 +47,6 @@ export function mapBrowsingHistoryToProducts(browsingHistory: string[]): Product
         .filter((key): key is ProductKey => key !== null && key in availableOnboardingProducts)
 
     return [...new Set(products)]
-}
-
-/**
- * Maps AI product keys (hyphenated format from WebsiteBrowsingHistoryProdInterest) to ProductKey values.
- * Only returns products that are available in onboarding.
- */
-export function mapAIProductsToProductKeys(products: string[]): ProductKey[] {
-    return products
-        .map((p) => PROD_INTEREST_TO_PRODUCT[p as WebsiteBrowsingHistoryProdInterest])
-        .filter((key): key is ProductKey => key !== null && key in availableOnboardingProducts)
 }
 
 /** Gets human-readable labels for browsing history items. */

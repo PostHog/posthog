@@ -4,6 +4,7 @@ import json
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
@@ -410,12 +411,6 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             sql = ""
             for line in f:
@@ -546,6 +541,60 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self._make_logs_api_request(query_params)
         self.assertEqual(len(response["results"]), 0)
         self.assertEqual(len(queries), 2)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_multiple_negative_resource_attribute_filters(self):
+        # Two negative resource attribute filters on disjoint values (no log has both an envoy
+        # container AND the kube-system namespace). The fix exists so a resource is excluded when
+        # it matches ANY of the negative filters, not just when it matches every one. Pre-fix this
+        # would return ~all logs because nothing matched both filters at once.
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:00:36.178572Z", "date_to": None},
+            "limit": 2000,
+            "filterGroup": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "k8s.container.name",
+                                "value": "envoy",
+                                "operator": "is_not",
+                                "type": "log_resource_attribute",
+                            },
+                            {
+                                "key": "k8s.namespace.name",
+                                "value": "kube-system",
+                                "operator": "is_not",
+                                "type": "log_resource_attribute",
+                            },
+                        ],
+                    }
+                ],
+            },
+        }
+
+        response = self._make_logs_api_request(query_params)
+        results = response["results"]
+
+        # at least some logs come back (sanity check)
+        self.assertGreater(len(results), 0)
+        # neither excluded value appears anywhere — proves OR semantics
+        for result in results:
+            self.assertNotEqual(result["resource_attributes"].get("k8s.container.name"), "envoy")
+            self.assertNotEqual(result["resource_attributes"].get("k8s.namespace.name"), "kube-system")
+        # both excluded groups exist in the test data, so the result count must be strictly less than
+        # the unfiltered count. Pre-fix this would have returned every log in range (since no resource
+        # matched both filters at once).
+        unfiltered = self._make_logs_api_request(
+            {
+                "dateRange": query_params["dateRange"],
+                "limit": query_params["limit"],
+                "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            }
+        )
+        self.assertLess(len(results), len(unfiltered["results"]))
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):
@@ -830,3 +879,58 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec17-midnight-plus1us", bodies)
         self.assertIn("boundary-log-dec17-afternoon", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
+
+    # ── _normalize_filter_group tests ──────────────────────────────────
+
+    _FLAT_FILTERS = [
+        {"key": "message", "operator": "icontains", "type": "log", "value": "error"},
+        {"key": "http.status_code", "operator": "exact", "type": "log_attribute", "value": "500"},
+    ]
+
+    @parameterized.expand(
+        [
+            ("none", None, {"type": "AND", "values": []}),
+            ("empty_list", [], {"type": "AND", "values": []}),
+            ("flat_list", _FLAT_FILTERS, {"type": "AND", "values": [{"type": "AND", "values": _FLAT_FILTERS}]}),
+            (
+                "already_nested",
+                {"type": "AND", "values": [{"type": "AND", "values": []}]},
+                {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            ),
+        ]
+    )
+    def test_normalize_filter_group(self, _name, input_value, expected):
+        from products.logs.backend.api import LogsViewSet
+
+        self.assertEqual(LogsViewSet._normalize_filter_group(input_value), expected)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_query_with_flat_filter_group(self):
+        """The query endpoint normalizes flat filter arrays to nested PropertyGroupFilter."""
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 10,
+            "filterGroup": [
+                {
+                    "key": "k8s.pod.name",
+                    "value": "efs-csi-node",
+                    "operator": "icontains",
+                    "type": "log_resource_attribute",
+                },
+            ],
+        }
+        response = self._make_logs_api_request(query_params)
+        self.assertGreater(len(response["results"]), 0)
+        for result in response["results"]:
+            self.assertIn("efs-csi-node", result["resource_attributes"].get("k8s.pod.name", ""))
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_query_with_empty_flat_filter_group(self):
+        """Empty flat filter array should return results (no filtering)."""
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16T10:32:36.184820Z", "date_to": None},
+            "limit": 10,
+            "filterGroup": [],
+        }
+        response = self._make_logs_api_request(query_params)
+        self.assertGreater(len(response["results"]), 0)

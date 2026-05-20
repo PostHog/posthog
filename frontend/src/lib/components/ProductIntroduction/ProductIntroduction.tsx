@@ -9,6 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { BuilderHog3, DetectiveHog } from '../hedgehogs'
+import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
+import type { SurfaceKey } from '../MCPHint/prompts'
 
 /**
  * A component to introduce new users to a product, and to show something
@@ -36,6 +38,27 @@ export type ProductIntroductionProps = {
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
     className?: string
+    /**
+     * Default hides the hog below `md`. Use `responsive` to keep the hog visible on small screens with a vertical
+     * layout (hog above copy), switching to the horizontal layout from `md` up (or from `main-content` width when
+     * `useMainContentContainerQueries` is set).
+     */
+    hogLayout?: 'default' | 'responsive'
+    /**
+     * When set with `hogLayout="responsive"`, use the `main-content` container (see Navigation) instead of the
+     * viewport for breakpoints so layout responds when the side panel narrows the main column.
+     */
+    useMainContentContainerQueries?: boolean
+    /**
+     * Optional classes for the copy + actions column (hog + this column are siblings). Default `max-w-140`; override
+     * for wide empty states (e.g. template grids). Passed through `cn` with tailwind-merge so `max-w-*` replaces default.
+     */
+    contentClassName?: string
+    /**
+     * When set, renders an MCP use-case card below the actions, promoting the same product via PostHog MCP from
+     * the user's IDE. Auto-hides if the user has opted out of MCP hints.
+     */
+    mcpSurfaceKey?: SurfaceKey
 }
 
 export const ProductIntroduction = ({
@@ -51,6 +74,10 @@ export const ProductIntroduction = ({
     docsURL,
     customHog: CustomHog,
     className,
+    hogLayout = 'default',
+    useMainContentContainerQueries = false,
+    contentClassName,
+    mcpSurfaceKey,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -65,6 +92,8 @@ export const ProductIntroduction = ({
     }
 
     const actionable = action || actionElementOverride
+    const isResponsiveHogLayout = hogLayout === 'responsive'
+
     return (
         <div
             className={cn(
@@ -86,9 +115,34 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-8 w-full justify-center">
-                <div>
-                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
+            <div
+                className={cn(
+                    'flex w-full justify-center',
+                    isResponsiveHogLayout
+                        ? useMainContentContainerQueries
+                            ? 'flex-col @min-[48rem]/main-content:flex-row items-center gap-6 @min-[48rem]/main-content:gap-8'
+                            : 'flex-col md:flex-row items-center gap-6 md:gap-8'
+                        : 'flex-row items-center gap-8'
+                )}
+            >
+                <div
+                    className={cn(
+                        isResponsiveHogLayout &&
+                            (useMainContentContainerQueries
+                                ? 'w-full @min-[48rem]/main-content:w-auto flex justify-center'
+                                : 'w-full md:w-auto flex justify-center')
+                    )}
+                >
+                    <div
+                        className={cn(
+                            'mx-auto',
+                            isResponsiveHogLayout
+                                ? useMainContentContainerQueries
+                                    ? 'block w-36 sm:w-40 lg:w-50 mb-4 @min-[48rem]/main-content:mb-0'
+                                    : 'block w-36 sm:w-40 lg:w-50 mb-4 md:mb-0'
+                                : 'w-40 lg:w-50 mb-4 hidden md:block'
+                        )}
+                    >
                         {CustomHog ? (
                             <CustomHog className="w-full h-full" />
                         ) : actionable ? (
@@ -98,7 +152,16 @@ export const ProductIntroduction = ({
                         )}
                     </div>
                 </div>
-                <div className="flex-shrink max-w-140">
+                <div
+                    className={cn(
+                        'flex-shrink max-w-140',
+                        isResponsiveHogLayout &&
+                            (useMainContentContainerQueries
+                                ? 'w-full text-center @min-[48rem]/main-content:text-left'
+                                : 'w-full text-center md:text-left'),
+                        contentClassName
+                    )}
+                >
                     <h2>
                         {!isEmpty
                             ? `Welcome to ${productName}!`
@@ -115,7 +178,15 @@ export const ProductIntroduction = ({
                             started yourself.
                         </p>
                     )}
-                    <div className="flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap">
+                    <div
+                        className={cn(
+                            'flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap',
+                            isResponsiveHogLayout &&
+                                (useMainContentContainerQueries
+                                    ? 'justify-center @min-[48rem]/main-content:justify-start'
+                                    : 'justify-center md:justify-start')
+                        )}
+                    >
                         {action ? (
                             <LemonButton
                                 type="primary"
@@ -144,6 +215,7 @@ export const ProductIntroduction = ({
                             </LemonButton>
                         )}
                     </div>
+                    {mcpSurfaceKey && <MCPUseCaseCard surfaceKey={mcpSurfaceKey} className="max-w-140" />}
                 </div>
             </div>
         </div>

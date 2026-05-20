@@ -5,11 +5,43 @@ from typing import Any
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_db_connections
+
+from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = get_logger(__name__)
 
 
+def _task_run_log_context(task_run: Any) -> dict[str, Any]:
+    task = task_run.task
+    created_by = task.created_by
+    if created_by and created_by.distinct_id:
+        distinct_id = created_by.distinct_id
+    elif created_by and created_by.id:
+        distinct_id = f"user_{created_by.id}"
+    else:
+        distinct_id = f"team_{task_run.team_id}"
+    state = task_run.state or {}
+    return {
+        "task_id": str(task.id),
+        "run_id": str(task_run.id),
+        "team_id": task_run.team_id,
+        "repository": task.repository,
+        "origin_product": task.origin_product,
+        "environment": task_run.environment,
+        "distinct_id": distinct_id,
+        "mode": task_run.mode,
+        "run_source": state.get("run_source"),
+        "sandbox_environment_id": state.get("sandbox_environment_id"),
+        "runtime_adapter": state.get("runtime_adapter"),
+        "provider": state.get("provider"),
+        "model": state.get("model"),
+        "reasoning_effort": state.get("reasoning_effort"),
+    }
+
+
 @activity.defn
+@close_db_connections
 def forward_pending_user_message(run_id: str) -> None:
     """Forward a pending user message stored in task run state to the sandbox agent.
 
@@ -20,6 +52,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.services.agent_command import send_user_message
     from products.tasks.backend.services.connection_token import create_sandbox_connection_token
+    from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
@@ -27,50 +60,94 @@ def forward_pending_user_message(run_id: str) -> None:
         logger.warning("forward_pending_message_run_not_found", run_id=run_id)
         return
 
-    state = task_run.state or {}
-    pending_message = state.get("pending_user_message")
-    if not pending_message:
-        return
+    retryable_delivery_error: str | None = None
 
-    auth_token = None
-    created_by = task_run.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+    def activity_failure() -> tuple[str, str] | None:
+        if retryable_delivery_error:
+            return ("RetryablePendingMessageDeliveryError", retryable_delivery_error)
+        return None
 
-    result = send_user_message(task_run, pending_message, auth_token=auth_token, timeout=90)
-    if not result.success and result.retryable and result.status_code != 504:
-        result = send_user_message(task_run, pending_message, auth_token=auth_token, timeout=90)
+    with log_activity_execution(
+        "forward_pending_user_message",
+        activity_failure=activity_failure,
+        **_task_run_log_context(task_run),
+    ):
+        state = task_run.state or {}
+        pending_message = state.get("pending_user_message")
+        pending_user_artifact_ids = state.get("pending_user_artifact_ids") or []
+        if not pending_message and not pending_user_artifact_ids:
+            return
 
-    if not result.success and result.retryable:
-        logger.warning(
-            "forward_pending_message_retryable_failure",
-            run_id=run_id,
-            error=result.error,
+        pending_artifacts: list[dict[str, Any]] = []
+        if pending_user_artifact_ids:
+            pending_artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, pending_user_artifact_ids)
+            if missing_artifact_ids:
+                logger.warning(
+                    "forward_pending_message_missing_artifacts",
+                    run_id=run_id,
+                    missing_artifact_ids=missing_artifact_ids,
+                )
+                missing_ids = ", ".join(missing_artifact_ids)
+                raise RuntimeError(f"Pending task artifacts not found on this run: {missing_ids}")
+
+        auth_token = None
+        created_by = task_run.task.created_by
+        if created_by and created_by.id:
+            distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+            auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+
+        result = send_user_message(
+            task_run,
+            pending_message,
+            artifacts=pending_artifacts or None,
+            auth_token=auth_token,
+            timeout=90,
         )
-        return
+        logger.info(
+            "forward_pending_message_attempted",
+            run_id=run_id,
+            has_message=bool(pending_message),
+            artifact_count=len(pending_artifacts),
+        )
+        if not result.success and result.retryable and result.status_code != 504:
+            result = send_user_message(
+                task_run,
+                pending_message,
+                artifacts=pending_artifacts or None,
+                auth_token=auth_token,
+                timeout=90,
+            )
 
-    pending_message_ts = state.get("pending_user_message_ts")
+        if not result.success and result.retryable:
+            retryable_delivery_error = result.error or "Retryable pending message delivery failed"
+            logger.warning(
+                "forward_pending_message_retryable_failure",
+                run_id=run_id,
+                error=result.error,
+            )
+            return
 
-    if state.get("interaction_origin") == "slack":
+        pending_message_ts = state.get("pending_user_message_ts")
+
+        if state.get("interaction_origin") == "slack":
+            if result.success:
+                _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
+            else:
+                _enqueue_pending_delivery_failure_relay(task_run, pending_message_ts, result.error)
+
+        TaskRun.update_state_atomic(
+            run_id,
+            remove_keys=["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"],
+        )
+
         if result.success:
-            _enqueue_pending_reply_relay(task_run, pending_message_ts, result.data)
+            logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
-            _enqueue_pending_delivery_failure_relay(task_run, pending_message_ts, result.error)
-
-    state.pop("pending_user_message", None)
-    state.pop("pending_user_message_ts", None)
-    task_run.state = state
-    task_run.save(update_fields=["state", "updated_at"])
-
-    if result.success:
-        logger.info("forward_pending_message_delivered", run_id=run_id)
-    else:
-        logger.warning(
-            "forward_pending_message_non_retryable_failure",
-            run_id=run_id,
-            error=result.error,
-        )
+            logger.warning(
+                "forward_pending_message_non_retryable_failure",
+                run_id=run_id,
+                error=result.error,
+            )
 
 
 def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
@@ -168,10 +245,12 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
     if not log_content.strip():
         return None
 
-    latest_text: str | None = None
-    latest_agent_timestamp: datetime | None = None
-    latest_user_timestamp: datetime | None = None
+    _AGENT_MSG_TYPES = {"agent_message", "agent_message_chunk"}
     cutoff = datetime.utcnow() - timedelta(minutes=5)
+    latest_user_timestamp: datetime | None = None
+    latest_agent_timestamp: datetime | None = None
+
+    parsed_updates: list[tuple[dict, datetime | None]] = []
 
     for line in log_content.strip().split("\n"):
         line = line.strip()
@@ -202,24 +281,31 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
                 latest_user_timestamp = timestamp
             continue
 
-        if session_update not in {"agent_message", "agent_message_chunk"}:
-            continue
+        parsed_updates.append((update, timestamp))
 
-        content = update.get("content")
-        text: str | None = None
-        if isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str):
-            candidate = content["text"].strip()
-            text = candidate or None
-        elif isinstance(update.get("message"), str):
-            candidate = update["message"].strip()
-            text = candidate or None
+        if session_update in _AGENT_MSG_TYPES and timestamp:
+            if latest_agent_timestamp is None or timestamp >= latest_agent_timestamp:
+                latest_agent_timestamp = timestamp
 
-        if not text:
-            continue
+    # Walk backwards: find last agent_message, then collect all consecutive agent messages
+    # TODO: improve this, fine for now but not efficient
+    trailing_parts: list[str] = []
+    found_agent_msg = False
+    for update, _ in reversed(parsed_updates):
+        is_agent_msg = update.get("sessionUpdate") in _AGENT_MSG_TYPES
+        if not found_agent_msg:
+            if is_agent_msg:
+                found_agent_msg = True
+            else:
+                continue
+        if found_agent_msg and not is_agent_msg:
+            break
+        text = _extract_text_from_update(update)
+        if text:
+            trailing_parts.append(text)
 
-        if latest_agent_timestamp is None or (timestamp and timestamp >= latest_agent_timestamp):
-            latest_agent_timestamp = timestamp
-            latest_text = text
+    trailing_parts.reverse()
+    latest_text = "".join(trailing_parts) if trailing_parts else None
 
     if not latest_text:
         return None
@@ -228,6 +314,18 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
         return None
 
     return latest_text
+
+
+def _extract_text_from_update(update: dict[str, Any]) -> str | None:
+    content = update.get("content")
+    if isinstance(content, dict) and content.get("type") == "text" and isinstance(content.get("text"), str):
+        candidate = content["text"].strip()
+        if candidate:
+            return candidate
+    message = update.get("message")
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return None
 
 
 def _has_recent_question_tool_failure(task_run: Any) -> bool:

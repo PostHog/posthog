@@ -28,6 +28,7 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+rstest = "0.26"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"
 

@@ -33,6 +33,17 @@ Properties are always associated with an event or entity. When looking for prope
     If the user mentions a group that is not in this list you MUST infer the most similar group to the one the user is referring to.
     Use `retrieve_entity_properties` with entity="[group_name]" to get the list of all available group properties.
 </group>
+
+<dynamic_person_properties>
+Some person properties follow dynamic naming patterns with IDs. These will NOT appear in tool results because they are dynamically generated per survey, feature flag, or product tour.
+If a user's question involves these features, construct the property name using the pattern:
+
+- `$survey_dismissed/{survey_id}` / `$survey_responded/{survey_id}` — Boolean, tracks whether a person dismissed or responded to a specific survey
+- `$feature_enrollment/{flag_key}` — Boolean, whether a person opted into a specific early access feature
+- `$feature/{flag_key}` — the feature flag value for a specific flag (this is an event property, not a person property)
+- `$feature_interaction/{feature_key}` — Boolean, whether a person interacted with a specific feature
+- `$product_tour_dismissed/{tour_id}` / `$product_tour_shown/{tour_id}` / `$product_tour_completed/{tour_id}` — Boolean, tracks product tour lifecycle for a specific tour
+</dynamic_person_properties>
 </entity>
 <events>
 **EVENT PROPERTIES** (use `retrieve_event_properties` and `retrieve_event_property_values`):

@@ -4,15 +4,17 @@
 # The directory should contain both PostHog skills (from CI build) and
 # context-mill skills.
 #
-# Skills are copied to two locations:
+# Skills are copied to three locations:
 #   /scripts/plugins/posthog/skills/  — Claude Code (@posthog/agent plugin discovery)
 #   ~/.agents/skills/                 — Codex agent discovery
+#   ~/.claude/skills/                 — Claude Code CLI skill discovery
 
 set -euo pipefail
 
 SKILLS_SRC="${1:?Usage: install-skills.sh <skills-dir>}"
 PLUGIN_SKILLS_DIR="/scripts/plugins/posthog/skills"
 CODEX_SKILLS_DIR="$HOME/.agents/skills"
+CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
 
 if [ ! -d "$SKILLS_SRC" ] || [ -z "$(find "$SKILLS_SRC" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)" ]; then
     echo "Warning: No skills found in ${SKILLS_SRC}. Continuing without skills." >&2
@@ -22,6 +24,7 @@ fi
 # Set up directory structure
 mkdir -p "$PLUGIN_SKILLS_DIR"
 mkdir -p "$CODEX_SKILLS_DIR"
+mkdir -p "$CLAUDE_SKILLS_DIR"
 
 # Create plugin.json if it doesn't exist
 PLUGIN_JSON="/scripts/plugins/posthog/plugin.json"
@@ -35,9 +38,10 @@ if [ ! -f "$PLUGIN_JSON" ]; then
 EOF
 fi
 
-# Copy skills to both locations
+# Copy skills to all locations
 cp -r "$SKILLS_SRC"/* "$PLUGIN_SKILLS_DIR/"
 cp -r "$SKILLS_SRC"/* "$CODEX_SKILLS_DIR/"
+cp -r "$SKILLS_SRC"/* "$CLAUDE_SKILLS_DIR/"
 
 skill_count=$(find "$PLUGIN_SKILLS_DIR" -name "SKILL.md" | wc -l)
-echo "Installed ${skill_count} skills to ${PLUGIN_SKILLS_DIR} and ${CODEX_SKILLS_DIR}"
+echo "Installed ${skill_count} skills to ${PLUGIN_SKILLS_DIR}, ${CODEX_SKILLS_DIR}, and ${CLAUDE_SKILLS_DIR}"

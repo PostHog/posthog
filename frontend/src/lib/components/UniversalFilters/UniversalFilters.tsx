@@ -2,23 +2,29 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonDivider, LemonDropdown, Popover } from '@posthog/lemon-ui'
 
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
-import { UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+import { EntityTypes, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+    isQuickFilterItem,
+    quickFilterToPropertyFilters,
+} from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
 import { isEditableFilter, isEventFilter } from './utils'
 
-type UniversalFiltersProps = {
+export type UniversalFiltersProps = {
     rootKey: string
     group: UniversalFiltersGroup | null
     onChange: (group: UniversalFiltersGroup) => void
@@ -90,7 +96,7 @@ const Value = ({
     index: number
     filter: UniversalFilterValue
     onChange: (property: UniversalFilterValue) => void
-    onRemove: () => void
+    onRemove?: () => void
     initiallyOpen?: boolean
     metadataSource?: AnyDataNode
     className?: string
@@ -102,30 +108,79 @@ const Value = ({
     const isEditable = isEditableFilter(filter)
 
     const [open, setOpen] = useState<boolean>(isEditable && initiallyOpen)
+    const [changingEvent, setChangingEvent] = useState<boolean>(false)
 
     const pageKey = `${rootKey}.filter_${index}`
+
+    const handleChangeEvent = (
+        taxonomicGroup: { type: TaxonomicFilterGroupType },
+        value: TaxonomicFilterValue,
+        item: any
+    ): void => {
+        // Keyword shortcut (e.g. "Click (autocapture)"): set the event AND attach its
+        // $event_type property filter, replacing any properties the previous event had.
+        if (isQuickFilterItem(item) && item.eventName) {
+            onChange({
+                id: item.eventName,
+                name: item.eventName,
+                type: EntityTypes.EVENTS,
+                properties: quickFilterToPropertyFilters(item),
+            })
+            setChangingEvent(false)
+            return
+        }
+        const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
+        if (entityType) {
+            onChange({ id: value, name: item?.name ?? String(value), type: entityType, properties: [] })
+        }
+        setChangingEvent(false)
+    }
 
     return (
         <Popover
             visible={open}
-            onClickOutside={() => setOpen(false)}
+            onClickOutside={() => {
+                setOpen(false)
+                setChangingEvent(false)
+            }}
             overlay={
                 isEvent ? (
-                    <PropertyFilters
-                        pageKey={pageKey}
-                        propertyFilters={filter.properties}
-                        onChange={(properties) => onChange({ ...filter, properties })}
-                        disablePopover
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                        metadataSource={metadataSource}
-                    />
+                    <div>
+                        {changingEvent ? (
+                            <TaxonomicFilter
+                                onChange={handleChangeEvent}
+                                taxonomicGroupTypes={[
+                                    TaxonomicFilterGroupType.Events,
+                                    TaxonomicFilterGroupType.Actions,
+                                ]}
+                                enableKeywordShortcuts
+                            />
+                        ) : (
+                            <>
+                                <div className="px-2 py-1">
+                                    <LemonButton size="xsmall" type="secondary" onClick={() => setChangingEvent(true)}>
+                                        Change event
+                                    </LemonButton>
+                                </div>
+                                <LemonDivider className="my-1" />
+                                <PropertyFilters
+                                    pageKey={pageKey}
+                                    propertyFilters={filter.properties}
+                                    onChange={(properties) => onChange({ ...filter, properties })}
+                                    disablePopover
+                                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                    metadataSource={metadataSource}
+                                />
+                            </>
+                        )}
+                    </div>
                 ) : isEditable ? (
                     <TaxonomicPropertyFilter
                         pageKey={pageKey}
                         index={0}
                         filters={[filter]}
                         onComplete={() => {
-                            if (isValidPropertyFilter(filter) && !filter.key) {
+                            if (onRemove && isValidPropertyFilter(filter) && !filter.key) {
                                 onRemove()
                             }
                         }}
@@ -163,6 +218,7 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    enableKeywordShortcuts
                 />
             }
             visible={dropdownOpen}
@@ -183,9 +239,17 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
 const PureTaxonomicFilter = ({
     fullWidth = true,
     onChange,
+    initialSearchQuery,
+    hideSearchInput,
+    searchQuery,
+    taxonomicFilterLogicKey,
 }: {
     fullWidth?: boolean
     onChange: () => void
+    initialSearchQuery?: string
+    hideSearchInput?: boolean
+    searchQuery?: string
+    taxonomicFilterLogicKey?: string
 }): JSX.Element => {
     const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
@@ -193,11 +257,16 @@ const PureTaxonomicFilter = ({
     return (
         <TaxonomicFilter
             {...(fullWidth ? { width: '100%' } : {})}
+            taxonomicFilterLogicKey={taxonomicFilterLogicKey}
             onChange={(taxonomicGroup, value, item) => {
                 onChange()
                 addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
+            initialSearchQuery={initialSearchQuery}
+            hideSearchInput={hideSearchInput}
+            searchQuery={searchQuery}
+            enableKeywordShortcuts
         />
     )
 }

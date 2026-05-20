@@ -195,7 +195,6 @@ class RateLimit:
 __API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
 __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
-__WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __EVENTS_LIST_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 
@@ -274,15 +273,17 @@ def get_app_dashboard_queries_rate_limiter():
         __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
             max_concurrency=DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES,
             applicable=(
-                lambda *args, **kwargs: not TEST
-                and not kwargs.get("is_api")
-                and kwargs.get("dashboard_id") is not None
-                # if running in celery, we don't want rate limit to apply
-                # as celery tasks have their own limits on the queues + using @limit_concurrency
-                and not current_task
-                # if running in temporal workflow, don't apply rate limit
-                # as temporal activities have their own concurrency controls
-                and not _is_in_temporal()
+                lambda *args, **kwargs: (
+                    not TEST
+                    and not kwargs.get("is_api")
+                    and kwargs.get("dashboard_id") is not None
+                    # if running in celery, we don't want rate limit to apply
+                    # as celery tasks have their own limits on the queues + using @limit_concurrency
+                    and not current_task
+                    # if running in temporal workflow, don't apply rate limit
+                    # as temporal activities have their own concurrency controls
+                    and not _is_in_temporal()
+                )
             ),
             limit_name="app_dashboard_queries_per_org",
             get_task_name=lambda *args, **kwargs: f"app:dashboard_query:per-org:{kwargs.get('org_id')}",
@@ -290,33 +291,6 @@ def get_app_dashboard_queries_rate_limiter():
             ttl=600,
         )
     return __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG
-
-
-def get_web_analytics_api_rate_limiter():
-    """
-    Limits the number of concurrent web analytics API queries per team.
-    """
-    global __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM
-
-    def __applicable(
-        *args,
-        team_id: Optional[int] = None,
-        **kwargs,
-    ) -> bool:
-        return bool(not TEST and team_id)
-
-    if __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM is None:
-        __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
-            max_concurrency=3,
-            applicable=__applicable,
-            limit_name="web_analytics_api_per_team",
-            get_task_name=lambda *args, **kwargs: f"web_analytics_api:query:per-team:{kwargs.get('team_id')}",
-            get_task_id=lambda *args, **kwargs: (
-                current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
-            ),
-            ttl=600,
-        )
-    return __WEB_ANALYTICS_API_CONCURRENT_QUERY_PER_TEAM
 
 
 def get_materialized_endpoints_rate_limiter():

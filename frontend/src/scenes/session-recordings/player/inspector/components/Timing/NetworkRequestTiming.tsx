@@ -17,11 +17,11 @@ const TableView = ({ performanceEvent }: { performanceEvent: PerformanceEvent })
     return <SimpleKeyValueList item={timingProperties} />
 }
 
-export const NetworkRequestTiming = ({
-    performanceEvent,
-}: {
+export interface NetworkRequestTimingProps {
     performanceEvent: PerformanceEvent
-}): JSX.Element | null => {
+}
+
+export const NetworkRequestTiming = ({ performanceEvent }: NetworkRequestTimingProps): JSX.Element | null => {
     const [timelineMode, setTimelineMode] = useState<boolean>(true)
 
     const { isValid: isValidForTimelineView } = convertForTimelineView(performanceEvent)

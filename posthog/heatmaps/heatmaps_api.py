@@ -8,7 +8,7 @@ from django.http import HttpResponse
 
 from rest_framework import request, response, serializers, status, viewsets
 
-from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
@@ -23,6 +23,8 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.auth import ExportRendererAuthentication
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -224,6 +226,7 @@ class HeatmapEventsResponseSerializer(serializers.Serializer):
 
 
 class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "events"]
 
@@ -255,6 +258,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
         results = execute_hogql_query(query=stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context)
 
         if is_scrolldepth_query:
@@ -270,6 +274,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return aggregation_count
 
     def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
+        # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
+        # HogQLFilters instead emits a strict `timestamp < date_to`, so when date_from and date_to land on the same
+        # day this events subquery collapses to an impossible range and returns no sessions. Add a day so the
+        # events subquery covers the same date window as the main heatmap query.
+        events_date_to = (date_to or date.today()) + timedelta(days=1)
         events_select = replace_filters(
             parse_select(
                 "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
@@ -278,7 +287,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 filterTestAccounts=True,
                 dateRange=DateRange(
                     date_from=date_from.strftime("%Y-%m-%d"),
-                    date_to=date_to.strftime("%Y-%m-%d") if date_to else (date.today()).strftime("%Y-%m-%d"),
+                    date_to=events_date_to.strftime("%Y-%m-%d"),
                 ),
             ),
             self.team,
@@ -406,6 +415,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             {"predicates": ast.And(exprs=exprs)},
         )
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
+        tag_queries(product=ProductKey.HEATMAPS, feature=Feature.QUERY)
         count_result = execute_hogql_query(
             query=count_stmt, team=self.team, limit_context=LimitContext.HEATMAPS, context=context
         )
@@ -495,6 +505,12 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
 
 
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    # Screenshot exports render the heatmap in a headless browser, which authenticates
+    # via an EXPORT_RENDERER JWT. Without opting into ExportRendererAuthentication here,
+    # the exporter's `fetch(heatmap_url, Authorization: Bearer ...)` call in
+    # frontend/src/exporter/exporterViewLogic.ts:50-52 gets rejected, the background
+    # image never loads, and the exported PNG renders an `<img alt="Heatmap">` placeholder.
+    authentication_classes = [ExportRendererAuthentication]
     scope_object = "heatmap"
     scope_object_read_actions = ["list", "retrieve", "content"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -549,12 +565,17 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
+_URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
+
+
 class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     widths = serializers.ListField(
         child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
     )
 
     def validate_url(self, value: str) -> str:
+        if any(c in _URL_PATTERN_CHARS for c in value):
+            raise serializers.ValidationError("Wildcards are not allowed in the page URL.")
         ok, err = is_url_allowed(value)
         if not ok:
             raise serializers.ValidationError(err or "URL not allowed")
@@ -702,9 +723,13 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
+        old_url = obj.url
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
+
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and updated.url != old_url:
+            self._regenerate(updated)
 
         log_activity(
             organization_id=cast(User, request.user).current_organization_id

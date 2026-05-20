@@ -7,11 +7,41 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface DagApi {
+    readonly id: string
+    /**
+     * Human-readable name for this DAG
+     * @maxLength 2048
+     */
+    name: string
+    /** Optional description of the DAG's purpose */
+    description?: string
+    /**
+     * Sync frequency string (e.g. '24hour', '7day')
+     * @nullable
+     */
+    sync_frequency?: string | null
+    readonly node_count: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedDAGListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DagApi[]
+}
+
 export interface EdgeApi {
     readonly id: string
     readonly source_id: string
     readonly target_id: string
     dag: string
+    readonly dag_name: string
     properties?: unknown
     readonly created_at: string
     /** @nullable */
@@ -48,6 +78,7 @@ export interface NodeApi {
     name: string
     type?: NodeTypeEnumApi
     dag: string
+    readonly dag_name: string
     /** @maxLength 1024 */
     description?: string
     /** @nullable */
@@ -74,6 +105,17 @@ export interface PaginatedNodeListApi {
     /** @nullable */
     previous?: string | null
     results: NodeApi[]
+}
+
+export type DataModelingDagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type DataModelingEdgesListParams = {

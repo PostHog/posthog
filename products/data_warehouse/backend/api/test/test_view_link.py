@@ -565,7 +565,7 @@ class TestViewLinkValidation(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "invalid_input")
-        self.assertEqual(data["detail"], "mismatched input 'syntax' expecting <EOF>")
+        self.assertEqual(data["detail"], "Unexpected character '!' (U+0021)")
         self.assertEqual(data["type"], "validation_error")
 
     def test_missing_source_table_name(self):

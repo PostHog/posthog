@@ -4,9 +4,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { CompactList } from './CompactList'
+import { CompactList, CompactListProps } from './CompactList'
 
-const meta: Meta<typeof CompactList> = {
+const meta: Meta<CompactListProps> = {
     title: 'Components/Compact List',
     component: CompactList,
     argTypes: {

@@ -3,12 +3,24 @@ import { useActions, useValues } from 'kea'
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { humanFriendlyDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -28,12 +40,33 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, runs, selectedRunId, selectedRun, runsLoading, logs, shouldPoll, streamEntries, isStreaming } =
-        useValues(sceneLogic)
+    const {
+        task,
+        taskLoading,
+        runs,
+        selectedRunId,
+        selectedRun,
+        runsLoading,
+        logs,
+        logsLoading,
+        shouldPoll,
+        streamEntries,
+        isStreaming,
+    } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+
+    if (taskLoading && !task) {
+        return (
+            <div className="flex items-center justify-center h-32">
+                <Spinner />
+            </div>
+        )
+    }
 
     if (!task) {
-        return <div className="text-center py-8 text-muted">Task not found</div>
+        return <NotFound object="task" />
     }
 
     const hasBeenRun = runs.length > 0
@@ -46,6 +79,18 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
 
     return (
         <SceneContent>
+            {sceneMenuBarEnabled && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr="task-menubar-file">
+                        <SceneMenuBarFileItems dataAttrKey="task" />
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarItem variant="destructive" onClick={deleteTask} data-attr="task-menubar-archive">
+                            <IconArchive />
+                            Archive task
+                        </SceneMenuBarItem>
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <div className="flex flex-col gap-3">
@@ -139,6 +184,27 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 }
             />
 
+            {selectedRun && (
+                <div className="flex items-center gap-4 -mt-2 mb-2 px-2 text-xs text-muted">
+                    <span>
+                        Created: <TZLabel time={selectedRun.created_at} showSeconds />
+                    </span>
+                    {selectedRun.completed_at && (
+                        <span>
+                            Completed: <TZLabel time={selectedRun.completed_at} showSeconds />
+                        </span>
+                    )}
+                    {selectedRun.completed_at && (
+                        <span>
+                            Duration:{' '}
+                            {humanFriendlyDuration(
+                                dayjs(selectedRun.completed_at).diff(selectedRun.created_at, 'second')
+                            )}
+                        </span>
+                    )}
+                </div>
+            )}
+
             {task.description && (
                 <div className="relative -mt-2 mb-2 px-2">
                     <CollapsibleContent>
@@ -161,9 +227,11 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 <div className="flex-1 overflow-hidden">
                     <TaskSessionView
                         logs={logs}
+                        logsLoading={logsLoading}
                         streamEntries={streamEntries}
                         isPolling={shouldPoll}
                         isStreaming={isStreaming}
+                        initialPrompt={task.description}
                         run={selectedRun}
                     />
                 </div>

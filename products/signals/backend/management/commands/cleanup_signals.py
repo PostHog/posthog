@@ -9,7 +9,8 @@ from posthog.models import Team
 from products.error_tracking.backend.embedding import PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
+from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
+from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 
 DELETE_SQL = """
@@ -70,9 +71,10 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stdout.write(self.style.WARNING(f"  ✗ {table}: {e}"))
 
-        # 2. Delete Django models (artefacts cascade from reports)
+        # Capture report metadata before deleting Postgres rows.
+        report_workflow_info = list(SignalReport.objects.filter(team=team).values_list("id", "run_count"))
         artefact_count = SignalReportArtefact.objects.filter(team=team).count()
-        report_count = SignalReport.objects.filter(team=team).count()
+        report_count = len(report_workflow_info)
 
         self.stdout.write(f"Deleting {artefact_count} SignalReportArtefacts...")
         SignalReportArtefact.objects.filter(team=team).delete()
@@ -81,7 +83,7 @@ class Command(BaseCommand):
         SignalReport.objects.filter(team=team).delete()
 
         # 3. Terminate Temporal workflows
-        self._terminate_workflows(team, report_count)
+        self._terminate_workflows(team, report_workflow_info)
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -90,7 +92,7 @@ class Command(BaseCommand):
             )
         )
 
-    def _terminate_workflows(self, team, report_count):
+    def _terminate_workflows(self, team, report_workflow_info):
         try:
             from posthog.temporal.common.client import sync_connect
 
@@ -101,17 +103,38 @@ class Command(BaseCommand):
 
         terminated = 0
 
-        # Terminate grouping workflow
-        grouping_wf_id = TeamSignalGroupingWorkflow.workflow_id_for(team.id)
-        if self._terminate_workflow(client, grouping_wf_id, "grouping"):
+        # Terminate active ingestion workflows.
+        buffer_wf_id = BufferSignalsWorkflow.workflow_id_for(team.id)
+        if self._terminate_workflow(client, buffer_wf_id, "buffer"):
             terminated += 1
 
-        # Terminate any summary workflows for this team's reports
-        report_ids = list(SignalReport.objects.filter(team=team).values_list("id", flat=True))
-        for rid in report_ids:
-            wf_id = SignalReportSummaryWorkflow.workflow_id_for(team.id, str(rid))
-            if self._terminate_workflow(client, wf_id, f"summary for {rid}"):
-                terminated += 1
+        grouping_v2_wf_id = TeamSignalGroupingV2Workflow.workflow_id_for(team.id)
+        if self._terminate_workflow(client, grouping_v2_wf_id, "grouping-v2"):
+            terminated += 1
+
+        # Also terminate any leftover legacy v1 grouping workflow.
+        from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
+
+        legacy_grouping_wf_id = TeamSignalGroupingWorkflow.workflow_id_for(team.id)
+        if self._terminate_workflow(client, legacy_grouping_wf_id, "legacy-grouping-v1"):
+            terminated += 1
+
+        # Terminate summary workflows for this team's reports.
+        for rid, run_count in report_workflow_info:
+            rid_str = str(rid)
+            base_wf_id = SignalReportSummaryWorkflow.workflow_id_for(team.id, rid_str)
+            candidate_ids = [base_wf_id]
+            if run_count > 0:
+                candidate_ids.extend(
+                    [
+                        f"{base_wf_id}:run-{run_count}",
+                        f"{base_wf_id}:run-{run_count + 1}",
+                    ]
+                )
+
+            for wf_id in candidate_ids:
+                if self._terminate_workflow(client, wf_id, f"summary for {rid_str}"):
+                    terminated += 1
 
         if terminated:
             self.stdout.write(f"Terminated {terminated} Temporal workflow(s).")

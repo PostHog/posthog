@@ -36,6 +36,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert activity_response.status_code == status.HTTP_200_OK
 
         activity: list[dict] = activity_response.json()["results"]
+        for item in activity:
+            item.pop("id", None)
 
         self.maxDiff = None
         assert activity == expected

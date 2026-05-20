@@ -17,7 +17,7 @@ env:
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -35,14 +35,21 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
@@ -57,16 +64,17 @@ jobs:
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Code quality
+        name: Node.js Code quality (depot-ubuntu-latest)
         needs: changes
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -74,7 +82,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -97,16 +105,17 @@ jobs:
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Build
+        name: Node.js Build (depot-ubuntu-latest)
         needs: changes
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -114,7 +123,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -145,16 +154,14 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests (${{matrix.shard}}/3)
+        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-latest-4)
         needs: changes
         runs-on: depot-ubuntu-latest-4
         timeout-minutes: 30 # We know tests don't take this long
-
         strategy:
             fail-fast: false
             matrix:
                 shard: [1, 2, 3]
-
         env:
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
@@ -163,7 +170,7 @@ jobs:
 
         steps:
             - name: Code check out
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -176,6 +183,8 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: dev_tools,localstack
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down
 
@@ -185,8 +194,8 @@ jobs:
                   COMPOSE_PROFILES: dev_tools,localstack
               run: bin/ci-wait-for-docker wait
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -208,7 +217,7 @@ jobs:
                   toolchain: 1.91.1
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -216,7 +225,7 @@ jobs:
 
             - name: Install sqlx-cli
               working-directory: rust
-              run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
+              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -229,7 +238,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -237,7 +246,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 24.13.0
+                  node-version-file: .nvmrc
                   cache: pnpm
                   cache-dependency-path: |
                       pnpm-lock.yaml
@@ -356,6 +365,7 @@ jobs:
         needs: [tests, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - run: exit 0

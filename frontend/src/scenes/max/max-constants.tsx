@@ -535,11 +535,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed user interviews'
             }
             return 'Analyzing user interviews...'
+        },
+    },
+    create_user_interview_topic: {
+        name: 'Set up user interviews',
+        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
+        product: Scene.UserInterviews,
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+        icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created interview topic'
+            }
+            return 'Setting up interview topic...'
         },
     },
     create_hog_function_filters: {
@@ -728,6 +743,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering web analytics...'
         },
     },
+    web_analytics_doctor: {
+        name: 'Diagnose web analytics',
+        description: 'Diagnose web analytics setup issues like missing pageviews or partial proxy coverage',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
+        },
+    },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
         description: 'Create and edit dashboards with insights based on your requirements',
@@ -909,13 +933,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return 'Executed SQL'
             }
-            return 'Writing an SQL query...'
+            return 'Writing a SQL query...'
         },
     },
     summarize_sessions: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
-        flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
         beta: true,
         modes: [AgentMode.SessionReplay],
@@ -989,6 +1012,14 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
         },
     },
+    diagnose_proxy: {
+        name: 'Diagnose reverse proxy',
+        description: 'Diagnose reverse proxy stuck or erroring states',
+        icon: <IconCloud />,
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed reverse proxy' : 'Diagnosing reverse proxy...'
+        },
+    },
     finalize_plan: {
         name: 'Finalize plan',
         description: 'Finalize plan',
@@ -998,17 +1029,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Finalized plan'
             }
             return 'Finalizing plan...'
-        },
-    },
-    recommend_products: {
-        name: 'Recommend products',
-        description: 'Recommend products based on user needs',
-        icon: iconForType('product_analytics'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Recommended products'
-            }
-            return 'Recommending products...'
         },
     },
     search_llm_traces: {
@@ -1021,6 +1041,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Searched LLM traces'
             }
             return 'Searching LLM traces...'
+        },
+    },
+    run_hog_eval_test: {
+        name: 'Test evaluation',
+        description: 'Test evaluation code against sample events',
+        product: Scene.LLMAnalyticsEvaluation,
+        icon: iconForType('llm_evaluations'),
+        modes: [AgentMode.LLMAnalytics],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Tested evaluation code'
+            }
+            return 'Testing evaluation code...'
         },
     },
 }
@@ -1065,12 +1098,6 @@ export const MODE_DEFINITIONS: Record<
         icon: iconForType('survey'),
         scenes: new Set([Scene.Surveys, Scene.Survey]),
     },
-    [AgentMode.Onboarding]: {
-        name: 'Onboarding',
-        description: 'Helps new users discover which PostHog products are right for their needs.',
-        icon: iconForType('product_analytics'),
-        scenes: new Set([Scene.Onboarding]),
-    },
     [AgentMode.Flags]: {
         name: 'Flags',
         description: 'Creates and manages feature flags and experiments.',
@@ -1088,7 +1115,7 @@ export const MODE_DEFINITIONS: Record<
     },
     [AgentMode.LLMAnalytics]: {
         name: 'LLM analytics',
-        description: 'Analyzes LLM traces.',
+        description: 'Analyzes LLM traces and writes evaluation code for LLM analytics.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
             Scene.LLMAnalytics,
@@ -1100,6 +1127,13 @@ export const MODE_DEFINITIONS: Record<
             Scene.LLMAnalyticsPlayground,
             Scene.LLMAnalyticsUsers,
         ]),
+    },
+    [AgentMode.UserInterview]: {
+        name: 'User interviews',
+        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
+        icon: iconForType('user_interview'),
+        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
+        flag: 'USER_INTERVIEWS',
     },
 }
 

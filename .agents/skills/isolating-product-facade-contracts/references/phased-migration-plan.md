@@ -28,7 +28,7 @@ rg -n "products\.<target>\.backend\.facade" .
 
 Start with read paths before write paths.
 
-1. Add `backend/facade/contracts.py` with frozen dataclasses for existing read responses.
+1. Add `backend/facade/contracts.py` with `pydantic.dataclasses.dataclass` frozen dataclasses for existing read responses. (Stdlib `dataclasses.dataclass` works too, but the Pydantic variant adds runtime type validation on construction for the same syntax.)
 2. Add `backend/facade/__init__.py` exports to make imports straightforward.
 3. Add minimal domain enums either in `contracts.py` or `facade/enums.py` if they grow.
 
@@ -81,7 +81,7 @@ Reference patterns:
 ## Phase 5 — Tighten boundaries and clean up
 
 1. Remove direct callers of internal modules where facade replacements exist.
-2. Update `tach.toml` dependency/interface declarations to match desired import rules.
+2. Add a global `[[interfaces]]` block in `tach.toml` with `expose` patterns for facade and presentation views. Add `backend:contract-check` to `package.json`. Run `tach check --interfaces` and `hogli product:lint` to verify.
 3. Remove obsolete adapters and dead helper functions.
 
 Then verify:

@@ -22,6 +22,7 @@ import responses
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade.enums import RunStatus, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 # --- Fixtures ---
 
@@ -276,7 +277,7 @@ def mock_github_integration(team, mocker):
 def vr_project_with_github(team, mock_github_integration):
     """Create a visual review repo configured for GitHub."""
     return Repo.objects.create(
-        team=team,
+        team_id=team.id,
         repo_external_id=12345,
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},
@@ -297,6 +298,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
 
     run = Run.objects.create(
         repo=repo,
+        team_id=repo.team_id,
         status=RunStatus.COMPLETED,
         run_type="storybook",
         commit_sha=commit_sha,
@@ -309,6 +311,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     # Create artifacts for the snapshots
     artifact1 = Artifact.objects.create(
         repo=repo,
+        team_id=repo.team_id,
         content_hash="abc123hash",
         storage_path="visual_review/test/abc123hash.png",
         width=800,
@@ -316,6 +319,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     )
     artifact2 = Artifact.objects.create(
         repo=repo,
+        team_id=repo.team_id,
         content_hash="def456hash",
         storage_path="visual_review/test/def456hash.png",
         width=1200,
@@ -325,6 +329,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     # Create snapshots
     RunSnapshot.objects.create(
         run=run,
+        team_id=repo.team_id,
         identifier="button--primary",
         current_hash="abc123hash",
         baseline_hash="old111hash",
@@ -333,6 +338,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
     )
     RunSnapshot.objects.create(
         run=run,
+        team_id=repo.team_id,
         identifier="card--default",
         current_hash="def456hash",
         baseline_hash="old222hash",
@@ -346,7 +352,7 @@ def run_with_changes(vr_project_with_github, local_git_repo):
 # --- Tests ---
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestGitHubCommitOnApprove:
     """Test that approve commits baseline updates to GitHub."""
 
@@ -399,7 +405,7 @@ class TestGitHubCommitOnApprove:
             capture_output=True,
             text=True,
         )
-        assert "chore(visual): update visual baselines" in log_result.stdout
+        assert "chore(visual): update storybook baselines" in log_result.stdout
 
     def test_approve_merges_with_existing_baselines(
         self,
@@ -478,6 +484,58 @@ class TestGitHubCommitOnApprove:
 
         assert "newer commits" in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        "create_user_integration,expected_trailer",
+        [
+            (True, "Co-authored-by: octocat <583231+octocat@users.noreply.github.com>"),
+            (False, None),
+        ],
+    )
+    def test_approve_coauthor_trailer(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        run_with_changes,
+        user,
+        create_user_integration,
+        expected_trailer,
+    ):
+        """Bot commit gets a Co-authored-by trailer iff the approver has a matching personal integration."""
+        from posthog.models.user_integration import UserIntegration
+
+        # Pin the team integration's installation_id so UserIntegration lookup can match
+        mock_github_integration.integration_id = "12345"
+
+        if create_user_integration:
+            UserIntegration.objects.create(
+                user=user,
+                kind=UserIntegration.IntegrationKind.GITHUB,
+                integration_id="12345",
+                config={"github_user": {"login": "octocat", "id": 583231}},
+                sensitive_config={"user_access_token": "ghu_fake"},
+            )
+
+        logic.approve_run(
+            run_id=run_with_changes.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "button--primary", "new_hash": "abc123hash"}],
+            commit_to_github=True,
+        )
+
+        log = subprocess.run(
+            ["git", "log", "--format=%B", "-1"],
+            cwd=local_git_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        if expected_trailer:
+            assert expected_trailer in log
+        else:
+            assert "Co-authored-by:" not in log
+
     def test_approve_without_github_skips_commit(
         self,
         vr_project_with_github,
@@ -511,6 +569,7 @@ class TestGitHubCommitOnApprove:
         # Create run without pr_number
         run = Run.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             status=RunStatus.COMPLETED,
             run_type="storybook",
             commit_sha="abc123",
@@ -522,12 +581,14 @@ class TestGitHubCommitOnApprove:
 
         artifact = Artifact.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             content_hash="newhash",
             storage_path="path/to/artifact.png",
         )
 
         RunSnapshot.objects.create(
             run=run,
+            team_id=repo.team_id,
             identifier="test-snapshot",
             current_hash="newhash",
             current_artifact=artifact,
@@ -591,14 +652,14 @@ class TestGitHubCommitOnApprove:
             assert s.approved_hash in ["abc123hash", "def456hash"]
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestGitHubIntegrationErrors:
     """Test error handling for GitHub integration."""
 
     def test_missing_github_integration(self, team, user):
         """Should raise error if team has no GitHub integration."""
         repo = Repo.objects.create(
-            team=team,
+            team_id=team.id,
             repo_external_id=99999,
             repo_full_name="org/repo",
             baseline_file_paths={"storybook": ".snapshots.yml"},
@@ -606,6 +667,7 @@ class TestGitHubIntegrationErrors:
 
         run = Run.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             status=RunStatus.COMPLETED,
             run_type="storybook",
             commit_sha="abc123",
@@ -616,12 +678,14 @@ class TestGitHubIntegrationErrors:
 
         artifact = Artifact.objects.create(
             repo=repo,
+            team_id=repo.team_id,
             content_hash="hash123",
             storage_path="path.png",
         )
 
         RunSnapshot.objects.create(
             run=run,
+            team_id=repo.team_id,
             identifier="snap",
             current_hash="hash123",
             current_artifact=artifact,

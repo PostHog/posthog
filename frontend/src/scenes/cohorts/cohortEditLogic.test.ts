@@ -51,7 +51,9 @@ describe('cohortEditLogic', () => {
         await expectLogic(cohortsModel).toFinishAllListeners()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'update')
+        jest.spyOn(api, 'create')
         api.get.mockClear()
+        api.create.mockClear()
         logic = cohortEditLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -87,6 +89,7 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCohort'])
 
             expect(api.get).toHaveBeenCalledTimes(0)
+            expect(logic.values.staticCohortMode).toEqual('people')
         })
 
         it('loads new cohort on mount with undefined id', async () => {
@@ -594,8 +597,10 @@ describe('cohortEditLogic', () => {
                                                             row.fields
                                                                 .filter(
                                                                     ({ fieldKey }) =>
-                                                                        !!fieldKey && fieldKey !== 'event_filters'
-                                                                ) // event_filters are optional
+                                                                        !!fieldKey &&
+                                                                        fieldKey !== 'event_filters' &&
+                                                                        fieldKey !== 'explicit_datetime_to'
+                                                                ) // event_filters and explicit_datetime_to are optional
                                                                 .map(({ fieldKey, type }) => [
                                                                     fieldKey,
                                                                     CRITERIA_VALIDATIONS[type](undefined),
@@ -621,11 +626,65 @@ describe('cohortEditLogic', () => {
                     ...mockCohort,
                     is_static: true,
                     groups: [],
+                    filters: { properties: {} as any },
                     csv: undefined,
                 })
+                logic.actions.setStaticCohortMode('people')
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortSuccess'])
             expect(api.update).toHaveBeenCalledTimes(1)
+        })
+
+        it('can create static cohort from criteria without csv', async () => {
+            await initCohortLogic({ id: 'new' })
+            const createdCohort = {
+                ...mockCohort,
+                id: 2,
+                name: 'Static from criteria',
+                is_static: true,
+            }
+            const createSpy = jest.spyOn(api.cohorts, 'create').mockResolvedValue(createdCohort)
+            const setTimeoutSpy = jest.spyOn(window, 'setTimeout').mockImplementation(() => 0 as never)
+
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    id: 'new',
+                    name: 'Static from criteria',
+                    is_static: true,
+                    filters: {
+                        properties: {
+                            ...mockCohort.filters.properties,
+                            values: [
+                                {
+                                    id: '70427',
+                                    type: FilterLogicalOperator.Or,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Behavioral,
+                                            value: BehavioralEventType.PerformEvent,
+                                            event_type: TaxonomicFilterGroupType.Events,
+                                            time_value: 30,
+                                            time_interval: TimeUnitType.Day,
+                                            key: 'dashboard date range changed',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.actions.setStaticCohortMode('criteria')
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortSuccess'])
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            const createPayload = createSpy.mock.calls[0][0] as FormData
+            expect(createPayload.get('is_static')).toEqual('true')
+            expect(createPayload.get('filters')).toContain('"values"')
+            expect(createPayload.get('filters')).not.toContain('"properties":{}')
+
+            setTimeoutSpy.mockRestore()
         })
 
         it('do not save static cohort with empty csv', async () => {
@@ -638,8 +697,9 @@ describe('cohortEditLogic', () => {
                     csv: undefined,
                     id: 'new',
                 })
+                logic.actions.setStaticCohortMode('people')
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort'])
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 
@@ -1038,12 +1098,20 @@ describe('cohortEditLogic', () => {
                         type: FilterLogicalOperator.Or,
                         values: [
                             {
-                                type: BehavioralFilterKey.Behavioral,
-                                value: BehavioralEventType.PerformEvent,
-                                event_type: TaxonomicFilterGroupType.Events,
-                                time_value: 30,
-                                time_interval: TimeUnitType.Day,
-                                key: '$pageview',
+                                sort_key: 'mocked-uuid',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        sort_key: 'mocked-uuid',
+                                        explicit_datetime: '-30d',
+                                        type: BehavioralFilterKey.Behavioral,
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: TaxonomicFilterGroupType.Events,
+                                        time_value: 30,
+                                        time_interval: TimeUnitType.Day,
+                                        key: '$pageview',
+                                    },
+                                ],
                             },
                         ],
                     },
@@ -1059,6 +1127,56 @@ describe('cohortEditLogic', () => {
                     // The duplication should complete without errors
                     cohort: partial(dynamicCohort),
                 })
+        }, 15000)
+    })
+
+    describe('active tab URL routing', () => {
+        beforeEach(async () => {
+            await initCohortLogic({ id: 1 })
+            router.actions.replace(urls.cohort(1))
+        })
+
+        it('defaults to overview when no hash is set', async () => {
+            await expectLogic(logic).toMatchValues({ activeTab: 'overview' })
+        })
+
+        it('writes #tab=history when switching to history', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('history')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+        })
+
+        it('strips the tab key from the hash when switching back to overview', async () => {
+            logic.actions.setActiveTab('history')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('overview')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBeUndefined()
+        })
+
+        it('reads the tab from the URL on navigation', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'history' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'history' })
+        })
+
+        it('falls back to overview when the hash tab value is unrecognized', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'garbage' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'overview' })
+        })
+    })
+
+    describe('new cohort hash hygiene', () => {
+        it('clears a stale #tab=history hash on mount and resets activeTab to overview', async () => {
+            router.actions.replace(urls.cohort('new'), {}, { tab: 'history' })
+            await initCohortLogic({ id: 'new' })
+            expect(router.values.hashParams.tab).toBeUndefined()
+            // Without resetting activeTab, the user would land on a blank screen for new cohorts:
+            // overview is hidden via `display:none` while history requires a saved cohort to render.
+            expect(logic.values.activeTab).toBe('overview')
         })
     })
 })

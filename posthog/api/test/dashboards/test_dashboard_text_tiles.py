@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
@@ -42,14 +42,15 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         last_modified_by: Optional[User] = None,
         text_id: Optional[int] = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
-    ) -> dict:
+        dashboard_tiles: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
         if not created_by:
             created_by = self.user
 
         if not text_id:
             text_id = mock.ANY
 
-        return {
+        out: dict[str, Any] = {
             "id": text_id,
             "body": body,
             "created_by": self._serialised_user(created_by),
@@ -57,6 +58,9 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "last_modified_by": self._serialised_user(last_modified_by),
             "team": self.team.id,
         }
+        if dashboard_tiles is not None:
+            out["dashboard_tiles"] = dashboard_tiles
+        return out
 
     def _expected_tile_with_text(
         self,
@@ -67,9 +71,13 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         text_id: Optional[int] = None,
         color: Optional[str] = None,
         last_modified_at: str = "2022-04-01T12:45:00Z",
+        dashboard_id: Optional[int] = None,
     ) -> dict:
         if not tile_id:
             tile_id = mock.ANY
+        text_dashboard_tiles: Optional[list[dict[str, Any]]] = None
+        if dashboard_id is not None:
+            text_dashboard_tiles = [{"id": mock.ANY, "dashboard_id": dashboard_id, "deleted": None}]
         return {
             "id": tile_id,
             "layouts": {},
@@ -82,11 +90,14 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
                 last_modified_by=last_modified_by,
                 text_id=text_id,
                 last_modified_at=last_modified_at,
+                dashboard_tiles=text_dashboard_tiles,
             ),
             "last_refresh": None,
             "is_cached": False,
             "insight": None,
+            "button_tile": None,
             "show_description": None,
+            "transparent_background": None,
         }
 
     @staticmethod
@@ -118,6 +129,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_json["tiles"]) == 1
         assert dashboard_json["tiles"][0] == self._expected_tile_with_text(
             body="hello world",
+            dashboard_id=dashboard_id,
         )
 
     @override_settings(IN_UNIT_TESTING=True)
@@ -270,6 +282,28 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data["code"], "max_length")
         self.assertEqual(response_data["detail"], "Text body cannot exceed 4000 characters")
         self.assertEqual(response_data["attr"], "text__body")
+
+    def test_can_create_text_tile_with_transparent_background(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, dashboard_json = self.dashboard_api.create_text_tile(
+            dashboard_id, text="hello", extra_data={"transparent_background": True}
+        )
+
+        tile = dashboard_json["tiles"][0]
+        assert tile["transparent_background"] is True
+
+    def test_can_update_text_tile_transparent_background(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="hello")
+
+        tile = dashboard_json["tiles"][0]
+        assert tile["transparent_background"] is None
+
+        tile["transparent_background"] = True
+        _, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, tile)
+
+        assert dashboard_json["tiles"][0]["transparent_background"] is True
 
     @freeze_time("2022-04-01 12:45")
     @override_settings(IN_UNIT_TESTING=True)

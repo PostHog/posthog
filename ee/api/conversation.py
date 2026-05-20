@@ -1,5 +1,6 @@
 import time
 import uuid
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import cast
 
@@ -10,7 +11,8 @@ from django.http import StreamingHttpResponse
 import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
@@ -48,7 +50,7 @@ from posthog.temporal.ai.research_agent import (
 )
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
@@ -78,6 +80,13 @@ class MessageMinimalSerializer(serializers.Serializer):
     """Serializer for appending a message to an existing conversation without triggering AI processing."""
 
     content = serializers.CharField(required=True, max_length=10000)
+
+
+def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
+    """Large spend histories can exceed Temporal's 2MB payload limit."""
+    if billing_context.spend_history and len(billing_context.spend_history) > threshold:
+        billing_context.spend_history = None
+    return billing_context
 
 
 class MessageSerializer(MessageMinimalSerializer):
@@ -121,7 +130,7 @@ class MessageSerializer(MessageMinimalSerializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                billing_context = MaxBillingContext.model_validate(billing_context)
+                billing_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = billing_context
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -157,7 +166,7 @@ class QueueMessageSerializer(serializers.Serializer):
         billing_context = data.get("billing_context")
         if billing_context:
             try:
-                parsed_context = MaxBillingContext.model_validate(billing_context)
+                parsed_context = _strip_large_spend_history(MaxBillingContext.model_validate(billing_context))
                 data["billing_context"] = parsed_context.model_dump()
             except pydantic.ValidationError as e:
                 capture_exception(e)
@@ -205,6 +214,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return Response({"messages": queue, "max_queue_messages": queue_store.max_messages})
 
     def safely_get_queryset(self, queryset):
+        queryset = queryset.select_related("user")
+
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
@@ -218,6 +229,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             if not is_impersonated_session(self.request):
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
+        if self.action == "list":
+            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
 
     def get_throttles(self):
@@ -293,6 +306,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return MessageSerializer
         if self.action == "append_message":
             return MessageMinimalSerializer
+        if self.action == "list":
+            return ConversationMinimalSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self):
@@ -431,13 +446,39 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         async def async_stream(
             workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
+            SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
+            SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
+
             serializer = AssistantSSESerializer()
             stream_manager = AgentExecutor(conversation, timeout=timeout, max_length=max_length)
-            last_iteration_time = time.time()
-            async for chunk in stream_manager.astream(workflow_class, workflow_inputs):
-                chunk_received_time = time.time()
-                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(chunk_received_time - last_iteration_time)
-                last_iteration_time = chunk_received_time
+            last_yield_time = time.time()
+            last_chunk_time = last_yield_time
+            aiter = stream_manager.astream(workflow_class, workflow_inputs).__aiter__()
+
+            while True:
+                next_task = asyncio.ensure_future(aiter.__anext__())
+                try:
+                    while not next_task.done():
+                        elapsed = time.time() - last_yield_time
+                        wait_time = max(0.1, SSE_KEEPALIVE_INTERVAL - elapsed)
+                        done, _ = await asyncio.wait({next_task}, timeout=wait_time)
+                        if not done:
+                            yield SSE_KEEPALIVE_COMMENT
+                            last_yield_time = time.time()
+                except BaseException:
+                    if not next_task.done():
+                        next_task.cancel()
+                    raise
+
+                try:
+                    chunk = next_task.result()
+                except StopAsyncIteration:
+                    break
+
+                now = time.time()
+                STREAM_ITERATION_LATENCY_HISTOGRAM.observe(now - last_chunk_time)
+                last_chunk_time = now
+                last_yield_time = now
 
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")
@@ -487,6 +528,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         return self._queue_response(queue_store, queue)
 
+    @extend_schema(parameters=[OpenApiParameter("queue_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(detail=True, methods=["PATCH", "DELETE"], url_path=r"queue/(?P<queue_id>[^/.]+)")
     def queue_item(self, request: Request, queue_id: str, *args, **kwargs):
         conversation_id = self._queue_conversation_id()

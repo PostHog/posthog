@@ -21,6 +21,7 @@ import { getCategoricalConfig, getTraceReviewScores } from './utils'
 
 export interface TraceReviewModalLogicProps {
     traceId: string
+    queueId?: string | null
 }
 
 const DEFINITION_PICKER_PAGE_SIZE = 50
@@ -99,6 +100,7 @@ function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: nu
         kind: score.definition_kind,
         archived: score.definition_archived,
         current_version: score.definition_version,
+        current_version_id: score.definition_version_id,
         config: score.definition_config,
         created_by: null,
         created_at: score.created_at,
@@ -157,7 +159,7 @@ function mergeDefinitions(
 export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'traceReviews', 'traceReviewModalLogic']),
     props({} as TraceReviewModalLogicProps),
-    key((props: TraceReviewModalLogicProps) => props.traceId),
+    key((props: TraceReviewModalLogicProps) => `${props.traceId}-${props.queueId || 'none'}`),
 
     connect({
         values: [teamLogic, ['currentTeamId']],
@@ -437,12 +439,20 @@ export const traceReviewModalLogic = kea<traceReviewModalLogicType>([
         canSave: [(s) => [s.isFormValid, s.isBusy], (isFormValid, isBusy): boolean => isFormValid && !isBusy],
 
         submitPayload: [
-            (s) => [s.selectedDefinitions, s.scoreValues, s.comment, s.currentReview, (_, props) => props.traceId],
-            (selectedDefinitions, scoreValues, comment, currentReview, traceId): TraceReviewUpsertPayload => {
+            (s) => [
+                s.selectedDefinitions,
+                s.scoreValues,
+                s.comment,
+                s.currentReview,
+                (_, props) => props.traceId,
+                (_, props) => props.queueId,
+            ],
+            (selectedDefinitions, scoreValues, comment, currentReview, traceId, queueId): TraceReviewUpsertPayload => {
                 const existingScoresByDefinitionId = getExistingScoreLookup(currentReview)
 
                 return {
                     trace_id: traceId,
+                    queue_id: queueId || undefined,
                     comment: comment.trim() || null,
                     scores: selectedDefinitions.flatMap((definition) => {
                         const value = scoreValues[definition.id]

@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -101,6 +103,20 @@ class TestTraceReviewsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_list_response_includes_absolute_trace_url(self):
+        self._create_review(trace_id="trace_link_check")
+
+        response = self.client.get(self._endpoint())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(
+            results[0]["trace_url"],
+            f"https://us.posthog.com/project/{self.team.id}/llm-analytics/traces/trace_link_check",
+        )
+
     def test_can_create_review_without_score_or_comment(self):
         response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")
 
@@ -111,7 +127,7 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertIsNone(review.comment)
         self.assertEqual(review.scores.count(), 0)
 
-    def test_creating_review_soft_deletes_pending_queue_item(self):
+    def test_creating_review_soft_deletes_pending_queue_item_without_queue_context(self):
         queue = self._create_queue()
         item = self._create_queue_item(queue=queue, trace_id="trace_123")
 
@@ -122,7 +138,22 @@ class TestTraceReviewsApi(APIBaseTest):
         self.assertTrue(item.deleted)
         self.assertIsNotNone(item.deleted_at)
 
-    def test_updating_review_soft_deletes_pending_queue_item(self):
+    def test_creating_review_soft_deletes_matching_pending_queue_item_with_queue_context(self):
+        queue = self._create_queue()
+        item = self._create_queue_item(queue=queue, trace_id="trace_123")
+
+        response = self.client.post(
+            self._endpoint(),
+            {"trace_id": "trace_123", "queue_id": str(queue.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
+
+    def test_updating_review_soft_deletes_pending_queue_item_without_queue_context(self):
         review = self._create_review(trace_id="trace_123", comment="Before")
         queue = self._create_queue()
         item = self._create_queue_item(queue=queue, trace_id="trace_123")
@@ -130,6 +161,22 @@ class TestTraceReviewsApi(APIBaseTest):
         response = self.client.patch(
             f"{self._endpoint()}{review.id}/",
             {"comment": "After"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        item.refresh_from_db()
+        self.assertTrue(item.deleted)
+        self.assertIsNotNone(item.deleted_at)
+
+    def test_updating_review_soft_deletes_matching_pending_queue_item_with_queue_context(self):
+        review = self._create_review(trace_id="trace_123", comment="Before")
+        queue = self._create_queue()
+        item = self._create_queue_item(queue=queue, trace_id="trace_123")
+
+        response = self.client.patch(
+            f"{self._endpoint()}{review.id}/",
+            {"comment": "After", "queue_id": str(queue.id)},
             format="json",
         )
 

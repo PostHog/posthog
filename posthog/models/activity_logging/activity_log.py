@@ -17,6 +17,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
@@ -53,6 +54,7 @@ ActivityScope = Literal[
     "Project",
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
+    "LegalDocument",
     "Organization",
     "OrganizationDomain",
     "OrganizationMembership",
@@ -66,6 +68,7 @@ ActivityScope = Literal[
     "TaggedItem",
     "Subscription",
     "PersonalAPIKey",
+    "ProjectSecretAPIKey",
     "User",
     "Action",
     "AlertConfiguration",
@@ -78,6 +81,7 @@ ActivityScope = Literal[
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "LogsExclusionRule",
     "ProductTour",
     "Ticket",
 ]
@@ -128,7 +132,7 @@ class ActivityLog(UUIDTModel):
         constraints = [
             models.CheckConstraint(
                 name="must_have_team_or_organization_id",
-                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
+                condition=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
         indexes = [
@@ -182,6 +186,8 @@ class ActivityLog(UUIDTModel):
     was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
+    # Value of the x-posthog-client request header captured when the activity was logged
+    client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -365,6 +371,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "featureflagoverride",
         "usage_dashboard",
         "analytics_dashboards",
+        "flag_evaluation_contexts",
     ],
     "Experiment": [
         "feature_flag",
@@ -376,6 +383,9 @@ field_exclusions: dict[ActivityScope, list[str]] = {
     "ExperimentSavedMetric": [
         "experiments",
         "experimenttosavedmetric_set",
+    ],
+    "ProjectSecretAPIKey": [
+        "secure_value",
     ],
     "Person": [
         "distinct_ids",
@@ -448,7 +458,6 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "external_tables",
         "last_run_at",
         "latest_error",
-        "sync_frequency_interval",
         "deleted_name",
     ],
     "Endpoint": [
@@ -508,9 +517,16 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         # ForeignKey fields
         "current_organization",
         "current_team",
+        # The onboarding delegation FK is excluded here because the generic field-diffing
+        # path tries to serialize the related invite during the signal, which races the
+        # same transaction that created the invite. Forensic visibility for delegation
+        # state transitions is handled via explicit structlog entries from
+        # `set_delegated_state` / `clear_delegation_state` / the pre_delete receiver.
+        "onboarding_delegated_to_invite",
         # With _id suffix for direct attribute access
         "current_organization_id",
         "current_team_id",
+        "onboarding_delegated_to_invite_id",
         # System/internal fields
         "distinct_id",
         "partial_notification_settings",
@@ -578,8 +594,8 @@ field_exclusions: dict[ActivityScope, list[str]] = {
 
 def describe_change(m: Any) -> Union[str, dict]:
     # Use lazy imports to avoid circular dependencies
-    from posthog.models.dashboard import Dashboard
-    from posthog.models.dashboard_tile import DashboardTile
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
@@ -790,9 +806,12 @@ def log_activity(
     activity: str,
     detail: Detail,
     was_impersonated: bool,
+    client: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
+    if client is None:
+        client = activity_storage.get_client()
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -825,6 +844,7 @@ def log_activity(
                 scope=scope,
                 activity=activity,
                 detail=detail,
+                client=client,
             )
 
         def _do_log_activity():
@@ -839,6 +859,7 @@ def log_activity(
                 scope=log.scope,
                 activity=log.activity,
                 detail=log.detail,
+                client=log.client,
             )
 
         if instance_only:
@@ -878,6 +899,7 @@ class LogActivityEntry(TypedDict, total=False):
     activity: Required[str]
     detail: Required[Detail]
     was_impersonated: Required[bool]
+    client: Optional[str]
     force_save: bool
 
 

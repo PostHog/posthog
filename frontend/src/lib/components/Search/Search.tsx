@@ -19,6 +19,8 @@ import {
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
+import { filterSearchItems } from 'lib/components/Search/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
@@ -38,7 +40,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import type { UserTheme } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RECENTS_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -69,6 +71,8 @@ const PLACEHOLDER_CYCLE_INTERVAL = 3000
 const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
 
 const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
+
+const EMPTY_SUGGESTED_ITEMS: SearchItem[] = []
 
 // ============================================================================
 // Hooks
@@ -234,6 +238,130 @@ const useSearchContext = (): SearchContextValue => {
 }
 
 // ============================================================================
+// Hooks
+// ============================================================================
+
+const SEARCH_DEBOUNCE_DELAY = 200
+
+type GroupedItemsEntry = { category: string; items: SearchItem[]; isLoading?: boolean }
+
+function useDebouncedGroupedItems(
+    groupedItems: GroupedItemsEntry[],
+    searchValue: string,
+    enabled: boolean
+): GroupedItemsEntry[] {
+    const [stable, setStable] = useState(groupedItems)
+    const prevSearchRef = useRef(searchValue)
+    const searchJustChangedRef = useRef(false)
+    const prevEnabledRef = useRef(enabled)
+    // `stable` only stays in sync with `groupedItems` while `enabled` is true.
+    // If we're disabled, or were disabled at any point (including initial
+    // mount before async feature-flag hydration), `stable` lags. Track that
+    // so the next enabled render bypasses `stable` and returns `groupedItems`
+    // directly until the effect re-syncs — avoids a flash of stale results.
+    const stableIsStaleRef = useRef(!enabled)
+
+    if (searchValue !== prevSearchRef.current) {
+        prevSearchRef.current = searchValue
+        searchJustChangedRef.current = true
+    }
+
+    if (enabled !== prevEnabledRef.current) {
+        prevEnabledRef.current = enabled
+        stableIsStaleRef.current = true
+    }
+
+    useEffect(() => {
+        if (!enabled) {
+            return
+        }
+        if (searchJustChangedRef.current || stableIsStaleRef.current) {
+            searchJustChangedRef.current = false
+            stableIsStaleRef.current = false
+            setStable(groupedItems)
+            return
+        }
+        const timer = setTimeout(() => setStable(groupedItems), SEARCH_DEBOUNCE_DELAY)
+        return () => clearTimeout(timer)
+    }, [groupedItems, enabled, searchValue])
+
+    if (!enabled || searchJustChangedRef.current || stableIsStaleRef.current) {
+        return groupedItems
+    }
+
+    return stable
+}
+
+function useReRankedGroupedItems(
+    groupedItems: GroupedItemsEntry[],
+    searchValue: string,
+    enabled: boolean
+): GroupedItemsEntry[] {
+    const incumbentRef = useRef<string | null>(null)
+    const prevSearchRef = useRef(searchValue)
+
+    if (searchValue !== prevSearchRef.current) {
+        prevSearchRef.current = searchValue
+        incumbentRef.current = null
+    }
+
+    const result = useMemo(() => {
+        const firstGroup = groupedItems.find((g) => g.items.length > 0)
+        const firstItem = firstGroup?.items[0]
+
+        if (!enabled || !firstItem || !incumbentRef.current) {
+            return groupedItems
+        }
+
+        if (firstItem.id === incumbentRef.current) {
+            return groupedItems
+        }
+
+        // Incumbent isn't first anymore — find it
+        const incumbentId = incumbentRef.current
+        let found: { groupIdx: number; itemIdx: number; item: SearchItem } | null = null
+
+        for (let gi = 0; gi < groupedItems.length; gi++) {
+            for (let ii = 0; ii < groupedItems[gi].items.length; ii++) {
+                if (groupedItems[gi].items[ii].id === incumbentId) {
+                    found = { groupIdx: gi, itemIdx: ii, item: groupedItems[gi].items[ii] }
+                    break
+                }
+            }
+            if (found) {
+                break
+            }
+        }
+
+        if (!found) {
+            return groupedItems
+        }
+
+        // Promote: move incumbent to front of its group, move group to front
+        const promoted = [...groupedItems]
+        const group = { ...promoted[found.groupIdx], items: [...promoted[found.groupIdx].items] }
+        group.items.splice(found.itemIdx, 1)
+        group.items.unshift(found.item)
+
+        if (found.groupIdx > 0) {
+            promoted.splice(found.groupIdx, 1)
+            promoted.unshift(group)
+        } else {
+            promoted[0] = group
+        }
+
+        return promoted
+    }, [groupedItems, enabled])
+
+    useEffect(() => {
+        const firstGroup = result.find((g) => g.items.length > 0)
+        incumbentRef.current = firstGroup?.items[0]?.id ?? null
+    }, [result])
+
+    return result
+}
+
+// ============================================================================
 // Search.Root
 // ============================================================================
 
@@ -266,13 +394,15 @@ function SearchRoot({
     onAskAiClick,
     className = '',
     defaultSearchValue = '',
-    suggestedItems = [],
+    suggestedItems = EMPTY_SUGGESTED_ITEMS,
 }: SearchRootProps): JSX.Element {
     const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
     const { isDarkModeOn } = useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
     const { updateUser } = useActions(userLogic)
+    const debounceEnabled = useFeatureFlag('SEARCH_DEBOUNCE_ALL')
+    const reRankEnabled = useFeatureFlag('SEARCH_RE_RANK')
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
 
@@ -299,19 +429,14 @@ function SearchRoot({
         const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
         let items: SearchItem[]
         if (searchValue.trim()) {
-            const searchLower = searchValue.toLowerCase()
-            items = allItems.filter((item) => {
-                // Filter recents and apps by name (client-side filtering)
-                if (item.category === 'recents' || item.category === 'apps') {
-                    const name = (item.displayName || item.name || '').toLowerCase()
-                    return name.includes(searchLower)
-                }
-                // Other categories come from server search, keep all
-                return true
-            })
+            // Client-side fuzzy filter for recents/apps/starred; keep server results as-is
+            const clientItems = allItems.filter((item) => ['recents', 'apps', 'starred'].includes(item.category))
+            const serverItems = allItems.filter((item) => !['recents', 'apps', 'starred'].includes(item.category))
+            const filteredClientItems = filterSearchItems(clientItems, searchValue)
+            items = [...filteredClientItems, ...serverItems]
         } else {
-            // When not searching, show recents and apps
-            items = allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
+            // When not searching, show recents, starred, and apps
+            items = allItems.filter((item) => ['recents', 'starred', 'apps'].includes(item.category))
         }
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
@@ -417,8 +542,8 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: ai first (when searching), then recents, apps, create, then everything else
-        const orderedCategories = ['suggested', 'recents', 'apps', 'create']
+        // Fixed order: ai first (when searching), then recents, starred, apps, create, then everything else
+        const orderedCategories = ['suggested', 'recents', 'starred', 'apps', 'create']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -426,11 +551,14 @@ function SearchRoot({
             const isLoading = loadingByCategory.get(category) ?? false
 
             // When searching: hide empty groups (unless still loading)
-            // When not searching: always show recents/apps (with skeleton if loading)
+            // When not searching: always show recents/apps (with skeleton if loading); starred only when items or loading
             // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
-                : (category === 'suggested' && items.length > 0) || category === 'recents' || category === 'apps'
+                : (category === 'suggested' && items.length > 0) ||
+                  category === 'recents' ||
+                  category === 'apps' ||
+                  (category === 'starred' && (items.length > 0 || isLoading))
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -447,13 +575,26 @@ function SearchRoot({
         return groups
     }, [filteredItems, allCategories, searchValue])
 
+    // Debounce grouped items so async results don't shift the highlighted item mid-keystroke.
+    // When searchValue changes, items update immediately; async result arrivals are batched.
+    const debouncedGroupedItems = useDebouncedGroupedItems(groupedItems, searchValue, debounceEnabled)
+
+    // Re-rank: pin the incumbent first item so async results don't shift what's highlighted.
+    // Promotes the incumbent's group to the front if needed.
+    const stableGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
+
+    // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
+    // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
+    // breaks at group boundaries where the two orderings diverge.
+    const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
+
     const contextValue: SearchContextValue = useMemo(
         () => ({
             logicKey,
             searchValue,
             setSearchValue,
-            filteredItems,
-            groupedItems,
+            filteredItems: orderedItems,
+            groupedItems: stableGroupedItems,
             isSearching,
             isActive,
             inputRef,
@@ -465,8 +606,8 @@ function SearchRoot({
         [
             logicKey,
             searchValue,
-            filteredItems,
-            groupedItems,
+            orderedItems,
+            stableGroupedItems,
             isSearching,
             isActive,
             handleItemClick,
@@ -481,8 +622,8 @@ function SearchRoot({
                 className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
             >
                 <Autocomplete.Root
-                    items={filteredItems}
-                    filter={null}
+                    items={orderedItems}
+                    mode="none"
                     itemToStringValue={(item) => item?.name ?? ''}
                     actionsRef={actionsRef}
                     inline
@@ -710,7 +851,12 @@ function SearchResults({
                                 {group.isLoading && !isSearching ? (
                                     <>
                                         {Array.from({
-                                            length: group.category === 'recents' ? RECENTS_LIMIT : 10,
+                                            length:
+                                                group.category === 'recents'
+                                                    ? RECENTS_LIMIT
+                                                    : group.category === 'starred'
+                                                      ? Math.min(STARRED_LIMIT, 5)
+                                                      : 10,
                                         }).map((_, i) => (
                                             // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
                                             <div key={i} className="px-2 h-[30px] py-px">
@@ -760,6 +906,7 @@ function SearchResults({
                                                                                 {String(item.displayName || item.name)}
                                                                             </span>
                                                                             {(group.category === 'recents' ||
+                                                                                group.category === 'starred' ||
                                                                                 group.category === 'groups') &&
                                                                                 (item.groupNoun || typeLabel) && (
                                                                                     <span className="text-xs text-tertiary shrink-0 mt-[2px]">

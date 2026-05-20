@@ -6,7 +6,7 @@ on:
     pull_request:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -21,30 +21,74 @@ jobs:
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # Not only the MCP folder but any file that generates schema for the mcp folder
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            # MCP integration tests boot the full PostHog backend (Django web server,
+            # Celery worker, migrations, demo data), so the filter mirrors the Dagster
+            # approach: trigger on any Python change across the app.
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       mcp:
+                        # MCP service and per-product tool/UI-app configs
                         - 'services/mcp/**'
-                        - 'products/**'
-                        - 'ee/**/*'
-                        - 'posthog/**/*'
+                        - 'products/*/mcp/**'
+                        # MCP integration tests exercise the full PostHog backend
+                        - 'posthog/**/*.py'
+                        - 'ee/**/*.py'
+                        - 'common/**/*.py'
+                        - 'products/*/backend/**/*.py'
+                        # Query schemas used by MCP analytics tools
+                        - 'frontend/src/queries/schema.json'
+                        # Shared UI component library (used by MCP UI apps)
+                        - 'common/mosaic/**'
+                        # Code generation tooling
+                        - 'tools/openapi-codegen/**'
+                        # Django entry point (manage.py migrate / generate_demo_data)
+                        - manage.py
+                        # Python dependencies (build + integration-tests run `uv sync --frozen`)
+                        - pyproject.toml
+                        - uv.lock
+                        # Node runtime + workspace dependencies
+                        - .nvmrc
+                        - pnpm-lock.yaml
+                        # Docker compose stack (dev.yml extends base.yml)
+                        - docker-compose.base.yml
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        # Docker helper scripts invoked in CI setup
+                        - bin/ci-wait-for-docker
+                        - bin/wait-for-docker
+                        # Database init scripts used by docker compose
+                        - 'docker/postgres-init-scripts/**'
+                        # Persons DB migrations (sqlx migrate run in integration tests)
+                        - 'rust/persons_migrations/**'
+                        # ClickHouse UDF copied in integration test setup
+                        - 'posthog/user_scripts/latest_user_defined_function.xml'
+                        # Composite actions used by the workflow
+                        - '.github/actions/commit-snapshots/**'
+                        # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
         name: Build Package
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -63,7 +107,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -71,7 +115,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install dependencies
@@ -92,20 +136,33 @@ jobs:
                     exit 1
                   fi
 
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
+                    exit 1
+                  fi
+
             - name: Lint tool names
               run: cd services/mcp && pnpm lint-tool-names
 
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -113,11 +170,22 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            # The workers-pool project in vitest.config.mts parses wrangler.jsonc
+            # up front and needs `assets.directory` (./public/) populated and
+            # `shared/guidelines.md` (imported by src/mcp.ts) on disk. Both are
+            # gitignored: public/ is produced by `pnpm build` (UI apps) and
+            # guidelines.md by the wrangler build command.
+            - name: Run wrangler pre-build steps
+              working-directory: services/mcp
+              run: |
+                  pnpm build
+                  pnpm exec tsx scripts/copy-instructions.ts
 
             - name: Run unit tests
               run: |
@@ -129,6 +197,9 @@ jobs:
                     echo "::error::MCP unit test artifacts are out of date. Run 'pnpm --filter=@posthog/mcp run test -u' and commit the result."
                     exit 1
                   fi
+
+            - name: Run Hono unit tests
+              run: cd services/mcp && pnpm run test:hono
 
             - name: Create snapshot patch
               id: create-snapshot-patch
@@ -159,7 +230,7 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests
+        name: Integration Tests (depot-ubuntu-latest-4)
         runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
@@ -182,9 +253,14 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting'
+            # Required for the feature_flags test_evaluation endpoint, which authenticates
+            # historical-flag override requests to the Rust flags service. Any non-empty
+            # value is fine for CI — the Rust service in the test stack accepts it.
+            INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
 
@@ -195,6 +271,8 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               shell: bash
+              env:
+                  COMPOSE_PROFILES: temporal
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   (
@@ -226,9 +304,9 @@ jobs:
                       exit 1
                   ) &
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -249,7 +327,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -257,7 +335,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install Python dependencies
@@ -283,7 +361,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-mcp'
                   workspaces: rust
@@ -293,17 +371,32 @@ jobs:
               run: |
                   cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
+            - name: Build Rust flags service
+              working-directory: rust
+              env:
+                  # Debug builds compile much faster than release (~4 min vs ~9 min).
+                  # We disable debug assertions because the codebase contains
+                  # debug_assert! checks that intentionally panic on data invariant
+                  # violations, which would crash the service mid-test-run.
+                  RUSTFLAGS: '-C debug-assertions=no'
+              run: cargo build -p feature-flags
+
+            - name: Download MaxMind Database
+              run: ./bin/download-mmdb
+
             - name: Start Docker services
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: temporal
               run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-              run: bin/ci-wait-for-docker wait
+                  COMPOSE_PROFILES: temporal
+              run: bin/ci-wait-for-docker wait temporal
 
             - name: Run migrations
               run: |
@@ -316,23 +409,40 @@ jobs:
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
-            - name: Create logs tables in ClickHouse
+            - name: Start Rust flags service
+              working-directory: rust
+              env:
+                  BIND_HOST: '127.0.0.1'
+                  BIND_PORT: '3001'
+                  READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+                  WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+                  PERSONS_READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons
+                  PERSONS_WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons
+                  REDIS_URL: redis://localhost:6379/
+                  CACHE_TTL_SECONDS: '0'
+                  RUST_BACKTRACE: '1'
               run: |
-                  python -c "
-                  import django, os
-                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
-                  django.setup()
-                  from posthog.clickhouse.client import sync_execute
-                  with open('products/logs/backend/test/test_logs_schema.sql') as f:
-                      schema_sql = f.read()
-                  schema_sql = schema_sql.replace('use database posthog_test;', '')
-                  for sql in schema_sql.split(';'):
-                      sql = sql.strip()
-                      if not sql:
-                          continue
-                      sync_execute(sql)
-                  print('Logs tables created successfully')
-                  "
+                  ./target/debug/feature-flags > /tmp/rust-flags.log 2>&1 &
+                  RUST_FLAGS_PID=$!
+                  echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> $GITHUB_ENV
+                  for i in {1..30}; do
+                      if ! kill -0 "$RUST_FLAGS_PID" 2>/dev/null; then
+                          echo "ERROR: Rust flags service exited unexpectedly"
+                          cat /tmp/rust-flags.log || true
+                          exit 1
+                      fi
+                      if curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                          echo "Rust flags service is ready"
+                          break
+                      fi
+                      echo "Waiting for Rust flags service... ($i/30)"
+                      sleep 2
+                  done
+                  if ! curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                      echo "ERROR: Rust flags service failed to start after 30 attempts"
+                      cat /tmp/rust-flags.log || true
+                      exit 1
+                  fi
 
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
@@ -344,14 +454,15 @@ jobs:
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
                   from posthog.models import Organization, Team, User, EventDefinition
-                  from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+                  from posthog.models.personal_api_key import PersonalAPIKey
+                  from posthog.models.utils import hash_key_value
                   org = Organization.objects.first()
                   team = Team.objects.first()
                   user = User.objects.first()
                   PersonalAPIKey.objects.create(
                       user=user,
                       label='mcp_ci_api_key',
-                      secure_value=hash_key_value('e2e_demo_api_key'),
+                      secure_value=hash_key_value('phx_e2e_demo_api_key'),
                       scopes=['*'],
                   )
                   # Ensure common event definitions exist for MCP integration tests
@@ -383,7 +494,7 @@ jobs:
               run: cd services/mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
-                  TEST_POSTHOG_PERSONAL_API_KEY: e2e_demo_api_key
+                  TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
 
@@ -395,6 +506,10 @@ jobs:
               if: failure()
               run: cat /tmp/celery.log || true
 
+            - name: Show Rust flags service logs on failure
+              if: failure()
+              run: cat /tmp/rust-flags.log || true
+
             - name: Show docker compose logs on failure
               if: failure()
               shell: bash
@@ -403,6 +518,7 @@ jobs:
     handle-snapshots:
         name: Commit snapshot changes
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         needs: [changes, unit-tests]
         if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
@@ -411,13 +527,13 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -470,6 +586,7 @@ jobs:
         needs: [changes, build, unit-tests, integration-tests, handle-snapshots]
         name: MCP Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all MCP jobs

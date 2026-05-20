@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import LiteralString, Optional
+from typing import Optional
 
 from django.core.cache import cache
 
@@ -8,7 +8,7 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import RecordingMetadata
 
@@ -94,7 +94,7 @@ class SessionReplayEvents:
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
             """
             SELECT
@@ -188,7 +188,7 @@ class SessionReplayEvents:
                 "now": now,
             },
         )
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return []
@@ -221,7 +221,7 @@ class SessionReplayEvents:
                 "max_timestamp": max_timestamp,
             },
         )
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return set()
@@ -231,7 +231,7 @@ class SessionReplayEvents:
     def get_metadata_query(
         recording_start_time: Optional[datetime] = None,
         format: Optional[str] = None,
-    ) -> LiteralString:
+    ) -> str:
         """
         Helper function to build a query for session metadata, to be able to use
         both in production and locally (for example, when testing session summary)
@@ -318,7 +318,7 @@ class SessionReplayEvents:
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(recording_start_time)
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -389,7 +389,7 @@ class SessionReplayEvents:
                 expiry_time >= %(python_now)s
                 AND max(is_deleted) = 0
         """
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -418,10 +418,13 @@ class SessionReplayEvents:
         extra_fields: list[str] | None = None,
         limit: int | None = None,
         page: int = 0,
+        offset: int | None = None,
     ) -> HogQLQuery:
         """
         Helper function to build a HogQLQuery for session events, to be able to use
-        both in production and locally (for example, when testing session summary)
+        both in production and locally (for example, when testing session summary).
+        `offset`, when set, overrides the default `page * limit`; useful for fetching
+        `limit+1` rows without inflating the offset.
         """
         fields = [*DEFAULT_EVENT_FIELDS]
         if extra_fields:
@@ -435,12 +438,13 @@ class SessionReplayEvents:
         if events_to_ignore:
             q += " AND event NOT IN {events_to_ignore}"
         q += " ORDER BY timestamp ASC"
+        effective_offset = offset if offset is not None else (page * limit if limit is not None and limit > 0 else 0)
         # Pagination to allow consuming more than default 100 rows per call
         if limit is not None and limit > 0:
             q += " LIMIT {limit}"
             # Offset makes sense only if limit is defined,
             # to avoid mixing default HogQL limit and the expected one
-            if page > 0:
+            if effective_offset > 0:
                 q += " OFFSET {offset}"
         hq = HogQLQuery(
             query=q,
@@ -452,7 +456,7 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "events_to_ignore": events_to_ignore,
                 "limit": limit,
-                "offset": page * limit if limit is not None else 0,
+                "offset": effective_offset,
             },
         )
         return hq
@@ -467,18 +471,29 @@ class SessionReplayEvents:
         extra_fields: list[str] | None = None,
         limit: int | None = None,
         page: int = 0,
-    ) -> tuple[list | None, list | None]:
+    ) -> tuple[list | None, list | None, bool]:
+        """Return `(columns, rows, has_more)`. When `limit` is set, fetches one extra row internally to detect whether more pages exist."""
         from posthog.schema import HogQLQueryResponse
 
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        if limit is not None and limit > 0:
+            # Fetch `limit+1` so a returned-row count of `limit+1` proves another page exists.
+            # `offset` is computed from the user-facing `limit`, not the inflated fetch limit.
+            hq = self.get_events_query(
+                session_id, metadata, events_to_ignore, extra_fields, limit=limit + 1, offset=page * limit
+            )
+        else:
+            hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
         ).calculate()
-        return result.columns, result.results
+        columns, rows = result.columns, result.results
+        if limit is not None and limit > 0 and rows is not None and len(rows) > limit:
+            return columns, rows[:limit], True
+        return columns, rows, False
 
     @staticmethod
     def get_sessions_from_distinct_id_query(
@@ -630,7 +645,7 @@ def get_person_emails_for_session_ids(
             "max_timestamp": max_timestamp,
         },
     )
-    tag_queries(product=Product.REPLAY, team_id=team_id)
+    tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team_id)
     result = HogQLQueryRunner(team=team, query=query).calculate()
     email_mapping: dict[str, str | None] = dict.fromkeys(session_ids)
     if result.results:

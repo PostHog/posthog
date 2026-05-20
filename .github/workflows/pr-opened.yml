@@ -11,6 +11,7 @@ jobs:
     check-description:
         name: Check that PR has description
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         if: github.event.pull_request.draft == false
 
         steps:
@@ -32,7 +33,7 @@ jobs:
                   RAW_BODY: ${{ github.event.pull_request.body }}
 
             # `gh` CLI in the next step requires the repo to be checked out
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.is-shame-worthy.outputs.is-shame-worthy == 'true'
               with:
                   # make the checkout extremely quickly

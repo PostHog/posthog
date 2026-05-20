@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
+import { IconArrowRight, IconCheckCircle, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+
+import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { marketingAnalyticsLogic } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import {
@@ -64,7 +65,7 @@ export function AddSourceStep({ onContinue, hasSources }: AddSourceStepProps): J
             intent_context: ProductIntentContext.MARKETING_ANALYTICS_DATA_SOURCE_CONNECTED,
             metadata: { source_type: sourceId },
         })
-        router.actions.push(urls.dataWarehouseSourceNew(sourceId))
+        router.actions.push(urls.dataWarehouseSourceNew(sourceId, urls.marketingAnalyticsApp(), 'Marketing analytics'))
     }
 
     const nativeSources = allSources.filter((s) => s.category === 'native')
@@ -103,7 +104,15 @@ export function AddSourceStep({ onContinue, hasSources }: AddSourceStepProps): J
                 {/* External Sources */}
                 {externalSources.length > 0 && (
                     <div>
-                        <div className="text-xs font-medium text-muted mb-1.5">Data warehouse</div>
+                        <div className="text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
+                            Data warehouse
+                            <Tooltip
+                                title="Import marketing data you already have in a data warehouse like BigQuery."
+                                delayMs={0}
+                            >
+                                <IconInfo className="w-3 h-3 cursor-help" />
+                            </Tooltip>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                             {externalSources.map((source) => (
                                 <SourceChip key={source.id} source={source} onSelect={handleSourceSelect} />
@@ -115,7 +124,15 @@ export function AddSourceStep({ onContinue, hasSources }: AddSourceStepProps): J
                 {/* Self-managed Sources */}
                 {selfManagedSources.length > 0 && (
                     <div>
-                        <div className="text-xs font-medium text-muted mb-1.5">Self-managed</div>
+                        <div className="text-xs font-medium text-muted mb-1.5 flex items-center gap-1">
+                            Self-managed
+                            <Tooltip
+                                title="Connect your own data source (e.g. S3, GCS) where you already store marketing data."
+                                delayMs={0}
+                            >
+                                <IconInfo className="w-3 h-3 cursor-help" />
+                            </Tooltip>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                             {selfManagedSources.map((source) => (
                                 <SourceChip key={source.id} source={source} onSelect={handleSourceSelect} />
@@ -161,7 +178,7 @@ function SourceChip({ source, onSelect }: { source: MarketingSource; onSelect: (
             )}
             onClick={() => onSelect(source.id)}
         >
-            <DataWarehouseSourceIcon type={source.id} size="xsmall" disableTooltip />
+            <SourceIcon type={source.id} size="xsmall" disableTooltip />
             <span className="text-sm font-medium">{source.id}</span>
             {source.isConnected && <IconCheckCircle className="w-3.5 h-3.5 text-success" />}
         </button>

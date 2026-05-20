@@ -70,19 +70,20 @@ task = Task.create_and_run(
 
 ### Parameters
 
-| Parameter              | Required | Description                                                                |
-| ---------------------- | -------- | -------------------------------------------------------------------------- |
-| `team`                 | Yes      | The team this task belongs to                                              |
-| `title`                | Yes      | Human-readable task title                                                  |
-| `description`          | Yes      | Detailed description of what the agent should do                           |
-| `origin_product`       | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
-| `user_id`              | Yes      | User ID — used for feature flag validation and creating the scoped API key |
-| `repository`           | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
-| `posthog_mcp_scopes`   | No       | Scope preset or explicit scope list (default: `"full"`)                    |
-| `create_pr`            | No       | Whether the agent should create a PR (default: `True`)                     |
-| `mode`                 | No       | Execution mode (default: `"background"`)                                   |
-| `slack_thread_context` | No       | Slack thread context for agents triggered from Slack                       |
-| `start_workflow`       | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
+| Parameter                | Required | Description                                                                |
+| ------------------------ | -------- | -------------------------------------------------------------------------- |
+| `team`                   | Yes      | The team this task belongs to                                              |
+| `title`                  | Yes      | Human-readable task title                                                  |
+| `description`            | Yes      | Detailed description of what the agent should do                           |
+| `origin_product`         | Yes      | Which product created this task (see `Task.OriginProduct` choices)         |
+| `user_id`                | Yes      | User ID — used for feature flag validation and creating the scoped API key |
+| `repository`             | Yes      | GitHub repo in `org/repo` format (e.g., `posthog/posthog-js`)              |
+| `posthog_mcp_scopes`     | No       | Scope preset or explicit scope list (default: `"full"`)                    |
+| `create_pr`              | No       | Whether the agent should create a PR (default: `True`)                     |
+| `mode`                   | No       | Execution mode (default: `"background"`)                                   |
+| `slack_thread_context`   | No       | Slack thread context for agents triggered from Slack                       |
+| `start_workflow`         | No       | Whether to start the Temporal workflow immediately (default: `True`)       |
+| `sandbox_environment_id` | No       | ID of a `SandboxEnvironment` to apply network restrictions (see below)     |
 
 ### Adding a new origin product
 
@@ -146,15 +147,83 @@ listing feature flags, running HogQL queries, searching session recordings, etc.
 The MCP server is ready to use today.
 For details on available tools, see [Implementing MCP tools](/handbook/engineering/ai/implementing-mcp-tools).
 
-### Skills (coming soon)
+### Skills
 
 Skills are job-to-be-done templates that teach agents _how_ to compose MCP tools into workflows.
 They provide domain knowledge, query patterns, and step-by-step guidance.
 
-Skills are currently used by PostHog Code and Max.
-Support for sandboxed agents is coming soon.
+Skills are pre-installed in the sandbox base image and available to all sandboxed agents.
+They're copied to three discovery locations during image build:
+
+- `/scripts/plugins/posthog/skills/` – plugin discovery
+- `~/.agents/skills/` – Codex agent discovery
+- `~/.claude/skills/` – Claude Code CLI discovery
 
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
+
+## Multi-turn sessions
+
+`MultiTurnSession` provides a structured API for building custom multi-turn research agents.
+Use it when your agent needs multiple conversation turns with schema-validated responses –
+for example, a discovery pass followed by per-item research, then assessment and summarization.
+
+### Mental model
+
+1. **Start** – `MultiTurnSession.start(prompt, context, model=Shape)` launches a sandbox, sends the first prompt, and returns a validated Pydantic model.
+2. **Follow up** – `session.send_followup(prompt, Shape)` sends additional prompts within the same sandbox session. Each response is validated against the provided schema. The session retries once on empty responses.
+3. **End** – `session.end()` signals the sandbox workflow to shut down.
+
+### Example
+
+```python
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+
+# 1. Start: discovery turn
+session, candidates = await MultiTurnSession.start(
+    prompt="Find up to 10 items to investigate.",
+    context=context,  # CustomPromptSandboxContext
+    model=DiscoveryResult,
+    branch="master",
+    step_name="my_discovery",
+)
+
+# 2. Follow up: research each item
+for item in candidates.items:
+    finding = await session.send_followup(
+        f"Research {item.name} in detail.",
+        FindingResult,
+        label=f"research_{item.name}",
+    )
+
+# 3. Follow up: summarize
+summary = await session.send_followup(
+    "Summarize all findings.",
+    SummaryResult,
+    label="summary",
+)
+
+# 4. End the session
+await session.end()
+```
+
+### Reference implementation
+
+See `products/tasks/backend/services/mts_example/` for a complete working example.
+It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
+researches each one, and produces output in the shape Signals consumes:
+
+```text
+discovery → research ×N → actionability → priority? → presentation
+```
+
+Run it locally (DEBUG only):
+
+```bash
+DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
+```
+
+See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/services/mts_example/README.md) for details on adapting it to your own use case.
 
 ## Code execution
 
@@ -184,17 +253,60 @@ Network access is configured per-team via `SandboxEnvironment`:
 - **Full** — unrestricted network access
 - **Custom** — explicit allowlist of domains, optionally including the trusted defaults
 
+To apply network restrictions from your product code,
+create a `SandboxEnvironment` and pass its ID to `Task.create_and_run`:
+
+```python
+from products.tasks.backend.models import SandboxEnvironment, Task
+
+# 1. Create an environment (once, or look up an existing one)
+env = SandboxEnvironment.objects.create(
+    team=team,
+    created_by=user,
+    name="Restricted agent env",
+    network_access_level="custom",  # "full" | "trusted" | "custom"
+    allowed_domains=["github.com", "api.example.com"],
+    include_default_domains=True,  # merge GitHub, npm, PyPI defaults
+)
+
+# 2. Pass its ID when creating the task
+task = Task.create_and_run(
+    team=team,
+    title="My restricted task",
+    description="...",
+    origin_product=Task.OriginProduct.YOUR_PRODUCT,
+    user_id=user.id,
+    repository="org/repo",
+    sandbox_environment_id=str(env.id),
+)
+```
+
+The temporal workflow resolves the allowed domains at execution time from the environment,
+so updates to the environment take effect on the next run.
+Domain restrictions are enforced at the syscall level by `agentsh` via ptrace —
+the agent cannot bypass them through proxy settings or DNS tricks.
+
+Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
+or the PostHog Code settings UI.
+
 ## Local development
 
-See the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md)
-for step-by-step instructions on running sandboxed agents locally with Docker.
+To set up sandboxed agents for local development:
 
-Key requirements:
+1. Create a personal dev GitHub App (see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md#github-app) for details)
+2. Run `python manage.py setup_background_agents`
+3. Run `hogli start`
 
-- `DEBUG=1` and `SANDBOX_PROVIDER=docker` in your `.env`
-- A GitHub App with Contents and Pull Requests permissions
-- The `tasks` feature flag enabled at 100%
-- Temporal running (starts automatically via mprocs with `./bin/start`)
+The setup command is idempotent and handles:
+
+- Writing required env vars (`OIDC_RSA_PRIVATE_KEY`, `SANDBOX_JWT_PRIVATE_KEY`, `DEBUG`, `SANDBOX_PROVIDER`, `SANDBOX_MCP_URL`) to your `.env`
+- Creating the Array OAuth application
+- Enabling the `tasks` feature flag for all teams
+- Building the agent skills bundle
+
+For advanced setup options (Modal sandboxes, local agent packages, MCP), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
+
+**Tip:** Set `SANDBOX_REPO_MOUNT_MAP` to bind-mount local repositories into the Docker container and skip cloning from GitHub. Format: `SANDBOX_REPO_MOUNT_MAP=org/repo:/local/path` (e.g., `SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog`). This can significantly reduce sandbox startup time for large repos.
 
 ## Questions?
 

@@ -26,6 +26,7 @@ EVAL_ACTIVITY_TYPES = {
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "increment_trial_eval_count_activity",
+    "send_trial_usage_email_activity",
     "update_key_state_activity",
     "emit_eval_signal_activity",
 }
@@ -87,11 +88,18 @@ def increment_provider_model(provider: str, model: str) -> None:
     counter.add(1)
 
 
-def increment_errors(error_type: str) -> None:
-    """Track error categorization. Safe to call outside Temporal context (no-ops)."""
+def increment_errors(error_type: str, *, provider: str | None = None) -> None:
+    """Track error categorization. Safe to call outside Temporal context (no-ops).
+
+    Pass `provider` so dashboards can isolate a single misbehaving upstream
+    (e.g. an OpenAI 5xx storm) without grepping logs.
+    """
     if not activity.in_activity() and not workflow.in_workflow():
         return
-    meter = get_metric_meter({"error_type": error_type})
+    attrs: dict[str, str | int | float | bool] = {"error_type": error_type}
+    if provider is not None:
+        attrs["provider"] = provider
+    meter = get_metric_meter(attrs)
     counter = meter.create_counter("llma_eval_errors", "Error counts by type")
     counter.add(1)
 
@@ -287,5 +295,4 @@ class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
             except Exception:
                 status = "FAILED"
                 increment_workflow_finished(status)
-                increment_errors("workflow_exception")
                 raise

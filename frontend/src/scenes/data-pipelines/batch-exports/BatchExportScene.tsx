@@ -15,7 +15,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -27,29 +27,28 @@ import { HogFunctionSkeleton } from 'scenes/hog-functions/misc/HogFunctionSkelet
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
+import { ActivityScope, BATCH_EXPORT_SERVICE_NAMES, BatchExportService, Breadcrumb } from '~/types'
 
-import { PipelineNodeLogs } from '../legacy-plugins/PipelineNodeLogs'
+import { BatchExportConfigFormLogicProps, batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import { BatchExportConfiguration } from './BatchExportConfiguration'
 import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
-import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { RenderBatchExportIcon } from './BatchExportIcon'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
-import { normalizeBatchExportService } from './utils'
-import { humanizeBatchExportName } from './utils'
+import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
-const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills'] as const
+const BATCH_EXPORT_SCENE_TABS = ['configuration', 'metrics', 'logs', 'runs', 'backfills', 'history'] as const
 export type BatchExportSceneTab = (typeof BATCH_EXPORT_SCENE_TABS)[number]
 
 export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
-    props({} as BatchExportConfigurationLogicProps),
-    key(({ id }: BatchExportConfigurationLogicProps) => id ?? 'new'),
+    props({} as BatchExportConfigFormLogicProps),
+    key(({ id }: BatchExportConfigFormLogicProps) => id ?? 'new'),
     path((key) => ['scenes', 'data-pipelines', 'batch-exports', 'batchExportSceneLogic', key]),
     actions({
         setCurrentTab: (tab: BatchExportSceneTab) => ({ tab }),
@@ -81,6 +80,11 @@ export const batchExportSceneLogic = kea<batchExportSceneLogicType>([
                     },
                 ]
             },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [(_, props) => props],
+            (props: BatchExportConfigFormLogicProps): SidePanelSceneContext | null =>
+                props.id ? { activity_scope: ActivityScope.BATCH_EXPORT, activity_item_id: props.id } : null,
         ],
     }),
     actionToUrl(({ values }) => ({
@@ -123,8 +127,8 @@ export const scene: SceneExport = {
 }
 
 function BatchExportSceneHeader(): JSX.Element {
-    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic)
-    const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigurationLogic)
+    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigFormLogic)
+    const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigFormLogic)
 
     return (
         <>
@@ -167,7 +171,7 @@ function BatchExportSceneHeader(): JSX.Element {
 
 export function BatchExportScene(componentProps: any): JSX.Element {
     const { id, service: serviceParam } = componentProps
-    const logicProps: BatchExportConfigurationLogicProps = {
+    const logicProps: BatchExportConfigFormLogicProps = {
         id: id ?? null,
         service: serviceParam ? normalizeBatchExportService(serviceParam) : null,
     }
@@ -182,13 +186,13 @@ export function BatchExportSceneContent({
     logicProps,
 }: {
     logic: any
-    logicProps: BatchExportConfigurationLogicProps
+    logicProps: BatchExportConfigFormLogicProps
 }): JSX.Element {
     const { currentTab } = useValues(logic)
     const { setCurrentTab } = useActions(logic)
 
     return (
-        <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
+        <BindLogic logic={batchExportConfigFormLogic} props={logicProps}>
             <BatchExportSceneContentInner
                 currentTab={currentTab}
                 setCurrentTab={setCurrentTab}
@@ -210,7 +214,7 @@ function BatchExportSceneContentInner({
     id: string | null
     service: BatchExportService['type'] | null
 }): JSX.Element {
-    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic)
+    const { batchExportConfig, loading } = useValues(batchExportConfigFormLogic)
 
     if (loading && !batchExportConfig) {
         return (
@@ -247,14 +251,12 @@ function BatchExportSceneContentInner({
                   label: 'Logs',
                   key: 'logs',
                   content: (
-                      <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer
-                              sourceType="batch_exports"
-                              sourceId={id}
-                              instanceLabel="run"
-                              defaultFilters={{ levels: ['LOG', 'INFO', 'WARN', 'ERROR'] }}
-                          />
-                      </FlaggedFeature>
+                      <LogsViewer
+                          sourceType="batch_exports"
+                          sourceId={id}
+                          instanceLabel="run"
+                          defaultFilters={{ levels: ['LOG', 'INFO', 'WARN', 'ERROR'] }}
+                      />
                   ),
               }
             : null,
@@ -270,6 +272,13 @@ function BatchExportSceneContentInner({
                   label: 'Backfills',
                   key: 'backfills',
                   content: <BatchExportBackfills id={id} />,
+              }
+            : null,
+        id
+            ? {
+                  label: 'History',
+                  key: 'history',
+                  content: <ActivityLog id={id} scope={ActivityScope.BATCH_EXPORT} />,
               }
             : null,
     ]

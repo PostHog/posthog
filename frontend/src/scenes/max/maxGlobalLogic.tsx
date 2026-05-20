@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -17,10 +17,11 @@ import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic, mergeConversationHistory } from './maxLogic'
+import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
+const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = 'posthog_ai_data_processing_dismissed'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -109,7 +110,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     }
                 ) => {
                     const response = await api.conversations.list()
-                    return response.results
+                    return response.results.map((conversation) =>
+                        mergeConversations(
+                            conversation,
+                            values.conversationHistory.find((existing) => existing.id === conversation.id)
+                        )
+                    )
                 },
 
                 loadConversation: async (conversationId: string) => {
@@ -158,6 +164,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
         dataProcessingDismissed: [
             false,
+            { persist: true, storageKey: AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY },
             {
                 dismissDataProcessing: () => true,
             },
@@ -189,10 +196,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.featureFlags[FEATURE_FLAGS.AI_FIRST]) {
-            actions.loadConversationHistory()
-        }
+    afterMount(({ actions }) => {
+        actions.loadConversationHistory()
     }),
 
     selectors({

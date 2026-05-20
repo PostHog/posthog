@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
@@ -64,12 +64,14 @@ export function ReleaseConditionsModal(): JSX.Element {
                     changes will affect your experiment.
                 </LemonBanner>
 
-                <FeatureFlagReleaseConditions
-                    id={`${experiment.feature_flag?.id}`}
-                    filters={featureFlag?.filters ?? []}
-                    onChange={setFeatureFlagFilters}
-                    nonEmptyFeatureFlagVariants={nonEmptyVariants}
-                />
+                <BindLogic logic={featureFlagLogic} props={{ id: experiment.feature_flag?.id ?? null }}>
+                    <FeatureFlagReleaseConditions
+                        id={`${experiment.feature_flag?.id}`}
+                        filters={featureFlag?.filters ?? []}
+                        onChange={setFeatureFlagFilters}
+                        nonEmptyFeatureFlagVariants={nonEmptyVariants}
+                    />
+                </BindLogic>
             </div>
         </LemonModal>
     )

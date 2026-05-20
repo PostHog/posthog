@@ -36,18 +36,18 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 
-from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
+from posthog.models.cohort.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from posthog.models.cohort.util import get_nested_cohort_ids
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+
+from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
 
@@ -529,10 +529,8 @@ def _get_flags_response_for_local_evaluation_batch(
     # serialize — one DB round trip instead of two.
     all_flags = list(
         FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
-        .filter(
-            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team_id__in=team_ids,
-        )
+        .filter(team_id__in=team_ids)
+        .exclude(has_encrypted_payloads=True)
         .exclude(id__in=survey_flag_ids)
         .annotate(
             evaluation_tag_names_agg=ArrayAgg(
@@ -579,8 +577,11 @@ def _get_flags_response_for_local_evaluation_batch(
 
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
-    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
-        gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
+    from posthog.models.group_type_mapping import get_group_types_for_projects
+
+    for pid, mappings in get_group_types_for_projects(list(project_ids)).items():
+        for m in mappings:
+            gtm_by_project[pid][str(m["group_type_index"])] = m["group_type"]
 
     results: dict[int, dict[str, Any]] = {}
 
@@ -730,9 +731,10 @@ def verify_team_flag_definitions(
     """
     hypercache = flag_definitions_hypercache if include_cohorts else flag_definitions_without_cohorts_hypercache
 
-    # Get cached data - use pre-loaded batch data if available
+    # Get cached data - use pre-loaded batch data if available.
+    # The third tuple element (etag) is unused for flag-definitions verification.
     if cache_batch_data and team.id in cache_batch_data:
-        cached_data, source = cache_batch_data[team.id]
+        cached_data, source, _ = cache_batch_data[team.id]
     else:
         cached_data, source = hypercache.get_from_cache_with_source(team)
 
@@ -787,8 +789,8 @@ def verify_team_flag_definitions(
         if flag_key in cached_flags_by_key:
             db_flag = db_flags_by_key[flag_key]
             cached_flag = cached_flags_by_key[flag_key]
-            if db_flag != cached_flag:
-                field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            if field_diffs:
                 diff: dict = {
                     "type": "FIELD_MISMATCH",
                     "flag_key": flag_key,
@@ -861,6 +863,9 @@ def feature_flag_changed(sender, instance: "FeatureFlag", **kwargs):
 @receiver(post_save, sender=Cohort)
 @receiver(post_delete, sender=Cohort)
 def cohort_changed(sender, instance: "Cohort", **kwargs):
+    if is_cohort_recalculation_only_save(kwargs):
+        return
+
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

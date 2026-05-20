@@ -191,6 +191,7 @@ export const VariableInput = ({
                 {variable.type === 'Date' && (
                     <VariableCalendar
                         value={dayjs(localInputValue)}
+                        rawValue={localInputValue}
                         updateVariable={(date) => {
                             onChange(variable.id, date, isNull)
                             closePopover()

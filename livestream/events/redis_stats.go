@@ -42,6 +42,11 @@ func NewStatsInRedis(cfg configs.RedisConfig) (*StatsInRedis, error) {
 	return &StatsInRedis{client: client}, nil
 }
 
+// Client returns the underlying Redis client.
+func (s *StatsInRedis) Client() rueidis.Client {
+	return s.client
+}
+
 // Adds a distinct user to a Redis sorted set for the given project token,
 // scored by the current timestamp. The key auto-expires after userKeyTTL.
 func (s *StatsInRedis) AddUser(ctx context.Context, token, distinctId string) error {
@@ -81,14 +86,18 @@ func sessionKey(token string) string {
 	return fmt.Sprintf("livestream:sessions:%s", token)
 }
 
-// Adds a member to a sorted set scored by the current timestamp, then sets the key expiry.
+func cutoffScore(ttl time.Duration) string {
+	return strconv.FormatInt(time.Now().Add(-ttl).Unix(), 10)
+}
+
+// Adds a member to a sorted set scored by the current timestamp, prunes stale entries older than ttl, then sets the key expiry.
 func (s *StatsInRedis) addKey(ctx context.Context, key string, memberId string, ttl time.Duration, metricsLabel string) error {
 	now := time.Now()
 	score := float64(now.Unix())
-
-	cmds := make(rueidis.Commands, 2)
+	cmds := make(rueidis.Commands, 3)
 	cmds[0] = s.client.B().Zadd().Key(key).Gt().ScoreMember().ScoreMember(score, memberId).Build()
-	cmds[1] = s.client.B().Expire().Key(key).Seconds(int64(ttl.Seconds())).Build()
+	cmds[1] = s.client.B().Zremrangebyscore().Key(key).Min("-inf").Max(cutoffScore(ttl)).Build()
+	cmds[2] = s.client.B().Expire().Key(key).Seconds(int64(ttl.Seconds())).Build()
 
 	results := s.client.DoMulti(ctx, cmds...)
 
@@ -106,10 +115,8 @@ func (s *StatsInRedis) addKey(ctx context.Context, key string, memberId string, 
 // Returns a sliding-window count by first pruning entries older than the TTL then counting survivors
 func (s *StatsInRedis) getCount(ctx context.Context, key string, ttl time.Duration, metricsLabel string) (int64, error) {
 	now := time.Now()
-	cutoff := strconv.FormatFloat(float64(now.Add(-ttl).Unix()), 'f', 0, 64)
-
 	cmds := make(rueidis.Commands, 2)
-	cmds[0] = s.client.B().Zremrangebyscore().Key(key).Min("-inf").Max(cutoff).Build()
+	cmds[0] = s.client.B().Zremrangebyscore().Key(key).Min("-inf").Max(cutoffScore(ttl)).Build()
 	cmds[1] = s.client.B().Zcard().Key(key).Build()
 
 	results := s.client.DoMulti(ctx, cmds...)
@@ -150,6 +157,7 @@ func (s *StatsInRedis) flushKeys(ctx context.Context, pending map[string]map[str
 	metrics.RedisFlushTotal.WithLabelValues(metricsLabel).Inc()
 
 	now := time.Now()
+	cutoff := cutoffScore(ttl)
 	var wg sync.WaitGroup
 
 	for token, members := range pending {
@@ -158,9 +166,11 @@ func (s *StatsInRedis) flushKeys(ctx context.Context, pending map[string]map[str
 			defer wg.Done()
 
 			key := keyFn(token)
-			cmds := make(rueidis.Commands, 2)
+
+			cmds := make(rueidis.Commands, 3)
 			cmds[0] = s.client.B().Zadd().Key(key).Gt().ScoreMember().ScoreMemberIter(maps.All(members)).Build()
-			cmds[1] = s.client.B().Expire().Key(key).Seconds(int64(ttl.Seconds())).Build()
+			cmds[1] = s.client.B().Zremrangebyscore().Key(key).Min("-inf").Max(cutoff).Build()
+			cmds[2] = s.client.B().Expire().Key(key).Seconds(int64(ttl.Seconds())).Build()
 
 			results := s.client.DoMulti(ctx, cmds...)
 			for _, r := range results {

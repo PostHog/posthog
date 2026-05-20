@@ -32,7 +32,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { sidePanelOfframpLogic } from '~/layout/navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -55,7 +54,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { user } = useValues(userLogic)
     const { isCloud, preflight } = useValues(preflightLogic)
-    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { billing } = useValues(billingLogic)
 
@@ -294,19 +292,6 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Menu.Portal>
                                     </Menu.SubmenuRoot>
                                 )}
-
-                                <Menu.Item
-                                    onClick={() => {
-                                        showOfframpModal()
-                                        setHelpMenuOpen(false)
-                                    }}
-                                    render={
-                                        <ButtonPrimitive menuItem>
-                                            <IconBlank />
-                                            Where's the panel? 🤔
-                                        </ButtonPrimitive>
-                                    }
-                                />
 
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger

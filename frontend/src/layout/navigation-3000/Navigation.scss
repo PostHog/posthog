@@ -6,14 +6,27 @@
     --scene-layout-header-height: 40px;
     --scene-title-section-height: 50px;
     --side-panel-min-width: 28rem;
-}
 
-.Navigation3000 {
+    // Layout vars consumed across scenes. Defined at the root so they cascade
+    // in every layout mode — `.Navigation3000` only renders in non-`full`
+    // modes, so scoping them there leaves them undefined for the normal app.
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
+    @media screen and (max-width: $sm) {
+        // handle notched devices and mobile safari's bottom nav bar
+        // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
+        --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
+    }
+
+    @media screen and (max-width: $lg) {
+        --scene-padding: 0.5rem;
+    }
+}
+
+.Navigation3000 {
     position: relative;
     display: flex;
     width: 100%;
@@ -36,16 +49,6 @@
         height: 100%;
         overflow: visible;
         background: none;
-    }
-
-    @media screen and (max-width: $sm) {
-        // handle notched devices and mobile safari's bottom nav bar
-        // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
-        --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
-    }
-
-    @media screen and (max-width: $lg) {
-        --scene-padding: 0.5rem;
     }
 }
 

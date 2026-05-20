@@ -4,11 +4,13 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from products.mcp_store.backend.models import MCPServer, MCPServerInstallation
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import TokenRefreshError
 
 from ee.hogai.context.context import AssistantContextManager
@@ -36,13 +38,10 @@ class TestCallMCPServerTool(BaseTest):
         url="https://mcp.example.com/mcp",
         auth_type="api_key",
         sensitive_configuration=None,
-        **server_kwargs,
     ):
-        server = MCPServer.objects.create(name=name, url=url, **server_kwargs)
         return MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,
-            server=server,
             display_name=name,
             url=url,
             auth_type=auth_type,
@@ -52,6 +51,8 @@ class TestCallMCPServerTool(BaseTest):
     def _create_tool(self, installations: list[dict] | None = None, conversation_id: str | None = None):
         if installations is None:
             installations = []
+        for inst in installations:
+            inst.setdefault("id", str(uuid.uuid4()))
         allowed_urls = {inst["url"] for inst in installations}
         server_headers = _build_server_headers(installations)
         description = "test"
@@ -69,6 +70,7 @@ class TestCallMCPServerTool(BaseTest):
         tool._installations = installations
         tool._installations_by_url = {inst["url"]: inst for inst in installations}
         tool._server_headers = server_headers
+        tool._approval_cache = {}
         return tool
 
     def _make_mock_client(self):
@@ -107,11 +109,9 @@ class TestCreateToolClass(TestCallMCPServerTool):
         other_user = await sync_to_async(User.objects.create_and_join)(
             self.organization, "other@example.com", "password"
         )
-        server = await sync_to_async(MCPServer.objects.create)(name="Other Server", url="https://mcp.other.com")
         await sync_to_async(MCPServerInstallation.objects.create)(
             team=self.team,
             user=other_user,
-            server=server,
             display_name="Other Server",
             url="https://mcp.other.com",
         )
@@ -491,84 +491,39 @@ class TestAuthRefresh(TestCallMCPServerTool):
             self.assertIn("re-authenticate", str(ctx.exception))
 
 
-class TestRefreshTokenProviderKind(TestCallMCPServerTool):
+class TestRefreshTokenFromMetadata(TestCallMCPServerTool):
     SERVER_URL = "https://mcp.linear.app/mcp"
 
-    async def test_known_provider_uses_oauth_integration_config(self):
+    async def test_refresh_uses_server_metadata(self):
         sensitive_config = {
             "access_token": "old-token",
             "refresh_token": "rt",
             "token_retrieved_at": int(time.time() - 2000),
             "expires_in": 3600,
+            "dcr_client_id": "linear-client",
         }
         installation = await sync_to_async(self._install_server)(
             name="Linear",
             url=self.SERVER_URL,
             auth_type="oauth",
-            oauth_provider_kind="linear",
             sensitive_configuration=sensitive_config,
         )
+        installation.oauth_metadata = {"token_endpoint": "https://linear.app/oauth/token"}
+        await sync_to_async(installation.save)(update_fields=["oauth_metadata"])
         inst = _make_oauth_installation(
             server_url=self.SERVER_URL,
             installation_id=str(installation.id),
             token_retrieved_at=time.time() - 2000,
             expires_in=3600,
+            oauth_metadata={"token_endpoint": "https://linear.app/oauth/token"},
+            oauth_client_id="linear-client",
         )
-        inst["server__oauth_provider_kind"] = "linear"
         tool = self._create_tool(installations=[inst])
 
         with (
             patch("products.mcp_store.backend.oauth.refresh_oauth_token") as mock_refresh,
-            patch("products.mcp_store.backend.oauth.OauthIntegration") as mock_oauth_cls,
             patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient,
         ):
-            oauth_config = AsyncMock()
-            oauth_config.token_url = "https://linear.app/oauth/token"
-            oauth_config.client_id = "linear-client"
-            oauth_config.client_secret = "linear-secret"
-            mock_oauth_cls.oauth_config_for_kind.return_value = oauth_config
-            mock_refresh.return_value = {"access_token": "new-token", "expires_in": 3600}
-            MockClient.return_value = self._make_mock_client()
-
-            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
-
-        self.assertIn("no tools available", result.lower())
-        await sync_to_async(installation.refresh_from_db)()
-        self.assertEqual(installation.sensitive_configuration["access_token"], "new-token")
-
-    async def test_unknown_provider_falls_back_to_metadata(self):
-        sensitive_config = {
-            "access_token": "old-token",
-            "refresh_token": "rt",
-            "token_retrieved_at": int(time.time() - 2000),
-            "expires_in": 3600,
-        }
-        installation = await sync_to_async(self._install_server)(
-            name="Custom",
-            url=self.SERVER_URL,
-            auth_type="oauth",
-            oauth_provider_kind="unknown-provider",
-            oauth_metadata={"token_endpoint": "https://custom.com/oauth/token"},
-            oauth_client_id="custom-client",
-            sensitive_configuration=sensitive_config,
-        )
-        inst = _make_oauth_installation(
-            server_url=self.SERVER_URL,
-            installation_id=str(installation.id),
-            token_retrieved_at=time.time() - 2000,
-            expires_in=3600,
-            oauth_metadata={"token_endpoint": "https://custom.com/oauth/token"},
-            oauth_client_id="custom-client",
-        )
-        inst["server__oauth_provider_kind"] = "unknown-provider"
-        tool = self._create_tool(installations=[inst])
-
-        with (
-            patch("products.mcp_store.backend.oauth.refresh_oauth_token") as mock_refresh,
-            patch("products.mcp_store.backend.oauth.OauthIntegration") as mock_oauth_cls,
-            patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient,
-        ):
-            mock_oauth_cls.oauth_config_for_kind.side_effect = NotImplementedError
             mock_refresh.return_value = {"access_token": "new-token", "expires_in": 3600}
             MockClient.return_value = self._make_mock_client()
 
@@ -585,20 +540,16 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
     OAUTH_CLIENT_ID = "dcr-client-123"
 
     def _install_oauth_server(self, sensitive_config: dict | None = None):
-        server = MCPServer.objects.create(
-            name="DCR Server",
-            url=self.SERVER_URL,
-            oauth_metadata=self.OAUTH_METADATA,
-            oauth_client_id=self.OAUTH_CLIENT_ID,
-        )
+        sensitive = dict(sensitive_config or {})
+        sensitive.setdefault("dcr_client_id", self.OAUTH_CLIENT_ID)
         return MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,
-            server=server,
             display_name="DCR Server",
             url=self.SERVER_URL,
             auth_type="oauth",
-            sensitive_configuration=sensitive_config or {},
+            oauth_metadata=self.OAUTH_METADATA,
+            sensitive_configuration=sensitive,
         )
 
     async def test_new_access_token_persisted(self):
@@ -708,3 +659,290 @@ class TestRefreshTokenPersistence(TestCallMCPServerTool):
 
         updated = await sync_to_async(MCPServerInstallation.objects.get)(id=installation_obj.id)
         self.assertEqual(updated.sensitive_configuration["refresh_token"], "original-refresh")
+
+
+class TestToolApprovalEnforcement(TestCallMCPServerTool):
+    """Covers the per-tool approval_state gate inside the Max agent's call path.
+
+    Mirrors the enforcement the HTTP /proxy/ endpoint does, but reached via the
+    LangGraph agent (CallMCPServerTool) which does not go through /proxy/."""
+
+    SERVER_URL = "https://mcp.linear.app/mcp"
+
+    def _seed_installation_and_tools(self, tool_states: dict[str, str]) -> MCPServerInstallation:
+        installation = self._install_server(
+            name="Linear", url=self.SERVER_URL, auth_type="api_key", sensitive_configuration={"api_key": "k"}
+        )
+        now = timezone.now()
+        for tool_name, approval_state in tool_states.items():
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name=tool_name,
+                approval_state=approval_state,
+                last_seen_at=now,
+            )
+        return installation
+
+    def _make_inst_dict(self, installation: MCPServerInstallation) -> dict:
+        return {
+            "id": str(installation.id),
+            "display_name": installation.display_name,
+            "url": installation.url,
+            "auth_type": installation.auth_type,
+            "sensitive_configuration": installation.sensitive_configuration,
+        }
+
+    async def test_list_tools_filters_do_not_use(self):
+        installation = await sync_to_async(self._seed_installation_and_tools)(
+            {"create_issue": "approved", "delete_everything": "do_not_use"}
+        )
+        tool = self._create_tool(installations=[self._make_inst_dict(installation)])
+
+        raw_tools = [
+            {"name": "create_issue", "description": "Create", "inputSchema": {}},
+            {"name": "delete_everything", "description": "Danger", "inputSchema": {}},
+        ]
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            mock_instance.list_tools = AsyncMock(return_value=raw_tools)
+            MockClient.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+
+        self.assertIn("create_issue", result)
+        self.assertNotIn("delete_everything", result)
+        self.assertIn("hidden because the user disabled them", result)
+
+    async def test_list_tools_annotates_needs_approval(self):
+        installation = await sync_to_async(self._seed_installation_and_tools)(
+            {"create_issue": "approved", "rename_org": "needs_approval"}
+        )
+        tool = self._create_tool(installations=[self._make_inst_dict(installation)])
+
+        raw_tools = [
+            {"name": "create_issue", "description": "Create", "inputSchema": {}},
+            {"name": "rename_org", "description": "Rename", "inputSchema": {}},
+        ]
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            mock_instance.list_tools = AsyncMock(return_value=raw_tools)
+            MockClient.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+
+        self.assertIn("rename_org", result)
+        self.assertIn("require explicit user approval", result)
+
+    async def test_list_tools_treats_unknown_as_needs_approval(self):
+        installation = await sync_to_async(self._seed_installation_and_tools)({})
+        tool = self._create_tool(installations=[self._make_inst_dict(installation)])
+
+        raw_tools = [{"name": "brand_new_tool", "description": "New", "inputSchema": {}}]
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            mock_instance.list_tools = AsyncMock(return_value=raw_tools)
+            MockClient.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+
+        self.assertIn("brand_new_tool", result)
+        self.assertIn("require explicit user approval", result)
+
+    async def test_call_tool_with_do_not_use_raises_fatal(self):
+        installation = await sync_to_async(self._seed_installation_and_tools)({"delete_everything": "do_not_use"})
+        tool = self._create_tool(installations=[self._make_inst_dict(installation)])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            MockClient.return_value = self._make_mock_client()
+            with self.assertRaises(MaxToolFatalError) as ctx:
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="delete_everything", arguments={})
+
+        self.assertIn("disabled by the user", str(ctx.exception))
+
+    async def test_call_tool_with_approved_state_passes_through(self):
+        installation = await sync_to_async(self._seed_installation_and_tools)({"create_issue": "approved"})
+        tool = self._create_tool(installations=[self._make_inst_dict(installation)])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            mock_instance.call_tool = AsyncMock(return_value="ok")
+            MockClient.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(
+                server_url=self.SERVER_URL, tool_name="create_issue", arguments={"title": "x"}
+            )
+
+        self.assertEqual(result, "ok")
+        mock_instance.call_tool.assert_called_once_with("create_issue", {"title": "x"})
+
+    async def test_removed_tool_treated_as_do_not_use(self):
+        # Tool that vanished upstream should be uncallable even if its saved
+        # approval_state is "approved" — removed_at wins.
+        installation = await sync_to_async(self._install_server)(
+            name="Linear", url=self.SERVER_URL, auth_type="api_key"
+        )
+        now = timezone.now()
+        await sync_to_async(MCPServerInstallationTool.objects.create)(
+            installation=installation,
+            tool_name="create_issue",
+            approval_state="approved",
+            last_seen_at=now,
+            removed_at=now,
+        )
+        tool = self._create_tool(installations=[self._make_inst_dict(installation)])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            MockClient.return_value = self._make_mock_client()
+            with self.assertRaises(MaxToolFatalError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="create_issue", arguments={})
+
+
+class TestIsDangerousOperation(TestCallMCPServerTool):
+    """Covers the LangGraph interrupt trigger for needs_approval tools."""
+
+    SERVER_URL = "https://mcp.linear.app/mcp"
+
+    def _seed(self, tool_states: dict[str, str]) -> MCPServerInstallation:
+        installation = self._install_server(
+            name="Linear", url=self.SERVER_URL, auth_type="api_key", sensitive_configuration={"api_key": "k"}
+        )
+        now = timezone.now()
+        for tool_name, approval_state in tool_states.items():
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name=tool_name,
+                approval_state=approval_state,
+                last_seen_at=now,
+            )
+        return installation
+
+    def _inst_dict(self, installation: MCPServerInstallation) -> dict:
+        return {
+            "id": str(installation.id),
+            "display_name": installation.display_name,
+            "url": installation.url,
+            "auth_type": installation.auth_type,
+            "sensitive_configuration": installation.sensitive_configuration,
+        }
+
+    async def test_list_tools_never_triggers_approval(self):
+        installation = await sync_to_async(self._seed)({})
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+        self.assertFalse(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="__list_tools__"))
+
+    async def test_needs_approval_triggers_approval(self):
+        installation = await sync_to_async(self._seed)({"rename_org": "needs_approval"})
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+        self.assertTrue(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="rename_org"))
+
+    async def test_approved_does_not_trigger_approval(self):
+        installation = await sync_to_async(self._seed)({"create_issue": "approved"})
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+        self.assertFalse(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="create_issue"))
+
+    async def test_unknown_tool_defaults_to_needs_approval(self):
+        installation = await sync_to_async(self._seed)({})
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+        self.assertTrue(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="new_tool"))
+
+    async def test_unknown_server_url_does_not_trigger_approval(self):
+        # Validation will reject it during execution; approval gate stays off.
+        installation = await sync_to_async(self._seed)({})
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+        self.assertFalse(
+            await tool.is_dangerous_operation(server_url="https://mcp.not-installed.com", tool_name="anything")
+        )
+
+    async def test_list_tools_uses_cache_when_available(self):
+        def setup():
+            installation = self._install_server(
+                name="Linear", url=self.SERVER_URL, auth_type="api_key", sensitive_configuration={"api_key": "k"}
+            )
+            now = timezone.now()
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name="create_issue",
+                description="Create an issue",
+                input_schema={
+                    "type": "object",
+                    "properties": {"title": {"type": "string", "description": "Issue title"}},
+                    "required": ["title"],
+                },
+                approval_state="approved",
+                last_seen_at=now,
+            )
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name="delete_everything",
+                approval_state="do_not_use",
+                last_seen_at=now,
+            )
+            return installation
+
+        installation = await sync_to_async(setup)()
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+            MockClient.assert_not_called()
+
+        self.assertIn("create_issue", result)
+        self.assertIn("Issue title", result)
+        self.assertNotIn("delete_everything", result)
+        self.assertIn("hidden because the user disabled them", result)
+
+    async def test_list_tools_falls_back_to_upstream_when_cache_empty(self):
+        installation = await sync_to_async(self._install_server)(
+            name="Linear", url=self.SERVER_URL, auth_type="api_key", sensitive_configuration={"api_key": "k"}
+        )
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+
+        raw_tools = [{"name": "fetched", "description": "From upstream", "inputSchema": {}}]
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            mock_instance.list_tools = AsyncMock(return_value=raw_tools)
+            MockClient.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+            MockClient.assert_called_once()
+
+        self.assertIn("fetched", result)
+
+    async def test_list_tools_ignores_cache_rows_marked_removed(self):
+        def setup():
+            installation = self._install_server(
+                name="Linear", url=self.SERVER_URL, auth_type="api_key", sensitive_configuration={"api_key": "k"}
+            )
+            now = timezone.now()
+            MCPServerInstallationTool.objects.create(
+                installation=installation,
+                tool_name="gone",
+                approval_state="approved",
+                last_seen_at=now,
+                removed_at=now,
+            )
+            return installation
+
+        installation = await sync_to_async(setup)()
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+
+        # Cache is "empty" (only row is removed), so we must hit upstream.
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            mock_instance = self._make_mock_client()
+            mock_instance.list_tools = AsyncMock(return_value=[])
+            MockClient.return_value = mock_instance
+
+            result, _ = await tool._arun_impl(server_url=self.SERVER_URL, tool_name="__list_tools__")
+            MockClient.assert_called_once()
+
+        self.assertIn("no tools available", result.lower())
+
+    async def test_preview_includes_tool_and_server(self):
+        installation = await sync_to_async(self._seed)({"rename_org": "needs_approval"})
+        tool = self._create_tool(installations=[self._inst_dict(installation)])
+        preview = await tool.format_dangerous_operation_preview(
+            server_url=self.SERVER_URL, tool_name="rename_org", arguments={"new_name": "acme"}
+        )
+        self.assertIn("rename_org", preview)
+        self.assertIn("Linear", preview)
+        self.assertIn("new_name", preview)

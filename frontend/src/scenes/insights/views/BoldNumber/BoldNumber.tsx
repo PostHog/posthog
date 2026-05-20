@@ -57,10 +57,12 @@ const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
 function useBoldNumberTooltip({
     showPersonsModal,
     isTooltipShown,
+    seriesIndex = 0,
     groupTypeLabel,
 }: {
     showPersonsModal: boolean
     isTooltipShown: boolean
+    seriesIndex?: number
     groupTypeLabel?: string
 }): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
@@ -68,16 +70,17 @@ function useBoldNumberTooltip({
     const { aggregationLabel } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
 
-    const divRef = useRef<HTMLDivElement>(null)
+    const elementRef = useRef<HTMLDivElement>(null)
 
-    const divRect = divRef.current?.getBoundingClientRect()
-    const { getTooltip } = useInsightTooltip()
-    const [tooltipRoot, tooltipEl] = getTooltip()
+    const { getTooltip, showTooltip, hideTooltip, positionTooltipAt, measureTooltip } = useInsightTooltip()
 
     useLayoutEffect(() => {
-        tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-
-        const seriesResult = insightData?.result?.[0]
+        if (!isTooltipShown) {
+            hideTooltip()
+            return
+        }
+        const [tooltipRoot] = getTooltip()
+        const seriesResult = insightData?.result?.[seriesIndex]
 
         tooltipRoot.render(
             <InsightTooltip
@@ -100,19 +103,23 @@ function useBoldNumberTooltip({
                 groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0]?.math_group_type_index).plural}
             />
         )
+        showTooltip()
     }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        const tooltipRect = tooltipEl.getBoundingClientRect()
-        if (divRect) {
-            tooltipEl.style.top = `${
-                window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-            }px`
-            tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
+        if (!isTooltipShown) {
+            return
         }
-    })
+        const elementRect = elementRef.current?.getBoundingClientRect()
+        const tooltipRect = measureTooltip()
+        if (elementRect && tooltipRect) {
+            const top = window.scrollY + elementRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+            const left = elementRect.left + elementRect.width / 2 - tooltipRect.width / 2
+            positionTooltipAt(left, top)
+        }
+    }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    return divRef
+    return elementRef
 }
 
 export function BoldNumber({ showPersonsModal = true, context }: ChartParams): JSX.Element {
@@ -133,7 +140,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
     const resultSeries = insightData?.result?.[0] as TrendResult | undefined
 
     return resultSeries ? (
-        <div className="BoldNumber">
+        <div className="BoldNumber ph-no-capture">
             <div
                 className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                 data-attr="bold-number-value"
@@ -147,6 +154,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                                     query: {
                                         kind: NodeKind.InsightActorsQuery,
                                         source: querySource!,
+                                        compare: showComparison ? 'current' : undefined,
                                         includeRecordings: true,
                                     },
                                     additionalSelect: {
@@ -174,11 +182,18 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
 }
 
 function BoldNumberComparison({
-    showPersonsModal,
+    showPersonsModal = true,
     context,
 }: Pick<ChartParams, 'showPersonsModal' | 'context'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { insightData, querySource } = useValues(insightVizDataLogic(insightProps))
+
+    const [isTooltipShown, setIsTooltipShown] = useState(false)
+    const comparisonRef = useBoldNumberTooltip({
+        showPersonsModal,
+        isTooltipShown,
+        seriesIndex: 1,
+    })
 
     if (!insightData?.result) {
         return null
@@ -220,29 +235,36 @@ function BoldNumberComparison({
                 ) : previousValue === null || !showPersonsModal || !hasComparableDiff ? (
                     'previous period'
                 ) : (
-                    <Link
-                        onClick={() => {
-                            if (context?.onDataPointClick) {
-                                context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
-                            } else {
-                                openPersonsModal({
-                                    title: previousPeriodSeries.label,
-                                    query: {
-                                        kind: NodeKind.InsightActorsQuery,
-                                        source: querySource!,
-                                        includeRecordings: true,
-                                    },
-                                    additionalSelect: {
-                                        value_at_data_point: 'event_count',
-                                        matched_recordings: 'matched_recordings',
-                                    },
-                                    orderBy: ['event_count DESC, actor_id DESC'],
-                                })
-                            }
-                        }}
+                    <span
+                        ref={comparisonRef}
+                        onMouseEnter={() => setIsTooltipShown(true)}
+                        onMouseLeave={() => setIsTooltipShown(false)}
                     >
-                        previous period
-                    </Link>
+                        <Link
+                            onClick={() => {
+                                if (context?.onDataPointClick) {
+                                    context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
+                                } else {
+                                    openPersonsModal({
+                                        title: previousPeriodSeries.label,
+                                        query: {
+                                            kind: NodeKind.InsightActorsQuery,
+                                            source: querySource!,
+                                            compare: 'previous',
+                                            includeRecordings: true,
+                                        },
+                                        additionalSelect: {
+                                            value_at_data_point: 'event_count',
+                                            matched_recordings: 'matched_recordings',
+                                        },
+                                        orderBy: ['event_count DESC, actor_id DESC'],
+                                    })
+                                }
+                            }}
+                        >
+                            previous period
+                        </Link>
+                    </span>
                 )}
             </span>
         </LemonRow>
@@ -256,7 +278,7 @@ export function HogQLBoldNumber(): JSX.Element {
         return (
             <div className="BoldNumber LemonTable HogQL">
                 <div className="BoldNumber__value">
-                    <Textfit min={32} max={120}>
+                    <Textfit min={32} max={64}>
                         Loading...
                     </Textfit>
                 </div>
@@ -281,9 +303,9 @@ export function HogQLBoldNumber(): JSX.Element {
     const value = formattedValue ?? directValue ?? resultsValue ?? resultValue
 
     return (
-        <div className="BoldNumber LemonTable HogQL">
+        <div className="BoldNumber LemonTable HogQL ph-no-capture">
             <div className="BoldNumber__value">
-                <Textfit min={32} max={120}>
+                <Textfit min={32} max={64}>
                     {String(value ?? 'Error')}
                 </Textfit>
             </div>

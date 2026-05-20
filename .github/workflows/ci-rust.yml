@@ -6,6 +6,10 @@ on:
     pull_request:
     merge_group:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
@@ -28,13 +32,20 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       rust:
                         # Avoid running rust tests for irrelevant changes
@@ -49,64 +60,77 @@ jobs:
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
+                        # Hypercache contract: Python serializer changes may break Rust deserialization
+                        - 'posthog/api/feature_flag.py'
+                        - 'posthog/models/feature_flag/flags_cache.py'
+                        - 'posthog/models/feature_flag/feature_flag.py'
+                        - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
 
             # Bin-pack packages into balanced test shards.
-            # Weights are approximate test durations in seconds — update periodically.
+            # Weights are approximate total durations (compile + test) in seconds,
+            # calibrated against 2-week avg CI job times (last updated: 2026-05-07).
+            # TARGET_MINUTES controls max wall-clock per shard; shard count is derived.
             - name: Compute test shards
               id: shards
               if: steps.filter.outputs.rust != 'false'
               shell: python3 {0}
               run: |
-                  import json, os
+                  import json, math, os
 
                   packages = {
-                      "assignment-coordination": 5,
-                      "batch-import-worker": 137,
-                      "capture": 198,
-                      "capture-logs": 130,
-                      "common-alloc": 37,
-                      "common-compression": 14,
-                      "common-cookieless": 72,
-                      "common-database": 10,
-                      "common-dns": 8,
-                      "common-geoip": 4,
-                      "common-hypercache": 93,
-                      "common-kafka": 68,
-                      "common-metrics": 7,
-                      "common-profiler": 49,
-                      "common-s3": 29,
-                      "cyclotron-core": 25,
-                      "cyclotron-janitor": 107,
-                      "cyclotron-node": 22,
-                      "cymbal": 173,
-                      "embedding-worker": 98,
-                      "feature-flags": 241,
-                      "health": 8,
-                      "hogvm": 5,
-                      "hook-api": 88,
-                      "hook-common": 73,
-                      "hook-janitor": 94,
-                      "hook-worker": 100,
-                      "kafka-assigner": 30,
-                      "kafka-deduplicator": 239,
-                      "limiters": 23,
-                      "lifecycle": 10,
-                      "personhog-coordination": 30,
-                      "personhog-replica": 49,
-                      "personhog-router": 10,
-                      "posthog-symbol-data": 4,
-                      "property-defs-rs": 93,
-                      "serve-metrics": 8,
+                      "assignment-coordination": 11,
+                      "batch-import-worker": 124,
+                      "capture": 169,
+                      "capture-logs": 108,
+                      "common-alloc": 13,
+                      "common-compression": 6,
+                      "common-cookieless": 42,
+                      "common-database": 13,
+                      "common-dns": 10,
+                      "common-geoip": 13,
+                      "common-hypercache": 94,
+                      "common-kafka": 67,
+                      "common-metrics": 6,
+                      "common-profiler": 51,
+                      "common-s3": 31,
+                      "cyclotron-core": 17,
+                      "cyclotron-janitor": 139,
+                      "cyclotron-node": 31,
+                      "cymbal": 168,
+                      "embedding-worker": 25,
+                      "feature-flags": 181,
+                      "health": 27,
+                      "hogvm": 36,
+                      "ingestion-consumer": 13,
+                      "k8s-awareness": 107,
+                      "kafka-assigner": 84,
+                      "kafka-deduplicator": 211,
+                      "lifecycle": 17,
+                      "limiters": 25,
+                      "personhog-coordination": 24,
+                      "personhog-leader": 115,
+                      "personhog-replica": 140,
+                      "personhog-router": 38,
+                      "posthog-symbol-data": 19,
+                      "property-defs-rs": 136,
+                      "serve-metrics": 14,
                   }
 
-                  TARGET_SHARDS = 8
+                  # Target max minutes for the cargo-test step per shard.
+                  # Total job time ≈ this + ~2.5 min setup overhead.
+                  # Shard count is computed dynamically so adding packages doesn't
+                  # silently blow past the budget — just adds more shards.
+                  TARGET_MINUTES = 8
+                  target_seconds = TARGET_MINUTES * 60
+                  total = sum(packages.values())
+                  num_shards = max(1, math.ceil(total / target_seconds))
 
                   # Greedy bin-packing: largest first into lightest bucket
-                  buckets = [[] for _ in range(TARGET_SHARDS)]
-                  times = [0] * TARGET_SHARDS
+                  buckets = [[] for _ in range(num_shards)]
+                  times = [0] * num_shards
 
                   for pkg, t in sorted(packages.items(), key=lambda x: -x[1]):
-                      lightest = min(range(TARGET_SHARDS), key=lambda i: times[i])
+                      lightest = min(range(num_shards), key=lambda i: times[i])
                       buckets[lightest].append(pkg)
                       times[lightest] += t
 
@@ -121,15 +145,19 @@ jobs:
                   for i, b in enumerate(buckets):
                       if b:
                           print(f"Shard {i + 1} ({times[i]}s): {', '.join(sorted(b))}")
+                  print(f"\nTotal: {total}s across {num_shards} shards (target ≤{target_seconds}s/shard)")
 
                   with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                       f.write(f"matrix={json.dumps(matrix)}\n")
 
     build:
-        name: Build Rust services
+        name: Build Rust services (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 15
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -139,7 +167,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
                       rust/
@@ -179,13 +207,15 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 20
+        permissions:
+            contents: read
 
         defaults:
             run:
                 working-directory: rust
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -205,7 +235,7 @@ jobs:
                   ../bin/ci-wait-for-docker launch --down
                   ../bin/ci-wait-for-docker wait
 
-                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Dump Kafka logs on failure
               if: failure()
@@ -281,6 +311,8 @@ jobs:
               run: |
                   for pkg in ${{ matrix.packages }}; do
                       echo "::group::Testing $pkg"
+                      # Free cgroups, overlayfs, and network namespaces from previous testcontainers
+                      docker system prune -f --volumes 2>/dev/null || true
                       extra_args=""
                       # Limit test threads for packages with sqlx pool exhaustion issues
                       if [ "$pkg" = "property-defs-rs" ]; then
@@ -291,10 +323,13 @@ jobs:
                   done
 
     linting:
-        name: Lint Rust services
+        name: Lint Rust services (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.rust == 'true'
         runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 15
+        permissions:
+            contents: read
 
         defaults:
             run:
@@ -304,7 +339,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
                       rust/
@@ -361,7 +396,9 @@ jobs:
         needs: [changes, build, test, linting]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
+        permissions: {}
         steps:
             - name: Check all Rust jobs
               run: |

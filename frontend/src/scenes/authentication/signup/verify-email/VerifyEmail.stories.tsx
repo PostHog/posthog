@@ -1,4 +1,4 @@
-import { Meta, Story } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -13,41 +13,51 @@ const meta: Meta = {
     },
 }
 export default meta
-export const VerifyEmailPending: Story = () => {
-    useDelayedOnMountEffect(() => {
-        verifyEmailLogic.actions.setView('pending')
-        verifyEmailLogic.actions.setUuid('12345678')
-    })
+type Story = StoryObj<{}>
 
-    return <VerifyEmail />
-}
+export const VerifyEmailPending: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            verifyEmailLogic.actions.setView('pending')
+            verifyEmailLogic.actions.setUuid('12345678')
+        })
 
-export const VerifyingEmail: Story = () => {
-    useDelayedOnMountEffect(() => {
-        verifyEmailLogic.actions.setView('verify')
-    })
-
-    return <VerifyEmail />
-}
-VerifyingEmail.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
+        return <VerifyEmail />
     },
 }
 
-export const VerifyEmailSuccess: Story = () => {
-    useDelayedOnMountEffect(() => {
-        verifyEmailLogic.actions.setView('success')
-    })
+export const VerifyingEmail: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            verifyEmailLogic.actions.setView('verify')
+        })
 
-    return <VerifyEmail />
+        return <VerifyEmail />
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 
-export const VerifyEmailInvalid: Story = () => {
-    useDelayedOnMountEffect(() => {
-        verifyEmailLogic.actions.setView('invalid')
-        verifyEmailLogic.actions.setUuid('12345678')
-    })
+export const VerifyEmailSuccess: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            verifyEmailLogic.actions.setView('success')
+        })
 
-    return <VerifyEmail />
+        return <VerifyEmail />
+    },
+}
+
+export const VerifyEmailInvalid: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            verifyEmailLogic.actions.setView('invalid')
+            verifyEmailLogic.actions.setUuid('12345678')
+        })
+
+        return <VerifyEmail />
+    },
 }

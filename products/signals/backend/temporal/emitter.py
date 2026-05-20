@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import temporalio
+import posthoganalytics
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
@@ -31,10 +32,16 @@ class SignalEmitterWorkflow:
 
     @temporalio.workflow.run
     async def run(self, input: SignalEmitterInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: SignalEmitterInput) -> None:
         await workflow.execute_activity(
             submit_signal_to_buffer_activity,
             SubmitSignalToBufferInput(team_id=input.team_id, signal=input.signal),
-            start_to_close_timeout=timedelta(hours=1),
-            heartbeat_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(hours=3),
+            heartbeat_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

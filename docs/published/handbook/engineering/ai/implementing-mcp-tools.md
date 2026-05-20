@@ -22,7 +22,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/query-examples/references/
+#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -109,7 +109,7 @@ SELECT id, key, name FROM system.feature_flags WHERE active = 1 LIMIT 10
 ### Extending query examples
 
 When you add a new system table,
-also add a model reference file to [`products/posthog_ai/skills/query-examples/references/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/skills/query-examples/references).
+also add a model reference file to [`products/posthog_ai/skills/querying-posthog-data/references/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/skills/querying-posthog-data/references).
 The naming convention is `models-<domain>.md`.
 
 Existing references:
@@ -126,8 +126,8 @@ Existing references:
 - `models-variables.md`
 
 Each file documents the table's columns, types, nullability, and notable structures (like JSON fields).
-See [`models-flags-experiments.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/references/models-flags-experiments.md) for a good example.
-Register your new reference in [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md) under **Data Schema**.
+See [`models-flags-experiments.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/references/models-flags-experiments.md) for a good example.
+Register your new reference in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
 
 ## Code generation pipeline
 
@@ -188,14 +188,26 @@ Product teams own their definitions and control which operations are exposed as 
 2. **Configure** the YAML – enable tools, add scopes, annotations, and descriptions.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
-   Tool names follow a **`domain-action`** convention in kebab-case,
+   **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
    e.g. `feature-flags-list`, `experiments-create`, `surveys-delete`.
    The domain groups related tools together and the action describes the operation.
+   Names must not start or end with a hyphen.
 
-   **Tool name length limit:** Some MCP clients (notably Cursor) enforce a 60-character
-   combined limit on `server_name:tool_name`. Since our server name is `posthog` (7 chars),
-   tool names must be **52 characters or fewer**.
-   CI runs `pnpm --filter=@posthog/mcp lint-tool-names` to enforce this.
+   **Feature identifiers** must be lowercase snake*case (`[a-z0-9*]`), e.g. `error_tracking`,
+`feature_flags`. They should match the product folder name.
+
+   **Tool name length limit:** tool names must be **52 characters or fewer**.
+   This limit exists because MCP clients enforce different combined limits on server+tool name:
+
+   | Client           | Limit                          | Notes                                                                 |
+   | ---------------- | ------------------------------ | --------------------------------------------------------------------- |
+   | MCP spec (draft) | 1–128 chars, `[A-Za-z0-9_\-.]` | Recommendation, not hard-enforced                                     |
+   | Claude Code      | 64 chars                       | Prefixes tool names with `mcp____`                                    |
+   | Cursor           | 60 chars combined              | `server_name + tool_name`; tools exceeding this are silently filtered |
+   | OpenAI API       | `^[a-zA-Z0-9_-]+$`, 64 chars   | No dots allowed                                                       |
+
+   With the server name "posthog" (7 chars) plus a separator, 52 characters is the safe zone.
+   CI runs `pnpm --filter=@posthog/mcp lint-tool-names` to enforce both length and pattern.
    If you hit the limit, shorten the domain prefix or use a more concise action name.
 
    ```yaml
@@ -222,6 +234,10 @@ Product teams own their definitions and control which operations are exposed as 
        enrich_url: '{id}' # appended to url_prefix for result URLs
        exclude_params: [field] # hide params from tool input
        include_params: [field] # whitelist params (excludes all others)
+       response: # filter response fields (applied per-item on list endpoints)
+         include: [id, key, name] # keep only these fields (dot-path wildcards supported)
+         exclude: [filters.groups.*.properties] # remove these fields
+         # include and exclude are mutually exclusive
        input_schema: ActionCreateSchema # use a hand-crafted schema from tool-inputs (optional)
        param_overrides: # override Orval-generated param descriptions or schemas
          name:
@@ -328,9 +344,9 @@ A `schema.json` integration into the codegen pipeline is planned.
 
 ## Agent skills that support the MCP server
 
-- **`query-examples`** – HogQL query patterns, system model schemas, and available functions.
+- **`querying-posthog-data`** – HogQL query patterns, system model schemas, and available functions.
   Extend this skill to explain how agents should use your HogQL-exposed tables and queries.
-  See [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md).
+  See [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md).
 - **`improving-drf-endpoints`** – Audit checklist and patterns for DRF serializers and viewsets.
   Use when editing or reviewing endpoints to ensure `help_text`, field types, and `@extend_schema` annotations
   flow correctly through the type pipeline.

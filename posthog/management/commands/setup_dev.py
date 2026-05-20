@@ -3,7 +3,7 @@ from django.db import transaction
 
 from posthog.demo.legacy import ORGANIZATION_NAME, TEAM_NAME, create_demo_data
 from posthog.models import EventProperty, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile, Team, User
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import hash_key_value
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyDefinition

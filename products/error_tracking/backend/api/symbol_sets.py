@@ -2,15 +2,16 @@ import hashlib
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, status, viewsets
+from rest_framework import pagination, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
@@ -35,12 +36,56 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
-    release = serializers.SerializerMethodField()
+    id = serializers.UUIDField(read_only=True, help_text="Unique symbol set ID.")
+    ref = serializers.CharField(read_only=True, help_text="Reference used to match stack frames to this symbol set.")
+    team_id = serializers.IntegerField(read_only=True, help_text="Project/team ID that owns this symbol set.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this symbol set row was created.")
+    last_used = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When this symbol set was last used to resolve a stack frame.",
+    )
+    failure_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Reason symbol lookup failed, if the source map is missing or invalid.",
+    )
+    has_uploaded_file = serializers.SerializerMethodField(
+        help_text="Whether this symbol set has an uploaded source map file available to download."
+    )
+    release = serializers.SerializerMethodField(help_text="Release associated with this symbol set, if any.")
 
     class Meta:
         model = ErrorTrackingSymbolSet
-        fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason", "release"]
-        read_only_fields = ["team_id"]
+        fields = [
+            "id",
+            "ref",
+            "team_id",
+            "created_at",
+            "last_used",
+            "failure_reason",
+            "has_uploaded_file",
+            "release",
+        ]
+        read_only_fields = [
+            "id",
+            "ref",
+            "team_id",
+            "created_at",
+            "last_used",
+            "failure_reason",
+            "has_uploaded_file",
+            "release",
+        ]
+
+    @extend_schema_field(
+        serializers.BooleanField(
+            help_text="Whether this symbol set has an uploaded source map file available to download."
+        )
+    )
+    def get_has_uploaded_file(self, obj: ErrorTrackingSymbolSet) -> bool:
+        return bool(obj.storage_ptr)
 
     @extend_schema_field(serializers.DictField(allow_null=True, help_text="Release associated with this symbol set"))
     def get_release(self, obj):
@@ -59,9 +104,87 @@ class SymbolSetUpload:
 
 
 class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
-    chunk_id = serializers.CharField()
-    release_id = serializers.CharField(allow_null=True, default=None)
-    content_hash = serializers.CharField(allow_null=True, default=None)
+    chunk_id = serializers.CharField(help_text="Symbol set reference to upload.")
+    release_id = serializers.CharField(
+        allow_null=True,
+        default=None,
+        help_text="Optional error tracking release ID associated with this symbol set.",
+    )
+    content_hash = serializers.CharField(
+        allow_null=True,
+        default=None,
+        help_text="Optional hash of the symbol set content, used to skip unchanged uploads.",
+    )
+
+
+class ErrorTrackingSymbolSetFinishUploadSerializer(serializers.Serializer):
+    content_hash = serializers.CharField(help_text="Hash of the uploaded symbol set content.")
+
+
+class ErrorTrackingSymbolSetBulkDeleteSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Symbol set IDs to delete.",
+    )
+
+
+class ErrorTrackingSymbolSetBulkStartUploadSerializer(serializers.Serializer):
+    chunk_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Legacy list of symbol set references to upload, all associated with `release_id`.",
+    )
+    release_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional error tracking release ID used with `chunk_ids`.",
+    )
+    symbol_sets = ErrorTrackingSymbolSetUploadSerializer(
+        many=True,
+        required=False,
+        help_text="Symbol sets to upload with per-symbol release IDs and content hashes.",
+    )
+    force = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to overwrite uploaded symbol sets whose content hash changed.",
+    )
+
+
+class ErrorTrackingSymbolSetBulkFinishUploadSerializer(serializers.Serializer):
+    content_hashes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Map of symbol set ID to uploaded content hash.",
+    )
+
+
+class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
+    ref = serializers.CharField(
+        required=False,
+        help_text="Exact symbol set reference to filter by.",
+    )
+    status = serializers.ChoiceField(
+        required=False,
+        default="all",
+        choices=["all", "valid", "invalid"],
+        help_text="Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.",
+    )
+    order_by = serializers.ChoiceField(
+        required=False,
+        choices=["created_at", "-created_at", "ref", "-ref", "last_used", "-last_used"],
+        help_text="Sort order for symbol sets. Prefix with `-` for descending order.",
+    )
+
+
+class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(
+        help_text="Presigned URL to download the source map file. Use immediately; expires after one hour."
+    )
+
+
+class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
+    max_limit = 100
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
@@ -69,33 +192,45 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
+    pagination_class = ErrorTrackingSymbolSetPagination
     parser_classes = [MultiPartParser, FileUploadParser]
     throttle_classes = [SymbolSetUploadBurstRateThrottle, SymbolSetUploadSustainedRateThrottle]
+    scope_object_read_actions = ["list", "retrieve", "download"]
     scope_object_write_actions = [
         "bulk_start_upload",
         "bulk_finish_upload",
         "start_upload",
         "finish_upload",
         "destroy",
-        "update",
+        "bulk_delete",
         "create",
     ]
 
+    def _get_list_params(self, request: Request) -> dict[str, str]:
+        serializer = ErrorTrackingSymbolSetListQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return dict(serializer.validated_data)
+
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(team_id=self.team.id).select_related("release")
-        params = self.request.GET.dict()
-        status = params.get("status")
+        if self.action != "list":
+            return queryset
+
+        params = self._get_list_params(self.request)
+        ref = params.get("ref")
+        symbol_set_status = params.get("status")
         order_by = params.get("order_by")
 
-        if status == "valid":
+        if ref:
+            queryset = queryset.filter(ref=ref)
+
+        if symbol_set_status == "valid":
             queryset = queryset.filter(storage_ptr__isnull=False)
-        elif status == "invalid":
+        elif symbol_set_status == "invalid":
             queryset = queryset.filter(storage_ptr__isnull=True)
 
         if order_by:
-            allowed_fields = ["created_at", "-created_at", "ref", "-ref", "last_used", "-last_used"]
-            if order_by in allowed_fields:
-                queryset = queryset.order_by(order_by)
+            queryset = queryset.order_by(order_by)
 
         return queryset
 
@@ -104,20 +239,59 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         symbol_set.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def update(self, request, *args, **kwargs) -> Response:
-        symbol_set = self.get_object()
-        # TODO: delete file from s3
-        minified = request.FILES["minified"]
-        source_map = request.FILES["source_map"]
-        (storage_ptr, content_hash) = upload_symbol_set(minified, source_map)
-        symbol_set.storage_ptr = storage_ptr
-        symbol_set.content_hash = content_hash
-        symbol_set.failure_reason = None
-        symbol_set.save()
-        ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
-        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+    # ModelViewSet provides update/partial_update by default, but the serializer is entirely
+    # read-only — there's nothing a client could set via PUT/PATCH. Hide them from the spec
+    # so generated typed clients don't surface unusable methods.
+    @extend_schema(exclude=True)
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
 
-    def list(self, request, *args, **kwargs) -> Response:
+    @extend_schema(exclude=True)
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
+    @extend_schema(request=ErrorTrackingSymbolSetBulkDeleteSerializer)
+    @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
+    def bulk_delete(self, request, **kwargs):
+        ids = request.data.get("ids", [])
+        if not ids:
+            return Response({"detail": "ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(ids, list):
+            return Response({"detail": "ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+        symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=ids)
+        deleted_count, _ = symbol_sets.delete()
+        return Response({"deleted": deleted_count}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        responses={200: _SymbolSetDownloadResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, parser_classes=[JSONParser])
+    def download(self, request: Request, **kwargs) -> Response:
+        """Return a presigned URL for downloading the symbol set's source map."""
+        return self._download_symbol_set(self.get_object())
+
+    def _download_symbol_set(self, symbol_set: ErrorTrackingSymbolSet) -> Response:
+        if not symbol_set.storage_ptr:
+            return Response(
+                {"detail": "Symbol set has no uploaded file."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        presigned_url = object_storage.get_presigned_url(
+            file_key=symbol_set.storage_ptr,
+            expiration=3600,
+        )
+
+        if not presigned_url:
+            return Response(
+                {"detail": "Could not generate download URL."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response({"url": presigned_url}, status=status.HTTP_200_OK)
+
+    @extend_schema(parameters=[ErrorTrackingSymbolSetListQuerySerializer])
+    def list(self, request: Request, *args, **kwargs) -> Response:
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -128,7 +302,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    # DEPRECATED: newer versions of the CLI use bulk uploads
+    @extend_schema(exclude=True)  # deprecated; serializer has no settable fields, hidden from typed clients
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
@@ -158,8 +332,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
-    @action(methods=["POST"], detail=False)
     # DEPRECATED: we should eventually remove this once everyone is using a new enough version of the CLI
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False)
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)
@@ -191,6 +366,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}, status=status.HTTP_201_CREATED
         )
 
+    @extend_schema(request=ErrorTrackingSymbolSetFinishUploadSerializer)
     @action(methods=["PUT"], detail=True, parser_classes=[JSONParser])
     def finish_upload(self, request, **kwargs):
         content_hash = request.data.get("content_hash")
@@ -228,10 +404,12 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         if not symbol_set.content_hash:
             symbol_set.content_hash = content_hash
+            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
 
+    @extend_schema(request=ErrorTrackingSymbolSetBulkStartUploadSerializer)
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
         if request.user.pk:
@@ -257,6 +435,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         symbol_sets.extend([SymbolSetUpload(x, release_id, None) for x in chunk_ids])
 
+        # force=True allows overwriting an existing symbol set whose content has changed.
+        # Without it, changed-content re-uploads are silently skipped to prevent
+        # accidental overwrites of production symbol sets from a local dev machine.
+        force: bool = bool(request.data.get("force", False))
+
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
                 code="object_storage_required",
@@ -264,10 +447,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         chunk_id_url_map = bulk_create_symbol_sets(
-            symbol_sets, self.team, distinct_id=str(request.user.pk) if request.user.pk else None
+            symbol_sets, self.team, force=force, distinct_id=str(request.user.pk) if request.user.pk else None
         )
         return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=ErrorTrackingSymbolSetBulkFinishUploadSerializer)
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_finish_upload(self, request, **kwargs):
         if request.user.pk:
@@ -320,7 +504,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 content_hash = content_hashes[str(symbol_set.id)]
                 symbol_set.content_hash = content_hash
-            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
+                symbol_set.last_used = timezone.now()
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash", "last_used"])
         except Exception as e:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
@@ -375,6 +560,7 @@ def create_symbol_set(
                 raise ValidationError(f"Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
+            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         except ErrorTrackingSymbolSet.DoesNotExist:
@@ -384,6 +570,7 @@ def create_symbol_set(
                 release=release,
                 storage_ptr=storage_ptr,
                 content_hash=content_hash,
+                last_used=timezone.now(),
             )
 
         # Delete any existing frames associated with this symbol set
@@ -396,6 +583,7 @@ def create_symbol_set(
 def bulk_create_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
+    force: bool = False,
     distinct_id: str | None = None,
 ) -> dict[str, dict[str, str]]:
     accelerate = bool(
@@ -449,6 +637,7 @@ def bulk_create_symbol_sets(
                 ref=chunk_id,
                 storage_ptr=storage_ptr,
                 release_id=new_symbol_set_map[chunk_id].release_id,
+                last_used=timezone.now(),
             )
             symbol_sets_to_be_created.append(to_create)
 
@@ -476,20 +665,17 @@ def bulk_create_symbol_sets(
                         detail=f"Symbol set {existing.ref} already has a release ID",
                     )
 
-            if existing.content_hash is not None and existing.content_hash != upload.content_hash:
-                # If this symbol set already has a content hash, and they differ, raise. We do not support changing
-                # the content of a symbol set once it's been uploaded - callers should inject a new chunk_id instead.
-                # Note - this will also return an error if the upload's content hash is None. This is
-                # intentional - we can't tell whether its safe to overwrite the existing content hash
-                # here. This will only be the case for older CLI versions, which we expect to misbehave
-                # in this code path anyway.
-                raise ValidationError(
-                    code="content_hash_mismatch",
-                    detail=f"Symbol set {existing.ref} already exists, with different content.",
-                )
-            elif existing.content_hash is None:
-                # If the existing set doesn't have a content hash, we can set it up for an upload, and return it
-                # so the CLI will send the data to s3
+            if upload.content_hash is None:
+                if existing.content_hash is not None:
+                    # Old CLI (no content hash) trying to re-upload a symbol set
+                    # that was already fully uploaded. We can't determine safety,
+                    # so reject rather than silently overwrite production data.
+                    raise ValidationError(
+                        code="content_hash_required",
+                        detail=f"Symbol set {existing.ref} already has content; provide a content_hash to update it.",
+                    )
+                # Both sides have no hash: this is a pending upload being restarted.
+                # Issue a fresh presigned URL so the client can retry.
                 storage_ptr = generate_symbol_set_file_key()
                 presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
                 id_url_map[existing.ref] = {
@@ -498,10 +684,43 @@ def bulk_create_symbol_sets(
                 }
                 existing.storage_ptr = storage_ptr
                 dirty = True
-            else:
-                # No-op with respect to the client - the upload was done already, and the content hash matches.
-                # Called out explicitly for clarity. Note we may still update this record, if the release has changed.
+            elif existing.content_hash is None:
+                # Existing record has no hash (pending upload or uploaded by old CLI
+                # without hash support). Allow the new upload to supply one.
+                storage_ptr = generate_symbol_set_file_key()
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+                id_url_map[existing.ref] = {
+                    "presigned_url": presigned_url,
+                    "symbol_set_id": str(existing.id),
+                }
+                existing.storage_ptr = storage_ptr
+                dirty = True
+            elif existing.content_hash == upload.content_hash:
+                # Content is identical — no upload needed.
+                # (We may still update the release below if it changed.)
                 pass
+            elif not force:
+                # Content has changed but the caller did not pass force=True.
+                # Silently skip to prevent accidental overwrites of production
+                # symbol sets from a local development machine.
+                logger.warning(
+                    "symbol_set_content_changed_skipped",
+                    ref=existing.ref,
+                    team_id=team.id,
+                )
+            else:
+                # force=True: content has changed and the caller explicitly
+                # requested an overwrite. Issue a new presigned URL and clear
+                # the old content hash so bulk_finish_upload stores the new one.
+                storage_ptr = generate_symbol_set_file_key()
+                presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr, accelerate=accelerate)
+                id_url_map[existing.ref] = {
+                    "presigned_url": presigned_url,
+                    "symbol_set_id": str(existing.id),
+                }
+                existing.storage_ptr = storage_ptr
+                existing.content_hash = None  # will be set by bulk_finish_upload
+                dirty = True
 
             if dirty:
                 to_update.append(existing)
@@ -511,11 +730,6 @@ def bulk_create_symbol_sets(
         _ = ErrorTrackingSymbolSet.objects.bulk_update(to_update, ["release", "content_hash", "storage_ptr"])
 
     return id_url_map
-
-
-def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
-    js_data = construct_js_data_object(minified.read(), source_map.read())
-    return upload_content(js_data)
 
 
 def upload_content(content: bytearray) -> tuple[str, str]:

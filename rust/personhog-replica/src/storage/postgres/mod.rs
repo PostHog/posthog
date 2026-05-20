@@ -27,29 +27,42 @@ pub enum ConsistencyLevel {
 }
 
 /// Postgres implementation of storage traits with dual-pool support
-/// for primary (strong consistency) and replica (eventual consistency) databases.
+/// for primary (strong consistency) and replica (eventual consistency) databases,
+/// plus dedicated bulk pools for heavy batch operations.
 pub struct PostgresStorage {
     /// Connection pool for the primary database (writes + strong consistency reads)
     pub primary_pool: PgPool,
     /// Connection pool for the replica database (eventual consistency reads)
     pub replica_pool: PgPool,
+    /// Bulk pool for the primary database (heavy deletes, batch writes)
+    pub bulk_primary_pool: PgPool,
+    /// Bulk pool for the replica database (large batch reads)
+    pub bulk_replica_pool: PgPool,
 }
 
 impl PostgresStorage {
-    /// Create a new PostgresStorage with separate primary and replica pools.
-    /// For single-database setups, pass the same pool for both.
-    pub fn new(primary_pool: PgPool, replica_pool: PgPool) -> Self {
+    /// Create a new PostgresStorage with separate primary, replica, and bulk pools.
+    pub fn new(
+        primary_pool: PgPool,
+        replica_pool: PgPool,
+        bulk_primary_pool: PgPool,
+        bulk_replica_pool: PgPool,
+    ) -> Self {
         Self {
             primary_pool,
             replica_pool,
+            bulk_primary_pool,
+            bulk_replica_pool,
         }
     }
 
-    /// Create a new PostgresStorage with a single pool used for both primary and replica.
+    /// Create a new PostgresStorage with a single pool used for everything.
     pub fn new_single_pool(pool: PgPool) -> Self {
         Self {
             primary_pool: pool.clone(),
-            replica_pool: pool,
+            replica_pool: pool.clone(),
+            bulk_primary_pool: pool.clone(),
+            bulk_replica_pool: pool,
         }
     }
 
@@ -63,6 +76,21 @@ impl PostgresStorage {
         }
     }
 
+    /// Get the appropriate bulk pool based on consistency level.
+    pub(crate) fn bulk_pool_for_consistency(&self, consistency: ConsistencyLevel) -> &PgPool {
+        match consistency {
+            ConsistencyLevel::Strong => &self.bulk_primary_pool,
+            ConsistencyLevel::Eventual => &self.bulk_replica_pool,
+        }
+    }
+
+    pub(crate) fn bulk_pool_label(consistency: ConsistencyLevel) -> &'static str {
+        match consistency {
+            ConsistencyLevel::Strong => "bulk_primary",
+            ConsistencyLevel::Eventual => "bulk_replica",
+        }
+    }
+
     /// Returns the pool label for the given consistency level.
     pub(crate) fn pool_label(consistency: ConsistencyLevel) -> &'static str {
         match consistency {
@@ -72,7 +100,7 @@ impl PostgresStorage {
     }
 
     /// Acquire a connection from the given pool, recording the acquisition time
-    /// as `personhog_replica_db_pool_acquire_duration_ms` with a `pool` label.
+    /// as `personhog_replica_db_pool_acquire_duration_ms` with `pool` and `client` labels.
     pub(crate) async fn acquire_timed(
         pool: &PgPool,
         pool_label: &str,
@@ -82,7 +110,13 @@ impl PostgresStorage {
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         common_metrics::histogram(
             DB_POOL_ACQUIRE_DURATION,
-            &[("pool".to_string(), pool_label.to_string())],
+            &[
+                ("pool".to_string(), pool_label.to_string()),
+                (
+                    "client".to_string(),
+                    personhog_common::grpc::current_client_name().to_string(),
+                ),
+            ],
             elapsed_ms,
         );
         Ok(conn)

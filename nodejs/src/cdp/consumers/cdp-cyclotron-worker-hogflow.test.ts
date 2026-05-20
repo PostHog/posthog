@@ -250,6 +250,34 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             ])
         })
 
+        it('should resolve person by personId when distinct_id is empty (batch invocations)', async () => {
+            const personUuid = 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7f0'
+            await createPerson(team.id, personUuid, 'distinct_batch_1', {
+                name: 'Batch Person',
+                email: 'batch@posthog.com',
+            })
+
+            // Batch invocations set distinct_id: '' and use personId instead
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: '',
+                    properties: { foo: 'batch' },
+                } as any,
+                personId: personUuid,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results).toHaveLength(1)
+            expect(results[0].invocation.person?.properties).toEqual({
+                name: 'Batch Person',
+                email: 'batch@posthog.com',
+            })
+            expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
+        })
+
         it('should skip invocations when workflow is disabled after being queued', async () => {
             // Scenario: workflow is active, invocations are queued, then workflow is disabled
             // Remaining invocations should be skipped

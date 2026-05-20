@@ -1,14 +1,29 @@
 import './FeatureFlag.scss'
 
+import {
+    DndContext,
+    DragEndEvent,
+    DragOverlay,
+    DragStartEvent,
+    PointerSensor,
+    UniqueIdentifier,
+    useSensor,
+    useSensors,
+} from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import {
     IconBalance,
+    IconCheckCircle,
     IconCode,
     IconFlag,
+    IconCollapse,
+    IconExpand,
     IconGlobe,
     IconInfo,
     IconList,
@@ -18,6 +33,7 @@ import {
 } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonInput,
@@ -36,6 +52,7 @@ import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconArrowDown, IconArrowUp, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
@@ -48,12 +65,87 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime } from '~/types'
+import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, MultivariateFlagVariant } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { PercentageInput } from './PercentageInput'
+
+interface SortableVariantHeaderProps {
+    variant: MultivariateFlagVariant
+    index: number
+    variants: MultivariateFlagVariant[]
+    alphabet: string[]
+    moveVariantUp: (index: number) => void
+    moveVariantDown: (index: number) => void
+}
+
+function SortableVariantHeader({
+    variant,
+    index,
+    variants,
+    alphabet,
+    moveVariantUp,
+    moveVariantDown,
+}: SortableVariantHeaderProps): JSX.Element {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+        id: `variant-${index}`,
+    })
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+    }
+
+    return (
+        <div ref={setNodeRef} style={style} className="flex gap-2 items-center justify-between w-full">
+            <div className="flex gap-2 items-center">
+                <Lettermark name={alphabet[index] ?? String(index + 1)} color={LettermarkColor.Gray} size="small" />
+                <span className="text-sm font-medium">{variant.key || `Variant ${index + 1}`}</span>
+                <span className="text-xs text-muted tabular-nums">({variant.rollout_percentage || 0}%)</span>
+            </div>
+            <div className="flex gap-1 items-center ml-auto">
+                <LemonButton
+                    size="xsmall"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        moveVariantUp(index)
+                    }}
+                    disabled={index === 0}
+                    tooltip="Move up"
+                    icon={<IconArrowUp />}
+                />
+                <LemonButton
+                    size="xsmall"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        moveVariantDown(index)
+                    }}
+                    disabled={index === variants.length - 1}
+                    tooltip="Move down"
+                    icon={<IconArrowDown />}
+                />
+                <LemonButton
+                    size="xsmall"
+                    tooltip="Drag to reorder"
+                    icon={<SortableDragIcon className="text-muted hover:text-default shrink-0" />}
+                    onClick={(e) => e.stopPropagation()}
+                    {...listeners}
+                    {...attributes}
+                    style={{ cursor: 'grab' }}
+                    onMouseDown={(e) => {
+                        e.currentTarget.style.cursor = 'grabbing'
+                    }}
+                    onMouseUp={(e) => {
+                        e.currentTarget.style.cursor = 'grab'
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
 
 export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const {
@@ -69,12 +161,16 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         openVariants,
         payloadExpanded,
         expandAdvancedOnEdit,
+        hasEncryptedPayloadBeenSaved,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
         setFeatureFlag,
         addVariant,
         removeVariant,
+        moveVariantUp,
+        moveVariantDown,
+        reorderVariants,
         distributeVariantsEqually,
         setFeatureFlagFilters,
         editFeatureFlag,
@@ -82,15 +178,13 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
-        setBucketingIdentifier,
+        resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
-
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
 
@@ -102,6 +196,24 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 block: 'start',
             })
         }, 150)
+    }
+
+    const confirmEncryptedPayloadReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset payload?',
+            description: 'The existing payload will not be reset until the feature flag is saved.',
+            primaryButton: {
+                children: 'Reset',
+                onClick: resetEncryptedPayload,
+                size: 'small',
+                status: 'danger',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
     }
 
     const updateVariant = (
@@ -143,6 +255,116 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             },
         })
     }
+
+    const currentFlagType = featureFlag?.is_remote_configuration
+        ? 'remote_config'
+        : multivariateEnabled
+          ? 'multivariate'
+          : 'boolean'
+
+    const onSelectFlagType = (value: string): void => {
+        // Leaving remote config: the backend invariant requires
+        // has_encrypted_payloads=true only on remote config flags,
+        // and the prior ciphertext is no longer valid.
+        const wasLeavingRemoteConfig =
+            featureFlag?.is_remote_configuration === true &&
+            value !== 'remote_config' &&
+            featureFlag?.has_encrypted_payloads
+
+        if (value === 'remote_config') {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: true,
+            })
+            setMultivariateEnabled(false)
+        } else if (value === 'multivariate') {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: false,
+                filters: {
+                    ...featureFlag?.filters,
+                    payloads: {},
+                },
+            })
+            setMultivariateEnabled(true)
+        } else {
+            setFeatureFlag({
+                ...featureFlag,
+                is_remote_configuration: false,
+            })
+            setMultivariateEnabled(false)
+        }
+
+        if (wasLeavingRemoteConfig) {
+            resetEncryptedPayload()
+        }
+    }
+
+    const FLAG_TYPE_OPTIONS = [
+        {
+            value: 'boolean',
+            icon: <IconFlag className="text-lg" />,
+            label: 'Boolean',
+            description: 'Release toggle with optional static payload',
+        },
+        {
+            value: 'multivariate',
+            icon: <IconList className="text-lg" />,
+            label: 'Multivariate',
+            description: 'Multiple variants with rollout percentages (A/B/n test)',
+        },
+        {
+            value: 'remote_config',
+            icon: <IconCode className="text-lg" />,
+            label: 'Remote config',
+            description: 'Single payload without feature flag logic',
+        },
+    ] as const
+
+    // Drag and drop functionality
+    const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        })
+    )
+
+    const handleDragStart = (event: DragStartEvent): void => {
+        setActiveId(event.active.id)
+    }
+
+    const handleDragEnd = (event: DragEndEvent): void => {
+        const { active, over } = event
+
+        if (over && active.id !== over.id) {
+            const fromIndex = variants.findIndex((_, index) => `variant-${index}` === active.id)
+            const toIndex = variants.findIndex((_, index) => `variant-${index}` === over.id)
+
+            if (fromIndex !== -1 && toIndex !== -1) {
+                reorderVariants(fromIndex, toIndex)
+            }
+        }
+
+        setActiveId(null)
+    }
+
+    const getActiveVariant = (): MultivariateFlagVariant | null => {
+        if (!activeId) {
+            return null
+        }
+        const index = variants.findIndex((_, index) => `variant-${index}` === String(activeId))
+        return index !== -1 ? variants[index] : null
+    }
+
+    // Calculate active variant index for drag overlay
+    const activeVariantIndex = activeId ? variants.findIndex((_, index) => `variant-${index}` === String(activeId)) : -1
+
+    // Calculate expand/collapse button state
+    const allVariantKeys = variants.map((_, index) => `variant-${index}`)
+    const allExpanded = allVariantKeys.every((key) => openVariants.includes(key))
+    const anyExpanded = openVariants.length > 0
 
     if (!featureFlag) {
         return (
@@ -438,37 +660,42 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     />
                                                 </LemonField>
 
-                                                <LemonDivider className="my-1" />
+                                                {/* Persistence - hide when device ID bucketing is selected */}
+                                                {featureFlag.bucketing_identifier !==
+                                                    FeatureFlagBucketingIdentifier.DEVICE_ID && (
+                                                    <>
+                                                        <LemonDivider className="my-1" />
 
-                                                {/* Persistence */}
-                                                <LemonField
-                                                    name="ensure_experience_continuity"
-                                                    label="Persistence"
-                                                    labelClassName="text-sm font-medium"
-                                                    info={
-                                                        <>
-                                                            Keep flag values consistent before and after login. Requires
-                                                            anonymous user profiles.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                                target="_blank"
-                                                            >
-                                                                Learn more
-                                                            </Link>
-                                                        </>
-                                                    }
-                                                >
-                                                    {({ value, onChange }) => (
-                                                        <LemonSwitch
-                                                            checked={value}
-                                                            onChange={onChange}
-                                                            bordered
-                                                            fullWidth
-                                                            label="Persist flag across authentication steps"
-                                                            data-attr="feature-flag-persist-across-auth"
-                                                        />
-                                                    )}
-                                                </LemonField>
+                                                        <LemonField
+                                                            name="ensure_experience_continuity"
+                                                            label="Persistence"
+                                                            labelClassName="text-sm font-medium"
+                                                            info={
+                                                                <>
+                                                                    Keep flag values consistent before and after login.
+                                                                    Requires anonymous user profiles.{' '}
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                                        target="_blank"
+                                                                    >
+                                                                        Learn more
+                                                                    </Link>
+                                                                </>
+                                                            }
+                                                        >
+                                                            {({ value, onChange }) => (
+                                                                <LemonSwitch
+                                                                    checked={value}
+                                                                    onChange={onChange}
+                                                                    bordered
+                                                                    fullWidth
+                                                                    label="Persist flag across authentication steps"
+                                                                    data-attr="feature-flag-persist-across-auth"
+                                                                />
+                                                            )}
+                                                        </LemonField>
+                                                    </>
+                                                )}
                                             </div>
                                         ),
                                     },
@@ -478,89 +705,54 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
 
                         {/* Right column */}
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
-                            {/* Flag type card */}
+                            {/* Flag type cards */}
                             <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel info="Changing type may remove existing variants or payloads.">
                                         Flag type
                                     </LemonLabel>
-                                    <LemonSelect
-                                        fullWidth
-                                        value={
-                                            featureFlag.is_remote_configuration
-                                                ? 'remote_config'
-                                                : multivariateEnabled
-                                                  ? 'multivariate'
-                                                  : 'boolean'
-                                        }
-                                        onChange={(value) => {
-                                            if (value === 'remote_config') {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: true,
-                                                })
-                                                // setMultivariateEnabled(false) cleans up variant payloads via setMultivariateOptions(null)
-                                                setMultivariateEnabled(false)
-                                            } else if (value === 'multivariate') {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: false,
-                                                    filters: {
-                                                        ...featureFlag.filters,
-                                                        // Clear boolean payload when switching to multivariate
-                                                        payloads: {},
-                                                    },
-                                                })
-                                                setMultivariateEnabled(true)
-                                            } else {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    is_remote_configuration: false,
-                                                })
-                                                // setMultivariateEnabled(false) cleans up variant payloads via setMultivariateOptions(null)
-                                                setMultivariateEnabled(false)
-                                            }
-                                        }}
-                                        options={[
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Boolean</span>
-                                                        <span className="text-xs text-muted">
-                                                            Release toggle (boolean) with optional static payload
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: 'boolean',
-                                                icon: <IconFlag />,
-                                            },
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Multivariate</span>
-                                                        <span className="text-xs text-muted">
-                                                            Multiple variants with rollout percentages (A/B/n test)
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: 'multivariate',
-                                                icon: <IconList />,
-                                            },
-                                            {
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Remote config</span>
-                                                        <span className="text-xs text-muted">
-                                                            Single payload without feature flag logic
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                value: 'remote_config',
-                                                icon: <IconCode />,
-                                            },
-                                        ]}
+                                    <div
+                                        className="grid grid-cols-1 md:grid-cols-3 gap-3"
+                                        role="radiogroup"
+                                        aria-label="Flag type"
                                         data-attr="feature-flag-type"
-                                    />
+                                    >
+                                        {FLAG_TYPE_OPTIONS.map((option) => {
+                                            const isSelected = currentFlagType === option.value
+                                            return (
+                                                <div
+                                                    key={option.value}
+                                                    role="radio"
+                                                    aria-checked={isSelected}
+                                                    tabIndex={0}
+                                                    className={`rounded p-3 cursor-pointer transition-colors ${
+                                                        isSelected
+                                                            ? 'bg-accent-highlight-light border-2 border-accent'
+                                                            : 'border bg-surface-primary border-primary hover:bg-fill-button-tertiary-hover'
+                                                    }`}
+                                                    onClick={() => onSelectFlagType(option.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault()
+                                                            onSelectFlagType(option.value)
+                                                        }
+                                                    }}
+                                                    data-attr={`feature-flag-type-${option.value}`}
+                                                >
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2">
+                                                            {option.icon}
+                                                            <span className="font-medium flex-1">{option.label}</span>
+                                                            {isSelected && (
+                                                                <IconCheckCircle className="text-accent text-base" />
+                                                            )}
+                                                        </div>
+                                                        <span className="text-xs text-muted">{option.description}</span>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
                                     <div className="text-secondary text-xs mt-1">
                                         {featureFlag.is_remote_configuration ? (
                                             <>
@@ -591,120 +783,173 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                     <div className="flex flex-col gap-2">
                                         <div className="flex items-center justify-between">
                                             <LemonLabel>Variants</LemonLabel>
-                                            <LemonButton
-                                                size="small"
-                                                icon={<IconBalance />}
-                                                onClick={distributeVariantsEqually}
-                                                tooltip="Distribute rollout percentages equally"
-                                            />
+                                            <div className="flex gap-1">
+                                                {!allExpanded && variants.length > 1 && (
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconExpand />}
+                                                        onClick={() => setOpenVariants(allVariantKeys)}
+                                                        tooltip="Expand all variants"
+                                                    >
+                                                        Expand all
+                                                    </LemonButton>
+                                                )}
+                                                {anyExpanded && (
+                                                    <LemonButton
+                                                        size="small"
+                                                        icon={<IconCollapse />}
+                                                        onClick={() => setOpenVariants([])}
+                                                        tooltip="Collapse all variants"
+                                                    >
+                                                        Collapse all
+                                                    </LemonButton>
+                                                )}
+                                                <LemonButton
+                                                    size="small"
+                                                    icon={<IconBalance />}
+                                                    onClick={distributeVariantsEqually}
+                                                    tooltip="Distribute rollout percentages equally"
+                                                />
+                                            </div>
                                         </div>
 
-                                        <LemonCollapse
-                                            multiple
-                                            activeKeys={openVariants}
-                                            onChange={setOpenVariants}
-                                            panels={variants.map((variant, index) => ({
-                                                key: `variant-${index}`,
-                                                header: (
-                                                    <div className="flex gap-2 items-center">
-                                                        <Lettermark
-                                                            name={alphabet[index] ?? String(index + 1)}
-                                                            color={LettermarkColor.Gray}
-                                                            size="small"
-                                                        />
-                                                        <span className="text-sm font-medium">
-                                                            {variant.key || `Variant ${index + 1}`}
-                                                        </span>
-                                                        <span className="text-xs text-muted">
-                                                            ({variant.rollout_percentage || 0}%)
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                content: (
-                                                    <div className="flex flex-col gap-2">
-                                                        <LemonLabel>Variant key</LemonLabel>
-                                                        <LemonInput
-                                                            placeholder="Enter a variant key - e.g. control, test, variant_1"
-                                                            value={variant.key}
-                                                            onChange={(value) => updateVariant(index, 'key', value)}
-                                                            status={variantErrors[index]?.key ? 'danger' : undefined}
-                                                            data-attr={`feature-flag-variant-key-${index}`}
-                                                        />
-                                                        {variantErrors[index]?.key && (
-                                                            <span className="text-danger text-xs">
-                                                                {variantErrors[index].key}
-                                                            </span>
-                                                        )}
+                                        <DndContext
+                                            sensors={sensors}
+                                            onDragStart={handleDragStart}
+                                            onDragEnd={handleDragEnd}
+                                        >
+                                            <SortableContext
+                                                items={variants.map((_, index) => `variant-${index}`)}
+                                                strategy={verticalListSortingStrategy}
+                                            >
+                                                <LemonCollapse
+                                                    multiple
+                                                    activeKeys={openVariants}
+                                                    onChange={setOpenVariants}
+                                                    className="mb-3 [&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
+                                                    panels={variants.map((variant, index) => ({
+                                                        key: `variant-${index}`,
+                                                        className: '!pl-[2.5rem] dark:bg-surface-secondary',
+                                                        header: (
+                                                            <SortableVariantHeader
+                                                                variant={variant}
+                                                                index={index}
+                                                                variants={variants}
+                                                                alphabet={alphabet}
+                                                                moveVariantUp={moveVariantUp}
+                                                                moveVariantDown={moveVariantDown}
+                                                            />
+                                                        ),
+                                                        content: (
+                                                            <div className="flex flex-col gap-2">
+                                                                <LemonLabel>Variant key</LemonLabel>
+                                                                <LemonInput
+                                                                    placeholder="Enter a variant key - e.g. control, test, variant_1"
+                                                                    value={variant.key}
+                                                                    onChange={(value) =>
+                                                                        updateVariant(index, 'key', value)
+                                                                    }
+                                                                    status={
+                                                                        variantErrors[index]?.key ? 'danger' : undefined
+                                                                    }
+                                                                    data-attr={`feature-flag-variant-key-${index}`}
+                                                                />
+                                                                {variantErrors[index]?.key && (
+                                                                    <span className="Field--error text-danger text-xs">
+                                                                        {variantErrors[index].key}
+                                                                    </span>
+                                                                )}
 
-                                                        <LemonLabel>Rollout percentage</LemonLabel>
-                                                        <LemonInput
-                                                            type="number"
-                                                            min={0}
-                                                            max={100}
-                                                            value={variant.rollout_percentage || 0}
-                                                            onChange={(value) =>
-                                                                updateVariant(
-                                                                    index,
-                                                                    'rollout_percentage',
-                                                                    parseInt(value?.toString() || '0')
-                                                                )
-                                                            }
-                                                            suffix={<span>%</span>}
-                                                            data-attr={`feature-flag-variant-rollout-${index}`}
-                                                        />
+                                                                <LemonLabel>Rollout percentage</LemonLabel>
+                                                                <PercentageInput
+                                                                    value={variant.rollout_percentage}
+                                                                    onChange={(value) =>
+                                                                        updateVariant(
+                                                                            index,
+                                                                            'rollout_percentage',
+                                                                            value
+                                                                        )
+                                                                    }
+                                                                    data-attr={`feature-flag-variant-rollout-${index}`}
+                                                                />
 
-                                                        <LemonLabel>Description</LemonLabel>
-                                                        <LemonTextArea
-                                                            placeholder="Enter an optional description for the variant"
-                                                            value={variant.name || ''}
-                                                            onChange={(value) => updateVariant(index, 'name', value)}
-                                                            data-attr={`feature-flag-variant-description-${index}`}
-                                                        />
+                                                                <LemonLabel>Description</LemonLabel>
+                                                                <LemonTextArea
+                                                                    placeholder="Enter an optional description for the variant"
+                                                                    value={variant.name || ''}
+                                                                    onChange={(value) =>
+                                                                        updateVariant(index, 'name', value)
+                                                                    }
+                                                                    data-attr={`feature-flag-variant-description-${index}`}
+                                                                />
 
-                                                        <LemonLabel info="Optionally return JSON data when this variant matches.">
-                                                            Payload
-                                                        </LemonLabel>
-                                                        <JSONEditorInput
-                                                            onChange={(value) => updateVariantPayload(index, value)}
-                                                            value={featureFlag.filters?.payloads?.[index]}
-                                                            placeholder='{"key": "value"}'
-                                                        />
+                                                                <LemonLabel info="Optionally return JSON data when this variant matches.">
+                                                                    Payload
+                                                                </LemonLabel>
+                                                                <JSONEditorInput
+                                                                    onChange={(value) =>
+                                                                        updateVariantPayload(index, value)
+                                                                    }
+                                                                    value={featureFlag.filters?.payloads?.[index]}
+                                                                    placeholder='{"key": "value"}'
+                                                                />
 
-                                                        {variants.length > 1 && <LemonDivider />}
-                                                        {variants.length > 1 && (
-                                                            <LemonButton
-                                                                type="secondary"
-                                                                status="danger"
+                                                                {variants.length > 1 && <LemonDivider />}
+                                                                {variants.length > 1 && (
+                                                                    <LemonButton
+                                                                        type="secondary"
+                                                                        status="danger"
+                                                                        size="small"
+                                                                        icon={<IconTrash />}
+                                                                        onClick={() => {
+                                                                            const variantKey =
+                                                                                variant.key || `Variant ${index + 1}`
+                                                                            const hasPayload =
+                                                                                !!featureFlag.filters?.payloads?.[index]
+                                                                            LemonDialog.open({
+                                                                                title: `Remove variant "${variantKey}"?`,
+                                                                                description: hasPayload
+                                                                                    ? 'This variant has a payload configured. Both the variant and its payload will be deleted.'
+                                                                                    : 'This action cannot be undone.',
+                                                                                primaryButton: {
+                                                                                    children: 'Remove variant',
+                                                                                    status: 'danger',
+                                                                                    onClick: () => removeVariant(index),
+                                                                                },
+                                                                                secondaryButton: {
+                                                                                    children: 'Cancel',
+                                                                                },
+                                                                            })
+                                                                        }}
+                                                                    >
+                                                                        Remove variant
+                                                                    </LemonButton>
+                                                                )}
+                                                            </div>
+                                                        ),
+                                                    }))}
+                                                />
+                                            </SortableContext>
+                                            <DragOverlay>
+                                                {activeId ? (
+                                                    <div className="bg-bg-light border rounded p-3 shadow-lg opacity-95">
+                                                        <div className="flex gap-2 items-center">
+                                                            <Lettermark
+                                                                name={alphabet[activeVariantIndex] ?? '?'}
+                                                                color={LettermarkColor.Gray}
                                                                 size="small"
-                                                                icon={<IconTrash />}
-                                                                onClick={() => {
-                                                                    const variantKey =
-                                                                        variant.key || `Variant ${index + 1}`
-                                                                    const hasPayload =
-                                                                        !!featureFlag.filters?.payloads?.[index]
-                                                                    LemonDialog.open({
-                                                                        title: `Remove variant "${variantKey}"?`,
-                                                                        description: hasPayload
-                                                                            ? 'This variant has a payload configured. Both the variant and its payload will be deleted.'
-                                                                            : 'This action cannot be undone.',
-                                                                        primaryButton: {
-                                                                            children: 'Remove variant',
-                                                                            status: 'danger',
-                                                                            onClick: () => removeVariant(index),
-                                                                        },
-                                                                        secondaryButton: {
-                                                                            children: 'Cancel',
-                                                                        },
-                                                                    })
-                                                                }}
-                                                            >
-                                                                Remove variant
-                                                            </LemonButton>
-                                                        )}
+                                                            />
+                                                            <span className="text-sm font-medium">
+                                                                {getActiveVariant()?.key || 'Variant'}
+                                                            </span>
+                                                            <span className="text-xs text-muted tabular-nums">
+                                                                ({getActiveVariant()?.rollout_percentage || 0}%)
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                ),
-                                            }))}
-                                        />
+                                                ) : null}
+                                            </DragOverlay>
+                                        </DndContext>
 
                                         <div>
                                             <LemonButton
@@ -727,13 +972,56 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">
                                             Remote config flags always return the payload. Access it via{' '}
-                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                            <code className="text-xs">
+                                                {featureFlag.has_encrypted_payloads
+                                                    ? 'getRemoteConfigPayload'
+                                                    : 'getFeatureFlagPayload'}
+                                            </code>
+                                            . Using standard SDK methods such as{' '}
+                                            <code className="text-xs">getFeatureFlag</code> or{' '}
+                                            <code className="text-xs">isFeatureEnabled</code> will always return{' '}
+                                            <code className="text-xs">true</code>.
                                         </div>
-                                        <Group name={['filters', 'payloads']}>
-                                            <LemonField name="true">
-                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
-                                            </LemonField>
-                                        </Group>
+                                        <LemonField name="has_encrypted_payloads">
+                                            {({ value, onChange }) => (
+                                                <LemonCheckbox
+                                                    id="flag-payload-encrypted-checkbox"
+                                                    label="Encrypt remote configuration payload"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    data-attr="feature-flag-payload-encrypted-checkbox"
+                                                    disabledReason={
+                                                        hasEncryptedPayloadBeenSaved &&
+                                                        'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
+                                                    }
+                                                />
+                                            )}
+                                        </LemonField>
+                                        <div className="flex gap-2 min-w-0">
+                                            <Group name={['filters', 'payloads']}>
+                                                <LemonField name="true" className="grow min-w-0">
+                                                    <JSONEditorInput
+                                                        readOnly={
+                                                            featureFlag.has_encrypted_payloads &&
+                                                            Boolean(featureFlag.filters?.payloads?.['true'])
+                                                        }
+                                                        placeholder='Examples: "A string", 2500, {"key": "value"}'
+                                                    />
+                                                </LemonField>
+                                            </Group>
+                                            {featureFlag.has_encrypted_payloads && (
+                                                <LemonButton
+                                                    className="shrink-0"
+                                                    icon={<IconTrash />}
+                                                    type="secondary"
+                                                    size="small"
+                                                    status="danger"
+                                                    onClick={confirmEncryptedPayloadReset}
+                                                >
+                                                    Reset
+                                                </LemonButton>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                                 {!multivariateEnabled && !featureFlag.is_remote_configuration && (
@@ -781,15 +1069,24 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
-                                        bucketingIdentifier={
-                                            showBucketingIdentifierUI ? featureFlag.bucketing_identifier : undefined
-                                        }
-                                        onBucketingIdentifierChange={
-                                            showBucketingIdentifierUI
-                                                ? (value: FeatureFlagBucketingIdentifier | null) =>
-                                                      setBucketingIdentifier(value)
-                                                : undefined
-                                        }
+                                        bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
+                                            // Always go through setFeatureFlag so this caller and
+                                            // FeatureFlagReleaseConditions use the same shape — listeners on
+                                            // setBucketingIdentifier (variant reset, telemetry, autosave) won't
+                                            // silently fire on one path and not the other. Switching to device
+                                            // bucketing also disables persist across auth, since the two are
+                                            // incompatible.
+                                            const ensureContinuity =
+                                                value === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                                    ? false
+                                                    : featureFlag.ensure_experience_continuity
+                                            setFeatureFlag({
+                                                ...featureFlag,
+                                                bucketing_identifier: value,
+                                                ensure_experience_continuity: ensureContinuity,
+                                            })
+                                        }}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                 </div>

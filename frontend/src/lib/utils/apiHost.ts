@@ -35,7 +35,7 @@ export function publicWebhooksHostOrigin(): string | null {
     } else if (appOrigin === 'https://eu.posthog.com') {
         return 'https://webhooks.eu.posthog.com'
     } else if (appOrigin === 'https://app.dev.posthog.dev') {
-        return 'https://webhooks.dev.posthog.dev'
+        return 'https://app.dev.posthog.dev'
     }
 
     return appOrigin

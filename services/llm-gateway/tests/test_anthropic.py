@@ -1,13 +1,18 @@
+import os
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from starlette.datastructures import Headers
 
-from llm_gateway.api.anthropic import (
+from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
     extract_posthog_properties_from_headers,
+    extract_posthog_provider_from_headers,
+    extract_posthog_use_bedrock_fallback_from_headers,
 )
 
 DANGEROUS_PARAMS: list[tuple[str, str]] = [
@@ -86,6 +91,48 @@ class TestExtractPosthogPropertiesFromHeaders:
         assert result == {}
 
 
+class TestExtractPosthogProviderFromHeaders:
+    def test_extracts_provider_header(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Provider": "bedrock"})
+
+        assert extract_posthog_provider_from_headers(request) == "bedrock"
+
+    def test_extracts_provider_header_case_insensitive(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"x-posthog-provider": "ANTHROPIC"})
+
+        assert extract_posthog_provider_from_headers(request) == "anthropic"
+
+    def test_invalid_provider_header_raises(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Provider": "vertex"})
+
+        with pytest.raises(ValueError, match="Expected one of: anthropic, bedrock"):
+            extract_posthog_provider_from_headers(request)
+
+
+class TestExtractPosthogUseBedrockFallbackFromHeaders:
+    def test_extracts_true_fallback_header(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Use-Bedrock-Fallback": "true"})
+
+        assert extract_posthog_use_bedrock_fallback_from_headers(request) is True
+
+    def test_extracts_false_fallback_header(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Use-Bedrock-Fallback": "FALSE"})
+
+        assert extract_posthog_use_bedrock_fallback_from_headers(request) is False
+
+    def test_invalid_fallback_header_raises(self) -> None:
+        request = MagicMock()
+        request.headers = Headers({"X-PostHog-Use-Bedrock-Fallback": "1"})
+
+        with pytest.raises(ValueError, match="Expected: true or false"):
+            extract_posthog_use_bedrock_fallback_from_headers(request)
+
+
 class TestAnthropicMessagesEndpoint:
     @pytest.fixture
     def valid_request_body(self) -> dict[str, Any]:
@@ -94,14 +141,44 @@ class TestAnthropicMessagesEndpoint:
             "messages": [{"role": "user", "content": "Hello"}],
         }
 
+    @pytest.fixture(
+        params=[
+            pytest.param("anthropic", id="anthropic"),
+            pytest.param("bedrock", id="bedrock"),
+        ]
+    )
+    def provider(self, request):
+        if request.param == "bedrock":
+            with patch(
+                "llm_gateway.api.anthropic.get_settings",
+                return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+            ):
+                yield request.param
+        else:
+            yield request.param
+
     @pytest.fixture
-    def mock_anthropic_response(self) -> dict[str, Any]:
+    def provider_request_body(self) -> dict[str, Any]:
+        return {
+            "model": "claude-sonnet-4-6",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+
+    @pytest.fixture
+    def provider_request_headers(self, provider) -> dict[str, str]:
+        headers = {"Authorization": "Bearer phx_test_key"}
+        if provider == "bedrock":
+            headers["X-PostHog-Provider"] = "bedrock"
+        return headers
+
+    @pytest.fixture
+    def provider_mock_response(self) -> dict[str, Any]:
         return {
             "id": "msg_123",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello!"}],
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-sonnet-4-6",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -136,17 +213,18 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
             "/v1/messages",
-            json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            json=provider_request_body,
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -168,7 +246,8 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
         error_status: int,
         error_message: str,
         error_type: str,
@@ -181,8 +260,8 @@ class TestAnthropicMessagesEndpoint:
 
         response = authenticated_client.post(
             "/v1/messages",
-            json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            json=provider_request_body,
+            headers=provider_request_headers,
         )
 
         assert response.status_code == error_status
@@ -199,20 +278,21 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
         param_name: str,
         param_value: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
-        body_with_injection = {**valid_request_body, param_name: param_value}
+        body_with_injection = {**provider_request_body, param_name: param_value}
         response = authenticated_client.post(
             "/v1/messages",
             json=body_with_injection,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -226,20 +306,21 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         body_with_model_list = {
-            **valid_request_body,
+            **provider_request_body,
             "model_list": [
                 {
-                    "model_name": "claude-3-5-sonnet-20241022",
+                    "model_name": "claude-sonnet-4-6",
                     "litellm_params": {
-                        "model": "claude-3-5-sonnet-20241022",
+                        "model": "claude-sonnet-4-6",
                         "api_base": "https://attacker.example.com",
                         "api_key": "sk-stolen-key",
                     },
@@ -249,7 +330,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/v1/messages",
             json=body_with_model_list,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -261,15 +342,16 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         body_with_nested_injection = {
-            **valid_request_body,
+            **provider_request_body,
             "metadata": {
                 "safe": "value",
                 "api_key": "sk-stolen-key",
@@ -282,7 +364,7 @@ class TestAnthropicMessagesEndpoint:
         response = authenticated_client.post(
             "/v1/messages",
             json=body_with_nested_injection,
-            headers={"Authorization": "Bearer phx_test_key"},
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -298,17 +380,18 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
             "/wizard/v1/messages",
-            json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            json=provider_request_body,
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -327,18 +410,19 @@ class TestAnthropicMessagesEndpoint:
         self,
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
-        valid_request_body: dict,
-        mock_anthropic_response: dict,
+        provider_request_body: dict,
+        provider_request_headers: dict[str, str],
+        provider_mock_response: dict,
         product: str,
     ) -> None:
         mock_response = MagicMock()
-        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
         mock_anthropic.return_value = mock_response
 
         response = authenticated_client.post(
             f"/{product}/v1/messages",
-            json=valid_request_body,
-            headers={"Authorization": "Bearer phx_test_key"},
+            json=provider_request_body,
+            headers=provider_request_headers,
         )
 
         assert response.status_code == 200
@@ -365,6 +449,129 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 400
         assert "Invalid product" in response.json()["detail"]
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_gateway_fields_stripped_from_request_data(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "bedrock",
+                "use_bedrock_fallback": True,
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_anthropic.call_args.kwargs
+        assert call_kwargs["model"] == "claude-sonnet-4-6"
+        assert "provider" not in call_kwargs
+        assert "use_bedrock_fallback" not in call_kwargs
+
+    def test_invalid_provider_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "vertex"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+
+    def test_invalid_fallback_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Use-Bedrock-Fallback": "1"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected: true or false" in response.json()["error"]["message"]
+
+
+class TestStripServerSideTools:
+    """Unit tests for strip_server_side_tools helper."""
+
+    CUSTOM_TOOL: dict[str, Any] = {
+        "name": "read_data",
+        "description": "Reads data",
+        "input_schema": {"type": "object", "properties": {}},
+    }
+    WEB_SEARCH_TOOL: dict[str, Any] = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+    TEXT_EDITOR_TOOL: dict[str, Any] = {"type": "text_editor_20250124", "name": "text_editor"}
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tools
+
+        strip_server_side_tools(data, model="test-model", product="test")
+
+    def test_strips_server_side_keeps_custom(self) -> None:
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL]}
+        self._call(data)
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "read_data"
+
+    def test_keeps_explicit_custom_type(self) -> None:
+        explicit = {**self.CUSTOM_TOOL, "type": "custom"}
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, explicit]}
+        self._call(data)
+        assert len(data["tools"]) == 2
+
+    def test_keeps_function_type(self) -> None:
+        fn_tool = {**self.CUSTOM_TOOL, "type": "function"}
+        data: dict[str, Any] = {"tools": [fn_tool]}
+        self._call(data)
+        assert len(data["tools"]) == 1
+
+    def test_removes_tools_key_when_all_stripped(self) -> None:
+        data: dict[str, Any] = {"tools": [self.WEB_SEARCH_TOOL]}
+        self._call(data)
+        assert "tools" not in data
+
+    def test_noop_when_no_tools_key(self) -> None:
+        data: dict[str, Any] = {"model": "test"}
+        self._call(data)
+        assert "tools" not in data
+
+    def test_logs_warning_per_stripped_tool(self) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tools
+
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL, self.TEXT_EDITOR_TOOL]}
+        with patch("llm_gateway.api.anthropic.logger") as mock_logger:
+            strip_server_side_tools(data, model="test-model", product="test")
+
+            assert mock_logger.warning.call_count == 2
+            warned_tool_names = {call.kwargs["tool_name"] for call in mock_logger.warning.call_args_list}
+            assert warned_tool_names == {"web_search", "text_editor"}
+
+    def test_strips_multiple_server_side_tool_types(self) -> None:
+        code_exec_tool: dict[str, Any] = {"type": "code_execution_20250522", "name": "code_execution"}
+        data: dict[str, Any] = {
+            "tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL, self.TEXT_EDITOR_TOOL, code_exec_tool]
+        }
+        self._call(data)
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "read_data"
 
 
 class TestAnthropicCountTokensEndpoint:
@@ -505,6 +712,7 @@ class TestAnthropicCountTokensEndpoint:
         assert sent_json["metadata"]["safe"] == "value"
         assert sent_json["metadata"]["nested"]["keep"] == "ok"
 
+    @patch.dict(os.environ, {}, clear=False)
     @patch("llm_gateway.api.anthropic.get_settings")
     def test_missing_api_key_returns_503(
         self,
@@ -512,6 +720,7 @@ class TestAnthropicCountTokensEndpoint:
         authenticated_client: TestClient,
         valid_request_body: dict,
     ) -> None:
+        os.environ.pop("ANTHROPIC_API_KEY", None)
         mock_settings = MagicMock()
         mock_settings.anthropic_api_key = None
         mock_get_settings.return_value = mock_settings
@@ -652,3 +861,362 @@ class TestAnthropicCountTokensEndpoint:
 
             assert response.status_code == 200
             mock_litellm.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.get_settings")
+    @patch("llm_gateway.api.anthropic.httpx.AsyncClient")
+    def test_gateway_fields_stripped_from_count_tokens_data(
+        self,
+        mock_httpx_client_cls: MagicMock,
+        mock_get_settings: MagicMock,
+        authenticated_client: TestClient,
+        mock_count_tokens_response: httpx.Response,
+    ) -> None:
+        mock_settings = MagicMock()
+        mock_settings.anthropic_api_key = "test-anthropic-key"
+        mock_settings.request_timeout = 300.0
+        mock_get_settings.return_value = mock_settings
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.post = AsyncMock(return_value=mock_count_tokens_response)
+        mock_httpx_client_cls.return_value = mock_client
+
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "claude-3-5-sonnet-20241022",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "provider": "bedrock",
+                "use_bedrock_fallback": True,
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_client.post.call_args
+        sent_json = call_kwargs[1]["json"]
+        assert "provider" not in sent_json
+        assert "use_bedrock_fallback" not in sent_json
+
+    def test_invalid_provider_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "vertex"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+
+    def test_invalid_fallback_header_returns_400(
+        self,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json=valid_request_body,
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Use-Bedrock-Fallback": "1"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "Expected: true or false" in response.json()["error"]["message"]
+
+
+class TestAnthropicCircuitBreakerIntegration:
+    """End-to-end behavior of the Anthropic->Bedrock circuit breaker in /v1/messages."""
+
+    @pytest.fixture
+    def request_body(self) -> dict[str, Any]:
+        return {"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "Hi"}]}
+
+    @pytest.fixture
+    def mock_response_dict(self) -> dict[str, Any]:
+        return {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hi!"}],
+            "model": "claude-sonnet-4-6",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    @pytest.fixture
+    def install_breaker(self, authenticated_client: TestClient):
+        from llm_gateway.circuit_breaker import BreakerDecision
+
+        def _install(*, bypass: bool) -> MagicMock:
+            breaker = MagicMock()
+            breaker.evaluate = AsyncMock(
+                return_value=BreakerDecision(
+                    bypass=bypass,
+                    open=bypass,
+                    failure_rate=0.5 if bypass else 0.0,
+                    total_requests=30,
+                )
+            )
+            breaker.record_outcome = AsyncMock()
+            authenticated_client.app.state.anthropic_circuit_breaker = breaker
+            return breaker
+
+        return _install
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_count == 1
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        assert forwarded_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
+        breaker.record_outcome.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_without_fallback_still_uses_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        assert forwarded_model == "claude-sonnet-4-6"
+        breaker.record_outcome.assert_awaited_with(success=True)
+        breaker.evaluate.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_closed_breaker_routes_to_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        assert forwarded_model == "claude-sonnet-4-6"
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_5xx_records_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("Internal error")
+        error.status_code = 503  # type: ignore[attr-defined]
+        error.message = "Internal error"  # type: ignore[attr-defined]
+        error.type = "internal_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 503
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_4xx_recorded_as_success(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("bad request")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = "bad request"  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_recorded_as_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 429
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        breaker.record_outcome.assert_awaited_with(success=False)
+        assert mock_anthropic.call_count == 2
+
+    def test_streaming_success_records_after_stream_completes(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def ok_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            yield b'data: {"type":"message_stop"}\n\n'
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
+
+        async def consume() -> list[bytes]:
+            return [chunk async for chunk in wrapped.body_iterator]
+
+        import asyncio as _asyncio
+
+        chunks = _asyncio.get_event_loop().run_until_complete(consume())
+        assert len(chunks) == 2
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    def test_streaming_mid_stream_failure_records_failure(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """Direct unit test of the stream wrapper — TestClient surfaces stream errors as
+        connection-level failures which makes a true HTTP-level test brittle."""
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def failing_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            raise RuntimeError("upstream dropped")
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(failing_iter()), breaker)
+
+        async def consume() -> None:
+            try:
+                async for _ in wrapped.body_iterator:
+                    pass
+            except RuntimeError:
+                pass
+
+        import asyncio as _asyncio
+
+        _asyncio.get_event_loop().run_until_complete(consume())
+        breaker.record_outcome.assert_awaited_with(success=False)

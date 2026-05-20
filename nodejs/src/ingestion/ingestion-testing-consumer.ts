@@ -2,12 +2,14 @@ import { Message } from 'node-rdkafka'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { KafkaConsumer } from '../kafka/consumer'
+import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError, PluginServerService, PluginsServerConfig } from '../types'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { TeamManager } from '../utils/team-manager'
+import { EVENTS_OUTPUT, HEATMAPS_OUTPUT } from './analytics/outputs'
 import {
     TestingJoinedIngestionPipelineConfig,
     TestingJoinedIngestionPipelineContext,
@@ -15,12 +17,13 @@ import {
     TestingJoinedIngestionPipelineInput,
     createTestingJoinedIngestionPipeline,
 } from './analytics/testing-joined-ingestion-pipeline'
-import { EVENTS_OUTPUT, IngestionOutputs } from './event-processing/ingestion-outputs'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from './common/outputs'
 import { latestOffsetTimestampGauge } from './ingestion-consumer'
+import { IngestionOutputs } from './outputs/ingestion-outputs'
+import { SingleIngestionOutput } from './outputs/single-ingestion-output'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
-import { createContext } from './pipelines/helpers'
-import { ok } from './pipelines/results'
+import { createOkContext } from './pipelines/helpers'
 
 export type IngestionTestingConsumerFullConfig = Pick<
     PluginsServerConfig,
@@ -44,7 +47,7 @@ export class IngestionTestingConsumer {
     protected groupId: string
     protected topic: string
     protected dlqTopic: string
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
     public readonly promiseScheduler = new PromiseScheduler()
@@ -72,7 +75,7 @@ export class IngestionTestingConsumer {
 
         this.name = `ingestion-testing-consumer-${this.topic}`
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
         })
@@ -91,22 +94,32 @@ export class IngestionTestingConsumer {
 
     public async start(): Promise<void> {
         const outputs = new IngestionOutputs({
-            [EVENTS_OUTPUT]: {
-                topic: this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                producer: this.kafkaProducer!,
-            },
+            [EVENTS_OUTPUT]: new SingleIngestionOutput(
+                EVENTS_OUTPUT,
+                this.config.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                this.kafkaProducer!,
+                'default'
+            ),
+            [HEATMAPS_OUTPUT]: new SingleIngestionOutput(
+                HEATMAPS_OUTPUT,
+                this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                this.kafkaProducer!,
+                'default'
+            ),
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_INGESTION_WARNINGS,
+                this.kafkaProducer!,
+                'default'
+            ),
+            [DLQ_OUTPUT]: new SingleIngestionOutput(DLQ_OUTPUT, this.dlqTopic, this.kafkaProducer!, 'default'),
         })
 
         const joinedPipelineConfig: TestingJoinedIngestionPipelineConfig = {
-            dlqTopic: this.dlqTopic,
             groupId: this.groupId,
             outputs,
-            perDistinctIdOptions: {
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: this.config.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            },
         }
         const joinedPipelineDeps: TestingJoinedIngestionPipelineDeps = {
-            kafkaProducer: this.kafkaProducer!,
             promiseScheduler: this.promiseScheduler,
             teamManager: this.deps.teamManager,
         }
@@ -196,7 +209,7 @@ export class IngestionTestingConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createContext(ok({ message }), { message }))
+        const batch = messages.map((message) => createOkContext({ message }, { message }))
 
         this.joinedPipeline.feed(batch)
 

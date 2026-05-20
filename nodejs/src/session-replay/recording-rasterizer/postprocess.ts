@@ -1,75 +1,42 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { InactivityPeriod } from './types'
 
-const execFileAsync = promisify(execFile)
+/**
+ * Compute video-time positions for each inactivity period.
+ *
+ * Active periods occupy real time in the video (their session duration maps
+ * 1:1 to video duration after slowdown). Inactive periods are skipped by the
+ * player and occupy zero video time — their recording_ts values point to the
+ * same position where the previous active period ended.
+ */
+export function computeVideoTimestamps(periods: InactivityPeriod[]): InactivityPeriod[] {
+    // Pass 1: compute raw video timestamps
+    let videoTime = 0
+    const results: InactivityPeriod[] = periods.map((period) => {
+        if (period.active) {
+            const recordingTsFromS = videoTime
+            const duration = period.ts_to_s != null ? period.ts_to_s - period.ts_from_s : 0
+            videoTime += duration
+            return { ...period, recording_ts_from_s: recordingTsFromS, recording_ts_to_s: videoTime }
+        } else {
+            return { ...period, recording_ts_from_s: videoTime, recording_ts_to_s: videoTime }
+        }
+    })
 
-export interface PostProcessOptions {
-    inputPath: string
-    outputPath: string
-    preRoll: number
-    recordingDuration: number
-    playbackSpeed: number
-    customFps: number | null
-}
-
-function buildVideoFilter(playbackSpeed: number, fpsToRenderAt: number | null): string | null {
-    const parts: string[] = []
-    if (playbackSpeed > 1) {
-        parts.push(`setpts=${playbackSpeed}*PTS`)
-    }
-    if (fpsToRenderAt) {
-        parts.push(`fps=${fpsToRenderAt}`)
-    }
-    return parts.length > 0 ? parts.join(',') : null
-}
-
-function computeOutputFps(customFps: number | null, playbackSpeed: number): number | null {
-    if (customFps && playbackSpeed > 1) {
-        return Math.floor(customFps / playbackSpeed)
-    }
-    return customFps || null
-}
-
-export async function postProcessToMp4(opts: PostProcessOptions): Promise<void> {
-    const fpsToRenderAt = computeOutputFps(opts.customFps, opts.playbackSpeed)
-    const videoFilter = buildVideoFilter(opts.playbackSpeed, fpsToRenderAt)
-    const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg'
-
-    const args = [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-y',
-        '-ss',
-        opts.preRoll.toFixed(2),
-        '-i',
-        opts.inputPath,
-        '-t',
-        opts.recordingDuration.toFixed(2),
-        '-c:v',
-        'libx264',
-        '-preset',
-        'veryfast',
-        '-crf',
-        '23',
-        '-pix_fmt',
-        'yuv420p',
-        '-movflags',
-        '+faststart',
-        '-f',
-        'mp4',
-    ]
-
-    if (videoFilter) {
-        args.push('-vf', videoFilter)
+    // Pass 2: clamp active periods so they don't overlap the next active period's start
+    for (let i = 0; i < results.length; i++) {
+        if (!results[i].active) {
+            continue
+        }
+        // Find the next active period
+        for (let j = i + 1; j < results.length; j++) {
+            if (results[j].active) {
+                if (results[i].recording_ts_to_s! > results[j].recording_ts_from_s!) {
+                    results[i] = { ...results[i], recording_ts_to_s: results[j].recording_ts_from_s }
+                }
+                break
+            }
+        }
     }
 
-    args.push(opts.outputPath)
-
-    try {
-        await execFileAsync(ffmpegPath, args, { timeout: 600_000 })
-    } catch (err: any) {
-        const stderr = err.stderr?.trim() || ''
-        throw new Error(`ffmpeg failed with exit code ${err.code}${stderr ? `: ${stderr}` : ''}`)
-    }
+    return results
 }

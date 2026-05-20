@@ -11,14 +11,15 @@
         "test": "jest"
     },
     "dependencies": {
-        "@posthog/rrweb": "0.0.26",
-        "@posthog/rrweb-types": "0.0.26",
+        "@posthog/rrweb": "0.0.59",
+        "@posthog/rrweb-types": "0.0.59",
         "fflate": "^0.8.2",
         "hls.js": "^1.5.7"
     },
     "devDependencies": {
         "@swc/core": "^1.11.29",
         "@swc/jest": "^0.2.37",
+        "@types/jest": "catalog:",
         "jest": "^29.7.0"
     }
 }

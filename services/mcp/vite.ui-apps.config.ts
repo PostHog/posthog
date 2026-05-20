@@ -1,7 +1,8 @@
 import react from '@vitejs/plugin-react'
-import { readdirSync } from 'fs'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
+
+import { discoverApps } from './scripts/utils'
 
 // PostHog configuration - injected at build time
 // Set POSTHOG_UI_APPS_TOKEN to enable analytics in UI apps
@@ -17,16 +18,6 @@ const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 
 // Single app mode: UI_APP env var selects which app to build
 const appName = process.env.UI_APP
-
-/**
- * Auto-discover UI apps from src/ui-apps/apps/.
- * An app is any .tsx file in the directory (e.g. debug.tsx → "debug").
- */
-function discoverApps(): string[] {
-    return readdirSync(APPS_DIR)
-        .filter((f) => f.endsWith('.tsx'))
-        .map((f) => f.replace(/\.tsx$/, ''))
-}
 
 // Discover all apps
 const ALL_APPS = discoverApps()
@@ -48,11 +39,24 @@ const ALL_APPS = discoverApps()
 export default defineConfig({
     plugins: [react()],
     resolve: {
-        alias: {
-            products: resolve(__dirname, '../../products'),
-            '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
-            '@common': resolve(__dirname, '../../common'),
-        },
+        alias: [
+            { find: 'products', replacement: resolve(__dirname, '../../products') },
+            { find: '@posthog/mcp-ui', replacement: resolve(__dirname, 'src/ui-apps/lib') },
+            // Resolve Quill explicitly so files imported via the `products` alias
+            // (which live outside this package's node_modules tree) can find it.
+            // Match exact import (`@posthog/quill`) -> dist/index.js, but leave
+            // subpath imports (`@posthog/quill/tokens.css`, etc.) to fall through
+            // to the package's exports map.
+            {
+                find: /^@posthog\/quill$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
+            },
+            // lucide-react isn't a workspace dep at the products/ level, so files
+            // resolved via the `products` alias can't find it. Pin to this
+            // package's installed copy (matches the version Quill expects).
+            { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+            { find: '@common', replacement: resolve(__dirname, '../../common') },
+        ],
     },
     define: {
         // Inject PostHog configuration at build time

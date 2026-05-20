@@ -7,10 +7,12 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     LinkSurveyQuestion,
@@ -18,14 +20,19 @@ import {
     RatingSurveyQuestion,
     SurveyAppearance,
     SurveyQuestion,
+    SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
 } from '~/types'
 
-import { SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
+import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
+import { HTMLEditor } from '../../SurveyAppearanceUtils'
 import { surveyLogic } from '../../surveyLogic'
+import { splitChoicesOnPaste } from '../../utils'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
+import { WizardSection, WizardStepLayout } from '../WizardLayout'
+import { TranslationsSection } from './TranslationsSection'
 
 const MAX_CHOICES = 10
 
@@ -43,13 +50,19 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
         // Scale options depend on display type
         const numberScales = [
             { value: 10, label: '0-10', sublabel: 'NPS' },
-            { value: 5, label: '1-5', sublabel: null },
-            { value: 7, label: '1-7', sublabel: 'CSAT' },
+            { value: 5, label: '1-5', sublabel: 'CSAT' },
+            { value: 7, label: '1-7', sublabel: 'CES' },
         ]
-        const emojiScales = [
-            { value: 3, label: '3', sublabel: null },
-            { value: 5, label: '5', sublabel: null },
-        ]
+        const emojiScales = SCALE_OPTIONS.EMOJI.map((option) => ({
+            value: option.value,
+            label: option.value === SURVEY_RATING_SCALE.THUMB_2_POINT ? 'Thumbs' : 'Emoji',
+            sublabel:
+                option.value === SURVEY_RATING_SCALE.THUMB_2_POINT
+                    ? '2-point'
+                    : option.value === SURVEY_RATING_SCALE.EMOJI_3_POINT
+                      ? '3-point'
+                      : '5-point',
+        }))
         const scaleOptions = isEmoji ? emojiScales : numberScales
 
         return (
@@ -109,7 +122,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                 >
                                     <div className="text-sm font-medium">{option.label}</div>
                                     {option.sublabel && (
-                                        <div className="text-[10px] text-secondary uppercase">{option.sublabel}</div>
+                                        <div className="text-[10px] text-secondary">{option.sublabel}</div>
                                     )}
                                 </button>
                             ))}
@@ -182,9 +195,26 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
             } as Partial<MultipleSurveyQuestion>)
         }
 
+        const handlePasteIntoChoice = (event: React.ClipboardEvent<HTMLInputElement>, choiceIndex: number): void => {
+            const merged = splitChoicesOnPaste(
+                event.clipboardData.getData('text'),
+                choices,
+                choiceIndex,
+                hasOpenChoice ?? false
+            )
+            if (!merged) {
+                return
+            }
+            event.preventDefault()
+            onUpdate({ choices: merged } as Partial<MultipleSurveyQuestion>)
+        }
+
         return (
             <div className="space-y-2 pt-2 border-t border-border mt-3">
-                <span className="text-xs text-secondary">Choices:</span>
+                <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs text-secondary">Choices:</span>
+                    <span className="text-[10px] text-muted">Paste a list to add many at once</span>
+                </div>
                 <div className="space-y-1.5">
                     {choices.map((choice, choiceIndex) => {
                         const isOpenChoice = hasOpenChoice && choiceIndex === choices.length - 1
@@ -195,6 +225,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                     value={choice}
                                     placeholder={isOpenChoice ? 'Other (open-ended)' : `Choice ${choiceIndex + 1}`}
                                     onChange={(val) => updateChoice(choiceIndex, val)}
+                                    onPaste={(event) => handlePasteIntoChoice(event, choiceIndex)}
                                     className="flex-1"
                                     suffix={
                                         isOpenChoice ? (
@@ -400,6 +431,7 @@ function SortableQuestionCard({
     const style = {
         transform: CSS.Translate.toString(transform),
     }
+    const descriptionContentType = (question.descriptionContentType || 'text') as SurveyQuestionDescriptionContentType
 
     return (
         <div
@@ -434,26 +466,32 @@ function SortableQuestionCard({
                         compactIcon
                         showEditIconOnHover
                     />
-                    <EditableField
-                        name={`description-${index}`}
+                    <HTMLEditor
                         value={question.description || ''}
-                        onSave={(text) => onUpdate(index, { description: text })}
-                        placeholder="Add description (optional)"
-                        className="text-secondary text-sm"
-                        saveOnBlur
-                        clickToEdit
-                        compactIcon
-                        showEditIconOnHover
+                        onChange={(text) => onUpdate(index, { description: text })}
+                        activeTab={descriptionContentType}
+                        onTabChange={(key) =>
+                            onUpdate(index, {
+                                descriptionContentType: key,
+                            })
+                        }
+                        textPlaceholder="Add description (optional)"
+                        textMinRows={1}
                     />
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <QuestionTypeChip type={question.type} onChange={(newType) => onChangeType(index, newType)} />
-                        {question.optional && (
-                            <LemonTag type="highlight" size="small">
-                                Optional
-                            </LemonTag>
+                        {index > 0 && (
+                            <LemonSegmentedButton
+                                size="xsmall"
+                                value={question.optional ? 'optional' : 'mandatory'}
+                                onChange={(value) => onUpdate(index, { optional: value === 'optional' })}
+                                options={[
+                                    { value: 'mandatory', label: 'Mandatory' },
+                                    { value: 'optional', label: 'Optional' },
+                                ]}
+                            />
                         )}
                     </div>
-
                     <QuestionOptions question={question} onUpdate={(updates) => onUpdate(index, updates)} />
                 </div>
                 {canDelete && (
@@ -471,13 +509,20 @@ function SortableQuestionCard({
     )
 }
 
-export function QuestionsStep(): JSX.Element {
+interface QuestionsStepProps {
+    editingLanguage: string | null
+    setEditingLanguage: (language: string | null) => void
+}
+
+export function QuestionsStep({ editingLanguage, setEditingLanguage }: QuestionsStepProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { setSurveyValue, moveQuestion, removeQuestion } = useActions(surveyLogic)
     const { selectedTemplate } = useValues(surveyWizardLogic)
     const { restoreDefaultQuestions } = useActions(surveyWizardLogic)
 
     const [activeId, setActiveId] = useState<string | null>(null)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
 
     const questions = survey.questions as SurveyQuestion[]
     const sortedItemIds = questions.map((_, index) => index.toString())
@@ -489,8 +534,7 @@ export function QuestionsStep(): JSX.Element {
     }
 
     const deleteQuestion = (index: number): void => {
-        const newQuestions = questions.filter((_, i) => i !== index)
-        setSurveyValue('questions', newQuestions)
+        removeQuestion(index)
     }
 
     const addQuestion = (type: SurveyQuestionType): void => {
@@ -527,11 +571,7 @@ export function QuestionsStep(): JSX.Element {
         if (over && active.id !== over.id) {
             const oldIndex = sortedItemIds.indexOf(active.id.toString())
             const newIndex = sortedItemIds.indexOf(over.id.toString())
-
-            const newQuestions = [...questions]
-            const [removed] = newQuestions.splice(oldIndex, 1)
-            newQuestions.splice(newIndex, 0, removed)
-            setSurveyValue('questions', newQuestions)
+            moveQuestion(oldIndex, newIndex)
         }
     }
 
@@ -543,19 +583,24 @@ export function QuestionsStep(): JSX.Element {
     const activeQuestion = activeIndex !== null ? questions[activeIndex] : null
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold">Your survey questions</h2>
-                    <p className="text-secondary text-sm">Click any question to edit it</p>
-                </div>
-                {hasChanges && (
-                    <LemonButton type="tertiary" size="small" icon={<IconRevert />} onClick={restoreDefaultQuestions}>
-                        Restore defaults
-                    </LemonButton>
-                )}
-            </div>
-
+        <WizardStepLayout>
+            <WizardSection
+                title="Your survey questions"
+                description="Click any question to edit it"
+                descriptionClassName="text-sm"
+                actions={
+                    hasChanges ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconRevert />}
+                            onClick={restoreDefaultQuestions}
+                        >
+                            Restore defaults
+                        </LemonButton>
+                    ) : null
+                }
+            />
             <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 <SortableContext items={sortedItemIds} strategy={verticalListSortingStrategy} disabled={!canReorder}>
                     <div className="space-y-3">
@@ -595,6 +640,10 @@ export function QuestionsStep(): JSX.Element {
                 appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
                 onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
             />
-        </div>
+
+            {surveyTranslationsEnabled ? (
+                <TranslationsSection editingLanguage={editingLanguage} setEditingLanguage={setEditingLanguage} />
+            ) : null}
+        </WizardStepLayout>
     )
 }

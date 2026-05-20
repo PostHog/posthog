@@ -32,7 +32,7 @@ describe('oauthAppsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/organizations/@current/oauth_applications/': {
+                '/api/organizations/:organization_id/oauth_applications/': {
                     count: MOCK_APPS.length,
                     next: null,
                     previous: null,
@@ -56,7 +56,7 @@ describe('oauthAppsLogic', () => {
         initKeaTests()
         useMocks({
             get: {
-                '/api/organizations/@current/oauth_applications/': {
+                '/api/organizations/:organization_id/oauth_applications/': {
                     count: 0,
                     next: null,
                     previous: null,

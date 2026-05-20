@@ -190,7 +190,7 @@ function transformDataForLineGraph(
                     label: 'Date',
                     dataIndex: 0,
                 },
-                data: dates.map(formatDate),
+                data: dates,
             },
             yData: breakdowns.map((breakdown, index) => {
                 const breakdownValues = dates.map((date) => dateGroups[date][breakdown] || 0)
@@ -225,7 +225,7 @@ function transformDataForLineGraph(
                 label: 'Date',
                 dataIndex: 0,
             },
-            data: results.map((r) => formatDate(r.date)),
+            data: results.map((r) => r.date),
         },
         yData: [
             {
@@ -239,15 +239,6 @@ function transformDataForLineGraph(
                 settings,
             },
         ],
-    }
-}
-
-function formatDate(dateStr: string): string {
-    try {
-        const date = new Date(dateStr)
-        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    } catch {
-        return dateStr
     }
 }
 

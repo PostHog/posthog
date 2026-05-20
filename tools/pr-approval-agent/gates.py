@@ -11,86 +11,175 @@ from pathlib import Path
 
 # ── Pattern data ─────────────────────────────────────────────────
 
-DENY_PATH_PATTERNS: dict[str, list[str]] = {
-    "auth": [
-        "auth",
-        "login",
-        "signup",
-        "session",
-        "token",
-        "oauth",
-        "saml",
-        "sso",
-        "permission",
-        "oidc",
-        "credential",
-        "password",
-        "2fa",
-        "mfa",
-    ],
-    "crypto_secrets": [
-        "crypto",
-        "encrypt",
-        "decrypt",
-        "secret",
-        "key",
-        "cert",
-        "signing",
-        ".env",
-        "vault",
-    ],
-    "migrations": [
-        "migrations/",
-        "migrate",
-        "backfill",
-        "schema_change",
-    ],
-    "infra_cicd": [
-        "terraform",
-        "k8s",
-        "kubernetes",
-        "helm",
-        "dockerfile",
-        "docker-compose",
-        ".github/workflows",
-        "deploy",
-        "iam",
-        "cloudflare",
-        "cdn",
-        "waf",
-        "routing",
-    ],
-    "billing": [
-        "billing",
-        "payment",
-        "stripe",
-        "invoice",
-        "subscription",
-        "pricing",
-    ],
-    "public_api": [
-        "openapi",
-        "api_schema",
-        "swagger",
-        "public_api",
-    ],
-    "deps_toolchain": [
-        "package.json",
-        "requirements.txt",
-        "pyproject.toml",
-        "pnpm-lock",
-        "package-lock",
-        "yarn.lock",
-        "uv.lock",
-        "Cargo.toml",
-        "go.mod",
-        "Makefile",
-        "Dockerfile",
-        "tsconfig",
-        ".tool-versions",
-        ".nvmrc",
-    ],
+# Deny patterns use word-boundary matching (\b) to avoid false positives
+# from substring hits like "session" in "SessionAnalysis" or "key" in
+# "localStorage key". Patterns are compiled into regexes at import time.
+#
+# Two pattern lists per category:
+#   "paths"  — matched against file paths only
+#   "any"    — matched against both file paths and the PR title
+# If a category only has "any", all patterns apply everywhere.
+
+_DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
+    "auth": {
+        "any": [
+            "auth",
+            "login",
+            "signup",
+            "oauth",
+            "saml",
+            "sso",
+            "oidc",
+            "credential",
+            "password",
+            "2fa",
+            "mfa",
+        ],
+        # "session" and "token" match too broadly in titles and non-auth
+        # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
+        # "permission" matches permission-checking helpers everywhere.
+        # Restrict these to path-only with tighter patterns.
+        "paths": [
+            "session_auth",
+            "session_token",
+            "auth/session",
+            "auth/token",
+            "permission",
+        ],
+    },
+    "crypto_secrets": {
+        "any": [
+            "crypto",
+            "encrypt",
+            "decrypt",
+            "vault",
+        ],
+        # "key", "secret", "cert", "signing" are too broad for titles.
+        # "key" alone matches "keyboard", "hotkey", "localStorage key".
+        # Use path-only with compound patterns.
+        "paths": [
+            "secret",
+            r"api[_-]?key",
+            r"secret[_-]?key",
+            r"private[_-]?key",
+            r"signing[_-]?key",
+            "certificate",
+            r"\.env",
+            r"\.pem",
+        ],
+    },
+    "migrations": {
+        # `migrations/` substring is load-bearing — also catches rust
+        # *_migrations/ dirs applied by sqlx at deploy.
+        "paths": [
+            "migrations/",
+            "schema_change",
+        ],
+    },
+    "infra_cicd": {
+        "any": [
+            "terraform",
+            "kubernetes",
+            "helm",
+        ],
+        "paths": [
+            r"k8s",
+            "dockerfile",
+            "docker-compose",
+            r"\.github/workflows",
+            "deploy",
+            "iam",
+            "cloudflare",
+            "cdn",
+            "waf",
+            "routing",
+        ],
+    },
+    "billing": {
+        "any": [
+            "billing",
+            "payment",
+            "stripe",
+            "invoice",
+            "subscription",
+            "pricing",
+        ],
+    },
+    "public_api": {
+        "any": [
+            "openapi",
+            "api_schema",
+            "swagger",
+            "public_api",
+        ],
+    },
+    "deps_toolchain": {
+        # All path-only — these are literal filenames, not title words.
+        "paths": [
+            r"package\.json",
+            r"requirements\.txt",
+            r"pyproject\.toml",
+            "pnpm-lock",
+            "package-lock",
+            r"yarn\.lock",
+            r"uv\.lock",
+            r"Cargo\.toml",
+            r"go\.mod",
+            "Makefile",
+            "Dockerfile",
+            "tsconfig",
+            r"\.tool-versions",
+            r"\.nvmrc",
+        ],
+    },
 }
+
+
+def _compile_pattern(p: str, *, for_paths: bool) -> re.Pattern[str]:
+    r"""Compile a single deny pattern into a case-insensitive regex.
+
+    Patterns containing path separators (/) or starting with a dot are
+    treated as literal path fragments — no boundaries added.
+
+    For other patterns, boundary matching depends on context:
+    - Title matching uses \b (standard word boundaries — underscore is
+      a word char, which is correct for natural-language titles).
+    - Path matching uses a looser boundary that also breaks on _ and -,
+      since file paths use those as separators. This ensures "secret"
+      matches "secret_key_store.py" but not "nosecrets.py".
+    """
+    if "/" in p or p.startswith(r"\."):
+        return re.compile(rf"(?i){p}")
+    if for_paths:
+        # Break on non-alphanumeric (including _ and -) or string edges
+        return re.compile(rf"(?i)(?<![a-zA-Z0-9]){p}(?![a-zA-Z0-9])")
+    return re.compile(rf"(?i)\b{p}\b")
+
+
+def _compile_patterns(
+    defs: dict[str, dict[str, list[str]]],
+) -> dict[str, dict[str, list[re.Pattern[str]]]]:
+    """Compile pattern definitions into regexes.
+
+    "paths" patterns use path-friendly boundaries (break on _ and -).
+    "any" patterns are compiled twice: once for paths, once for titles,
+    and stored as a list of (path_rx, title_rx) tuples.
+    """
+    compiled: dict[str, dict[str, list]] = {}
+    for category, groups in defs.items():
+        compiled[category] = {}
+        for scope, patterns in groups.items():
+            if scope == "paths":
+                compiled[category][scope] = [_compile_pattern(p, for_paths=True) for p in patterns]
+            else:
+                # "any" — store (path_regex, title_regex) pairs
+                compiled[category][scope] = [
+                    (_compile_pattern(p, for_paths=True), _compile_pattern(p, for_paths=False)) for p in patterns
+                ]
+    return compiled
+
+
+DENY_PATTERNS = _compile_patterns(_DENY_PATTERN_DEFS)
 
 ALLOW_ONLY_EXTENSIONS = {
     ".md",
@@ -127,6 +216,84 @@ ALLOW_PATH_PATTERNS = [
     "generated/",
     "__snapshots__/",
 ]
+
+# ── Dismiss-time allow-list ──────────────────────────────────────
+#
+# Stricter than ALLOW_PATH_PATTERNS / ALLOW_ONLY_EXTENSIONS. Used by
+# dismiss_check.py to decide whether to retain Stamphog's prior approval
+# after new commits land on a PR. At approve time the LLM also reviews;
+# at dismiss time the path alone is the only signal, so this list excludes
+# anything that could carry executable code into CI, prod, or the build
+# pipeline (workflows, configs, build files) even though those paths may
+# be allow-listed at approve time.
+
+DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
+    {
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "uv.lock",
+        "cargo.lock",
+        "pipfile.lock",
+        "poetry.lock",
+        "gemfile.lock",
+        "composer.lock",
+    }
+)
+
+_DISMISS_TIME_TEST_RE = re.compile(
+    r"(?:^|/)(?:__tests__|tests?|fixtures)/"
+    r"|(?:^|/)test_[^/]+\.py$"
+    r"|_test\.(py|go)$"
+    r"|\.test\.(ts|tsx|js|jsx)$"
+    r"|\.spec\.(ts|tsx|js|jsx)$"
+    r"|(?:^|/)conftest\.py$",
+    re.IGNORECASE,
+)
+
+# Non-executable-at-dismiss-time on purpose: at dismiss time the path is
+# the only signal, so generated files in runnable backend languages
+# (.py, .go) trigger re-review even though the LLM accepted them at
+# approve time. Type stubs (.pyi) are read by type checkers, not runtime.
+# Real-world cost in this repo: proto regen under
+# posthog/personhog_client/proto/generated/ falls through to re-review,
+# which is rare and cheap.
+_DISMISS_TIME_GENERATED_RE = re.compile(
+    r"(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|\.gen\.(ts|tsx|js|jsx)$"
+    r"|\.generated\.(ts|tsx|js|jsx)$"
+    r"|^frontend/src/queries/schema/",
+    re.IGNORECASE,
+)
+
+
+def is_trivial_at_dismiss_time(path: str) -> bool:
+    """Return True if `path` alone is safe enough to retain a prior approval.
+
+    Strictly narrower than `is_allow_listed_only`: excludes `.github/**`,
+    bare `*.yaml`/`*.json` configs, `Dockerfile*`, `*.sh`, `Makefile`, and
+    anything else that can execute or alter build/CI behavior.
+    """
+    name = Path(path).name
+    name_lower = name.lower()
+    if name_lower in DISMISS_TIME_LOCKFILES:
+        return True
+
+    suffix = Path(path).suffix.lower()
+    if suffix in {".md", ".mdx"}:
+        return True
+    if name_lower.startswith(("readme", "changelog")):
+        return True
+    if path.startswith("docs/") or "/docs/" in path:
+        return True
+    if "/__snapshots__/" in path or path.startswith("__snapshots__/"):
+        return True
+    if _DISMISS_TIME_TEST_RE.search(path):
+        return True
+    if _DISMISS_TIME_GENERATED_RE.search(path):
+        return True
+    return False
+
 
 CONVENTIONAL_RE = re.compile(r"^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)")
 
@@ -208,14 +375,37 @@ def test_only(categories: dict[str, int]) -> bool:
 # ── Deny / allow detection ───────────────────────────────────────
 
 
-def detect_deny_categories(files: list[str], subject: str) -> list[str]:
+def detect_deny_categories(files: list[str], subject: str, ignored_files: set[str] | None = None) -> list[str]:
     hits: set[str] = set()
-    searchable = [f.lower() for f in files] + [subject.lower()]
-    for category, patterns in DENY_PATH_PATTERNS.items():
-        for text in searchable:
-            if any(p in text for p in patterns):
-                hits.add(category)
+    ignored_files_lower = {f.lower() for f in ignored_files or set()}
+    paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
+    subject_lower = subject.lower()
+
+    for category, scopes in DENY_PATTERNS.items():
+        found = False
+        # "paths" patterns — only match against file paths
+        for rx in scopes.get("paths", []):
+            if found:
                 break
+            for p in paths_lower:
+                if rx.search(p):
+                    hits.add(category)
+                    found = True
+                    break
+        if found:
+            continue
+        # "any" patterns — match against file paths (path_rx) and title (title_rx)
+        for path_rx, title_rx in scopes.get("any", []):
+            if found:
+                break
+            for p in paths_lower:
+                if path_rx.search(p):
+                    hits.add(category)
+                    found = True
+                    break
+            if not found and title_rx.search(subject_lower):
+                hits.add(category)
+                found = True
     return sorted(hits)
 
 

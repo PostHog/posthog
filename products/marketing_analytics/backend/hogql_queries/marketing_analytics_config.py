@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
+import structlog
+import posthoganalytics
+
 from posthog.schema import (
     AttributionMode,
     MarketingAnalyticsBaseColumns,
@@ -30,10 +33,21 @@ from .constants import (
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
 )
 
+logger = structlog.get_logger(__name__)
+
 
 class AttributionModeOperator(Enum):
     LAST_TOUCH = "arrayMax"
     FIRST_TOUCH = "arrayMin"
+
+
+MULTI_TOUCH_MODES: frozenset[AttributionMode] = frozenset(
+    {
+        AttributionMode.LINEAR,
+        AttributionMode.TIME_DECAY,
+        AttributionMode.POSITION_BASED,
+    }
+)
 
 
 @dataclass
@@ -53,6 +67,10 @@ class MarketingAnalyticsConfig:
     id_field: str = MarketingSourceAdapter.campaign_id_field
     source_field: str = MarketingSourceAdapter.source_name_field
     match_key_field: str = MarketingSourceAdapter.match_key_field
+    ad_group_name_field: str = MarketingSourceAdapter.ad_group_name_field
+    ad_group_id_field: str = MarketingSourceAdapter.ad_group_id_field
+    ad_name_field: str = MarketingSourceAdapter.ad_name_field
+    ad_id_field: str = MarketingSourceAdapter.ad_id_field
 
     # Column aliases for output
     campaign_column_alias: str = MarketingAnalyticsBaseColumns.CAMPAIGN
@@ -83,7 +101,7 @@ class MarketingAnalyticsConfig:
 
     # Attribution settings (can be overridden by team settings)
     attribution_window_days: int = 90
-    attribution_mode: str = AttributionMode.LAST_TOUCH
+    attribution_mode: AttributionMode = AttributionMode.LAST_TOUCH
 
     @classmethod
     def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
@@ -92,34 +110,79 @@ class MarketingAnalyticsConfig:
         if hasattr(team, "marketing_analytics_config"):
             ma_config = team.marketing_analytics_config
             config.attribution_window_days = ma_config.attribution_window_days
-            config.attribution_mode = ma_config.attribution_mode
+            config.attribution_mode = AttributionMode(ma_config.attribution_mode)
+
+        # Gate multi-touch attribution behind feature flag
+        if config.attribution_mode in MULTI_TOUCH_MODES:
+            has_multi_touch = posthoganalytics.feature_enabled(
+                "marketing-analytics-multi-touch-attribution",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={"organization": {"id": str(team.organization.id)}},
+            )
+            if not has_multi_touch:
+                logger.warning(
+                    "multi_touch_attribution_disabled",
+                    team_id=team.pk,
+                    requested_mode=config.attribution_mode.value,
+                    flag_value=has_multi_touch,
+                )
+                config.attribution_mode = AttributionMode.LAST_TOUCH
+
         return config
 
     @property
+    def is_multi_touch(self) -> bool:
+        return self.attribution_mode in MULTI_TOUCH_MODES
+
+    @property
     def attribution_mode_operator(self) -> str:
-        """Get the HogQL operator for the attribution mode"""
+        """Get the HogQL operator for single-touch attribution modes"""
         if self.attribution_mode == AttributionMode.FIRST_TOUCH:
             return AttributionModeOperator.FIRST_TOUCH.value
         elif self.attribution_mode == AttributionMode.LAST_TOUCH:
             return AttributionModeOperator.LAST_TOUCH.value
         else:
-            # Future attribution modes could be added here
-            # For now, default to last touch
             return AttributionModeOperator.LAST_TOUCH.value
 
     @property
     def group_by_fields(self) -> list[str]:
         """Get the list of fields to group by based on drill-down level.
-        At channel/source level, we repurpose the standard field names since
-        the CTE already maps them to the correct values.
+        At channel/source/ad-group/ad level, we repurpose the standard field names
+        since the CTE already maps them to the correct values.
         """
         if self.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
             # CTE repurposes campaign_name to hold the channel value
             return [self.campaign_field]
         elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.SOURCE:
             return [self.source_field]
+        elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            # All non-aggregate columns must be in GROUP BY. The CTE emits the parent
+            # campaign hierarchy plus the ad-group fields; group by all of them.
+            return [
+                self.campaign_field,
+                self.id_field,
+                self.source_field,
+                self.ad_group_name_field,
+                self.ad_group_id_field,
+            ]
+        elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.AD:
+            return [
+                self.campaign_field,
+                self.id_field,
+                self.source_field,
+                self.ad_group_name_field,
+                self.ad_group_id_field,
+                self.ad_name_field,
+                self.ad_id_field,
+            ]
+        elif self.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            return [self.campaign_field]
         else:
-            # Campaign level (default) — group by campaign name, id, and source
             return [self.campaign_field, self.id_field, self.source_field]
 
     def get_campaign_cost_field_chain(self, field_name: str) -> list[str | int]:

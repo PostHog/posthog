@@ -12,7 +12,7 @@ export function initLiquidLanguage(monaco: Monaco): void {
      * languages, so we'll do so with a noop hogLiquid language registration as a flag like we do with other languages
      * in this directory
      */
-    if (!monaco.languages.getLanguages().some((lang) => lang.id === 'hogLiquid')) {
+    if (!monaco.languages.getLanguages().some((lang: { id: string }) => lang.id === 'hogLiquid')) {
         monaco.languages.register({ id: 'hogLiquid' })
         // Liquid is a pre-registered language in Monaco, so we only need to register completion and code action providers.
 

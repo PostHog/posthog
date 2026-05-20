@@ -1,10 +1,17 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconLeave, IconPlusSmall, IconReceipt } from '@posthog/icons'
+import {
+    IconDatabase,
+    IconGear,
+    IconLeave,
+    IconPlusSmall,
+    IconReceipt,
+    IconServer,
+    IconShieldLock,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
@@ -15,6 +22,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -32,6 +40,8 @@ import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
 import { OrgSwitcher } from './OrgSwitcher'
+import { pendingInvitesLogic } from './pendingInvitesLogic'
+import { PendingInviteDot } from './ProjectMenu'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
 
@@ -49,12 +59,14 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { currentTeam } = useValues(teamLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { pendingInvites } = useValues(pendingInvitesLogic)
+    const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { canAccessBilling } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
-    const isAiFirst = useFeatureFlag('AI_FIRST')
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -69,7 +81,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                         <ButtonPrimitive
                             {...props}
                             iconOnly={isLayoutNavCollapsed}
-                            className={cn('flex-1 py-1 min-w-0 group', {
+                            className={cn('relative flex-1 py-1 min-w-0 group', {
                                 'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
                             })}
                             data-attr="new-account-menu-button"
@@ -84,35 +96,32 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                         {currentOrganization ? currentOrganization.name : 'Select organization'}
                                     </div>
                                     <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
+                                    {hasPendingInvites && <div>You have a pending invitation</div>}
                                 </div>
                             }
                         >
-                            {isAuthenticatedTeam(currentTeam) && (
-                                <>
-                                    {currentOrganization ? (
-                                        <UploadedLogo
-                                            name={currentOrganization.name}
-                                            entityId={currentOrganization.id}
-                                            mediaId={currentOrganization.logo_media_id}
-                                            size="small"
-                                        />
-                                    ) : (
-                                        <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
-                                    )}
-
-                                    {!isLayoutNavCollapsed && (
-                                        <span
-                                            className={cn(
-                                                'truncate',
-                                                isAiFirst && 'text-secondary group-hover:text-primary'
-                                            )}
-                                        >
-                                            {projectNameWithoutFirstEmoji ?? 'Project'}
-                                        </span>
-                                    )}
-                                </>
+                            {currentOrganization ? (
+                                <UploadedLogo
+                                    name={currentOrganization.name}
+                                    entityId={currentOrganization.id}
+                                    mediaId={currentOrganization.logo_media_id}
+                                    size="small"
+                                />
+                            ) : (
+                                <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
                             )}
-                            {!isLayoutNavCollapsed && !isAiFirst && <MenuOpenIndicator />}
+                            {!isLayoutNavCollapsed && (
+                                <span className="truncate text-secondary group-hover:text-primary">
+                                    {isAuthenticatedTeam(currentTeam)
+                                        ? (projectNameWithoutFirstEmoji ?? 'Project')
+                                        : 'Account menu'}
+                                </span>
+                            )}
+                            {hasPendingInvites && (
+                                <PendingInviteDot
+                                    className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
+                                />
+                            )}
                         </ButtonPrimitive>
                     )}
                 />
@@ -170,6 +179,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
+                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                     <MenuOpenIndicator intent="sub" className="ml-auto" />
                                                 </ButtonPrimitive>
                                             }
@@ -219,6 +229,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 tooltipPlacement="right"
                                                 data-attr="new-account-menu-project-settings-button"
                                                 to={urls.project(currentTeam.id, urls.settings('project'))}
+                                                skipContext
                                             >
                                                 <IconGear />
                                                 Project settings
@@ -293,7 +304,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev ? (
+                                {isCloudOrDev && canAccessBilling ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link
@@ -308,6 +319,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     menuItem: true,
                                                     truncate: true,
                                                 }}
+                                                skipContext
                                             >
                                                 <IconReceipt />
                                                 {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
@@ -329,12 +341,71 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="Organization settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-organization-settings-button"
+                                            skipContext
                                         >
                                             <IconGear />
                                             Organization settings
                                         </Link>
                                     )}
                                 />
+
+                                {user?.is_staff && (
+                                    <>
+                                        <Label intent="menu" className="px-2 mt-2">
+                                            Staff
+                                        </Label>
+                                        <DropdownMenuSeparator />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to="/admin/"
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-django-admin"
+                                                    disableClientSideRouting
+                                                    skipContext
+                                                >
+                                                    <IconShieldLock />
+                                                    Django admin
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.instanceStatus()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-instance-panel"
+                                                    skipContext
+                                                >
+                                                    <IconServer />
+                                                    Instance panel
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.queryPerformance()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-query-performance"
+                                                    skipContext
+                                                >
+                                                    <IconDatabase />
+                                                    Query performance
+                                                </Link>
+                                            )}
+                                        />
+                                    </>
+                                )}
 
                                 <Label intent="menu" className="px-2 mt-2">
                                     Account
@@ -353,6 +424,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="User settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-account-owner-button"
+                                            skipContext
                                         >
                                             <ProfilePicture user={user} size="xs" />
                                             <span className="flex flex-col truncate">

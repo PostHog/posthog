@@ -92,3 +92,79 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestPersonsV2LimitPushDown.test_v2_cohort_where_does_not_push_limit_down
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestPersonsV2LimitPushDown.test_v2_cohort_where_does_not_push_limit_down.1
+  '''
+  SELECT persons.id AS id,
+         persons.properties___email AS email
+  FROM
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            toTimeZone(person.created_at, 'UTC') AS created_at
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  LEFT JOIN
+    (SELECT cohortpeople.person_id AS cohort_person_id,
+            1 AS matched,
+            cohortpeople.cohort_id AS cohort_id
+     FROM cohortpeople
+     WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, persons.id)
+  WHERE ifNull(equals(__in_cohort.matched, 1), 0)
+  ORDER BY persons.created_at DESC
+  LIMIT 3 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
+  '''
+# ---
+# name: TestPersonsV2LimitPushDown.test_v2_order_by_and_limit_pushed_down
+  '''
+  SELECT persons.id AS id,
+         persons.`properties___$some_prop` AS `$some_prop`
+  FROM
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
+            toTimeZone(person.created_at, 'UTC') AS created_at
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                    FROM person
+                                                    WHERE equals(person.team_id, 99999)
+                                                    GROUP BY person.id
+                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))
+                                                    ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC
+                                                    LIMIT 3
+                                                    OFFSET 0))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  ORDER BY persons.created_at DESC
+  LIMIT 2 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
+  '''
+# ---

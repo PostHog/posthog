@@ -1,4 +1,5 @@
 from collections import Counter
+from collections.abc import Sequence
 
 from posthog.schema import (
     ActionsNode,
@@ -15,6 +16,14 @@ from posthog.schema import (
 )
 
 from posthog.types import AnyPropertyFilter, EntityNode, FunnelExclusionEntityNode
+
+
+def is_data_warehouse_node(node: EntityNode) -> bool:
+    return isinstance(node, DataWarehouseNode | LifecycleDataWarehouseNode | FunnelsDataWarehouseNode)
+
+
+def has_data_warehouse_node(nodes: Sequence[EntityNode]) -> bool:
+    return any(is_data_warehouse_node(node) for node in nodes)
 
 
 def is_equal_type(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode) -> bool:

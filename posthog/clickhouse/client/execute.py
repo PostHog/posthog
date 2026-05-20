@@ -31,11 +31,13 @@ from posthog.clickhouse.query_tagging import (
     Feature,
     Product,
     QueryTags,
+    add_fallback_query_tags,
+    get_caller_source,
     get_query_tag_value,
     get_query_tags,
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
-from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.settings.data_stores import is_enable_analyzer_team
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
@@ -78,6 +80,10 @@ CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
 is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
 
 
+class UntaggedQueryError(Exception):
+    """Raised in DEBUG mode when a ClickHouse query is executed without product or feature tags."""
+
+
 class KillSwitchLevel(StrEnum):
     OFF = "off"
     LIGHT = "light"
@@ -106,9 +112,31 @@ _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
     },
 }
 
+_KILL_SWITCH_SEVERITY: dict[KillSwitchLevel, int] = {
+    KillSwitchLevel.OFF: 0,
+    KillSwitchLevel.LIGHT: 1,
+    KillSwitchLevel.FULL: 2,
+}
+
 
 def get_kill_switch_level() -> KillSwitchLevel:
     return _get_kill_switch_level(round(time.time() / 60))
+
+
+def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
+    """
+    Per-team kill switch override.
+
+    Returns FULL or LIGHT if `team_id` is in the corresponding admin-managed list,
+    else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
+    that want the combined effect should take the more severe of the two levels.
+    """
+    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in full_teams:
+        return KillSwitchLevel.FULL
+    if team_id in light_teams:
+        return KillSwitchLevel.LIGHT
+    return KillSwitchLevel.OFF
 
 
 def get_hedged_app_queries_enabled() -> bool:
@@ -131,6 +159,47 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel(value)
     except ValueError:
         return KillSwitchLevel.OFF
+
+
+@lru_cache(maxsize=1)
+def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        raw = get_instance_setting("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS")
+        full_teams = frozenset(raw if isinstance(raw, list) else [])
+    except Exception:
+        # During an incident, silently falling back to "no override" would hide why the
+        # per-team kill switch isn't taking effect. Log so operators can see the failure.
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_FULL_TEAMS; per-team kill switch disabled for full")
+        full_teams = frozenset()
+    try:
+        raw = get_instance_setting("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS")
+        light_teams = frozenset(raw if isinstance(raw, list) else [])
+    except Exception:
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
+        light_teams = frozenset()
+    return full_teams, light_teams
+
+
+def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
+    """
+    Effective kill switch level: the more severe of the global level and any
+    per-team override. If `team_id` is None, returns the global level unchanged.
+
+    Examples:
+        - global=light, team=full -> full
+        - global=full,  team=light -> full
+        - global=off,   team=light -> light
+        - global=light, team=off   -> light
+    """
+    level = get_kill_switch_level()
+    if team_id is None:
+        return level
+    team_level = get_team_kill_switch_level(team_id)
+    if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
+        return team_level
+    return level
 
 
 @lru_cache(maxsize=1)
@@ -275,9 +344,9 @@ def sync_execute(
 
     # Only enable if not explicitly disabled — setdefault preserves existing value
     if team_id is not None and is_enable_analyzer_team(team_id):
-        core_settings.setdefault("allow_experimental_analyzer", 1)
+        core_settings.setdefault("enable_analyzer", 1)
 
-    kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
+    kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
@@ -297,12 +366,30 @@ def sync_execute(
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
 
+    add_fallback_query_tags(tags)
+
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
 
-    if (
+    # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
+    # hitting this error. Please don't do this. This error is to let us know about queries
+    # that are untagged. It's much better for it to throw in local dev, so that we know
+    # to tag it correctly, than it is to add an incorrect tag to avoid throwing.
+    # See `tag_queries` and `tags_context` in posthog/clickhouse/query_tagging.py for how to
+    # attach tags.
+    # Please add whichever tags are relevant, in particular use helper functions like
+    # `get_request_analytics_properties` in posthog/event_usage.py for anything that was an
+    # http request.
+    if DEBUG and not TEST and (tags.product is None or tags.feature is None):
+        missing = [name for name, value in (("product", tags.product), ("feature", tags.feature)) if value is None]
+        raise UntaggedQueryError(
+            f"sync_execute called with missing query tags: {', '.join(missing)}. "
+            "Wrap the call site in `with tags_context(product=..., feature=...):` or call "
+            "`tag_queries(product=..., feature=...)` from posthog.clickhouse.query_tagging."
+        )
+    elif (
         not TEST
         and ch_user in (ClickHouseUser.APP, ClickHouseUser.DEFAULT)
         and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)
@@ -323,9 +410,14 @@ def sync_execute(
             stacktrace="".join(traceback.format_stack()),
         )
 
+    source_file, source_line = get_caller_source()
+    query_log_tags = tags.model_copy(deep=True)
+    query_log_tags.source_file = source_file
+    query_log_tags.source_line = source_line
+
     settings = {
         **core_settings,
-        "log_comment": tags.to_json(),
+        "log_comment": query_log_tags.to_json(),
     }
     if workload == Workload.OFFLINE:
         # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the

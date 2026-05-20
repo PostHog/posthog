@@ -1,9 +1,15 @@
 import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_ERROR_TRACKING_INGESTION,
     KAFKA_ERROR_TRACKING_INGESTION_DLQ,
     KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW,
     KAFKA_EVENTS_JSON,
+    KAFKA_INGESTION_WARNINGS,
+    KAFKA_LOG_ENTRIES,
 } from '../../config/kafka-topics'
+import { DEFAULT_PRODUCER, type ProducerName } from '../common/outputs'
+import { IngestionLane } from '../config'
 
 export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_CONSUMER_GROUP_ID: string
@@ -24,11 +30,43 @@ export type ErrorTrackingConsumerConfig = {
     ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     /** TTL in seconds for local cache entries */
     ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    /**
+     * When true (default, matching the previous hardcoded behavior), redirects
+     * to the overflow lane keep the event's original partition key. When
+     * false, the overflow producer emits with a null key and Kafka spreads
+     * events across overflow-topic partitions. Cymbal cache locality is
+     * enforced one layer down — by team_id consistent hashing inside
+     * `CymbalClient` — so the partition key on the overflow lane doesn't
+     * affect symbolication cache hits.
+     */
+    ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean
+
+    /** Max HTTP body size in bytes per Cymbal API request. Used to proactively
+     *  split large batches before they hit Cymbal's body limit. */
+    ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: number
+
+    /** Master kill-switch for the keyed rate limiter. When false, no Redis pool
+     *  is created and the pipeline step is a no-op. */
+    ERROR_TRACKING_RATE_LIMITER_ENABLED: boolean
+    /** When true, decisions are computed and tracked but never enforced. Lets
+     *  us validate thresholds + Redis path before flipping to enforce. */
+    ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: boolean
+    /** Dedicated Redis host. If empty, falls back to REDIS_URL. */
+    ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: string
+    ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: number
+    ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: boolean
+    /** TTL in seconds for the Redis bucket key. */
+    ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: number
+
+    /** Pipeline name for metrics labeling */
+    INGESTION_PIPELINE: string | null
+    /** Lane identifier (main, overflow) for metrics labeling */
+    INGESTION_LANE: IngestionLane | null
 }
 
 export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerConfig {
     return {
-        ERROR_TRACKING_CONSUMER_GROUP_ID: 'ingestion-error-tracking',
+        ERROR_TRACKING_CONSUMER_GROUP_ID: 'ingestion-errortracking',
         ERROR_TRACKING_CONSUMER_CONSUME_TOPIC: KAFKA_ERROR_TRACKING_INGESTION,
         ERROR_TRACKING_CONSUMER_DLQ_TOPIC: KAFKA_ERROR_TRACKING_INGESTION_DLQ,
         ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC: KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW,
@@ -40,5 +78,58 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED: false,
         ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300, // 5 minutes
         ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60, // 1 minute
+        ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY: true,
+        ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES: 1_800_000,
+        ERROR_TRACKING_RATE_LIMITER_ENABLED: false,
+        ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE: true,
+        ERROR_TRACKING_RATE_LIMITER_REDIS_HOST: '',
+        ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: 6379,
+        ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: false,
+        ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: 86_400,
+        INGESTION_PIPELINE: null,
+        INGESTION_LANE: null,
+    }
+}
+
+/** Config type for all error tracking output keys. */
+export type ErrorTrackingOutputsConfig = {
+    ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC: string
+    ERROR_TRACKING_OUTPUT_EVENTS_PRODUCER: ProducerName
+
+    ERROR_TRACKING_OUTPUT_INGESTION_WARNINGS_TOPIC: string
+    ERROR_TRACKING_OUTPUT_INGESTION_WARNINGS_PRODUCER: ProducerName
+
+    ERROR_TRACKING_CONSUMER_DLQ_TOPIC: string
+    ERROR_TRACKING_OUTPUT_DLQ_PRODUCER: ProducerName
+
+    ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC: string
+    ERROR_TRACKING_OUTPUT_OVERFLOW_PRODUCER: ProducerName
+
+    ERROR_TRACKING_OUTPUT_APP_METRICS_TOPIC: string
+    ERROR_TRACKING_OUTPUT_APP_METRICS_PRODUCER: ProducerName
+
+    ERROR_TRACKING_OUTPUT_LOG_ENTRIES_TOPIC: string
+    ERROR_TRACKING_OUTPUT_LOG_ENTRIES_PRODUCER: ProducerName
+
+    ERROR_TRACKING_OUTPUT_TOPHOG_TOPIC: string
+    ERROR_TRACKING_OUTPUT_TOPHOG_PRODUCER: ProducerName
+}
+
+export function getDefaultErrorTrackingOutputsConfig(): ErrorTrackingOutputsConfig {
+    return {
+        ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC: KAFKA_EVENTS_JSON,
+        ERROR_TRACKING_OUTPUT_EVENTS_PRODUCER: DEFAULT_PRODUCER,
+        ERROR_TRACKING_OUTPUT_INGESTION_WARNINGS_TOPIC: KAFKA_INGESTION_WARNINGS,
+        ERROR_TRACKING_OUTPUT_INGESTION_WARNINGS_PRODUCER: DEFAULT_PRODUCER,
+        ERROR_TRACKING_CONSUMER_DLQ_TOPIC: KAFKA_ERROR_TRACKING_INGESTION_DLQ,
+        ERROR_TRACKING_OUTPUT_DLQ_PRODUCER: DEFAULT_PRODUCER,
+        ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC: KAFKA_ERROR_TRACKING_INGESTION_OVERFLOW,
+        ERROR_TRACKING_OUTPUT_OVERFLOW_PRODUCER: DEFAULT_PRODUCER,
+        ERROR_TRACKING_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
+        ERROR_TRACKING_OUTPUT_APP_METRICS_PRODUCER: DEFAULT_PRODUCER,
+        ERROR_TRACKING_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
+        ERROR_TRACKING_OUTPUT_LOG_ENTRIES_PRODUCER: DEFAULT_PRODUCER,
+        ERROR_TRACKING_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
+        ERROR_TRACKING_OUTPUT_TOPHOG_PRODUCER: DEFAULT_PRODUCER,
     }
 }

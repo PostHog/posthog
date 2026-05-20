@@ -18,7 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
@@ -27,6 +27,8 @@ from posthog.session_recordings.queries.utils import (
     NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,
     _entity_to_expr,
+    is_anonymous_cohort_fix_enabled,
+    is_cohort_property,
     is_event_property,
     is_group_property,
     is_person_property,
@@ -59,7 +61,15 @@ def get_negative_entity_properties(
 
 
 def is_negative_prop(prop: AnyPropertyFilter) -> bool:
-    return hasattr(prop, "operator") and prop.operator in NEGATIVE_OPERATORS
+    if not hasattr(prop, "operator"):
+        return False
+    if prop.operator in NEGATIVE_OPERATORS:
+        return True
+    # NOT_IN is intentionally omitted from NEGATIVE_OPERATORS for event/person filters
+    # (it has different semantics there), but for cohort filters it IS the negative form.
+    if is_cohort_property(prop) and prop.operator == PropertyOperator.NOT_IN:
+        return True
+    return False
 
 
 class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
@@ -452,6 +462,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                         continue
                     gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
+        # Positive cohort filters (IN cohort) become events-table predicates here,
+        # same shape as a PoE person-property filter. Negative cohort filters (NOT IN
+        # cohort) are skipped on this path — they're picked up by _collect_negative_properties
+        # and emitted by _negative_blocklist_query as `NOT GlobalIn (sessions where some
+        # event IS in the cohort)`. Anonymous events can't be in a cohort, so their
+        # sessions don't enter the blocklist and aren't filtered out.
+        if self._should_push_cohorts_to_events_query():
+            for p in self.cohort_properties:
+                if skip_negative_properties and is_negative_prop(p):
+                    continue
+                gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
+
         queries: list[ast.SelectQuery] = []
 
         # Add hybrid query first if we used it for person properties
@@ -466,10 +488,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 self._select_from_events(select_expr, expr, group_by=group_by, limit_expr=ast.Constant(value=1000000))
             )
 
-        negative_guard_query = self._negative_guard_query()
-        if negative_guard_query:
-            queries.append(negative_guard_query)
-
         return queries
 
     def get_queries_for_session_id_matching(self) -> list[ast.SelectQuery]:
@@ -477,6 +495,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
             group_by=[ast.Field(chain=["$session_id"])],
         )
+
+    def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
+        return self._negative_blocklist_query()
 
     def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # Subqueries only need to return uuid for the GlobalIn comparison
@@ -508,7 +529,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:
         query = self.get_query_for_event_id_matching()
 
-        tag_queries(product=Product.REPLAY, team_id=self._team.id)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=self._team.id)
         hogql_query_response = execute_hogql_query(
             query=query,
             team=self._team,
@@ -589,13 +610,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 right=ast.Constant(value=0),
             )
 
-        negative_props = [p for p in self.event_properties if is_negative_prop(p)]
-        negative_props += get_negative_entity_properties(self.entities)
-        negative_props += [p for p in self.group_properties if is_negative_prop(p)]
-        if self._team.person_on_events_mode and self.person_properties:
-            negative_props += [p for p in self.person_properties if is_negative_prop(p)]
-
-        exprs = [countif_zero(p) for p in negative_props]
+        exprs = [countif_zero(p) for p in self._collect_negative_properties()]
         return self.wrapped_with_query_operand(exprs=exprs) if exprs else ast.Constant(value=True)
 
     @property
@@ -625,30 +640,69 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def person_properties(self) -> list[AnyPropertyFilter] | None:
         return [g for g in (self._query.properties or []) if is_person_property(g)]
 
-    def _has_negative_properties(self) -> bool:
-        if any(is_negative_prop(p) for p in self.event_properties):
-            return True
-        if get_negative_entity_properties(self.entities):
-            return True
-        if any(is_negative_prop(p) for p in self.group_properties):
-            return True
-        if self._team.person_on_events_mode and self.person_properties:
-            if any(is_negative_prop(p) for p in self.person_properties):
-                return True
-        return False
+    @property
+    def cohort_properties(self) -> list[AnyPropertyFilter]:
+        return [g for g in (self._query.properties or []) if is_cohort_property(g)]
 
-    def _negative_guard_query(self) -> ast.SelectQuery | None:
+    def _should_push_cohorts_to_events_query(self) -> bool:
+        """True when this subquery should handle cohort filters instead of CohortPropertyGroupsSubQuery.
+
+        Scoped to PoE teams with the feature flag enabled, and only for operand=AND where
+        the _negative_blocklist_query path exists. Non-PoE and OR-operand queries continue
+        to use the separate cohort subquery.
+        """
+        return bool(
+            self._team.person_on_events_mode
+            and self._query.operand != "OR"
+            and self.cohort_properties
+            and is_anonymous_cohort_fix_enabled(self._team)
+        )
+
+    def _collect_negative_properties(self) -> list[AnyPropertyFilter]:
+        negative_props = [p for p in self.event_properties if is_negative_prop(p)]
+        negative_props += get_negative_entity_properties(self.entities)
+        negative_props += [p for p in self.group_properties if is_negative_prop(p)]
+        if self._team.person_on_events_mode and self.person_properties:
+            negative_props += [p for p in self.person_properties if is_negative_prop(p)]
+        if self._should_push_cohorts_to_events_query():
+            negative_props += [p for p in self.cohort_properties if is_negative_prop(p)]
+        return negative_props
+
+    def _negative_blocklist_query(self) -> ast.SelectQuery | None:
+        """Returns session IDs that should be EXCLUDED because they contain events
+        matching at least one inverted negative condition.
+
+        This is a blocklist approach: instead of scanning ALL events and keeping sessions
+        where no events match (allowlist), we find the small set of sessions that DO match
+        the positive form of negative filters. The main query then excludes these with NOT GlobalIn.
+
+        The blocklist is much smaller than the allowlist for typical negative filters
+        (e.g. "host is not internal IP" → blocklist contains only internal IP sessions).
+        This avoids hitting the LIMIT on high-traffic teams with millions of event-sessions.
+        """
         if self._query.operand == "OR":
             return None
 
-        if not self._has_negative_properties():
+        negative_props = self._collect_negative_properties()
+        if not negative_props:
             return None
 
-        return self._select_from_events(
-            select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
-            where_expr=[],
+        # Build inverted (positive) expressions for each negative property
+        inverted_exprs: list[ast.Expr] = []
+        for prop in negative_props:
+            operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
+            inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
+            inverted_exprs.append(property_to_expr(inverted, team=self._team, scope="event"))
+
+        # Any event matching any positive condition → session goes in blocklist
+        where_expr = ast.Or(exprs=inverted_exprs) if len(inverted_exprs) > 1 else inverted_exprs[0]
+
+        return ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=self._where_predicates(where_expr),
             group_by=[ast.Field(chain=["$session_id"])],
-            limit_expr=ast.Constant(value=1000000),
+            limit=ast.Constant(value=1000000),
         )
 
     @staticmethod
@@ -669,8 +723,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 return [], property_to_expr(p, team=team, scope="replay")
 
             events_that_have_the_property: list[str] = list(
-                EventProperty.objects.filter(team_id=team.id, property=p.key).values_list("event", flat=True)
+                EventProperty.objects.filter(team_id=team.id, property=p.key).values_list("event", flat=True)[:101]
             )
+
+            if len(events_that_have_the_property) > 100:
+                # Skip expansion when too many events have this property (e.g. $current_url).
+                # Inlining thousands of event names into WHERE event IN (...) can exceed
+                # ClickHouse's max_query_size limit without providing meaningful optimization.
+                return [], property_to_expr(p, team=team, scope="replay")
 
             return events_that_have_the_property, property_to_expr(p, team=team, scope="replay")
         except Exception as e:

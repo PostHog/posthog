@@ -83,9 +83,9 @@ function ExclusionStepsInfo({
 }: ExclusionStepsInfoProps): JSX.Element {
     return (
         <>
-            Exclude {aggregationTargetLabel.plural} {aggregation_group_type_index != undefined ? 'that' : 'who'}{' '}
-            completed the specified event between two specific steps. Note that these {aggregationTargetLabel.plural}{' '}
-            will be <b>completely excluded from the entire funnel</b>.
+            Exclude {aggregationTargetLabel.plural} {aggregation_group_type_index != null ? 'that' : 'who'} completed
+            the specified event between two specific steps. Note that these {aggregationTargetLabel.plural} will be{' '}
+            <b>completely excluded from the entire funnel</b>.
         </>
     )
 }

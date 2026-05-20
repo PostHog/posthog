@@ -1,3 +1,4 @@
+use k8s_awareness::types::ControllerRef;
 use serde::{Deserialize, Serialize};
 
 /// A Kafka topic-partition pair — the fundamental unit of work assignment.
@@ -31,6 +32,15 @@ pub struct RegisteredConsumer {
     pub consumer_name: String,
     pub status: ConsumerStatus,
     pub registered_at: i64,
+    /// Pod-template-hash (Deployment) or controller-revision-hash (StatefulSet).
+    /// Populated server-side via K8s discovery on registration. Empty when
+    /// K8s awareness is disabled.
+    #[serde(default)]
+    pub generation: String,
+    /// The K8s controller that owns this consumer's pod.
+    /// Populated server-side via K8s discovery on registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller: Option<ControllerRef>,
 }
 
 /// Lifecycle status of a consumer.
@@ -169,6 +179,8 @@ mod tests {
             consumer_name: "consumer-0".to_string(),
             status: ConsumerStatus::Ready,
             registered_at: 1700000000,
+            generation: String::new(),
+            controller: None,
         };
         let json = serde_json::to_string(&consumer).unwrap();
         let deserialized: RegisteredConsumer = serde_json::from_str(&json).unwrap();

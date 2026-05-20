@@ -4,13 +4,17 @@ import hashlib
 import calendar
 from datetime import timedelta
 from typing import TypedDict, cast
+from urllib.parse import urlparse
 
+from django.conf import settings
+from django.core.exceptions import DisallowedRedirect
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
+import posthoganalytics
 from oauth2_provider.compat import login_not_required
 from oauth2_provider.exceptions import OAuthToolkitError
 from oauth2_provider.http import OAuth2ResponseRedirect
@@ -31,13 +35,43 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.oauth.cimd import (
+    CIMD_THROTTLE_CLASSES,
+    CIMDFetchError,
+    CIMDValidationError,
+    get_application_by_client_id,
+    get_or_create_cimd_application,
+    is_cimd_client_id,
+)
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.scopes import get_oauth_scopes_supported
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+
+# Clients for which we must NOT issue refresh tokens. The token response will omit
+# "refresh_token" and no OAuthRefreshToken row will be created. Entries are matched
+# against the app's cimd_metadata_url for CIMD clients, and against client_id otherwise.
+CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
+    {
+        # PostHog Wizard CLI (CIMD) — short-lived auth, no persistent session needed.
+        "https://us.posthog.com/api/oauth/wizard/client-metadata",
+        "https://eu.posthog.com/api/oauth/wizard/client-metadata",
+    }
+)
+
+
+def get_region_info() -> dict | None:
+    """Return region metadata if running on PostHog Cloud US/EU, else None."""
+    cloud = getattr(settings, "CLOUD_DEPLOYMENT", None)
+    if cloud in ("US", "EU"):
+        region = cloud.lower()
+        return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
+    return None
 
 
 class OAuthAuthorizationContext(TypedDict):
@@ -115,9 +149,112 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _is_dynamic_client(self, request) -> bool:
+        """Check if the client was registered dynamically (DCR or CIMD)."""
+        if hasattr(request, "client") and request.client:
+            return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
+        return False
+
+    def _should_skip_refresh_token(self, request) -> bool:
+        if not hasattr(request, "client") or not request.client:
+            return False
+        # CIMD clients expose their canonical id via cimd_metadata_url (the model's
+        # client_id is an auto-generated UUID for those). Gate on is_cimd_client so
+        # a stray cimd_metadata_url on a non-CIMD app can't flip the behavior.
+        if getattr(request.client, "is_cimd_client", False):
+            client_key = getattr(request.client, "cimd_metadata_url", None)
+        else:
+            client_key = getattr(request.client, "client_id", None)
+        return bool(client_key and client_key in CLIENT_IDS_WITHOUT_REFRESH_TOKEN)
+
+    def _load_application(self, client_id, request):
+        """
+        Load the application from the database, supporting CIMD URL-form client_ids.
+
+        For URL-format client_ids, looks up by cimd_metadata_url.
+        Does NOT fetch metadata — that only happens in validate_client_id().
+        """
+
+        assert hasattr(request, "client"), '"request" instance has no "client" attribute'
+
+        # Already fetched previously before, just return what's been validated already
+        if request.client:
+            return request.client
+
+        # CIMD URLs are looked up by cimd_metadata_url, not the auto-generated client_id UUID
+        app: OAuthApplication | None = None
+        if is_cimd_client_id(client_id):
+            app = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+        else:
+            app = OAuthApplication.objects.filter(client_id=client_id).first()
+
+        if app is None or not app.is_usable(request):
+            return None
+
+        request.client = app
+        return request.client
+
+    def validate_client_id(self, client_id, request, *args, **kwargs):
+        """
+        Validate client_id, supporting CIMD URL-form client_ids.
+
+        For CIMD URLs, always routes through get_or_create_cimd_application()
+        so that metadata is refreshed when the cache expires.
+        For standard client_ids, loads directly from the database.
+        """
+
+        # CIMD URLs always go through get_or_create to ensure metadata refresh
+        if is_cimd_client_id(client_id):
+            try:
+                app = get_or_create_cimd_application(client_id)
+                request.client = app
+                return True
+            except (CIMDFetchError, CIMDValidationError) as e:
+                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e))
+                return False
+
+        # Standard UUID lookup
+        if self._load_application(client_id, request) is not None:
+            return True
+
+        return False
+
+    def validate_redirect_uri(self, client_id, redirect_uri, request, *args, **kwargs):
+        """
+        Validate redirect_uri, extending RFC 8252 Section 7.3 loopback handling
+        to include 'localhost'.
+
+        Django OAuth Toolkit already allows any port for 127.0.0.1 and ::1, but
+        not for 'localhost'. Native apps like Claude Code register
+        http://localhost/callback and request http://localhost:<ephemeral>/callback.
+        """
+
+        if request.client.redirect_uri_allowed(redirect_uri):
+            return True
+
+        # Extend RFC 8252 Section 7.3 loopback port flexibility to 'localhost'.
+        #
+        # DOT's redirect_to_uri_allowed() already skips the port check when the
+        # *registered* URI uses http://127.0.0.1 or http://[::1], but 'localhost'
+        # is not in that list. Many CIMD clients (e.g. Claude Code) register
+        # http://localhost/callback (no port) and then request
+        # http://localhost:<ephemeral_port>/callback at runtime.
+        #
+        # We handle this by stripping the port from the request URI and
+        # re-checking against the registered URIs. This only applies when the
+        # request URI is http://localhost with an explicit port.
+        parsed = urlparse(redirect_uri)
+        if parsed.scheme == "http" and parsed.hostname == "localhost" and parsed.port:
+            portless = f"http://localhost{parsed.path}"
+            if parsed.query:
+                portless += f"?{parsed.query}"
+            return request.client.redirect_uri_allowed(portless)
+
+        return False
+
     def rotate_refresh_token(self, request) -> bool:
         """
-        Don't rotate refresh tokens for DCR (MCP) clients.
+        Don't rotate refresh tokens for dynamically registered (DCR/CIMD) clients.
 
         MCP clients (v0, Claude Code, Cursor, etc.) don't reliably save the new
         refresh token returned during rotation, causing sessions to break when
@@ -125,21 +262,20 @@ class OAuthValidator(OAuth2Validator):
         behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
         all issue non-rotating refresh tokens.
 
-        Non-DCR OAuth clients still get rotation per the default setting.
+        Non-dynamic OAuth clients still get rotation per the default setting.
         """
-        if hasattr(request, "client") and request.client:
-            if getattr(request.client, "is_dcr_client", False):
-                return False
+        if self._is_dynamic_client(request):
+            return False
         return oauth2_settings.ROTATE_REFRESH_TOKEN
 
     def _get_token_expires_in(self, request) -> int:
         """
         Returns access token expiry in seconds.
-        DCR (MCP) clients get extended TTL since they don't reliably refresh.
+        Dynamically registered (DCR/CIMD) clients get extended TTL since they
+        don't reliably refresh.
         """
-        if hasattr(request, "client") and request.client:
-            if getattr(request.client, "is_dcr_client", False):
-                return 60 * 60 * 24 * 7  # 7 days
+        if self._is_dynamic_client(request):
+            return 60 * 60 * 24 * 7  # 7 days
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 
     def save_bearer_token(self, token, request, *args, **kwargs):
@@ -148,7 +284,22 @@ class OAuthValidator(OAuth2Validator):
         Sets token["expires_in"] before calling parent, which uses this value
         when calculating the actual expiry datetime stored in the database.
         """
-        token["expires_in"] = self._get_token_expires_in(request)
+        expires_in = self._get_token_expires_in(request)
+        token["expires_in"] = expires_in
+        skip_refresh = self._should_skip_refresh_token(request)
+        if skip_refresh:
+            # Dropping the key short-circuits DOT's refresh-token branch so no
+            # OAuthRefreshToken is created and none is returned in the response.
+            token.pop("refresh_token", None)
+        client_id = getattr(request.client, "client_id", None) if hasattr(request, "client") else None
+        logger.info(
+            "oauth_save_bearer_token",
+            client_id_prefix=str(client_id)[:8] if client_id else "unknown",
+            is_dcr_client=expires_in != oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
+            expires_in=expires_in,
+            refresh_token_suppressed=skip_refresh,
+            grant_type=getattr(request, "grant_type", "unknown"),
+        )
         return super().save_bearer_token(token, request, *args, **kwargs)
 
     def get_additional_claims(self, request):
@@ -258,7 +409,9 @@ class OAuthValidator(OAuth2Validator):
             except OAuthGrant.DoesNotExist:
                 pass
 
-        if scoped_teams is None or scoped_organizations is None:
+        # Only raise when we have no scope information at all. A token scoped to just
+        # teams or just organizations is valid — we treat `None` and `[]` as equivalent.
+        if scoped_teams is None and scoped_organizations is None:
             raise OAuthToolkitError("Unable to find scoped_teams or scoped_organizations")
 
         return scoped_teams, scoped_organizations
@@ -291,10 +444,36 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
+        # Rate-limit new CIMD application creation by IP.
+        # Must happen here (not in the OAuthValidator) because the validator
+        # only receives an oauthlib Request which lacks request.META for IP extraction.
+        client_id = request.query_params.get("client_id")
+        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
+            for throttle_cls in CIMD_THROTTLE_CLASSES:
+                throttle = throttle_cls()
+                if not throttle.allow_request(request, view=self):
+                    logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+                    return Response(
+                        {
+                            "error": "invalid_client",
+                            "error_description": "Too many new client registrations. Try again later.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
         try:
             scopes, credentials = self.validate_authorization_request(request)
         except OAuthToolkitError as error:
-            return self.error_response(error, application=None, state=request.query_params.get("state"))
+            # Try to resolve the application so error redirects can use its allowed schemes
+            # (e.g. vscode:// or other custom schemes registered by the client)
+            error_application = None
+            client_id = request.query_params.get("client_id")
+            if client_id:
+                try:
+                    error_application = get_application_by_client_id(client_id)
+                except OAuthApplication.DoesNotExist:
+                    pass
+            return self.error_response(error, application=error_application, state=request.query_params.get("state"))
 
         # Handle login prompt
         if request.query_params.get("prompt") == "login":
@@ -302,9 +481,24 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # Get application and scope details
         try:
-            application = OAuthApplication.objects.get(client_id=credentials["client_id"])
+            application = get_application_by_client_id(credentials["client_id"])
         except OAuthApplication.DoesNotExist:
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Track OAuth authorization attempts with the authenticated user
+        registration_type = "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_authorization_requested",
+            properties={
+                "client_name": application.name,
+                "app_id": str(application.pk),
+                "registration_type": registration_type,
+                "is_verified": application.is_verified,
+                "is_first_party": application.is_first_party,
+                **({"cimd_url": application.cimd_metadata_url} if application.is_cimd_client else {}),
+            },
+        )
 
         # First-party apps skip consent screen entirely
         if application.is_first_party:
@@ -342,7 +536,18 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        return render_template("index.html", request)
+        return render_template(
+            "index.html",
+            request,
+            context={
+                "oauth_application": {
+                    "name": application.name,
+                    "client_id": application.client_id,
+                    "is_verified": application.is_verified,
+                    "logo_uri": application.logo_uri,
+                }
+            },
+        )
 
     def post(self, request, *args, **kwargs):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
@@ -353,7 +558,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
+            application = get_application_by_client_id(serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
             logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
@@ -427,7 +632,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     },
                     status=status.HTTP_200_OK,
                 )
-            return self.redirect(error_response["url"], application)
+            try:
+                return self.redirect(error_response["url"], application)
+            except DisallowedRedirect:
+                logger.warning(
+                    "oauth_disallowed_redirect_scheme",
+                    redirect_url=error_response["url"],
+                )
+                # Fall through to JSON error response below
 
         return Response(
             {
@@ -465,7 +677,44 @@ class OAuthTokenView(TokenView):
                     status=400,
                 )
 
-        response = super().post(request, *args, **kwargs)
+        grant_type = request.POST.get("grant_type", "unknown")
+        client_id = request.POST.get("client_id", "")
+        client_id_prefix = client_id[:8] if client_id else "unknown"
+        redirect_uri = request.POST.get("redirect_uri", "")
+        logger.info(
+            "oauth_token_request",
+            grant_type=grant_type,
+            client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
+        )
+
+        try:
+            response = super().post(request, *args, **kwargs)
+        except OAuthAccessToken.DoesNotExist:
+            # django-oauth-toolkit's token response path re-reads the access token it
+            # just issued; concurrent requests racing on the same authorization code
+            # can surface this as DoesNotExist. Map to the standard 400 invalid_grant.
+            logger.warning(
+                "oauth_token_access_token_missing",
+                grant_type=grant_type,
+                client_id_prefix=client_id_prefix,
+                redirect_uri=redirect_uri,
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Authorization code is invalid or has already been used",
+                },
+                status=400,
+            )
+
+        logger.info(
+            "oauth_token_response",
+            grant_type=grant_type,
+            client_id_prefix=client_id_prefix,
+            redirect_uri=redirect_uri,
+            status=response.status_code,
+        )
 
         if response.status_code == 200:
             try:
@@ -476,6 +725,9 @@ class OAuthTokenView(TokenView):
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
                     response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
+
+                    if region_info := get_region_info():
+                        response_data.update(region_info)
                     return JsonResponse(response_data)
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
                 logger.warning(f"Error adding scoped fields to token response: {e}")
@@ -671,15 +923,10 @@ class OAuthAuthorizationServerMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request, *args, **kwargs):
-        from posthog.scopes import get_scope_descriptions
-
         # Build base URL from request
         base_url = request.build_absolute_uri("/").rstrip("/")
 
-        # Get all available scopes
-        oidc_scopes = ["openid", "profile", "email"]
-        resource_scopes = list(get_scope_descriptions().keys())
-        all_scopes = oidc_scopes + resource_scopes
+        all_scopes = get_oauth_scopes_supported()
 
         metadata = {
             # Required by RFC 8414
@@ -702,6 +949,11 @@ class OAuthAuthorizationServerMetadataView(APIView):
             "code_challenge_methods_supported": ["S256"],
             # Service documentation
             "service_documentation": "https://posthog.com/docs/api",
+            # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
+            "client_id_metadata_document_supported": True,
         }
+
+        if region_info := get_region_info():
+            metadata.update(region_info)
 
         return JsonResponse(metadata)

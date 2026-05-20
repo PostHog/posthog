@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/posthog/posthog/livestream/configs"
@@ -17,7 +18,9 @@ func channelName(token string) string {
 }
 
 type RedisEventBroker struct {
-	client rueidis.Client
+	client     rueidis.Client
+	publishCh  chan PostHogEvent
+	numWorkers int
 }
 
 func NewRedisEventBroker(cfg configs.RedisConfig) (*RedisEventBroker, error) {
@@ -25,18 +28,58 @@ func NewRedisEventBroker(cfg configs.RedisConfig) (*RedisEventBroker, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RedisEventBroker{client: client}, nil
+	return &RedisEventBroker{
+		client:     client,
+		publishCh:  make(chan PostHogEvent, cfg.PublishBufferSize),
+		numWorkers: cfg.PublishWorkers,
+	}, nil
 }
 
-func NewRedisEventBrokerFromClient(client rueidis.Client) *RedisEventBroker {
-	return &RedisEventBroker{client: client}
+func NewRedisEventBrokerFromClient(client rueidis.Client, bufferSize, numWorkers int) *RedisEventBroker {
+	return &RedisEventBroker{
+		client:     client,
+		publishCh:  make(chan PostHogEvent, bufferSize),
+		numWorkers: numWorkers,
+	}
 }
 
+// Publish enqueues an event for async publishing to Redis. Non-blocking, drops and emits a metric if buffer is full.
 func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 	if event.Token == "" {
 		return
 	}
+	select {
+	case b.publishCh <- event:
+	default:
+		metrics.RedisPublishDropsTotal.Inc()
+	}
+}
 
+// Run starts the publish worker pool and blocks until ctx is cancelled.
+func (b *RedisEventBroker) Run(ctx context.Context) {
+	var wg sync.WaitGroup
+	for i := 0; i < b.numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			b.publishWorker(ctx)
+		}()
+	}
+	wg.Wait()
+}
+
+func (b *RedisEventBroker) publishWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-b.publishCh:
+			b.doPublish(ctx, event)
+		}
+	}
+}
+
+func (b *RedisEventBroker) doPublish(ctx context.Context, event PostHogEvent) {
 	data, err := event.MarshalJSON()
 	if err != nil {
 		log.Printf("redis publish: marshal error: %v", err)
@@ -45,12 +88,19 @@ func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 	}
 
 	if err := b.client.Do(ctx, b.client.B().Spublish().Channel(channelName(event.Token)).Message(string(data)).Build()).Error(); err != nil {
-		log.Printf("redis publish failed for distinct id %s", event.DistinctId)
-		metrics.RedisPublishErrorsTotal.Inc()
+		if ctx.Err() == nil {
+			log.Printf("redis publish failed for distinct id %s", event.DistinctId)
+			metrics.RedisPublishErrorsTotal.Inc()
+		}
 		return
 	}
 
 	metrics.RedisPublishTotal.Inc()
+}
+
+// BufferRatio returns the fraction of the publish buffer currently in use.
+func (b *RedisEventBroker) BufferRatio() float64 {
+	return float64(len(b.publishCh)) / float64(cap(b.publishCh))
 }
 
 func (b *RedisEventBroker) Close() {

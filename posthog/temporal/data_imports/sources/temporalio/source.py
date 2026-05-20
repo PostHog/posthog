@@ -31,7 +31,12 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
         return ExternalDataSourceType.TEMPORALIO
 
     def get_schemas(
-        self, config: TemporalIOSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: TemporalIOSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -78,10 +83,20 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="host", label="Host", type=SourceFieldInputConfigType.TEXT, required=True, placeholder=""
+                        name="host",
+                        label="Host",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
-                        name="port", label="Port", type=SourceFieldInputConfigType.TEXT, required=True, placeholder=""
+                        name="port",
+                        label="Port",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="namespace",
@@ -89,13 +104,15 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="encryption_key",
                         label="Encryption key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="server_client_root_ca",
@@ -103,6 +120,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_certificate",
@@ -110,6 +128,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="client_private_key",
@@ -117,6 +136,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                 ],
             ),

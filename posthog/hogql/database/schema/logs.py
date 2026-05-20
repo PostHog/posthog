@@ -43,7 +43,7 @@ class LogsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "logs"
+        return "logs_distributed"
 
     def to_printed_hogql(self):
         return "logs"
@@ -63,7 +63,7 @@ class LogAttributesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "log_attributes"
+        return "log_attributes_distributed"
 
     def to_printed_hogql(self):
         return "log_attributes"
@@ -84,7 +84,7 @@ class LogsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
     }
 
     def to_printed_clickhouse(self, context):
-        return "logs_kafka_metrics"
+        return "logs_kafka_metrics_distributed"
 
     def to_printed_hogql(self):
         return "logs_kafka_metrics"

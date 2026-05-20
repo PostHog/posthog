@@ -20,7 +20,7 @@
  * - Permanent failures (validation, permission) - should not retry
  */
 import { newPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { isDlqResult, isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
 
@@ -70,7 +70,7 @@ describe('Retry Basics', () => {
             .retry((builder) => builder.pipe(createFlakyStep()), { tries: 5, sleepMs: 100 })
             .build()
 
-        const resultPromise = pipeline.process(createContext(ok({ value: 'hello' })))
+        const resultPromise = pipeline.process(createOkContext({ value: 'hello' }, {}))
         await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for two retries (exponential backoff)
         const result = await resultPromise
 
@@ -115,7 +115,7 @@ describe('Retry Basics', () => {
             .retry((builder) => builder.pipe(createStep1()).pipe(createStep2()), { tries: 5, sleepMs: 100 })
             .build()
 
-        const resultPromise = pipeline.process(createContext(ok({ value: 'data' })))
+        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
         await jest.advanceTimersByTimeAsync(300)
         await resultPromise
 
@@ -150,7 +150,7 @@ describe('Retry Basics', () => {
             .build()
 
         // No timer advancement needed - non-retriable errors don't wait
-        const result = await pipeline.process(createContext(ok({ data: 'bad-data' })))
+        const result = await pipeline.process(createOkContext({ data: 'bad-data' }, {}))
 
         expect(attempts).toBe(1) // Only tried once
         expect(isDlqResult(result.result)).toBe(true)
@@ -188,7 +188,7 @@ describe('Retry Basics', () => {
             .retry((builder) => builder.pipe(createSlowlyRecoveringStep()), { tries: 5, sleepMs: 100 })
             .build()
 
-        const resultPromise = pipeline.process(createContext(ok({ value: 'data' })))
+        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
 
         // First attempt happens immediately
         await jest.advanceTimersByTimeAsync(0)
@@ -237,7 +237,7 @@ describe('Retry Basics', () => {
             .retry((builder) => builder.pipe(createAlwaysFailsStep()), { tries: 3, sleepMs: 100 })
             .build()
 
-        const resultPromise = pipeline.process(createContext(ok({ value: 'data' }))).catch((e) => {
+        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {})).catch((e) => {
             caughtError = e
         })
         await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for retries
@@ -274,7 +274,7 @@ describe('Retry Basics', () => {
             .build()
 
         // Errors without isRetriable are retried but then rethrown (not sent to DLQ)
-        const resultPromise = pipeline.process(createContext(ok({ value: 'data' }))).catch((e) => {
+        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {})).catch((e) => {
             caughtError = e
         })
         await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for retries
@@ -320,7 +320,7 @@ describe('Retry Configuration', () => {
             .retry((builder) => builder.pipe(createAlwaysFailsStep()), { tries: 2, sleepMs: 100 })
             .build()
 
-        const resultPromise = pipeline.process(createContext(ok({ value: 'data' }))).catch(() => {
+        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {})).catch(() => {
             // Expected to throw after max retries
         })
         await jest.advanceTimersByTimeAsync(100) // One retry (100ms between attempts)
@@ -358,7 +358,7 @@ describe('Retry Configuration', () => {
             .retry((builder) => builder.pipe(createSlowlyRecoveringStep()), { tries: 5, sleepMs: 50 })
             .build()
 
-        const resultPromise = pipeline.process(createContext(ok({ value: 'data' })))
+        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
 
         // First attempt happens immediately
         await jest.advanceTimersByTimeAsync(0)
@@ -407,7 +407,7 @@ describe('Retry Configuration', () => {
             .retry((builder) => builder.pipe(createFlakyStep()))
             .build()
 
-        const resultPromise = pipeline.process(createContext(ok({ value: 'data' })))
+        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
         await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for two retries (default sleepMs is 100)
         const result = await resultPromise
 

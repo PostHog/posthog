@@ -1,8 +1,44 @@
+from types import SimpleNamespace
+from typing import Any
+
 from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models import Action, Cohort
 from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
+from posthog.models.resource_transfer.visitors.experiment import ExperimentVisitor
+from posthog.models.resource_transfer.visitors.experiment_holdout import ExperimentHoldoutVisitor
+from posthog.models.resource_transfer.visitors.experiment_payload import (
+    collect_cohort_and_action_ids_from_experiment_json,
+)
+from posthog.models.resource_transfer.visitors.experiment_saved_metric import ExperimentSavedMetricVisitor
+from posthog.models.resource_transfer.visitors.feature_flag import FeatureFlagVisitor
+from posthog.models.resource_transfer.visitors.feature_flag_filters import (
+    collect_action_ids_from_flag_filters,
+    collect_cohort_ids_from_flag_filters,
+    get_holdout_id_from_flag_filters,
+)
+from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
+
+from products.experiments.backend.models.experiment import ExperimentHoldout
+
+
+def _experiment_like_resource(**overrides):
+    base: dict[str, Any] = {
+        "filters": {},
+        "parameters": {},
+        "metrics": [],
+        "metrics_secondary": [],
+        "exposure_criteria": {},
+        "stats_config": {},
+        "scheduling_config": {},
+        "variants": {},
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
 
 
 class TestExtractActionIds(BaseTest):
@@ -1025,3 +1061,286 @@ class TestCohortRewriteActionIdInFilters(BaseTest):
     )
     def test_rewrite_action_id_in_filters(self, _name: str, filters, old_pk, new_pk, expected) -> None:
         assert CohortVisitor._rewrite_action_id_in_filters(filters, old_pk, new_pk) == expected
+
+
+class TestFeatureFlagFilterDynamicEdgeExtraction(SimpleTestCase):
+    """Unit tests for cohort / action / holdout IDs embedded in feature flag ``filters`` JSON."""
+
+    @parameterized.expand(
+        [
+            (
+                "groups_cohort_property",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "id", "value": 10, "type": "cohort"},
+                            ]
+                        }
+                    ]
+                },
+                {10},
+            ),
+            (
+                "super_groups_and_groups_deduped",
+                {
+                    "groups": [
+                        {"properties": [{"key": "id", "value": 1, "type": "cohort"}]},
+                    ],
+                    "super_groups": [
+                        {
+                            "properties": [
+                                {"key": "id", "value": 1, "type": "cohort"},
+                                {"key": "id", "value": 2, "type": "cohort"},
+                            ]
+                        },
+                    ],
+                },
+                {1, 2},
+            ),
+            ("empty", {}, set()),
+            ("none", None, set()),
+        ]
+    )
+    def test_collect_cohort_ids_from_flag_filters(self, _name: str, filters, expected: set[int]) -> None:
+        assert collect_cohort_ids_from_flag_filters(filters) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "behavioral_action_in_group",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": 404,
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "actions",
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {404},
+            ),
+            (
+                "groups_and_super_groups",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": 1,
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "actions",
+                                }
+                            ]
+                        }
+                    ],
+                    "super_groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": 2,
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "actions",
+                                }
+                            ]
+                        }
+                    ],
+                },
+                {1, 2},
+            ),
+        ]
+    )
+    def test_collect_action_ids_from_flag_filters(self, _name: str, filters, expected: set[int]) -> None:
+        assert collect_action_ids_from_flag_filters(filters) == expected
+
+    @parameterized.expand(
+        [
+            ("with_holdout", {"holdout": {"id": 99, "exclusion_percentage": 10}}, 99),
+            ("no_holdout", {"groups": []}, None),
+            ("holdout_missing_id", {"holdout": {}}, None),
+        ]
+    )
+    def test_get_holdout_id_from_flag_filters(self, _name: str, filters, expected: int | None) -> None:
+        assert get_holdout_id_from_flag_filters(filters) == expected
+
+
+class TestFeatureFlagVisitorDynamicEdges(SimpleTestCase):
+    def test_dynamic_edges_include_cohort_action_and_holdout(self) -> None:
+        flag = SimpleNamespace(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "id", "value": 7, "type": "cohort"},
+                            {
+                                "key": 11,
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "actions",
+                            },
+                        ]
+                    }
+                ],
+                "holdout": {"id": 3, "exclusion_percentage": 5},
+            }
+        )
+        edges = FeatureFlagVisitor.get_dynamic_edges(flag)
+
+        by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
+        assert (Cohort, 7) in by_model_pk
+        assert (Action, 11) in by_model_pk
+        assert (ExperimentHoldout, 3) in by_model_pk
+
+        names = {e.name for e in edges}
+        assert "cohort:7" in names
+        assert "action:11" in names
+        assert "holdout:3" in names
+
+
+class TestExperimentPayloadDynamicEdgeExtraction(SimpleTestCase):
+    def test_collect_ids_from_nested_metrics_with_query(self) -> None:
+        resource = _experiment_like_resource(
+            metrics=[
+                {
+                    "uuid": "m1",
+                    "query": {
+                        "source": {
+                            "series": [{"kind": "ActionsNode", "id": 501}],
+                            "properties": [{"key": "id", "value": 600, "type": "cohort"}],
+                        }
+                    },
+                }
+            ],
+        )
+        cohort_ids, action_ids = collect_cohort_and_action_ids_from_experiment_json(resource)
+        assert cohort_ids == {600}
+        assert action_ids == {501}
+
+    def test_collect_ids_from_filters_and_parameters_keys(self) -> None:
+        # Top-level experiment ``filters`` often mirrors insight shapes nested under keys;
+        # the walker picks up cohorts when it sees a dict with a ``filters`` key.
+        resource = _experiment_like_resource(
+            filters={
+                "nested": {
+                    "filters": {"properties": [{"key": "id", "value": 111, "type": "cohort"}]},
+                }
+            },
+            parameters={
+                "query": {
+                    "source": {
+                        "series": [{"kind": "ActionsNode", "id": 222}],
+                    }
+                }
+            },
+        )
+        cohort_ids, action_ids = collect_cohort_and_action_ids_from_experiment_json(resource)
+        assert 111 in cohort_ids
+        assert 222 in action_ids
+
+
+class TestExperimentVisitorDynamicEdges(SimpleTestCase):
+    def test_dynamic_edges_match_experiment_json_extraction(self) -> None:
+        exp = _experiment_like_resource(
+            metrics=[
+                {
+                    "query": {
+                        "source": {
+                            "series": [{"kind": "ActionsNode", "id": 777}],
+                        }
+                    }
+                }
+            ],
+        )
+        edges = ExperimentVisitor.get_dynamic_edges(exp)
+        by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
+        assert (Action, 777) in by_model_pk
+        assert any(e.name == "json_action:777" for e in edges)
+
+
+class TestExperimentHoldoutVisitorDynamicEdges(SimpleTestCase):
+    def test_dynamic_edges_from_filters_list_properties(self) -> None:
+        holdout = SimpleNamespace(
+            filters=[
+                {
+                    "properties": [
+                        {"key": "id", "value": 55, "type": "cohort"},
+                    ]
+                }
+            ]
+        )
+        edges = ExperimentHoldoutVisitor.get_dynamic_edges(holdout)
+        assert len(edges) == 1
+        assert edges[0].target_model is Cohort
+        assert edges[0].target_primary_key == 55
+        assert edges[0].name == "cohort:55"
+
+
+class TestExperimentSavedMetricVisitorDynamicEdges(SimpleTestCase):
+    def test_dynamic_edges_from_query_uses_insight_extraction(self) -> None:
+        metric = SimpleNamespace(
+            query={
+                "source": {
+                    "series": [{"kind": "ActionsNode", "id": 888}],
+                    "properties": [{"key": "id", "value": 999, "type": "cohort"}],
+                }
+            }
+        )
+        edges = ExperimentSavedMetricVisitor.get_dynamic_edges(metric)
+        by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
+        assert (Action, 888) in by_model_pk
+        assert (Cohort, 999) in by_model_pk
+
+    def test_non_dict_query_returns_no_edges(self) -> None:
+        metric = SimpleNamespace(query=None)
+        assert ExperimentSavedMetricVisitor.get_dynamic_edges(metric) == []
+
+        metric_list = SimpleNamespace(query=[])
+        assert ExperimentSavedMetricVisitor.get_dynamic_edges(metric_list) == []
+
+
+class TestSurveyVisitorConditionsCohorts(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "properties_with_cohort",
+                {"properties": [{"key": "id", "value": 7, "type": "cohort"}]},
+                {7},
+            ),
+            (
+                "no_properties",
+                {"url": "/pricing"},
+                set(),
+            ),
+            (
+                "empty_conditions",
+                None,
+                set(),
+            ),
+        ]
+    )
+    def test_extract_cohort_ids_from_conditions(self, _name: str, conditions, expected: set[int]) -> None:
+        assert SurveyVisitor._extract_cohort_ids_from_conditions(conditions) == expected
+
+    def test_rewrite_cohort_in_payload_updates_conditions_properties(self) -> None:
+        payload = {
+            "conditions": {
+                "properties": [{"key": "id", "value": 1, "type": "cohort"}],
+                "url": "/x",
+            }
+        }
+        result = SurveyVisitor._rewrite_cohort_in_payload(payload, 1, 2)
+        assert result["conditions"]["properties"][0]["value"] == 2
+        assert result["conditions"]["url"] == "/x"
+
+    def test_adjust_duplicate_payload_strips_linked_flag_variant(self) -> None:
+        payload = {"conditions": {"linkedFlagVariant": "control", "url": "/a"}}
+        adjusted = SurveyVisitor.adjust_duplicate_payload(payload, None, None)
+        assert "linkedFlagVariant" not in adjusted["conditions"]
+        assert adjusted["conditions"]["url"] == "/a"

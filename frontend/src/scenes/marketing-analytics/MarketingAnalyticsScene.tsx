@@ -2,15 +2,17 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { QueryTile } from 'scenes/web-analytics/common'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
+import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -18,9 +20,14 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
-import { marketingAnalyticsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
+import {
+    MarketingAnalyticsTab,
+    marketingAnalyticsLogic,
+} from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -70,10 +77,10 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
-    const { loadSources } = useActions(externalDataSourcesLogic)
+    const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
-    const { showOnboarding } = useValues(marketingOnboardingLogic)
+    const { showOnboarding, currentStep } = useValues(marketingOnboardingLogic)
     const { completeOnboarding, resetOnboarding } = useActions(marketingOnboardingLogic)
 
     // Reload sources on every navigation to this scene so newly configured
@@ -82,12 +89,19 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         loadSources()
     }, [loadSources])
 
-    // Auto-complete onboarding if user already has sources and conversion goals configured
+    // Auto-complete onboarding if user already has sources and conversion goals configured,
+    // but only when not actively on the conversion-goals step (let the user click "Continue")
     useEffect(() => {
-        if (!loading && hasSources && conversion_goals.length > 0 && showOnboarding) {
+        if (
+            !loading &&
+            hasSources &&
+            conversion_goals.length > 0 &&
+            showOnboarding &&
+            currentStep !== 'conversion-goals'
+        ) {
             completeOnboarding()
         }
-    }, [loading, hasSources, conversion_goals, showOnboarding, completeOnboarding])
+    }, [loading, hasSources, conversion_goals, showOnboarding, currentStep, completeOnboarding])
 
     // Reset onboarding if user truly has no configured sources (handles session/project changes).
     // Uses hasNoConfiguredSources which guards against premature evaluation while tables are loading.
@@ -98,7 +112,11 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     }, [loading, hasSources, showOnboarding, resetOnboarding]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const feedbackBanner = (
-        <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
+        <LemonBanner
+            type="info"
+            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+            className="mt-4"
+        >
             Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
             directly to us!
         </LemonBanner>
@@ -149,20 +167,93 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     )
 }
 
+const MarketingAnalyticsContent = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { activeTab } = useValues(marketingAnalyticsLogic)
+    const { setActiveTab } = useActions(marketingAnalyticsLogic)
+
+    const showIntegrationHealth = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+
+    return (
+        <>
+            {showIntegrationHealth ? (
+                <LemonTabs
+                    activeKey={activeTab}
+                    onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
+                    tabs={[
+                        {
+                            key: MarketingAnalyticsTab.DASHBOARD,
+                            label: 'Dashboard',
+                            content: (
+                                <>
+                                    <MarketingAnalyticsFilters tabs={<></>} />
+                                    <MarketingAnalyticsDashboard />
+                                </>
+                            ),
+                        },
+                        {
+                            key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                            label: 'Integration health',
+                            content: <UtmAuditTab />,
+                        },
+                    ]}
+                />
+            ) : (
+                <>
+                    <MarketingAnalyticsFilters tabs={<></>} />
+                    <MarketingAnalyticsDashboard />
+                </>
+            )}
+        </>
+    )
+}
+
+const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.DASHBOARD]:
+        'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
+    [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
+        'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
+}
+
 export function MarketingAnalyticsScene(): JSX.Element {
+    const { activeTab } = useValues(marketingAnalyticsLogic)
+
     return (
         <BindLogic logic={marketingAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <SceneContent className="MarketingAnalyticsDashboard">
                     <SceneTitleSection
                         name={sceneConfigurations[Scene.MarketingAnalytics]?.name || 'Marketing analytics'}
-                        description={sceneConfigurations[Scene.MarketingAnalytics]?.description}
+                        description={
+                            TAB_DESCRIPTIONS[activeTab] || sceneConfigurations[Scene.MarketingAnalytics]?.description
+                        }
                         resourceType={{
                             type: sceneConfigurations[Scene.MarketingAnalytics]?.iconType || 'marketing_analytics',
                         }}
+                        actions={
+                            <>
+                                <LemonButton
+                                    to="https://posthog.com/docs/web-analytics/marketing-analytics"
+                                    type="secondary"
+                                    targetBlank
+                                    size="small"
+                                    data-attr="marketing-analytics-docs-button"
+                                >
+                                    Documentation
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconGear />}
+                                    to={urls.settings('environment-marketing-analytics', 'marketing-settings')}
+                                    data-attr="marketing-analytics-settings-button"
+                                >
+                                    Settings
+                                </LemonButton>
+                            </>
+                        }
                     />
-                    <MarketingAnalyticsFilters tabs={<></>} />
-                    <MarketingAnalyticsDashboard />
+                    <MarketingAnalyticsContent />
                 </SceneContent>
             </BindLogic>
         </BindLogic>

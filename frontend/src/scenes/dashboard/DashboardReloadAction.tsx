@@ -14,6 +14,7 @@ import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -31,6 +32,34 @@ export const LastRefreshText = (): JSX.Element => {
     )
 }
 
+/** Loading / progress / pessimistic last refresh — same as the left side of `DashboardReloadAction`, without refresh controls. */
+export function DashboardRefreshStatusText(): JSX.Element {
+    const { itemsLoading, refreshMetrics, dashboardLoadData, isAnalyzing } = useValues(dashboardLogic)
+    const isInitialLoad =
+        dashboardLoadData?.action === 'initial_load' || dashboardLoadData?.action === 'initial_load_with_variables'
+    return (
+        <span className="text-muted text-sm whitespace-nowrap">
+            {itemsLoading ? (
+                <span className="flex items-center gap-1">
+                    <Spinner textColored className="text-sm" />
+                    {isAnalyzing ? (
+                        <>Analyzing...</>
+                    ) : refreshMetrics.total ? (
+                        <>
+                            {isInitialLoad ? 'Loaded' : 'Refreshed'} {refreshMetrics.completed} out of{' '}
+                            {refreshMetrics.total}
+                        </>
+                    ) : (
+                        <>{isInitialLoad ? 'Loading' : 'Refreshing'}...</>
+                    )}
+                </span>
+            ) : (
+                <LastRefreshText />
+            )}
+        </span>
+    )
+}
+
 const REFRESH_INTERVAL_SECONDS = [1800, 3600]
 if (process.env.NODE_ENV === 'development') {
     REFRESH_INTERVAL_SECONDS.unshift(10)
@@ -44,14 +73,11 @@ export function DashboardReloadAction(): JSX.Element {
     const {
         itemsLoading,
         autoRefresh,
-        refreshMetrics,
         blockRefresh,
         nextAllowedDashboardRefresh,
-        dashboardLoadData,
         hasIntermittentFilters,
         hasUrlFilters,
         urlVariables,
-        isAnalyzing,
     } = useValues(dashboardLogic)
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
         useActions(dashboardLogic)
@@ -91,32 +117,8 @@ export function DashboardReloadAction(): JSX.Element {
     })
 
     return (
-        <div className="relative flex items-center gap-2">
-            {/* Status text */}
-            <span className="text-muted text-sm whitespace-nowrap">
-                {itemsLoading ? (
-                    <span className="flex items-center gap-1">
-                        <Spinner textColored className="text-sm" />
-                        {isAnalyzing ? (
-                            <>Analyzing...</>
-                        ) : refreshMetrics.total > 0 && refreshMetrics.completed < refreshMetrics.total ? (
-                            <>
-                                {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
-                                {refreshMetrics.completed} out of {refreshMetrics.total}
-                            </>
-                        ) : refreshMetrics.total ? (
-                            <>
-                                {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
-                                {refreshMetrics.completed} out of {refreshMetrics.total}
-                            </>
-                        ) : (
-                            <>{dashboardLoadData?.action === 'initial_load' ? 'Loading' : 'Refreshing'}...</>
-                        )}
-                    </span>
-                ) : (
-                    <LastRefreshText />
-                )}
-            </span>
+        <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
+            <DashboardRefreshStatusText />
 
             <AppShortcut
                 name="DashboardRefresh"
@@ -197,7 +199,10 @@ export function DashboardReloadAction(): JSX.Element {
                     {!itemsLoading && dashboardAIRefreshEnabled && (
                         <Tooltip title="Refresh and analyze with AI">
                             <button
-                                className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full bg-bg-light border border-border cursor-pointer p-0 hover:[&>svg]:animate-hue-rotate"
+                                className={cn(
+                                    'absolute z-10 flex items-center justify-center w-5 h-5 rounded-full bg-bg-light border border-border cursor-pointer p-0 hover:[&>svg]:animate-hue-rotate',
+                                    autoRefresh.enabled ? '-bottom-2 -right-2' : '-top-2 -right-2'
+                                )}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     triggerDashboardRefresh({ withAnalysis: true })

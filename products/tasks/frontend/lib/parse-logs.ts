@@ -1,6 +1,11 @@
-export type LogEntryType = 'console' | 'agent' | 'tool' | 'user' | 'raw' | 'system'
+export type LogEntryType = 'console' | 'agent' | 'tool' | 'user' | 'raw' | 'system' | 'thinking'
 export type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 export type ToolStatus = 'pending' | 'running' | 'completed' | 'error'
+
+export interface LogEntryAttachment {
+    id: string
+    label: string
+}
 
 export interface LogEntry {
     id: string
@@ -8,6 +13,7 @@ export interface LogEntry {
     timestamp?: string
     level?: LogLevel
     message?: string
+    attachments?: LogEntryAttachment[]
     toolName?: string
     toolCallId?: string
     toolStatus?: ToolStatus
@@ -28,6 +34,35 @@ function normalizeLevel(level?: string): LogLevel {
         return lower as LogLevel
     }
     return 'info'
+}
+
+/**
+ * ACP serializes arrays/strings in rawOutput as index-keyed objects:
+ *   "hello" → {"0":"h","1":"e","2":"l","3":"l","4":"o"}
+ *   [{type:"text"}] → {"0":{type:"text"}}
+ * Detect and reconstruct the original value.
+ */
+function normalizeRawOutput(value: unknown): unknown {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return value
+    }
+    const obj = value as Record<string, unknown>
+    if (!('0' in obj)) {
+        return value
+    }
+    // Reconstruct array from sequential numeric keys
+    const arr: unknown[] = []
+    for (let i = 0; String(i) in obj; i++) {
+        arr.push(obj[String(i)])
+    }
+    if (arr.length === 0) {
+        return value
+    }
+    // If every element is a single character, it was a string
+    if (arr.every((v) => typeof v === 'string' && v.length === 1)) {
+        return arr.join('')
+    }
+    return arr
 }
 
 function normalizeToolStatus(status?: string | null): ToolStatus {
@@ -57,6 +92,23 @@ interface ACPNotification {
     }
 }
 
+interface SessionPromptParams {
+    prompt?: PromptBlock[]
+}
+
+interface PromptTextBlock {
+    type: 'text'
+    text?: string
+}
+
+interface PromptResourceLinkBlock {
+    type: 'resource_link'
+    uri?: string
+    name?: string
+}
+
+type PromptBlock = PromptTextBlock | PromptResourceLinkBlock | { type: string; [key: string]: unknown }
+
 interface SessionUpdateParams {
     sessionId?: string
     update?: {
@@ -81,7 +133,69 @@ function isACPNotification(parsed: unknown): parsed is ACPNotification {
     )
 }
 
-function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<string, LogEntry>): LogEntry | null {
+function getAttachmentLabel(block: PromptResourceLinkBlock): string | null {
+    if (block.name?.trim()) {
+        return block.name.trim()
+    }
+
+    if (!block.uri) {
+        return null
+    }
+
+    try {
+        const pathname = new URL(block.uri).pathname
+        const segments = pathname.split('/').filter(Boolean)
+        return segments.at(-1) ?? block.uri
+    } catch {
+        const segments = block.uri.split('/').filter(Boolean)
+        return segments.at(-1) ?? block.uri
+    }
+}
+
+function isPromptTextBlock(block: PromptBlock): block is PromptTextBlock {
+    return block.type === 'text'
+}
+
+function isPromptResourceLinkBlock(block: PromptBlock): block is PromptResourceLinkBlock {
+    return block.type === 'resource_link'
+}
+
+function parsePromptBlocks(prompt: PromptBlock[], id: string): Pick<LogEntry, 'message' | 'attachments'> | null {
+    const textParts: string[] = []
+    const attachments: LogEntryAttachment[] = []
+
+    prompt.forEach((block, index) => {
+        if (isPromptTextBlock(block) && block.text) {
+            textParts.push(block.text)
+        }
+
+        if (isPromptResourceLinkBlock(block)) {
+            const label = getAttachmentLabel(block)
+            if (label) {
+                attachments.push({
+                    id: `${id}-attachment-${index}`,
+                    label,
+                })
+            }
+        }
+    })
+
+    if (textParts.length === 0 && attachments.length === 0) {
+        return null
+    }
+
+    return {
+        message: textParts.join(''),
+        attachments: attachments.length > 0 ? attachments : undefined,
+    }
+}
+
+function parseACPNotification(
+    parsed: ACPNotification,
+    id: string,
+    toolMap: Map<string, LogEntry>,
+    onToolEntryUpdated?: (entry: LogEntry) => void
+): LogEntry | null {
     const { notification, timestamp } = parsed
     const method = notification.method
 
@@ -116,10 +230,22 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                 return null
 
             case 'agent_message_chunk':
+            case 'agent_message':
                 if (update.content?.type === 'text' && update.content.text) {
                     return {
                         id,
                         type: 'agent',
+                        timestamp,
+                        message: update.content.text,
+                    }
+                }
+                return null
+
+            case 'agent_thought_chunk':
+                if (update.content?.type === 'text' && update.content.text) {
+                    return {
+                        id,
+                        type: 'thinking',
                         timestamp,
                         message: update.content.text,
                     }
@@ -138,8 +264,9 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     if (update._meta?.claudeCode?.toolResponse !== undefined) {
                         existing.toolResult = update._meta.claudeCode.toolResponse
                     } else if (update.rawOutput !== undefined) {
-                        existing.toolResult = update.rawOutput
+                        existing.toolResult = normalizeRawOutput(update.rawOutput)
                     }
+                    onToolEntryUpdated?.({ ...existing })
                     return null
                 }
                 const entry: LogEntry = {
@@ -149,7 +276,7 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     toolName: update._meta?.claudeCode?.toolName || update.title || 'Unknown Tool',
                     toolCallId,
                     toolStatus: normalizeToolStatus(update.status),
-                    toolArgs: update.rawInput,
+                    toolArgs: update.rawInput && Object.keys(update.rawInput).length > 0 ? update.rawInput : undefined,
                 }
                 toolMap.set(toolCallId, entry)
                 return entry
@@ -161,11 +288,15 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
                     const existing = toolMap.get(toolCallId)
                     if (existing) {
                         existing.toolStatus = normalizeToolStatus(update.status)
+                        if (update.rawInput && Object.keys(update.rawInput).length > 0) {
+                            existing.toolArgs = update.rawInput
+                        }
                         if (update._meta?.claudeCode?.toolResponse !== undefined) {
                             existing.toolResult = update._meta.claudeCode.toolResponse
                         } else if (update.rawOutput !== undefined) {
-                            existing.toolResult = update.rawOutput
+                            existing.toolResult = normalizeRawOutput(update.rawOutput)
                         }
+                        onToolEntryUpdated?.({ ...existing })
                         return null
                     }
                 }
@@ -174,6 +305,26 @@ function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<
 
             default:
                 return null
+        }
+    }
+
+    if (method === 'session/prompt') {
+        const params = notification.params as SessionPromptParams | undefined
+        if (!params?.prompt) {
+            return null
+        }
+
+        const parsedPrompt = parsePromptBlocks(params.prompt, id)
+        if (!parsedPrompt) {
+            return null
+        }
+
+        return {
+            id,
+            type: 'user',
+            timestamp,
+            message: parsedPrompt.message,
+            attachments: parsedPrompt.attachments,
         }
     }
 
@@ -281,13 +432,12 @@ function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry
  */
 export function parseLogEvent(
     event: Record<string, unknown>,
-    index: number,
-    toolMap: Map<string, LogEntry>
+    id: string,
+    toolMap: Map<string, LogEntry>,
+    onToolEntryUpdated?: (entry: LogEntry) => void
 ): LogEntry | null {
-    const id = `stream-${index}`
-
     if (isACPNotification(event)) {
-        return parseACPNotification(event as ACPNotification, id, toolMap)
+        return parseACPNotification(event as ACPNotification, id, toolMap, onToolEntryUpdated)
     }
 
     return parseLogObject(event, id)
@@ -307,7 +457,10 @@ export function parseLogs(logs: string): LogEntry[] {
         const entry = parseLogLine(lines[i], i, toolMap)
         if (entry !== null) {
             const lastEntry = entries[entries.length - 1]
-            if (entry.type === 'agent' && lastEntry?.type === 'agent') {
+            if (
+                (entry.type === 'agent' && lastEntry?.type === 'agent') ||
+                (entry.type === 'thinking' && lastEntry?.type === 'thinking')
+            ) {
                 lastEntry.message = (lastEntry.message || '') + (entry.message || '')
             } else {
                 entries.push(entry)

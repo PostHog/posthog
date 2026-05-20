@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -8,6 +8,7 @@ import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
@@ -40,8 +41,22 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
     connect(() => ({
-        actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
-        values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
+        actions: [
+            sidePanelDiscussionLogic,
+            ['incrementCommentCount', 'scrollToLastComment'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+        ],
+        values: [
+            userLogic,
+            ['user'],
+            sceneLogic,
+            ['activeTab'],
+            membersLogic,
+            ['meFirstMembers'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
     })),
 
     actions({
@@ -49,14 +64,18 @@ export const commentsLogic = kea<commentsLogicType>([
         focusComposer: true,
         clearItemContext: true,
         maybeLoadComments: true,
-        sendComposedContent: true,
+        sendComposedContent: (asTask: boolean = false) => ({ asTask }),
         persistEditedComment: true,
         onRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
         onEditingCommentRichContentEditorUpdate: (isEmpty: boolean) => ({ isEmpty }),
         sendEmojiReaction: (emoji: string, sourceCommentId: string) => ({ emoji, sourceCommentId }),
         deleteComment: (comment: CommentType) => ({ comment }),
+        completeComment: (comment: CommentType) => ({ comment }),
+        reopenComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
+        setSelectedComment: (commentId: string | null) => ({ commentId }),
+        setCommentContexts: (contexts: Record<string, string>) => ({ contexts }),
         setItemContext: (context: Record<string, any> | null, callback?: (event: { sent: boolean }) => void) => ({
             context,
             callback,
@@ -70,6 +89,20 @@ export const commentsLogic = kea<commentsLogicType>([
             {
                 setReplyingComment: (_, { commentId }) => commentId,
                 sendComposedContentSuccess: () => null,
+            },
+        ],
+        selectedCommentId: [
+            null as string | null,
+            {
+                setSelectedComment: (_, { commentId }) => commentId,
+                setReplyingComment: (state, { commentId }) => commentId ?? state,
+                sendComposedContentSuccess: () => null,
+            },
+        ],
+        commentContexts: [
+            {} as Record<string, string>,
+            {
+                setCommentContexts: (_, { contexts }) => contexts,
             },
         ],
         itemContext: [
@@ -132,7 +165,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     return response.results
                 },
-                sendComposedContent: async () => {
+                sendComposedContent: async ({ asTask }) => {
                     const existingComments = values.comments ?? []
 
                     if (values.richContentEditor?.isEmpty()) {
@@ -154,15 +187,22 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const textContent = getTextContent(content, values.meFirstMembers)
 
+                    const composerAnchor = values.itemContext?.context
+                    const isNewAnchoredThread =
+                        composerAnchor && (composerAnchor.type === 'mark' || composerAnchor.type === 'node')
+
+                    const isReply = !isNewAnchoredThread && !!values.replyingCommentId
+
                     const newComment = await api.comments.create({
                         rich_content: content,
                         content: textContent,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
-                        source_comment: values.replyingCommentId ?? undefined,
+                        source_comment: isNewAnchoredThread ? undefined : (values.replyingCommentId ?? undefined),
                         mentions,
                         slug: discussionsSlug(props.scope, props.item_id),
+                        is_task: asTask && !isReply,
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -202,7 +242,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
                 deleteComment: async ({ comment }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/@current/comments`,
+                        endpoint: `projects/${values.currentProjectId}/comments`,
                         object: { name: comment.item_context?.is_emoji ? 'Reaction' : 'Comment', id: comment.id },
                         callback: (isUndo) => {
                             if (isUndo) {
@@ -233,13 +273,27 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     return [...existingComments, newComment]
                 },
+
+                completeComment: async ({ comment }) => {
+                    const updated = await api.comments.complete(comment.id)
+                    const existing = values.comments ?? []
+                    return existing.map((c) => (c.id === updated.id ? updated : c))
+                },
+
+                reopenComment: async ({ comment }) => {
+                    const updated = await api.comments.reopen(comment.id)
+                    const existing = values.comments ?? []
+                    return existing.map((c) => (c.id === updated.id ? updated : c))
+                },
             },
         ],
     })),
 
     listeners(({ values, actions }) => ({
-        setReplyingComment: () => {
-            actions.clearItemContext()
+        setReplyingComment: ({ commentId }) => {
+            if (commentId) {
+                actions.clearItemContext()
+            }
         },
         clearItemContext: () => {
             values.itemContext?.callback?.({ sent: false })
@@ -359,4 +413,8 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.ensureAllMembersLoaded()
+    }),
 ])
