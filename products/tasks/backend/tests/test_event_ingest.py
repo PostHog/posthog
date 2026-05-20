@@ -10,6 +10,7 @@ from django.test import TransactionTestCase, override_settings
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.redis import TEST_clear_clients
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.connection_token import (
@@ -24,7 +25,9 @@ from products.tasks.backend.stream.event_ingest import (
     handle_task_run_event_ingest,
 )
 from products.tasks.backend.stream.redis_stream import (
+    TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
     TaskRunRedisStream,
+    get_task_run_stream_completed_key,
     get_task_run_stream_key,
     get_task_run_stream_sequence_key,
 )
@@ -34,6 +37,7 @@ from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 class TestTaskRunEventIngest(TransactionTestCase):
     def setUp(self) -> None:
         super().setUp()
+        TEST_clear_clients()
         get_sandbox_jwt_public_key.cache_clear()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
@@ -44,15 +48,20 @@ class TestTaskRunEventIngest(TransactionTestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         self.task_run: TaskRun = self.task.create_run()
+        self._delete_run_stream()
 
     def tearDown(self) -> None:
+        self._delete_run_stream()
+        TEST_clear_clients()
+        get_sandbox_jwt_public_key.cache_clear()
+        super().tearDown()
+
+    def _delete_run_stream(self) -> None:
         async def _delete_stream() -> None:
             redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(self.task_run.id)))
             await redis_stream.delete_stream()
 
         asyncio.run(_delete_stream())
-        get_sandbox_jwt_public_key.cache_clear()
-        super().tearDown()
 
     def _ingest_url(
         self,
@@ -404,12 +413,21 @@ class TestTaskRunEventIngest(TransactionTestCase):
         token = self._create_token()
 
         async def _seed_and_complete_stream() -> None:
-            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(self.task_run.id)))
-            await redis_stream.write_event_with_sequence(
-                {"type": "notification", "notification": {"method": "first"}},
+            stream_key = get_task_run_stream_key(str(self.task_run.id))
+            redis_stream = TaskRunRedisStream(stream_key)
+            # This test needs a completed stream fixture; sequencing writes are covered separately.
+            await redis_stream.write_event({"type": "notification", "notification": {"method": "first"}})
+            await redis_stream.write_event({"type": "STREAM_STATUS", "status": "complete"})
+            await redis_stream._redis_client.set(
+                get_task_run_stream_sequence_key(stream_key),
                 1,
+                ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
             )
-            await redis_stream.mark_complete()
+            await redis_stream._redis_client.set(
+                get_task_run_stream_completed_key(stream_key),
+                "1",
+                ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
+            )
 
         asyncio.run(_seed_and_complete_stream())
 

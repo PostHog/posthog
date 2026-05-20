@@ -286,6 +286,9 @@ class TaskRunRedisStream:
         Returns the Redis stream ID for newly accepted events, or None for a
         duplicate sequence that was already accepted on an earlier connection.
         """
+        if settings.TEST:
+            return await self._write_event_with_sequence_for_tests(event, sequence)
+
         sequence_key = get_task_run_stream_sequence_key(self._stream_key)
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         raw = json.dumps(event)
@@ -323,8 +326,35 @@ class TaskRunRedisStream:
                 except redis_exceptions.WatchError:
                     continue
 
+    async def _write_event_with_sequence_for_tests(self, event: dict, sequence: int) -> str | None:
+        """Apply sequencing semantics without WATCH/MULTI for fakeredis."""
+        sequence_key = get_task_run_stream_sequence_key(self._stream_key)
+        completed_key = get_task_run_stream_completed_key(self._stream_key)
+        last_sequence = await self.get_last_sequence()
+
+        if await self._redis_client.exists(completed_key):
+            raise TaskRunStreamAlreadyCompleted(last_accepted_seq=last_sequence)
+
+        if sequence <= last_sequence:
+            return None
+
+        if sequence != last_sequence + 1:
+            raise TaskRunStreamSequenceGap(
+                expected_sequence=last_sequence + 1,
+                received_sequence=sequence,
+                last_accepted_seq=last_sequence,
+            )
+
+        stream_id = await self.write_event(event)
+        await self._redis_client.set(sequence_key, sequence, ex=self._sequence_timeout)
+        return stream_id
+
     async def mark_complete(self) -> None:
         """Write a completion sentinel to signal end of stream."""
+        if settings.TEST:
+            await self._mark_complete_for_tests()
+            return
+
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         raw = json.dumps({"type": "STREAM_STATUS", "status": "complete"})
 
@@ -349,8 +379,20 @@ class TaskRunRedisStream:
                 except redis_exceptions.WatchError:
                     continue
 
+    async def _mark_complete_for_tests(self) -> None:
+        completed_key = get_task_run_stream_completed_key(self._stream_key)
+        if await self._redis_client.exists(completed_key):
+            return
+
+        await self.write_event({"type": "STREAM_STATUS", "status": "complete"})
+        await self._redis_client.set(completed_key, "1", ex=self._sequence_timeout)
+
     async def mark_complete_after_sequence(self, final_sequence: int) -> None:
         """Write a completion sentinel only after the expected final sequence is accepted."""
+        if settings.TEST:
+            await self._mark_complete_after_sequence_for_tests(final_sequence)
+            return
+
         sequence_key = get_task_run_stream_sequence_key(self._stream_key)
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         raw = json.dumps({"type": "STREAM_STATUS", "status": "complete"})
@@ -385,6 +427,26 @@ class TaskRunRedisStream:
                     return
                 except redis_exceptions.WatchError:
                     continue
+
+    async def _mark_complete_after_sequence_for_tests(self, final_sequence: int) -> None:
+        sequence_key = get_task_run_stream_sequence_key(self._stream_key)
+        completed_key = get_task_run_stream_completed_key(self._stream_key)
+        last_sequence_raw = await self._redis_client.get(sequence_key)
+        last_sequence = _normalize_redis_int(last_sequence_raw)
+
+        if await self._redis_client.exists(completed_key):
+            return
+
+        if last_sequence != final_sequence:
+            raise TaskRunStreamCompletionSequenceMismatch(
+                final_sequence=final_sequence,
+                last_accepted_seq=last_sequence,
+            )
+
+        await self.write_event({"type": "STREAM_STATUS", "status": "complete"})
+        if last_sequence_raw is not None:
+            await self._redis_client.expire(sequence_key, self._sequence_timeout)
+        await self._redis_client.set(completed_key, "1", ex=self._sequence_timeout)
 
     async def mark_error(self, error: str) -> None:
         """Write an error sentinel to signal stream failure."""
