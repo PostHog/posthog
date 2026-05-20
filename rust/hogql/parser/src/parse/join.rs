@@ -99,7 +99,7 @@ impl<'a> Parser<'a> {
                     self.peek(),
                     TokenKind::Keyword(Kw::Pivot) | TokenKind::Keyword(Kw::Unpivot)
                 ) {
-                    left = self.wrap_pivot_chain(left, joined_any)?;
+                    left = self.wrap_pivot_chain(left, joined_any, chain_start)?;
                     continue;
                 }
                 break;
@@ -169,12 +169,13 @@ impl<'a> Parser<'a> {
     /// applies to the whole chain; that case is left for the caller's
     /// loop, which calls `wrap_pivot_chain` with `joined_any`.
     fn parse_table_atom_with_pivot(&mut self) -> Result<Value, ParseError> {
+        let atom_start = self.peek0.start;
         let atom = self.parse_table_atom()?;
         if matches!(
             self.peek(),
             TokenKind::Keyword(Kw::Pivot) | TokenKind::Keyword(Kw::Unpivot)
         ) {
-            return self.wrap_pivot_chain(atom, false);
+            return self.wrap_pivot_chain(atom, false, atom_start);
         }
         Ok(atom)
     }
@@ -186,7 +187,12 @@ impl<'a> Parser<'a> {
     /// trailing `FINAL? sampleClause?` (`JoinExprTable`) all still apply
     /// — `FROM (t PIVOT (...) AS x FINAL)`. The caller loops, so a
     /// following JOIN or further PIVOT is picked up too.
-    fn wrap_pivot_chain(&mut self, left: Value, joined_any: bool) -> Result<Value, ParseError> {
+    fn wrap_pivot_chain(
+        &mut self,
+        left: Value,
+        joined_any: bool,
+        table_start: usize,
+    ) -> Result<Value, ParseError> {
         // For the single-atom case (no JOIN happened) the chain is a
         // JoinExpr that only wraps a bare Field — unwrap to match cpp's
         // shape (PivotExpr's `table` is the bare Field). When the
@@ -208,7 +214,7 @@ impl<'a> Parser<'a> {
         } else {
             left
         };
-        let wrapped = self.try_consume_pivot_unpivot(pivot_input)?;
+        let wrapped = self.try_consume_pivot_unpivot(pivot_input, table_start)?;
         // Wrap the PivotExpr/UnpivotExpr in an outer JoinExpr (the C++
         // visitor's JoinExprPivot does the same).
         let mut outer = serde_json::Map::new();
@@ -1071,10 +1077,18 @@ impl<'a> Parser<'a> {
     /// (…)` nests each decorator's result directly as the next one's
     /// `table` (no per-level `JoinExpr` wrapper; the caller wraps the
     /// whole chain once). Loops until neither keyword follows.
-    fn try_consume_pivot_unpivot(&mut self, mut table: Value) -> Result<Value, ParseError> {
+    /// `table_start` is the byte offset where the table expression
+    /// preceding the PIVOT / UNPIVOT begins; cpp's `JoinExprPivot` /
+    /// `JoinExprUnpivot` ctx covers `tableExpr PIVOT/UNPIVOT (...)`
+    /// — span includes that leading table.
+    fn try_consume_pivot_unpivot(
+        &mut self,
+        mut table: Value,
+        table_start: usize,
+    ) -> Result<Value, ParseError> {
         loop {
             if matches!(self.peek(), TokenKind::Keyword(Kw::Pivot)) {
-                let pivot_start = self.peek0.start;
+                let pivot_start = table_start;
                 self.bump()?;
                 self.expect(TokenKind::LParen, "(")?;
                 let aggregates = self.parse_expr_list_until_terminators_at_for_or_rparen()?;
@@ -1148,7 +1162,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
             if matches!(self.peek(), TokenKind::Keyword(Kw::Unpivot)) {
-                let unpivot_start = self.peek0.start;
+                let unpivot_start = table_start;
                 self.bump()?;
                 let include_nulls = matches!(self.peek(), TokenKind::Keyword(Kw::Include))
                     && self.peek_next() == TokenKind::Keyword(Kw::Nulls);
