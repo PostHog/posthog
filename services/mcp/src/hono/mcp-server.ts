@@ -1,5 +1,9 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+// The SDK's default `AjvJsonSchemaValidator` compiles JSON Schemas via `new Function()`,
+// which Cloudflare Workers' CSP blocks ("Code generation from strings disallowed").
+// That would break `elicitation/create` response validation. Use the Workers-compatible
+// interpreter instead. See https://github.com/modelcontextprotocol/typescript-sdk/issues/689
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js'
 import type { z } from 'zod'
 
