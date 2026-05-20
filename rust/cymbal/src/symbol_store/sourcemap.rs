@@ -14,7 +14,8 @@ use crate::{
     error::{JsResolveErr, ResolveError, UnhandledError},
     metric_consts::{
         CHUNK_ID_RESCUED_FROM_BODY, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND,
-        SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
+        SOURCEMAP_EXTERNAL_BYTES, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND,
+        SOURCEMAP_PARSE, SYMBOL_SET_DECOMPRESSED_BYTES,
     },
 };
 
@@ -266,6 +267,8 @@ impl Parser for SourcemapProvider {
             tokio::task::spawn_blocking(move || -> Result<OwnedSourceMapCache, ResolveError> {
                 let (sam, decompressed_bytes): (SourceAndMap, usize) =
                     read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
+                metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "sourcemap")
+                    .record(decompressed_bytes as f64);
                 OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
                     .map_err(|_| JsResolveErr::InvalidSourceAndMap.into())
             })
@@ -328,6 +331,7 @@ async fn find_sourcemap_url(
 
     // We always need the body
     let body = res.text().await.map_err(JsResolveErr::from)?;
+    metrics::histogram!(SOURCEMAP_EXTERNAL_BYTES, "kind" => "source").record(body.len() as f64);
 
     let chunk_id_from_body = extract_chunk_id_from_body(&body);
 
@@ -433,6 +437,8 @@ async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, 
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
     let sourcemap = res.text().await.map_err(JsResolveErr::from)?;
+    metrics::histogram!(SOURCEMAP_EXTERNAL_BYTES, "kind" => "sourcemap")
+        .record(sourcemap.len() as f64);
     Ok(sourcemap)
 }
 

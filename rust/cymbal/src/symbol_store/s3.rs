@@ -7,7 +7,7 @@ use tracing::error;
 
 use crate::{
     error::UnhandledError,
-    metric_consts::{S3_FETCH, S3_PUT},
+    metric_consts::{S3_FETCH, S3_FETCHED_BYTES, S3_PUT, S3_PUT_BYTES},
 };
 
 #[cfg_attr(test, automock)]
@@ -40,6 +40,13 @@ impl BlobClient for S3Impl {
 
         match res {
             Ok(res) => {
+                // Record the Content-Length advertised by S3 before we collect the body.
+                // This is where a future size-cap check would short-circuit.
+                if let Some(len) = res.content_length() {
+                    if len >= 0 {
+                        metrics::histogram!(S3_FETCHED_BYTES).record(len as f64);
+                    }
+                }
                 let data = res.body.collect().await?;
                 start.label("outcome", "success").fin();
                 Ok(Some(data.into_bytes()))
@@ -61,6 +68,7 @@ impl BlobClient for S3Impl {
     #[allow(dead_code)]
     async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError> {
         let start = common_metrics::timing_guard(S3_PUT, &[]);
+        metrics::histogram!(S3_PUT_BYTES).record(data.len() as f64);
         let res = self
             .inner
             .put_object()

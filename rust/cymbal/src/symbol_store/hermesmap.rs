@@ -5,6 +5,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, HermesMap};
 use crate::{
     error::{HermesError, ResolveError, UnhandledError},
     langs::hermes::HermesRef,
+    metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
     symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
@@ -45,6 +46,8 @@ impl Parser for HermesMapProvider {
         tokio::task::spawn_blocking(move || -> Result<ParsedHermesMap, ResolveError> {
             let (map, decompressed_bytes): (HermesMap, usize) =
                 read_symbol_data_with_byte_count(&source).map_err(HermesError::DataError)?;
+            metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "hermes")
+                .record(decompressed_bytes as f64);
             Ok(ParsedHermesMap::parse(map, decompressed_bytes)?)
         })
         .await

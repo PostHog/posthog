@@ -14,6 +14,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym};
 
 use crate::{
     error::{AppleError, ResolveError, UnhandledError},
+    metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
     symbol_store::{caching::Countable, Fetcher, Parser},
 };
 
@@ -79,6 +80,8 @@ impl Parser for AppleProvider {
                         (source.to_vec(), len)
                     }
                 };
+            metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "apple")
+                .record(decompressed_bytes as f64);
             ParsedAppleSymbols::from_dsym_zip(zip_data, decompressed_bytes)
         })
         .await

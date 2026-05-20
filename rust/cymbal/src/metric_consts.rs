@@ -23,10 +23,21 @@ pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const S3_FETCH: &str = "cymbal_s3_fetch";
+// S3 GET body size, in bytes, taken from the `Content-Length` header on the GET response
+// (so it's recorded before we collect the body — sets us up to enforce a size cap here later).
+pub const S3_FETCHED_BYTES: &str = "cymbal_s3_fetched_bytes";
 pub const S3_PUT: &str = "cymbal_s3_put";
+// S3 PUT body size, in bytes, observed at the call site.
+pub const S3_PUT_BYTES: &str = "cymbal_s3_put_bytes";
 pub const SOURCEMAP_FETCH: &str = "cymbal_sourcemap_fetch";
+// Size of an external (non-S3) sourcemap or minified source fetch, in bytes after decoding
+// the HTTP response body. Labelled by `kind` (`source` / `sourcemap`).
+pub const SOURCEMAP_EXTERNAL_BYTES: &str = "cymbal_sourcemap_external_bytes";
 pub const SAVE_SYMBOL_SET: &str = "cymbal_save_symbol_set";
 pub const SOURCEMAP_PARSE: &str = "cymbal_sourcemap_parse";
+// Decompressed size of a parsed symbol set, in bytes. Labelled by `kind`
+// (`sourcemap` / `hermes` / `proguard` / `apple`).
+pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_bytes";
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
