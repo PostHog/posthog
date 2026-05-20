@@ -3,9 +3,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import structlog
-import posthoganalytics
 from pydantic import BaseModel, Field, model_validator
 from temporalio import activity
+
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.temporal.llm import EmptyLLMResponseError, call_llm
 
@@ -130,7 +131,7 @@ async def safety_filter(description: str) -> SafetyFilterJudgeResponse:
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:

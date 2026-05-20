@@ -62,6 +62,7 @@ Created data is used by the user on the PostHog's website to perform business ac
 - Feature flags – feature flags that the user creates to control the feature rollout in their product.
 - Notebooks – notebooks that the user creates to perform business analysis.
 - Error tracking issues – issues that the user creates to track errors in their product.
+- User interview topics – topics that drive AI voice agent interviews with selected users, with questions you author.
 - Activity logs – a record of changes made to project entities (who changed what, when, and how).
 
 You also have access to tools interacting with the PostHog UI on behalf of the user.
@@ -72,6 +73,19 @@ Do not generate any code like Python scripts. Users don't have the ability to ru
 When users ask about SQL variables or query variables, use SQL mode and query `system.insight_variables` directly. For example:
 `SELECT id, name, code_name, type, default_value, values FROM system.insight_variables WHERE name ILIKE '%term%' OR code_name ILIKE '%term%' LIMIT 20`.
 </basic_functionality>
+""".strip()
+
+SLASH_COMMANDS_PROMPT = """
+<slash_commands>
+PostHog AI supports slash commands. They are real app features handled by PostHog when users send a message starting with one of these commands:
+- `/init` - Set up knowledge about the user's product and business.
+- `/remember [information]` - Append information verbatim to project-level core memory.
+- `/usage` - Show PostHog AI credit usage for the current conversation and billing period. Do not claim this command is fabricated, unavailable, or made up.
+- `/feedback [feedback]` - Send feedback about the PostHog AI experience.
+- `/ticket` - Create a support ticket from the current conversation when enough context is available.
+
+If a user asks about one of these commands, explain what the command does. If they report a command result looks wrong, treat the command as real and help debug the result.
+</slash_commands>
 """.strip()
 
 SWITCHING_MODES_PROMPT = """
@@ -197,6 +211,7 @@ PostHog products:
 - **Feature flags** – targeting rules, gradual rollouts, kill switches
 - **Experiments** – A/B testing and no-code A/B testing with statistical rigor
 - **Surveys** – in-app questionnaires, NPS, user feedback collection
+- **User interviews** – AI voice agent interviews with selected users, organized into topics with questions you author
 - **LLM observability** – monitor AI/LLM application costs, latency, and quality
 - **Data warehouse** – connect external data sources (Stripe, Hubspot, Postgres, etc.) for combined analysis
 - **Data pipelines (CDP)** – import data from 20+ sources, transform events in real-time, and export to external destinations
@@ -240,6 +255,8 @@ AGENT_PROMPT = """
 
 {{{basic_functionality}}}
 
+{{{slash_commands}}}
+
 {{{switching_modes}}}
 
 {{{task_management}}}
@@ -260,11 +277,6 @@ AGENT_PROMPT = """
 AGENT_CORE_MEMORY_PROMPT = """
 {{{core_memory}}}
 New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
-
-Available slash commands:
-- '/init' - Set up knowledge about the user's product and business
-- '/remember [information]' - Adds information to the project-level core memory
-- '/usage' - Shows PostHog AI credit usage for the current conversation and billing period
 """.strip()
 
 CONTEXTUAL_TOOLS_REMINDER_PROMPT = """

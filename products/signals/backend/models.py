@@ -21,6 +21,7 @@ class SignalSourceConfig(UUIDModel):
         ZENDESK = "zendesk", "Zendesk"
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
+        PGANALYZE = "pganalyze", "pganalyze"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -319,6 +320,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        DISMISSAL = "dismissal"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")

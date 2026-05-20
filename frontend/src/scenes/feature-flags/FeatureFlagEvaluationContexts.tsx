@@ -5,7 +5,6 @@ import { IconCheck, IconInfo, IconPencil, IconPlus, IconX } from '@posthog/icons
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { colorForString } from 'lib/utils'
@@ -176,18 +175,8 @@ export function FeatureFlagEvaluationContexts({
                     Evaluation contexts
                     {(context === 'form' || isEditingContexts) && (
                         <Tooltip
-                            interactive
-                            title={
-                                <>
-                                    Control where this flag evaluates by matching SDK-declared contexts.{' '}
-                                    <Link
-                                        to="https://posthog.com/docs/feature-flags/evaluation-contexts"
-                                        target="_blank"
-                                    >
-                                        Learn more
-                                    </Link>
-                                </>
-                            }
+                            docLink="https://posthog.com/docs/feature-flags/evaluation-contexts"
+                            title="Control where this flag evaluates by matching SDK-declared contexts."
                         >
                             <IconInfo className="text-xl text-secondary shrink-0" />
                         </Tooltip>

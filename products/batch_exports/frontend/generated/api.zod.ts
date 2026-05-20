@@ -13,6 +13,8 @@ export const batchExportsCreateBodyDestinationOneOneConfigUseVariantTypeDefault 
 export const batchExportsCreateBodyDestinationOneOneConfigUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsCreateBodyDestinationOneTwoConfigPrefixDefault = ``
 export const batchExportsCreateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
+export const batchExportsCreateBodyDestinationOneThreeConfigTableIdDefault = `events`
+export const batchExportsCreateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -112,6 +114,34 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an Azure Blob Storage batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['BigQuery']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
+                                table_id: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneThreeConfigTableIdDefault)
+                                    .describe('BigQuery table ID inside the dataset.'),
+                                use_json_type: zod
+                                    .boolean()
+                                    .default(batchExportsCreateBodyDestinationOneThreeConfigUseJsonTypeDefault)
+                                    .describe(
+                                        "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created."
+                                    ),
+                                type: zod.enum(['BigQuery']),
+                            })
+                            .describe(
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -400,6 +430,8 @@ export const batchExportsUpdateBodyDestinationOneOneConfigUseVariantTypeDefault 
 export const batchExportsUpdateBodyDestinationOneOneConfigUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsUpdateBodyDestinationOneTwoConfigPrefixDefault = ``
 export const batchExportsUpdateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
+export const batchExportsUpdateBodyDestinationOneThreeConfigTableIdDefault = `events`
+export const batchExportsUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
 export const batchExportsUpdateBodyOffsetDayMin = 0
 export const batchExportsUpdateBodyOffsetDayMax = 6
 
@@ -499,6 +531,34 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an Azure Blob Storage batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['BigQuery']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
+                                table_id: zod
+                                    .string()
+                                    .default(batchExportsUpdateBodyDestinationOneThreeConfigTableIdDefault)
+                                    .describe('BigQuery table ID inside the dataset.'),
+                                use_json_type: zod
+                                    .boolean()
+                                    .default(batchExportsUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault)
+                                    .describe(
+                                        "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created."
+                                    ),
+                                type: zod.enum(['BigQuery']),
+                            })
+                            .describe(
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -542,6 +602,8 @@ export const batchExportsPartialUpdateBodyDestinationOneOneConfigUseVariantTypeD
 export const batchExportsPartialUpdateBodyDestinationOneOneConfigUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsPartialUpdateBodyDestinationOneTwoConfigPrefixDefault = ``
 export const batchExportsPartialUpdateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
+export const batchExportsPartialUpdateBodyDestinationOneThreeConfigTableIdDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -641,6 +703,34 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating an Azure Blob Storage batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['BigQuery']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
+                                table_id: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneThreeConfigTableIdDefault)
+                                    .describe('BigQuery table ID inside the dataset.'),
+                                use_json_type: zod
+                                    .boolean()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault)
+                                    .describe(
+                                        "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created."
+                                    ),
+                                type: zod.enum(['BigQuery']),
+                            })
+                            .describe(
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
@@ -689,6 +779,8 @@ export const batchExportsPauseCreateBodyDestinationOneConfigOneOneUseVariantType
 export const batchExportsPauseCreateBodyDestinationOneConfigOneOneUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsPauseCreateBodyDestinationOneConfigOneTwoPrefixDefault = ``
 export const batchExportsPauseCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
+export const batchExportsPauseCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
 export const batchExportsPauseCreateBodyOffsetDayMin = 0
 export const batchExportsPauseCreateBodyOffsetDayMax = 6
 
@@ -795,20 +887,38 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
+                                table_id: zod
+                                    .string()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneThreeTableIdDefault)
+                                    .describe('BigQuery table ID inside the dataset.'),
+                                use_json_type: zod
+                                    .boolean()
+                                    .default(batchExportsPauseCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault)
+                                    .describe(
+                                        "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created."
+                                    ),
+                                type: zod.enum(['BigQuery']),
+                            })
+                            .describe(
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks and AzureBlob).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -866,6 +976,8 @@ export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneOneUseVaria
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneOneUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneTwoPrefixDefault = ``
 export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
+export const batchExportsRunTestStepCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
 export const batchExportsRunTestStepCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepCreateBodyOffsetDayMax = 6
 
@@ -976,20 +1088,42 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
+                                table_id: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneThreeTableIdDefault
+                                    )
+                                    .describe('BigQuery table ID inside the dataset.'),
+                                use_json_type: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsRunTestStepCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault
+                                    )
+                                    .describe(
+                                        "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created."
+                                    ),
+                                type: zod.enum(['BigQuery']),
+                            })
+                            .describe(
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks and AzureBlob).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1050,6 +1184,8 @@ export const batchExportsUnpauseCreateBodyDestinationOneConfigOneOneUseVariantTy
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneOneUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneTwoPrefixDefault = ``
 export const batchExportsUnpauseCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
+export const batchExportsUnpauseCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
 export const batchExportsUnpauseCreateBodyOffsetDayMin = 0
 export const batchExportsUnpauseCreateBodyOffsetDayMax = 6
 
@@ -1158,20 +1294,40 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
+                                table_id: zod
+                                    .string()
+                                    .default(batchExportsUnpauseCreateBodyDestinationOneConfigOneThreeTableIdDefault)
+                                    .describe('BigQuery table ID inside the dataset.'),
+                                use_json_type: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsUnpauseCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault
+                                    )
+                                    .describe(
+                                        "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created."
+                                    ),
+                                type: zod.enum(['BigQuery']),
+                            })
+                            .describe(
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks and AzureBlob).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod
@@ -1229,6 +1385,8 @@ export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneOneUseVa
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneOneUseAutomaticSchemaEvolutionDefault = true
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneTwoPrefixDefault = ``
 export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneTwoFileFormatDefault = `JSONLines`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneThreeTableIdDefault = `events`
+export const batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault = false
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMin = 0
 export const batchExportsRunTestStepNewCreateBodyOffsetDayMax = 6
 
@@ -1341,20 +1499,42 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 'Typed configuration for an Azure Blob Storage batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors\n`AzureBlobBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
+                        zod
+                            .object({
+                                dataset_id: zod.string().describe('BigQuery dataset ID to write to.'),
+                                table_id: zod
+                                    .string()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneThreeTableIdDefault
+                                    )
+                                    .describe('BigQuery table ID inside the dataset.'),
+                                use_json_type: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsRunTestStepNewCreateBodyDestinationOneConfigOneThreeUseJsonTypeDefault
+                                    )
+                                    .describe(
+                                        "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created."
+                                    ),
+                                type: zod.enum(['BigQuery']),
+                            })
+                            .describe(
+                                'Typed configuration for a BigQuery batch-export destination.\n\nCredentials live in the linked Integration, not in this config. Mirrors the\nnon-credential fields of `BigQueryBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                            ),
                     ])
                     .describe(
-                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
+                        'Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses.'
                     ),
                 integration: zod.number().nullish().describe('The integration for this destination.'),
                 integration_id: zod
                     .number()
                     .nullish()
                     .describe(
-                        'ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.'
+                        'ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.'
                     ),
             })
             .describe(
-                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks and AzureBlob).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
+                'Serializer for an BatchExportDestination model.\n\nThe `config` field is polymorphic and typed only for destinations that keep\ncredentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).\nOther destination types accept the same JSON shape but without a typed\nOpenAPI schema. Secret fields are stripped from `config` on read.'
             )
             .describe('Destination configuration (type, config, and optional integration).'),
         interval: zod

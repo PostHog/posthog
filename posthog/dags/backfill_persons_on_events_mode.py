@@ -60,6 +60,14 @@ def _resolve_persons_on_events_mode(team: Team, client: Client) -> PersonsOnEven
     Encoding their result into `team.modifiers` would freeze the override into
     DB state, so unsetting the env var wouldn't restore each team's intended
     flag-driven mode.
+
+    Hard transport failures (network errors, 5xx, 4xx, quota limits) already
+    propagate as exceptions out of `get_flags_decision`. The two soft-failure
+    cases — a 200 with `errorsWhileComputingFlags=true`, or a 200 missing one
+    of the requested flag keys — are NOT exceptional from the SDK's point of
+    view but are indistinguishable from "flag genuinely returned False" once
+    they reach the resolver. Treat them as errors so the team is counted as
+    `skipped_errored` rather than silently frozen onto the v2 fallback.
     """
     decision = client.get_flags_decision(
         distinct_id=str(team.uuid),
@@ -80,17 +88,27 @@ def _resolve_persons_on_events_mode(team: Team, client: Client) -> PersonsOnEven
         },
         flag_keys_to_evaluate=[POE_V2_FLAG, POE_V1_FLAG],
     )
-    flags = decision.get("flags", {}) or {}
 
-    v2_flag = flags.get(POE_V2_FLAG)
-    if v2_flag and v2_flag.enabled:
+    if decision.get("errorsWhileComputingFlags"):
+        raise RuntimeError("FF service returned errorsWhileComputingFlags=true")
+
+    flags = decision.get("flags", {}) or {}
+    missing = [key for key in (POE_V2_FLAG, POE_V1_FLAG) if key not in flags]
+    if missing:
+        raise RuntimeError(f"FF response missing required flag(s): {missing}")
+
+    v2_flag = flags[POE_V2_FLAG]
+    if v2_flag.enabled:
         return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
-    v1_flag = flags.get(POE_V1_FLAG)
-    if v1_flag and v1_flag.enabled:
+    v1_flag = flags[POE_V1_FLAG]
+    if v1_flag.enabled:
         return PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
 
-    # Fallback: v2 (current platform default since the 2024-06-14 100% rollout).
+    # Both flags returned False — fall back to v2 (current platform default
+    # since the 2024-06-14 100% rollout). This branch is reached only when the
+    # FF service explicitly answered False for both keys, never when it failed
+    # to answer.
     return PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
 
