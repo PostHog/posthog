@@ -1,6 +1,22 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "No input required. Returns core data warehouse schemas.",
-    "properties": {},
+    "description": "Returns core PostHog table schemas plus warehouse/view/system table names. Pass table_names and/or include to scope the output when the full catalog is too large.",
+    "properties": {
+        "include": {
+            "description": "Optional list of sections to include. 'core' returns full column lists for events/groups/persons/sessions; 'warehouse' lists data warehouse tables; 'views' lists saved query views with their last-run status; 'system' lists PostHog Postgres tables exposed as system.*. Defaults to all sections — prefer narrowing this when the catalog is large.",
+            "items": {
+                "enum": ["core", "warehouse", "views", "system"],
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "table_names": {
+            "description": "Optional list of exact table or view names to include. Applied to all sections (core, warehouse, system, views). Omit to list every name.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
     "type": "object"
 }
