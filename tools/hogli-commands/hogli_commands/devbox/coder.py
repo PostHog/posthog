@@ -812,16 +812,12 @@ def print_setup_summary() -> None:
     click.echo()
     click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
     click.echo()
-    click.echo("To reconfigure later:")
-    click.echo("  hogli devbox:setup --configure-git-identity")
-    click.echo("  hogli devbox:setup --configure-git-signing")
-    click.echo("  hogli devbox:setup --configure-dotfiles")
-    click.echo("  hogli devbox:setup --configure-claude  (manage CLAUDE_CODE_OAUTH_TOKEN as a Coder user secret)")
+    click.echo("Reconfigure one setting:  hogli devbox:setup --configure-<option>")
+    click.echo("Reset one setting:        hogli devbox:setup --reset-<option>")
+    click.echo("  options: git-identity, git-signing, dotfiles, claude")
     click.echo()
-    click.echo("To manage other workspace secrets (GH_TOKEN, AWS creds, etc):")
-    click.echo("  hogli devbox:secret:list")
-    click.echo("  hogli devbox:secret:set NAME")
-    click.echo("  hogli devbox:secret:rm NAME")
+    click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
+    click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:

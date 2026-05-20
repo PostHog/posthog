@@ -73,7 +73,7 @@ from .coder import (
     upsert_user_secret,
     user_secret_exists,
 )
-from .config import load_config, save_dotfiles_uri, save_git_identity
+from .config import clear_dotfiles_uri, clear_git_identity, load_config, save_dotfiles_uri, save_git_identity
 
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
 _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
@@ -308,23 +308,22 @@ def _prompt_for_claude_token() -> str | None:
 
 
 def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
-    """Optionally persist Git identity defaults for new workspaces."""
+    """Optionally persist Git identity defaults for new workspaces.
+
+    Stays silent on the "already saved" path: the compact status block at the
+    top of ``devbox_setup`` is the single source of truth for what's set, so
+    re-running setup no longer prints "Using saved …" lines for every option.
+    """
     config = load_config()
     existing_git_name = config.get("git_name")
     existing_git_email = config.get("git_email")
 
     if configure_git_identity is False:
-        if existing_git_name and existing_git_email:
-            click.echo(f"Using saved Git identity: {existing_git_name} <{existing_git_email}>")
-            click.echo("Run `hogli devbox:setup --configure-git-identity` to change.")
-        else:
+        if not (existing_git_name and existing_git_email):
             click.echo("Skipping Git identity setup.")
         return
 
-    # Already saved -- skip unless explicitly asked to reconfigure
     if configure_git_identity is None and existing_git_name and existing_git_email:
-        click.echo(f"Using saved Git identity: {existing_git_name} <{existing_git_email}>")
-        click.echo("Run `hogli devbox:setup --configure-git-identity` to change.")
         return
 
     # Show prompts with best available defaults (saved > coder profile > empty)
@@ -428,16 +427,11 @@ def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
     already_set = user_secret_exists(GIT_SIGNING_KEY_SECRET)
 
     if configure_git_signing is False:
-        if already_set:
-            click.echo("Using saved Git signing key.")
-            click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
-        else:
+        if not already_set:
             click.echo("Skipping Git commit signing setup.")
         return
 
     if configure_git_signing is None and already_set:
-        click.echo("Git signing: configured (commits inside devbox will be signed).")
-        click.echo("Run `hogli devbox:setup --configure-git-signing` to change.")
         return
 
     public_key = _resolve_local_signing_key()
@@ -476,21 +470,22 @@ def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
 
 
 def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
-    """Optionally persist a dotfiles repo URL for new workspaces."""
+    """Optionally persist a dotfiles repo URL for new workspaces.
+
+    When called with no explicit flag and an existing URL is saved, returns
+    silently — the compact status block at the top of ``devbox_setup`` already
+    surfaces the saved value, and ``--reset-dotfiles`` is the documented path
+    to clear it.
+    """
     config = load_config()
     existing_uri = config.get("dotfiles_uri")
 
     if configure_dotfiles is False:
-        if existing_uri:
-            click.echo(f"Using saved dotfiles: {existing_uri}")
-            click.echo("Run `hogli devbox:setup --configure-dotfiles` to change.")
-        else:
+        if not existing_uri:
             click.echo("Skipping dotfiles setup.")
         return
 
     if configure_dotfiles is None and existing_uri:
-        click.echo(f"Using saved dotfiles: {existing_uri}")
-        click.echo("Run `hogli devbox:setup --configure-dotfiles` to change.")
         return
 
     click.echo()
@@ -498,6 +493,9 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     click.echo("  Personalize your workspace with a dotfiles repository.")
     click.echo("  The repo will be cloned and applied on every workspace start.")
     click.echo("  This will be saved and reused for future workspaces.")
+    if existing_uri:
+        click.echo("  Press Enter to keep the current URL, or type a new one.")
+        click.echo("  To remove dotfiles entirely, run `hogli devbox:setup --reset-dotfiles`.")
     click.echo()
 
     dotfiles_uri = click.prompt(
@@ -551,8 +549,6 @@ def maybe_configure_claude_secret(configure_claude: bool | None) -> None:
     secret_exists = has_claude_oauth_secret()
 
     if secret_exists and configure_claude is not True:
-        click.echo(f"Claude token already set as a Coder user secret ({CLAUDE_CODE_OAUTH_ENV}).")
-        click.echo("Run `hogli devbox:setup --configure-claude` to replace it.")
         return
 
     legacy_token = _read_legacy_keychain_token()
@@ -597,6 +593,131 @@ def maybe_configure_claude_secret(configure_claude: bool | None) -> None:
     click.echo(f"Saved Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
 
 
+def _collect_setup_status() -> list[tuple[str, str | None]]:
+    """Return one ``(label, value)`` tuple per configurable setting.
+
+    ``value`` is ``None`` when the setting isn't configured. The compact
+    status block at the top of ``devbox_setup`` renders this directly, so the
+    individual prompt helpers no longer need to print their own "Using saved …"
+    lines on every run.
+    """
+    config = load_config()
+    git_name = config.get("git_name")
+    git_email = config.get("git_email")
+    git_identity = f"{git_name} <{git_email}>" if git_name and git_email else None
+
+    git_signing = "configured" if user_secret_exists(GIT_SIGNING_KEY_SECRET) else None
+    dotfiles = config.get("dotfiles_uri")
+    claude = "configured" if server_supports_user_secrets() and has_claude_oauth_secret() else None
+
+    return [
+        ("Git identity", git_identity),
+        ("Git signing", git_signing),
+        ("Dotfiles", dotfiles),
+        ("Claude token", claude),
+    ]
+
+
+def _print_setup_status(status: list[tuple[str, str | None]]) -> None:
+    """Render the compact status block. Stays silent when nothing is set yet."""
+    if not any(value for _, value in status):
+        return
+    width = max(len(label) for label, _ in status) + 1
+    click.echo()
+    click.echo("Currently configured:")
+    for label, value in status:
+        rendered = value if value else click.style("not set", fg="yellow")
+        click.echo(f"  {label:<{width}} {rendered}")
+
+
+def _apply_resets(
+    *,
+    reset_git_identity: bool,
+    reset_git_signing: bool,
+    reset_dotfiles: bool,
+    reset_claude: bool,
+) -> bool:
+    """Apply any requested resets and return whether at least one fired.
+
+    Dotfiles reset is special: in addition to clearing the local config (which
+    only controls future workspaces), it pushes ``dotfiles_uri=""`` to every
+    existing workspace so the template stops re-cloning the repo on each boot.
+    Without this, a saved repo's ``.zshrc`` (or whatever) keeps applying until
+    the user wipes the parameter from the Coder UI.
+    """
+    fired = False
+
+    if reset_git_identity:
+        clear_git_identity()
+        click.echo("Cleared saved Git identity. New workspaces will prompt for one.")
+        fired = True
+
+    if reset_git_signing:
+        result = delete_user_secret(GIT_SIGNING_KEY_SECRET)
+        if result.returncode == 0:
+            click.echo(f"Deleted Coder user secret '{GIT_SIGNING_KEY_SECRET}'.")
+        else:
+            click.echo(f"Nothing to delete: '{GIT_SIGNING_KEY_SECRET}' was not set.")
+        fired = True
+
+    if reset_dotfiles:
+        clear_dotfiles_uri()
+        click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
+        for ws in list_user_workspaces():
+            ws_name = ws.get("name")
+            if isinstance(ws_name, str) and ws_name:
+                update_workspace_parameters(ws_name, {DOTFILES_URI_PARAMETER: ""})
+                click.echo(f"  reset on '{ws_name}'")
+        fired = True
+
+    if reset_claude:
+        result = delete_user_secret(CLAUDE_CODE_OAUTH_ENV)
+        if result.returncode == 0:
+            click.echo(f"Deleted Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
+        else:
+            click.echo(f"Nothing to delete: '{CLAUDE_CODE_OAUTH_ENV}' was not set.")
+        fired = True
+
+    return fired
+
+
+def _explicit_option_flag_passed(
+    configure_flags: list[bool | None],
+    reset_flags: list[bool],
+) -> bool:
+    """Return whether the user passed any per-option flag.
+
+    The Y/n confirmation gate exists for unguided ``hogli devbox:setup``
+    invocations. When the user already named what they want — via
+    ``--configure-X`` / ``--skip-configure-X`` / ``--reset-X`` — the gate would
+    just be noise (and would break scripted callers), so we bypass it.
+    """
+    if any(flag is not None for flag in configure_flags):
+        return True
+    if any(reset_flags):
+        return True
+    return False
+
+
+def _confirm_run_setup() -> bool:
+    """Show a Y/n gate explaining what setup will do. ``True`` means proceed.
+
+    Skipped for non-interactive stdin so CI / piped invocations never block.
+    """
+    if not sys.stdin.isatty():
+        return True
+    click.echo()
+    click.echo("hogli devbox:setup will check or configure:")
+    click.echo("  - Tailscale + Coder reachability")
+    click.echo("  - Local SSH config for Coder hosts")
+    click.echo("  - Git identity (name/email) for new workspaces")
+    click.echo("  - Git commit signing key propagation")
+    click.echo("  - Dotfiles repo for new workspaces (optional)")
+    click.echo("  - Claude OAuth token as a Coder user secret (optional)")
+    click.echo()
+    return click.confirm("Proceed?", default=True)
+
+
 @click.command(name="devbox:setup", help="Install and configure local access to Coder devboxes")
 @click.option(
     "--configure-ssh/--skip-configure-ssh",
@@ -624,6 +745,26 @@ def maybe_configure_claude_secret(configure_claude: bool | None) -> None:
     default=None,
     help="Manage the CLAUDE_CODE_OAUTH_TOKEN Coder user secret for this user",
 )
+@click.option(
+    "--reset-git-identity",
+    is_flag=True,
+    help="Clear the saved Git identity (does not affect existing workspaces)",
+)
+@click.option(
+    "--reset-git-signing",
+    is_flag=True,
+    help=f"Delete the {GIT_SIGNING_KEY_SECRET} Coder user secret",
+)
+@click.option(
+    "--reset-dotfiles",
+    is_flag=True,
+    help="Clear the saved dotfiles repo and push an empty parameter to existing workspaces",
+)
+@click.option(
+    "--reset-claude",
+    is_flag=True,
+    help=f"Delete the {CLAUDE_CODE_OAUTH_ENV} Coder user secret",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
     configure_ssh: bool | None,
@@ -631,15 +772,45 @@ def devbox_setup(
     configure_git_signing: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
+    reset_git_identity: bool,
+    reset_git_signing: bool,
+    reset_dotfiles: bool,
+    reset_claude: bool,
     verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
+    explicit = _explicit_option_flag_passed(
+        configure_flags=[
+            configure_ssh,
+            configure_git_identity,
+            configure_git_signing,
+            configure_dotfiles,
+            configure_claude_setup,
+        ],
+        reset_flags=[reset_git_identity, reset_git_signing, reset_dotfiles, reset_claude],
+    )
+
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
     ensure_tailscale_connected("rerun `hogli devbox:setup`.")
     ensure_tailscale_routes_accepted()
     ensure_coder_reachable()
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
+
+    reset_fired = _apply_resets(
+        reset_git_identity=reset_git_identity,
+        reset_git_signing=reset_git_signing,
+        reset_dotfiles=reset_dotfiles,
+        reset_claude=reset_claude,
+    )
+
+    status = _collect_setup_status()
+    _print_setup_status(status)
+
+    if not explicit and not _confirm_run_setup():
+        click.echo("Aborted. Re-run `hogli devbox:setup` when ready.")
+        return
+
     maybe_configure_ssh(
         configure_ssh=configure_ssh,
         identity_agent_socket=_resolve_local_identity_agent_for_coder(),
@@ -650,6 +821,10 @@ def devbox_setup(
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_secret(configure_claude_setup)
     print_setup_summary()
+
+    if reset_fired:
+        click.echo()
+        click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the resets.")
 
 
 @click.command(name="devbox:list", help="List your devboxes")
