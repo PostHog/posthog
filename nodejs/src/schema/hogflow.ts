@@ -67,7 +67,7 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
 ])
 
-const HogFlowActionSchema = z.discriminatedUnion('type', [
+export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
         ..._commonActionFields,
