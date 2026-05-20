@@ -202,11 +202,13 @@ def _resolve_cloud_pr_authorship_mode(
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
 
-def task_visibility_q(user_id: int | None) -> Q:
+def task_visibility_q(user) -> Q:
     """Filter for tasks visible to the given user.
 
     A task is visible if:
-    - its creator matches `user_id`, or
+    - the caller is an Internal-API user (service-to-service callers are
+      unrestricted within their team scope), or
+    - its creator matches `user`, or
     - it has no creator at all (legacy unowned tasks remain visible to any
       team member — they cannot be executed in any case because oauth.py
       requires `task.created_by` to mint OAuth tokens), or
@@ -215,11 +217,19 @@ def task_visibility_q(user_id: int | None) -> Q:
       a system-picked `created_by` so the agent can mint an OAuth token, but
       they are not personal — any team member should be able to view them.
     """
+    if isinstance(user, InternalAPIUser):
+        return Q()
+
+    user_id = getattr(user, "id", None)
     return Q(created_by_id=user_id) | Q(created_by__isnull=True) | Q(origin_product=Task.OriginProduct.SIGNAL_REPORT)
 
 
-def task_run_visibility_q(user_id: int | None) -> Q:
+def task_run_visibility_q(user) -> Q:
     """`task_visibility_q` traversed via the `task` FK on TaskRun / TaskAutomation."""
+    if isinstance(user, InternalAPIUser):
+        return Q()
+
+    user_id = getattr(user, "id", None)
     return (
         Q(task__created_by_id=user_id)
         | Q(task__created_by__isnull=True)
