@@ -16,7 +16,7 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from posthog.schema import AgentMode, AssistantEventType, HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
-from posthog.temporal.ai.base import AgentBaseWorkflow
+from posthog.temporal.ai.base import AgentBaseWorkflow, is_user_initiated_activity_cancel
 from posthog.temporal.common.client import async_connect
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
@@ -201,6 +201,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
             is_agent_billable=inputs.is_agent_billable,
             is_impersonated=inputs.is_impersonated,
             resume_payload=inputs.resume_payload,
+            is_user_initiated_cancel=is_user_initiated_activity_cancel,
         )
 
         async for chunk in stream_runner(assistant):

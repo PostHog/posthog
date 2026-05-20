@@ -13,7 +13,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.ai.base import AgentBaseWorkflow
+from posthog.temporal.ai.base import AgentBaseWorkflow, is_user_initiated_activity_cancel
 
 from products.slack_app.backend.slack_thread import SlackThreadContext
 
@@ -246,6 +246,7 @@ async def process_slack_conversation_activity(inputs: SlackConversationRunnerWor
         user=user,
         is_new_conversation=is_new_conversation,
         slack_thread_context=slack_thread_context,
+        is_user_initiated_cancel=is_user_initiated_activity_cancel,
     )
 
     # Build conversation URL for the "View chat in PostHog" button

@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
@@ -59,6 +59,7 @@ class ResearchAgentRunner(BaseAgentRunner):
         is_agent_billable: bool = True,
         is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
+        is_user_initiated_cancel: Optional[Callable[[], bool]] = None,
     ):
         super().__init__(
             team,
@@ -84,6 +85,7 @@ class ResearchAgentRunner(BaseAgentRunner):
                 state_type=AssistantState,
             ),
             resume_payload=resume_payload,
+            is_user_initiated_cancel=is_user_initiated_cancel,
         )
 
     def get_initial_state(self) -> AssistantState:

@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
@@ -117,6 +117,7 @@ class BaseAgentRunner(ABC):
     _slack_thread_context: Optional["SlackThreadContext"]
     _is_agent_billable: bool
     _resume_payload: Optional[dict[str, Any]]
+    _is_user_initiated_cancel: Optional[Callable[[], bool]]
 
     def __init__(
         self,
@@ -142,6 +143,7 @@ class BaseAgentRunner(ABC):
         is_agent_billable: bool = True,
         is_impersonated: bool = False,
         resume_payload: Optional[dict[str, Any]] = None,
+        is_user_initiated_cancel: Optional[Callable[[], bool]] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -213,6 +215,7 @@ class BaseAgentRunner(ABC):
         self._stream_processor = stream_processor
         self._slack_thread_context = slack_thread_context
         self._resume_payload = resume_payload
+        self._is_user_initiated_cancel = is_user_initiated_cancel
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -406,9 +409,29 @@ class BaseAgentRunner(ABC):
                 return  # Don't run interrupt handling after LLM errors
             except asyncio.CancelledError as e:
                 # asyncio.CancelledError is BaseException, so `except Exception` below
-                # doesn't catch it. Avoid awaits before the yield: the activity may
-                # still be in cancelling state, and a re-delivery of CancelledError
-                # would skip the FailureMessage yield.
+                # doesn't catch it. Avoid awaits before the yield: a re-delivery of
+                # CancelledError would skip the FailureMessage yield.
+                #
+                # User-initiated cancellations (e.g. clicking "stop generation") are
+                # propagated through the same exception path as system-side cancellations
+                # (heartbeat timeout, worker shutdown). Only the system-side cases need
+                # to be surfaced to the user and to error tracking; user-initiated stops
+                # are expected and silent. The caller passes a callable that introspects
+                # Temporal's activity cancellation reason to distinguish them.
+                is_user_initiated = False
+                if self._is_user_initiated_cancel is not None:
+                    try:
+                        is_user_initiated = self._is_user_initiated_cancel()
+                    except Exception:
+                        # Defensive: if introspection itself fails, fall through to the
+                        # system-failure path. False positives would resurrect the
+                        # silent-failure bug; a stray FailureMessage on a user stop is
+                        # the milder failure mode.
+                        is_user_initiated = False
+
+                if is_user_initiated:
+                    raise
+
                 agent_mode = getattr(self._state, "agent_mode", None) if self._state else None
                 # Cancellation is captured to PostHog error tracking via capture_exception below;
                 # log at WARNING to avoid double-counting it as an error in log-based alerting.

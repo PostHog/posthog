@@ -366,7 +366,7 @@ class TestRunnerCancellation(BaseTest):
         super().setUp()
         self.conversation = Conversation.objects.create(team=self.team, user=self.user)
 
-    def _create_mock_runner(self, exception_to_raise=None, graph_stream=None):
+    def _create_mock_runner(self, exception_to_raise=None, graph_stream=None, is_user_initiated_cancel=None):
         from ee.hogai.core.runner import BaseAgentRunner
 
         if graph_stream is None:
@@ -400,11 +400,12 @@ class TestRunnerCancellation(BaseTest):
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
             stream_processor=mock_stream_processor,
+            is_user_initiated_cancel=is_user_initiated_cancel,
         )
         runner._graph = mock_graph
         return runner, mock_graph
 
-    async def test_cancellation_yields_generic_failure_message_and_reraises(self):
+    async def test_system_cancellation_yields_generic_failure_message_and_reraises(self):
         runner, mock_graph = self._create_mock_runner(asyncio.CancelledError())
         # Set agent_mode so the assertion covers the non-None propagation path. The
         # handler reads self._state.agent_mode; in production it's set by
@@ -451,6 +452,57 @@ class TestRunnerCancellation(BaseTest):
             # Don't await in the cancel handler; aupdate_state could re-raise
             # CancelledError and skip the FailureMessage yield.
             mock_graph.aupdate_state.assert_not_called()
+
+    async def test_user_initiated_cancellation_is_silent_and_reraises(self):
+        runner, mock_graph = self._create_mock_runner(
+            asyncio.CancelledError(),
+            is_user_initiated_cancel=lambda: True,
+        )
+        runner._state = MagicMock(agent_mode="product_analytics")
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            with self.assertRaises(asyncio.CancelledError):
+                async for event_type, message in runner.astream(
+                    stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+                ):
+                    results.append((event_type, message))
+
+            self.assertEqual(results, [])
+            mock_posthog.capture_exception.assert_not_called()
+            mock_logger.warning.assert_not_called()
+            mock_graph.aupdate_state.assert_not_called()
+
+    async def test_user_initiated_cancel_callable_raising_falls_back_to_system_path(self):
+        # If introspection itself errors, the handler must default to the system-failure
+        # path: a false negative would resurrect the silent-failure bug from #58779.
+        runner, _ = self._create_mock_runner(
+            asyncio.CancelledError(),
+            is_user_initiated_cancel=lambda: (_ for _ in ()).throw(RuntimeError("introspection failed")),
+        )
+        runner._state = MagicMock(agent_mode="product_analytics")
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger"),
+        ):
+            results = []
+            with self.assertRaises(asyncio.CancelledError):
+                async for event_type, message in runner.astream(
+                    stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+                ):
+                    results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            self.assertIsInstance(results[0][1], FailureMessage)
+            mock_posthog.capture_exception.assert_called_once()
 
     async def test_cancellation_via_task_cancel_yields_failure_message(self):
         async def slow_generator():
