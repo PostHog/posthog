@@ -8,6 +8,7 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.constants import AvailableFeature
 from posthog.models import OAuthApplication
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken
@@ -17,6 +18,8 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.redis import get_client
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_ID_DEV
+
+from ee.models.rbac.access_control import AccessControl
 
 VALID_SECRET = "posthog123"  # LOCAL_DEV_INTERNAL_API_SECRET; accepted under TEST mode
 AUTH_HEADER = {"HTTP_X_INTERNAL_API_SECRET": VALID_SECRET}
@@ -167,6 +170,63 @@ class TestInternalIntegrationLookupTeam:
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
         assert "access_token" not in response.json()
 
+    def test_lookup_falls_back_to_org_admin_when_creator_lost_project_access(self, client: HttpClient):
+        # Org enables RBAC and the project is private (default access "none"). The
+        # connector is a plain member, so they no longer have effective access to
+        # the team — token should be minted under an org admin instead.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member_id=None,
+            role_id=None,
+            access_level="none",
+        )
+        admin = User.objects.create_user(email="admin@acme.test", first_name="Ad", password="password")
+        OrganizationMembership.objects.create(
+            user=admin,
+            organization=self.organization,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "12345678", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        access = OAuthAccessToken.objects.get(token=body["access_token"])
+        # Falls back to the org admin, not the creator who lost project access.
+        assert access.user_id == admin.id
+
+    def test_lookup_returns_503_when_creator_lost_access_and_no_admin(self, client: HttpClient):
+        # Same private-project setup as above, but with no admin to fall back to.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member_id=None,
+            role_id=None,
+            access_level="none",
+        )
+
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "12345678", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "access_token" not in response.json()
+
 
 class TestInternalIntegrationLookupUser:
     @pytest.fixture(autouse=True)
@@ -249,6 +309,52 @@ class TestInternalIntegrationLookupUser:
             **AUTH_HEADER,
         )
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "access_token" not in response.json()
+
+    def test_user_match_404_when_user_lost_project_access(self, client: HttpClient):
+        # User is still in the org but has lost access to their current project — a
+        # personal integration must not keep driving tasks in a team the owning
+        # user can no longer see.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member_id=None,
+            role_id=None,
+            access_level="none",
+        )
+
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "55555555", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert "access_token" not in response.json()
+
+    def test_user_match_404_when_user_is_inactive(self, client: HttpClient):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "55555555", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+        assert "access_token" not in response.json()
+
+    def test_user_match_404_when_user_left_organization(self, client: HttpClient):
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+        response = _post(
+            client,
+            {"kind": "github", "integration_id": "55555555", "scope_id": _fresh_scope()},
+            **AUTH_HEADER,
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
         assert "access_token" not in response.json()
 
 

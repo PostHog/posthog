@@ -12,10 +12,12 @@ from posthog.auth import InternalAPIAuthentication
 from posthog.models.integration import Integration, dot_get
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.redis import get_client
 from posthog.temporal.oauth import create_oauth_access_token_for_user, get_posthog_code_oauth_application
+from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
 
@@ -96,7 +98,10 @@ def _user_integration_display_name(integration: UserIntegration) -> str:
 def _pick_org_admin(organization_id: str) -> User | None:
     """Pick a representative admin to mint a task token under for a team-level
     integration. Mirrors the strategy in ee/billing/billing_manager.py: lowest
-    membership level at-or-above admin, deterministic by user id."""
+    membership level at-or-above admin, deterministic by user id. Org admins
+    always have effective access to every project in the org (see
+    `UserTeamPermissions.effective_membership_level_for_parent_membership`),
+    so no additional per-team access check is needed here."""
     membership = (
         OrganizationMembership.objects.filter(
             organization_id=organization_id,
@@ -108,6 +113,19 @@ def _pick_org_admin(organization_id: str) -> User | None:
         .first()
     )
     return membership.user if membership else None
+
+
+def _user_can_drive_team_tasks(user: User, team: Team) -> bool:
+    """Whether the user is eligible to mint a task token scoped to this team.
+
+    Requires the user to be active and to have effective project access to
+    the team. Org membership alone is not enough: a private project (or a
+    revoked RBAC role) can leave a user in the org with no access to the
+    team the token would scope to, and that user must not retain the
+    ability to drive task actions there through an integration."""
+    if not user.is_active:
+        return False
+    return UserPermissions(user).team(team).effective_membership_level is not None
 
 
 def _mint_task_token(user: User, team_id: int, cache_key: str) -> str | None:
@@ -215,16 +233,14 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             organization_id = str(team_match.team.organization_id)
             cache_key = _cache_key(scope_id, kind, integration_id, str(team_match.id))
             # The original integration creator can only mint a task token if they
-            # are still an active member of the owning organization. A user who
-            # was removed from the org must not retain the ability to drive team
-            # tasks through their old integration.
+            # are still active, a member of the owning organization, and have
+            # effective project access to the integration's team. Losing access
+            # on a private project (or via revoked RBAC role) must revoke the
+            # creator's ability to drive team tasks through the integration —
+            # fall back to an org admin in that case.
             token_user = (
                 team_match.created_by
-                if team_match.created_by
-                and team_match.created_by.is_active
-                and OrganizationMembership.objects.filter(
-                    user=team_match.created_by, organization_id=organization_id
-                ).exists()
+                if team_match.created_by and _user_can_drive_team_tasks(team_match.created_by, team_match.team)
                 else None
             )
             if token_user is None:
@@ -263,14 +279,13 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
             cache_key = _cache_key(scope_id, kind, integration_id, str(user_match.id))
             if user.current_team_id is None or user.current_organization_id is None:
                 return Response({"error": "User has no current team"}, status=404)
-            # Personal integrations should not keep granting a token to a user who has
-            # been disabled or removed from the organization that the token would scope to.
-            if not user.is_active:
-                return Response({"error": "User is not active"}, status=404)
-            if not OrganizationMembership.objects.filter(
-                user=user, organization_id=user.current_organization_id
-            ).exists():
-                return Response({"error": "User is not a member of the current organization"}, status=404)
+            # Personal integrations must not keep granting a token to a user who
+            # has been disabled, removed from the organization, or lost project
+            # access to the team the token would scope to (e.g. a private
+            # project the user can no longer see). Org membership alone is not
+            # sufficient — RBAC can leave a member with zero access to a team.
+            if not _user_can_drive_team_tasks(user, user.current_team):
+                return Response({"error": "User cannot access the current team"}, status=404)
             access_token = _mint_task_token(user, user.current_team_id, cache_key)
             if access_token is None:
                 return Response({"error": "Could not mint access token for integration"}, status=503)
