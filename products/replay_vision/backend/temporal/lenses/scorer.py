@@ -1,6 +1,6 @@
 """Scorer lens: produces a numeric score on a configured scale."""
 
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, create_model, model_validator
 
@@ -31,6 +31,7 @@ class ScorerOutput(BaseLensOutput, frozen=True):
 
 class ScorerLens(BaseLens, frozen=True):
     lens_type: Literal[LensType.SCORER] = LensType.SCORER
+    prompt_template: ClassVar[str] = "scorer.jinja"
     scale: ScoreScale
 
     @property
@@ -44,12 +45,12 @@ class ScorerLens(BaseLens, frozen=True):
             reasoning=(str, Field(description="One paragraph grounding the score in concrete moments.")),
         )
 
-    def task_instruction(self) -> str:
-        what = f"the '{self.scale.label}' scale" if self.scale.label else "the scale"
-        return (
-            f"Apply the lens intent and rate the session on {what} from {self.scale.min} to {self.scale.max}. "
-            "Use `reasoning` to cite the moments that drove your score."
-        )
+    def prompt_context(self) -> dict[str, Any]:
+        return {
+            "scale_min": self.scale.min,
+            "scale_max": self.scale.max,
+            "scale_label": self.scale.label,
+        }
 
     def finalize(self, llm_response: BaseModel) -> BaseLensOutput:
         return ScorerOutput(

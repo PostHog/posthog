@@ -120,6 +120,7 @@ export function Dashboards(): JSX.Element {
                         useMainContentContainerQueries={true}
                         contentClassName="max-w-[1000px]"
                         actionElementOverride={<FeaturedTemplatesChooser />}
+                        mcpSurfaceKey="dashboards.create"
                     />
                 )}
             </div>

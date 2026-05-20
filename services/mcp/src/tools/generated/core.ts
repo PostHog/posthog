@@ -581,6 +581,9 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.passkeys_enabled_for_2fa !== undefined) {
             body['passkeys_enabled_for_2fa'] = params.passkeys_enabled_for_2fa
         }
+        if (params.hide_mcp_hints !== undefined) {
+            body['hide_mcp_hints'] = params.hide_mcp_hints
+        }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,

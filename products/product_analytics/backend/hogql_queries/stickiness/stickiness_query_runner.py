@@ -48,7 +48,7 @@ class SeriesWithExtras:
         series: EventsNode | ActionsNode | DataWarehouseNode,
         series_order: int,
         is_previous_period_series: Optional[bool],
-    ):
+    ) -> None:
         self.series = series
         self.series_order = series_order
         self.is_previous_period_series = is_previous_period_series
@@ -66,10 +66,10 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-    ):
+    ) -> None:
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.update_hogql_modifiers()
         self.series = self.setup_series()
 
@@ -94,7 +94,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
         self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
 
-    def _refresh_frequency(self):
+    def _refresh_frequency(self) -> timedelta:
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
@@ -301,7 +301,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
         return ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
-    def _calculate(self):
+    def _calculate(self) -> StickinessQueryResponse:
         queries = self.to_queries()
         response_hogql = get_response_hogql(queries, team=self.team, timings=self.timings, modifiers=self.modifiers)
 
@@ -468,7 +468,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
 
-    def intervals_num(self):
+    def intervals_num(self) -> int:
         delta = self.query_date_range.date_to() - self.query_date_range.date_from()
         if self.query_date_range.interval_name == "day":
             return delta.days + 1
@@ -506,17 +506,21 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
         return series_with_extras
 
-    def date_range(self, series: SeriesWithExtras):
+    def date_range(
+        self, series: SeriesWithExtras
+    ) -> QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange:
         if series.is_previous_period_series:
             return self.query_previous_date_range
         return self.query_date_range
 
     @property
-    def exact_timerange(self):
-        return self.query.dateRange and self.query.dateRange.explicitDate
+    def exact_timerange(self) -> bool:
+        if self.query.dateRange is None:
+            return False
+        return bool(self.query.dateRange.explicitDate)
 
     @cached_property
-    def query_date_range(self):
+    def query_date_range(self) -> QueryDateRange:
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
@@ -526,7 +530,7 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         )
 
     @cached_property
-    def query_previous_date_range(self):
+    def query_previous_date_range(self) -> QueryCompareToDateRange | QueryPreviousPeriodDateRange:
         if self.query.compareFilter is not None and isinstance(self.query.compareFilter.compare_to, str):
             return QueryCompareToDateRange(
                 date_range=self.query.dateRange,

@@ -46,7 +46,13 @@ async def call_lens_provider_activity(inputs: CallLensProviderInputs) -> LensCal
     )
     lens = lens_from_snapshot(snapshot)
 
-    prompt_text = lens.build_prompt(team_name=team_name, events=llm_inputs.events)
+    prompt_text = lens.build_prompt(
+        team_name=team_name,
+        events=llm_inputs.events,
+        url_mapping=llm_inputs.url_mapping,
+        window_mapping=llm_inputs.window_mapping,
+        session_metadata=llm_inputs.metadata.as_prompt_dict(),
+    )
     prompt_parts: list[types.Part] = [
         types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type)),
         types.Part(text=prompt_text),

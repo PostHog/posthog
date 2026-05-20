@@ -47,7 +47,7 @@ class TestSummarizeSession:
             # Mock the SessionReplayEvents DB model to return different data for each page
             mock_instance = MagicMock()
             mock_replay_events.return_value = mock_instance
-            mock_instance.get_events.side_effect = [(None, None), (None, None)]
+            mock_instance.get_events.side_effect = [(None, None, False), (None, None, False)]
             with pytest.raises(ValueError, match=f"No columns found for session_id {mock_session_id}"):
                 with patch("ee.hogai.session_summaries.session.input_data.get_team", return_value=mock_team):
                     get_session_events(
