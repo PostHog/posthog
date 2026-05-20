@@ -186,12 +186,10 @@ def start_sshd(uid: int, gid: int) -> None:
 
 
 def _strip_host_permissions(settings_path: Path) -> None:
-    """Drop host-only permission policy from a copied Claude settings file.
+    """Strip permission policy so host rules can't override sandbox bypass mode.
 
-    Host deny rules survive bypass mode by design, allow lists are moot under
-    bypass, and a host defaultMode in settings.local.json would shadow the
-    bypassPermissions we write into settings.json (local overrides root).
-    Stripping all three keeps host policy from following into the container.
+    deny survives bypass by design; defaultMode in settings.local.json would
+    shadow bypassPermissions in settings.json. allow is moot under bypass.
     """
     if not settings_path.exists():
         return
