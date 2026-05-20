@@ -12,9 +12,11 @@ import type {
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    GitHubTeamsResponseApi,
     IntegrationConfigApi,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
@@ -458,6 +460,38 @@ export const integrationsGithubReposRefreshCreate = async (
     return apiMutator<GitHubReposRefreshResponseApi>(getIntegrationsGithubReposRefreshCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getIntegrationsGithubTeamsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_teams/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_teams/`
+}
+
+export const integrationsGithubTeamsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubTeamsRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubTeamsResponseApi> => {
+    return apiMutator<GitHubTeamsResponseApi>(getIntegrationsGithubTeamsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

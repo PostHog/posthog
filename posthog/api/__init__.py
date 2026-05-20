@@ -114,7 +114,7 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import (
+from products.user_interviews.backend.presentation.views import (
     IntervieweeContextViewSet,
     UserInterviewTopicViewSet,
     UserInterviewViewSet,
@@ -760,6 +760,7 @@ organizations_router.register(
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
+router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
