@@ -24,13 +24,14 @@ from posthog.schema import (
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import AlertConfiguration, Insight, User
 from posthog.models.alert import AlertCheck
+from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import (
     cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
     prepare_alert,
-    report_alerts_backlog,
+    report_alert_timeliness,
 )
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -589,68 +590,70 @@ class TestCleanupAlertChecks:
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-class TestReportAlertsBacklog:
+class TestReportAlertTimeliness:
+    @staticmethod
+    @contextlib.contextmanager
+    def _capture_slo():
+        captured: list[dict] = []
+
+        @contextlib.contextmanager
+        def fake_scoped_capture():
+            def capture(**kwargs):
+                captured.append(kwargs)
+
+            yield capture
+
+        with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
+            yield captured
+
     @freeze_time("2024-06-03T12:00:00Z")
-    async def test_counts_and_emits_both_intervals(self, ateam) -> None:
-        # Fresh hourly alert — in SLA.
-        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.HOURLY.value)
-        # Two stale hourly alerts — breach the 1h+5min SLA.
-        stale_hourly_1 = await _create_alert(ateam, calculation_interval=AlertCalculationInterval.HOURLY.value)
-        stale_hourly_2 = await _create_alert(ateam, calculation_interval=AlertCalculationInterval.HOURLY.value)
-        # One stale daily alert — breaches the 1d+15min SLA.
-        stale_daily = await _create_alert(ateam, calculation_interval=AlertCalculationInterval.DAILY.value)
-        # One disabled daily alert well past SLA — should not be counted.
-        disabled_daily = await _create_alert(
-            ateam, enabled=False, calculation_interval=AlertCalculationInterval.DAILY.value
+    async def test_emits_success_for_on_time_and_failure_for_late(self, ateam) -> None:
+        now = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
+        # Daily grace = 10% of 1 day = 2.4h.
+        on_time = await _create_alert(
+            ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now + timedelta(hours=1)
+        )
+        within_grace = await _create_alert(
+            ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now - timedelta(hours=1)
+        )
+        late_daily = await _create_alert(
+            ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now - timedelta(hours=3)
+        )
+        # Hourly grace = 10% of 1h = 6min; 10min overdue is late.
+        late_hourly = await _create_alert(
+            ateam, calculation_interval=AlertCalculationInterval.HOURLY.value, next_check_at=now - timedelta(minutes=10)
         )
 
-        @sync_to_async
-        def _set_last_checked():
-            now = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
-            AlertConfiguration.objects.filter(pk=stale_hourly_1.pk).update(last_checked_at=now - timedelta(hours=2))
-            AlertConfiguration.objects.filter(pk=stale_hourly_2.pk).update(last_checked_at=now - timedelta(hours=2))
-            AlertConfiguration.objects.filter(pk=stale_daily.pk).update(last_checked_at=now - timedelta(days=2))
-            AlertConfiguration.objects.filter(pk=disabled_daily.pk).update(last_checked_at=now - timedelta(days=7))
+        with self._capture_slo() as captured:
+            await ActivityEnvironment().run(report_alert_timeliness)
 
-        await _set_last_checked()
-
-        captured: list[dict] = []
-
-        @contextlib.contextmanager
-        def fake_scoped_capture():
-            def capture(**kwargs):
-                captured.append(kwargs)
-
-            yield capture
-
-        with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
-            env = ActivityEnvironment()
-            await env.run(report_alerts_backlog)
-
-        by_interval = {c["properties"]["calculation_interval"]: c["properties"]["backlog"] for c in captured}
-        assert by_interval == {
-            AlertCalculationInterval.HOURLY: 2,
-            AlertCalculationInterval.DAILY: 1,
+        outcome_by_alert = {c["properties"]["resource_id"]: c["properties"]["outcome"] for c in captured}
+        assert outcome_by_alert == {
+            str(on_time.id): SloOutcome.SUCCESS,
+            str(within_grace.id): SloOutcome.SUCCESS,
+            str(late_daily.id): SloOutcome.FAILURE,
+            str(late_hourly.id): SloOutcome.FAILURE,
         }
-        assert all(c["event"] == "alert check backlog" for c in captured)
+        assert all(c["event"] == "slo_operation_completed" for c in captured)
+        assert all(c["properties"]["operation"] == SloOperation.ALERT_TIMELINESS for c in captured)
 
     @freeze_time("2024-06-03T12:00:00Z")
-    async def test_reports_zero_when_no_backlog(self, ateam) -> None:
-        captured: list[dict] = []
+    async def test_skips_disabled_deleted_and_never_scheduled_alerts(self, ateam) -> None:
+        now = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
+        await _create_alert(ateam, enabled=False, next_check_at=now - timedelta(days=2))  # disabled — excluded by query
+        await _create_alert(
+            ateam, insight_deleted=True, next_check_at=now - timedelta(days=2)
+        )  # deleted insight — excluded
+        await _create_alert(ateam, next_check_at=None)  # never scheduled — nothing to judge
 
-        @contextlib.contextmanager
-        def fake_scoped_capture():
-            def capture(**kwargs):
-                captured.append(kwargs)
+        with self._capture_slo() as captured:
+            await ActivityEnvironment().run(report_alert_timeliness)
 
-            yield capture
+        assert captured == []
 
-        with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
-            env = ActivityEnvironment()
-            await env.run(report_alerts_backlog)
+    @freeze_time("2024-06-03T12:00:00Z")
+    async def test_no_alerts_emits_nothing(self, ateam) -> None:
+        with self._capture_slo() as captured:
+            await ActivityEnvironment().run(report_alert_timeliness)
 
-        by_interval = {c["properties"]["calculation_interval"]: c["properties"]["backlog"] for c in captured}
-        assert by_interval == {
-            AlertCalculationInterval.HOURLY: 0,
-            AlertCalculationInterval.DAILY: 0,
-        }
+        assert captured == []

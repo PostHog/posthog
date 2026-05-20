@@ -1,11 +1,3 @@
-"""Focused regression tests for :mod:`posthog.tasks.alerts.test.alert_check_helpers`.
-
-These lock in the helper's contract with :func:`add_alert_check` (tuple return),
-so the tuple-unpack drift that shipped in PR4 of the alerts→Temporal migration
-can't reoccur silently. The heavier trends integration tests also exercise the
-helper, but they're slow — this file gives a fast, dependency-free signal.
-"""
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -49,10 +41,6 @@ class TestRunAlertCheck(APIBaseTest):
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=["user1@example.com"])
     @patch("posthog.tasks.alerts.utils.check_alert_for_insight")
     def test_firing_path_unpacks_tuple_and_records_delivery(self, mock_check: MagicMock, mock_send: MagicMock) -> None:
-        """Regression: ``add_alert_check`` returns ``(AlertCheck, bool)`` — earlier
-        PR4 code accidentally treated the tuple as an ``AlertCheck`` and crashed
-        at the first attribute access. This test dies loudly if that drift returns.
-        """
         mock_check.return_value = AlertEvaluationResult(value=5.0, breaches=["breach_message"])
 
         run_alert_check(self.alert_id)

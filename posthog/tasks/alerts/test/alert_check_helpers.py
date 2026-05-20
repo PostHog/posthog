@@ -1,15 +1,3 @@
-"""Shared test helper for trends alert integration tests.
-
-Emulates the Temporal ``evaluate_alert`` + ``notify_alert`` activities end-to-end
-(state machine, persistence, notification dispatch) without requiring a Temporal
-test environment. When the activity bodies change, keep this helper in sync —
-otherwise coverage drifts.
-
-Patches for notification functions should target ``posthog.tasks.alerts.utils``,
-since the helper resolves them through ``alert_utils.*`` attribute access so
-``@patch`` on that module intercepts correctly.
-"""
-
 import traceback
 
 from django.db import transaction
