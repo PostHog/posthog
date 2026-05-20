@@ -54,11 +54,19 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             },
         ],
         localColorToken: [
-            undefined as DataColorToken | null | undefined,
+            null as DataColorToken | null,
             {
                 setColorToken: (_, { token }) => token,
                 clearColorToken: () => null,
-                closeModal: () => undefined,
+                closeModal: () => null,
+            },
+        ],
+        localColorTokenTouched: [
+            false,
+            {
+                setColorToken: () => true,
+                clearColorToken: () => true,
+                closeModal: () => false,
             },
         ],
     }),
@@ -66,13 +74,9 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
     selectors({
         modalVisible: [(s) => [s.dataset], (dataset): boolean => dataset !== null],
         colorToken: [
-            (s) => [s.localColorToken, s.colorTokenFromQuery],
-            (localColorToken, colorTokenFromQuery): DataColorToken | null => {
-                if (localColorToken === undefined) {
-                    return colorTokenFromQuery
-                }
-                return localColorToken
-            },
+            (s) => [s.localColorToken, s.localColorTokenTouched, s.colorTokenFromQuery],
+            (localColorToken, localColorTokenTouched, colorTokenFromQuery): DataColorToken | null =>
+                localColorTokenTouched ? localColorToken : colorTokenFromQuery,
         ],
         colorTokenFromQuery: [
             (s) => [s.isTrends, s.isStickiness, s.isFunnels, s.getTrendsColorToken, s.getFunnelsColorToken, s.dataset],
@@ -119,7 +123,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
 
     listeners(({ actions, values }) => ({
         save: () => {
-            if (values.localColorToken === undefined || values.dataset == null) {
+            if (!values.localColorTokenTouched || values.dataset == null) {
                 actions.closeModal()
                 return
             }
