@@ -55,6 +55,7 @@
         "@dnd-kit/modifiers": "^6.0.1",
         "@dnd-kit/sortable": "^7.0.2",
         "@dnd-kit/utilities": "^3.2.1",
+        "@elevenlabs/client": "^1.4.0",
         "@floating-ui/react": "^0.27.19",
         "@marsidev/react-turnstile": "^1.4.2",
         "@mathjax/src": "^4.1.1",

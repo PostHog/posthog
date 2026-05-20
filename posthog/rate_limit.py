@@ -424,6 +424,26 @@ class AIResearchBurstRateThrottle(_AIThrottleBase):
     action_name = "ai research burst rate limited"
 
 
+class MaxHandsFreeBurstRateThrottle(_AIThrottleBase):
+    # In prod: 10/min covers normal reconnects (network blip, tab refocus) and stays
+    # well below any plausible legitimate flow. In dev (settings.DEBUG): a much larger
+    # ceiling so rapid iteration doesn't trip the throttle and ruin the dev loop.
+    scope = "max_hands_free_burst"
+    rate = "1000/minute" if settings.DEBUG else "10/minute"
+    action_name = "max hands-free burst rate limited"
+
+
+class MaxHandsFreeSustainedRateThrottle(_AIThrottleBase):
+    # Each token grants ~15 min of Scribe usage. A 2-hour gym session is ~8 tokens at
+    # minimum plus reconnects, call it 15. Prod 60/day covers several long sessions a
+    # day with headroom — a 10x reduction on the prior 600/day ceiling that bounds
+    # worst-case Scribe spend per compromised account. Dev gets a much larger ceiling
+    # so testing all day doesn't lock out the developer.
+    scope = "max_hands_free_sustained"
+    rate = "10000/day" if settings.DEBUG else "60/day"
+    action_name = "max hands-free sustained rate limited"
+
+
 class AIResearchSustainedRateThrottle(_AIThrottleBase):
     scope = "ai_research_sustained"
     rate = "10/day"

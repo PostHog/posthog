@@ -17,10 +17,13 @@ import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
 
 import { ContextDisplay } from '../Context'
+import { handsFreeLogic } from '../handsFreeLogic'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { HandsFreeButton } from './HandsFreeButton'
+import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 
 interface QuestionInputProps {
@@ -140,7 +143,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     ref
 ) {
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { question } = useValues(maxLogic)
+    const { question, tabId: maxTabId } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
@@ -162,6 +165,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     } = useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
         useActions(maxThreadLogic)
+    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ tabId: maxTabId }))
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
@@ -262,87 +266,98 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             !streamingActive && '[--input-ring-color:var(--color-ai)]'
                         )}
                     >
-                        <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
-                            <div className="relative w-full">
-                                {!question && (
-                                    <div
-                                        id="textarea-hint"
-                                        className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
-                                    >
-                                        {conversation && isSharedThread ? (
-                                            `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-                                        ) : threadLoading ? (
-                                            'Thinking…'
-                                        ) : isThreadVisible ? (
-                                            placeholder || (
+                        {handsFreeActive ? (
+                            <HandsFreeSurface tabId={maxTabId} />
+                        ) : (
+                            <SlashCommandAutocomplete
+                                visible={showAutocomplete}
+                                onClose={() => setShowAutocomplete(false)}
+                            >
+                                <div className="relative w-full">
+                                    {!question && (
+                                        <div
+                                            id="textarea-hint"
+                                            className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
+                                        >
+                                            {conversation && isSharedThread ? (
+                                                `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                            ) : threadLoading ? (
+                                                'Thinking…'
+                                            ) : isThreadVisible ? (
+                                                placeholder || (
+                                                    <>
+                                                        Ask follow-up{' '}
+                                                        <span className="text-tertiary opacity-80 contrast-more:opacity-100">
+                                                            or / for commands
+                                                        </span>
+                                                    </>
+                                                )
+                                            ) : (
                                                 <>
-                                                    Ask follow-up{' '}
+                                                    Ask a question{' '}
                                                     <span className="text-tertiary opacity-80 contrast-more:opacity-100">
                                                         or / for commands
                                                     </span>
                                                 </>
-                                            )
-                                        ) : (
-                                            <>
-                                                Ask a question{' '}
-                                                <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                    or / for commands
-                                                </span>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
-                                <LemonTextArea
-                                    aria-describedby={!question ? 'textarea-hint' : undefined}
-                                    id="question-input"
-                                    data-attr="max-chat-input"
-                                    ref={textAreaRef}
-                                    value={isSharedThread ? '' : question}
-                                    onChange={(value) => setQuestion(value)}
-                                    onPressEnter={() => {
-                                        if (
-                                            hasQuestion &&
-                                            !submissionDisabledReason &&
-                                            (!threadLoading || queueingEnabled)
-                                        ) {
-                                            onSubmit?.()
-                                            askMax(question)
-                                        }
-                                    }}
-                                    onKeyDown={(event) => {
-                                        if (
-                                            event.key === 'ArrowUp' &&
-                                            !question.trim() &&
-                                            queuedMessages.length > 0 &&
-                                            !editingQueueId
-                                        ) {
-                                            const target = event.currentTarget
-                                            const atStart = target.selectionStart === 0 && target.selectionEnd === 0
-                                            const isSingleLine = target.value.split('\n').length <= 1
-                                            if (!atStart || !isSingleLine) {
-                                                return
+                                            )}
+                                        </div>
+                                    )}
+                                    <LemonTextArea
+                                        aria-describedby={!question ? 'textarea-hint' : undefined}
+                                        id="question-input"
+                                        data-attr="max-chat-input"
+                                        ref={textAreaRef}
+                                        value={isSharedThread ? '' : question}
+                                        onChange={(value) => setQuestion(value)}
+                                        onPressEnter={() => {
+                                            if (
+                                                hasQuestion &&
+                                                !submissionDisabledReason &&
+                                                (!threadLoading || queueingEnabled)
+                                            ) {
+                                                onSubmit?.()
+                                                askMax(question)
                                             }
-                                            const nextMessageId = queuedMessages[0]?.id
-                                            if (!nextMessageId) {
-                                                return
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (
+                                                event.key === 'ArrowUp' &&
+                                                !question.trim() &&
+                                                queuedMessages.length > 0 &&
+                                                !editingQueueId
+                                            ) {
+                                                const target = event.currentTarget
+                                                const atStart = target.selectionStart === 0 && target.selectionEnd === 0
+                                                const isSingleLine = target.value.split('\n').length <= 1
+                                                if (!atStart || !isSingleLine) {
+                                                    return
+                                                }
+                                                const nextMessageId = queuedMessages[0]?.id
+                                                if (!nextMessageId) {
+                                                    return
+                                                }
+                                                event.preventDefault()
+                                                setEditingQueueId(nextMessageId)
                                             }
-                                            event.preventDefault()
-                                            setEditingQueueId(nextMessageId)
-                                        }
-                                    }}
-                                    disabled={inputDisabled}
-                                    minRows={1}
-                                    maxRows={10}
-                                    className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none"
-                                    hideFocus
-                                />
-                            </div>
-                        </SlashCommandAutocomplete>
+                                        }}
+                                        disabled={inputDisabled}
+                                        minRows={1}
+                                        maxRows={10}
+                                        className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-20 resize-none"
+                                        hideFocus
+                                    />
+                                </div>
+                            </SlashCommandAutocomplete>
+                        )}
 
-                        {!isSharedThread && (
-                            <div className="pb-2 pr-12">
+                        {!isSharedThread && !handsFreeActive && (
+                            // pr-20 reserves ~80px on the right for the absolutely-positioned
+                            // mic + send buttons. The smaller pr-12 fit when only send was there,
+                            // but mic + gap + send + right-offset now totals ~75px and the chip
+                            // row would otherwise wrap UNDER the buttons.
+                            <div className="pb-2 pr-20">
                                 {!isThreadVisible ? (
-                                    <div className="flex items-start justify-between">
+                                    <div className="flex items-start justify-between flex-wrap gap-1">
                                         <ContextDisplay size={contextDisplaySize} />
 
                                         <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
@@ -355,77 +370,80 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </label>
                     <div
                         className={clsx(
-                            'absolute flex items-center',
+                            'absolute flex items-center gap-1',
                             isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        <AIConsentPopoverWrapper
-                            placement="bottom-end"
-                            showArrow
-                            ignoreDismissal
-                            onApprove={() => askMax(pendingPrompt || question)}
-                            onDismiss={() => completeThreadGeneration()}
-                            middleware={[
-                                offset((state) => ({
-                                    mainAxis: state.placement.includes('top') ? 30 : 1,
-                                })),
-                            ]}
-                            hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
-                        >
-                            <LemonButton
-                                data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
-                                type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
-                                onClick={() => {
-                                    if (threadLoading) {
-                                        if (isQueueingSubmission) {
-                                            if (submissionDisabledReason) {
-                                                textAreaRef?.current?.focus()
+                        <HandsFreeButton tabId={maxTabId} />
+                        {!handsFreeActive && (
+                            <AIConsentPopoverWrapper
+                                placement="bottom-end"
+                                showArrow
+                                ignoreDismissal
+                                onApprove={() => askMax(pendingPrompt || question)}
+                                onDismiss={() => completeThreadGeneration()}
+                                middleware={[
+                                    offset((state) => ({
+                                        mainAxis: state.placement.includes('top') ? 30 : 1,
+                                    })),
+                                ]}
+                                hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
+                            >
+                                <LemonButton
+                                    data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
+                                    type={(isThreadVisible && !hasQuestion) || showStopButton ? 'secondary' : 'primary'}
+                                    onClick={() => {
+                                        if (threadLoading) {
+                                            if (isQueueingSubmission) {
+                                                if (submissionDisabledReason) {
+                                                    textAreaRef?.current?.focus()
+                                                    return
+                                                }
+                                                askMax(question)
                                                 return
                                             }
-                                            askMax(question)
+                                            stopGeneration()
                                             return
                                         }
-                                        stopGeneration()
-                                        return
+                                        if (submissionDisabledReason) {
+                                            textAreaRef?.current?.focus()
+                                            return
+                                        }
+                                        askMax(question)
+                                    }}
+                                    tooltip={
+                                        disabledReason ? (
+                                            disabledReason
+                                        ) : showStopButton ? (
+                                            <>
+                                                Let's bail <KeyboardShortcut enter />
+                                            </>
+                                        ) : isQueueingSubmission ? (
+                                            <>
+                                                Queue message <KeyboardShortcut enter />
+                                            </>
+                                        ) : (
+                                            <>
+                                                Let's go! <KeyboardShortcut enter />
+                                            </>
+                                        )
                                     }
-                                    if (submissionDisabledReason) {
-                                        textAreaRef?.current?.focus()
-                                        return
+                                    loading={threadLoading && !dataProcessingAccepted}
+                                    disabledReason={disabledReason}
+                                    className={disabledReason ? 'opacity-[0.5]' : ''}
+                                    size="small"
+                                    icon={
+                                        showStopButton ? (
+                                            <IconStopFilled />
+                                        ) : (
+                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                                ?.icon || <IconArrowRight />
+                                        )
                                     }
-                                    askMax(question)
-                                }}
-                                tooltip={
-                                    disabledReason ? (
-                                        disabledReason
-                                    ) : showStopButton ? (
-                                        <>
-                                            Let's bail <KeyboardShortcut enter />
-                                        </>
-                                    ) : isQueueingSubmission ? (
-                                        <>
-                                            Queue message <KeyboardShortcut enter />
-                                        </>
-                                    ) : (
-                                        <>
-                                            Let's go! <KeyboardShortcut enter />
-                                        </>
-                                    )
-                                }
-                                loading={threadLoading && !dataProcessingAccepted}
-                                disabledReason={disabledReason}
-                                className={disabledReason ? 'opacity-[0.5]' : ''}
-                                size="small"
-                                icon={
-                                    showStopButton ? (
-                                        <IconStopFilled />
-                                    ) : (
-                                        MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
-                                            ?.icon || <IconArrowRight />
-                                    )
-                                }
-                            />
-                        </AIConsentPopoverWrapper>
+                                />
+                            </AIConsentPopoverWrapper>
+                        )}
                     </div>
                 </div>
                 {/* Info banner for conversations created during impersonation (marked as internal) */}

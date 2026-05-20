@@ -66,6 +66,8 @@ import {
 
 import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
+import { handsFreeLogic } from './handsFreeLogic'
+import { summariseAssistantThread } from './handsFreeUtils'
 import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -1164,6 +1166,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         completeThreadGeneration: () => {
+            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            if (handsFree?.values.isActive) {
+                handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
+            }
+
             // Update the conversation history to include the new conversation
             actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
 

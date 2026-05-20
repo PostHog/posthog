@@ -38,6 +38,7 @@ export const keyBinds: Record<string, string[]> = {
     tab9: [...baseModifier, '9'],
     zenMode: [...baseModifier, 'z'],
     newChat: ['g', 'then', 'n'],
+    maxHandsFree: ['h', 'then', 'f'],
     allChats: ['g', 'then', '1'],
     allApps: ['g', 'then', '2'],
     theme: ['g', 'then', 't'],

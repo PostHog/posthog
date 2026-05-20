@@ -98,6 +98,20 @@ CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", ""
 RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
 RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
 
+# ElevenLabs (Max hands-free mode)
+# STT goes browser ↔ ElevenLabs over a single-use Scribe WebSocket token (backend just mints).
+# TTS goes browser → PostHog → ElevenLabs → audio stream (backend proxies the key to ElevenLabs).
+ELEVENLABS_API_KEY = get_from_env("ELEVENLABS_API_KEY", "")
+ELEVENLABS_API_BASE_URL = get_from_env("ELEVENLABS_API_BASE_URL", "https://api.elevenlabs.io")
+# Rachel is ElevenLabs' default voice — neutral, clear at gym pace. Override if you want a
+# different feel without redeploying.
+ELEVENLABS_VOICE_ID = get_from_env("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+# Turbo v2.5 has ~300ms TTFB latency, sits in the free tier, and sounds clean enough for
+# gym-pace narration. Flash v2.5 is marginally faster but requires Creator ($22/mo) or above
+# on the ElevenLabs side, so devs running on free quota hit a 402 from the TTS proxy.
+# Override at the env level if you're on a paid tier and want the extra polish.
+ELEVENLABS_TTS_MODEL_ID = get_from_env("ELEVENLABS_TTS_MODEL_ID", "eleven_turbo_v2_5")
+
 # PandaDoc (for legal documents: BAA/DPA). One template per document variant.
 # Each call needs the matching template id, so we keep them as separate env vars —
 # rotating one (e.g., when Legal updates the DPA copy) doesn't touch the others.
