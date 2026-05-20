@@ -1789,6 +1789,42 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_pivot_column_lhs_extends_past_in_via_infix_operators(self):
+        # cpp's `pivotColumn: columnExprTupleOrSingle IN (...)` greedily
+        # extends the columnExpr LHS through ANY infix operator after a
+        # preceding `IN ( … )` group. The structural IN is the LAST IN
+        # whose `)` isn't followed by an extender. Rust's
+        # `find_pivot_in_separator` only treated a postfix `(` as
+        # extending — bare infix operators (`+`, `*`, `AND`, another
+        # `IN`, `LIKE`, etc.) erroneously committed the FIRST IN as
+        # structural, splitting one pivotColumn into two.
+        same_ast = (
+            # `IN` after `IN ( … )` is a Compare infix that extends LHS.
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) IN (d))",
+            # Arithmetic infix extends.
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) + c IN (d))",
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) * c IN (d))",
+            # Boolean keyword infix extends.
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) AND c IN (d))",
+            # LIKE keyword infix extends.
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) LIKE c IN (d))",
+            # Postfix call still extends (pre-existing behaviour).
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) (c) IN (d))",
+            # NOT is a prefix operator, not infix — it starts a new
+            # pivotColumn whose LHS is the bare keyword-as-Field `NOT`.
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) NOT IN (d))",
+            # Bare identifier always starts a new pivotColumn.
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) c IN (d))",
+            "SELECT * FROM t PIVOT(1 FOR a IN (b) c IN (d) e IN (f))",
+            # Single column still works.
+            "SELECT * FROM t PIVOT(1 FOR a IN (b))",
+        )
+        for src in same_ast:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_parse_order_expr_silently_drops_trailing_tokens(self):
         # cpp's `parse_order_expr_json` entry point parses just one
         # OrderExpr and silently drops anything after it — including

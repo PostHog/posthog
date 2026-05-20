@@ -1190,6 +1190,25 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // Single-token operand fallback: when the structural IN is at
+        // position peek1 (i.e. directly after the current token), the
+        // entire operand is just this one token as a Field. cpp's
+        // ANTLR resolves the ambiguous `NOT IN (…)` → `Field([NOT]) IN
+        // (…)` here — NOT cannot start a unary expression because the
+        // following IN isn't an expression atom, so ANTLR falls back
+        // to the bare-identifier alt. Any keyword that's a valid
+        // `identifier` (e.g. NOT / SELECT / IF / NULLS / …) lands
+        // here; plain Ident / QuotedIdent already parse single-token
+        // via parse_ident_lead and don't need the early return.
+        if let Some(stop_pos) = stop {
+            if stop_pos == self.peek1.start
+                && matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw))
+            {
+                let t = self.bump()?;
+                let name = identifier_text(self.text(t), t.kind);
+                return Ok(emit::field(vec![Value::String(name)]));
+            }
+        }
         let prev = std::mem::replace(&mut self.pivot_in_stop, stop);
         let result = self.parse_expr_bp(0);
         self.pivot_in_stop = prev;
@@ -1219,17 +1238,33 @@ impl<'a> Parser<'a> {
         // `columnExprTupleOrSingle` (a full `columnExpr`, which admits
         // nested `... IN (...)` operator expressions AND postfix
         // `(...)` calls on whatever it's already built). The structural
-        // `IN` is the FIRST depth-0 `IN (` whose closing `)` is NOT
-        // immediately followed by another `(` — i.e. the first IN
-        // beyond which the LHS columnExpr cannot greedy-extend via
-        // postfix-call chaining.
+        // `IN` is the LAST depth-0 `IN (` whose closing `)` is NOT
+        // followed by another token that could extend the LHS via an
+        // infix operator OR a postfix decoration. Any such token means
+        // the columnExpr keeps growing past this `IN ( … )` group.
+        //
+        // Extension tokens: postfix `(` / `[` / `.` / `?.`,
+        // arithmetic / comparison / regex infix tokens, And / Or / In
+        // / Is / Like / Ilike / Between / As keywords, `??`, `::`.
+        // `Not` is intentionally NOT in the set: it's a prefix
+        // operator, so a leading `NOT` starts a new operand. Bare
+        // identifiers / literals / placeholders / `*`-as-spread also
+        // start a new operand (commit the IN as structural).
         //
         // `y IN (1) (2) IN (3)` is one pivotColumn:
         //   IN1 = `IN (1)` followed by `(2)` (postfix call); LHS extends.
         //   IN2 = `IN (3)` followed by `)` (end); structural. ✓
         //
+        // `a IN (1) IN (2)` is one pivotColumn:
+        //   IN1 = `IN (1)` followed by `IN` (Compare infix); LHS extends.
+        //   IN2 = `IN (2)` followed by `)`; structural. ✓
+        //
         // `a IN (1) b IN (2)` is two pivotColumns:
         //   IN1 = `IN (1)` followed by `b` (new LHS); structural. ✓
+        //
+        // `a IN (1) NOT IN (2)` is two pivotColumns:
+        //   IN1 = `IN (1)` followed by `NOT` (prefix); structural. ✓
+        //   IN2 = `IN (2)` is the second column's separator. ✓
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         let mut depth: i32 = 0;
         let mut pending_in: Option<usize> = None;
@@ -1244,12 +1279,15 @@ impl<'a> Parser<'a> {
                 Err(_) => break,
             };
             if let Some(in_pos) = candidate_after_close.take() {
-                if tok.kind != TokenKind::LParen {
+                if !token_extends_pivot_column_lhs(tok.kind) {
                     return Some(in_pos);
                 }
-                // Postfix-call after the IN-group close — LHS extends;
-                // keep scanning for a later IN. Fall through to the
-                // normal LParen handling below to track depth.
+                // The IN ( … ) group is followed by something that
+                // extends the LHS (postfix call / array / dot, or
+                // any infix operator / keyword that takes a LHS).
+                // Keep scanning for a later structural IN. Fall
+                // through to the normal token handling so we keep
+                // tracking depth via `LParen` / `LBracket` / `LBrace`.
             }
             if let Some(in_pos) = pending_in.take() {
                 if tok.kind == TokenKind::LParen {
@@ -1346,4 +1384,54 @@ impl<'a> Parser<'a> {
         }
         Ok(out)
     }
+}
+
+/// `true` when `kind` can extend the LHS columnExpr of a pivotColumn
+/// past a preceding `IN ( … )` group — either a postfix decoration
+/// (`(...)`, `[...]`, `.x`, `?.x`) or an infix operator that takes a
+/// LHS. cpp's ANTLR ALL(*) keeps eating tokens into the LHS as long
+/// as one of these follows; the structural `IN` of the pivotColumn is
+/// the LAST one whose closing `)` is NOT followed by an extender. A
+/// `NOT` (prefix), bare identifier, literal, placeholder, top-level
+/// `*` (spread asterisk), or `,` / `)` / `FOR` / `GROUP BY` instead
+/// commits the IN as structural.
+fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::LParen
+            | TokenKind::LBracket
+            | TokenKind::Dot
+            | TokenKind::NullProperty
+            | TokenKind::DoubleColon
+            | TokenKind::Asterisk
+            | TokenKind::Slash
+            | TokenKind::Percent
+            | TokenKind::Plus
+            | TokenKind::Dash
+            | TokenKind::Concat
+            | TokenKind::Nullish
+            | TokenKind::EqDouble
+            | TokenKind::EqSingle
+            | TokenKind::NotEq
+            | TokenKind::Lt
+            | TokenKind::LtEq
+            | TokenKind::Gt
+            | TokenKind::GtEq
+            | TokenKind::RegexSingle
+            | TokenKind::RegexDouble
+            | TokenKind::IRegexSingle
+            | TokenKind::IRegexDouble
+            | TokenKind::NotRegex
+            | TokenKind::NotIRegex
+            | TokenKind::Keyword(
+                Kw::And
+                    | Kw::Or
+                    | Kw::In
+                    | Kw::Is
+                    | Kw::Like
+                    | Kw::Ilike
+                    | Kw::Between
+                    | Kw::As,
+            )
+    )
 }
