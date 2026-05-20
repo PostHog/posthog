@@ -377,15 +377,15 @@ impl ServerHandle {
             // (`handler::billing::record_billing_increment`) so mock-Redis
             // coverage doesn't silently regress that codepath. End-to-end
             // flush behavior lives in the real-Redis tests in `test_flags.rs`
-            // (`test_dual_write_*`, `test_shutdown_flush_*`).
-            let billing_aggregator = if *config.billing_aggregator_enabled {
-                Some(feature_flags::billing::BillingAggregator::for_tests(
+            // (`test_billing_increments_land_in_production_keyspace_per_mode`,
+            // `test_shutdown_flush_lands_aggregator_target_keyspace_in_redis`).
+            let billing_aggregator = config.billing_aggregator_mode.into_runtime().map(|mode| {
+                feature_flags::billing::BillingAggregator::for_tests_with_mode(
                     redis_writer_client.clone(),
                     feature_flags::billing::BillingAggregatorConfig::default(),
-                ))
-            } else {
-                None
-            };
+                    mode,
+                )
+            });
 
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
