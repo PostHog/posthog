@@ -51,6 +51,7 @@ from products.data_warehouse.backend.api.public_source_configs import PublicSour
 from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
+from products.llm_analytics.backend.api.personal_spend import personal_spend_eu_redirect
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
@@ -410,6 +411,18 @@ urlpatterns = [
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
+
+# Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
+# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
+# a silent 404.
+if settings.CLOUD_DEPLOYMENT == "EU":
+    urlpatterns += [
+        path(
+            "api/llm_analytics/@me/spend/",
+            personal_spend_eu_redirect,
+            name="personal_spend_eu_redirect",
+        ),
+    ]
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note

@@ -28,6 +28,12 @@ from hogli.manifest import load_manifest
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 _TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
 DEFAULT_TEMPLATE = "posthog-linux"
+# Newer coder versions added an interactive "Select a preset" prompt to `coder
+# create` that `--yes` does not bypass. Callers must always forward `--preset`
+# with a concrete value -- either a preset the template defines, or the literal
+# NO_PRESET sentinel below.
+DEFAULT_PRESET = "Default (warm)"
+NO_PRESET = "none"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -973,6 +979,58 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
+def _list_template_presets(template: str) -> list[str]:
+    """Return preset names defined on the active version of ``template``, or [] on failure.
+
+    Emits a warning when the coder CLI itself fails (auth/network/version issues) so
+    a silent fall-through to ``--preset none`` is distinguishable from a template that
+    simply defines no presets.
+    """
+    result = _run(
+        ["coder", "templates", "presets", "list", template, "-o", "json"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        suffix = f": {detail}" if detail else "."
+        click.echo(
+            click.style(
+                f"Warning: failed to list presets for template '{template}'{suffix}",
+                fg="yellow",
+            ),
+        )
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [entry["name"] for entry in payload if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+
+
+def resolve_template_preset(template: str, requested: str) -> str:
+    """Resolve ``requested`` to a preset the template defines, or ``NO_PRESET``.
+
+    Falls back to ``NO_PRESET`` (with a warning when alternatives exist) so
+    ``coder create`` never reaches its interactive picker.
+    """
+    if requested == NO_PRESET:
+        return NO_PRESET
+    presets = _list_template_presets(template)
+    if requested in presets:
+        return requested
+    if presets:
+        click.echo(
+            click.style(
+                f"Warning: preset '{requested}' not found for template '{template}'. "
+                f"Available: {', '.join(presets)}. Falling back to --preset {NO_PRESET}.",
+                fg="yellow",
+            ),
+        )
+    return NO_PRESET
+
+
 def create_workspace(
     name: str,
     disk_size: int,
@@ -982,6 +1040,7 @@ def create_workspace(
     repo: str = "https://github.com/PostHog/posthog",
     *,
     template: str = DEFAULT_TEMPLATE,
+    preset: str = DEFAULT_PRESET,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -991,6 +1050,9 @@ def create_workspace(
     template's Terraform default via ``--use-parameter-defaults``. If a
     forwarded parameter does not exist on the chosen template, coder errors
     pre-provisioning and the retry loop drops the offending key.
+
+    ``preset`` is resolved against the template's actual presets via
+    ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
         "disk_size": str(disk_size),
@@ -1003,12 +1065,15 @@ def create_workspace(
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
+    resolved_preset = resolve_template_preset(template, preset)
     base_args = [
         "coder",
         "create",
         name,
         "--template",
         template,
+        "--preset",
+        resolved_preset,
         "--use-parameter-defaults",
         "--yes",
     ]

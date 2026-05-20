@@ -50,6 +50,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.user_interviews",
 ]
 layer = "modules"
 
@@ -381,6 +382,8 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "posthog",
+    "products.data_warehouse",
+    "products.event_definitions",
 ]
 layer = "modules"
 
