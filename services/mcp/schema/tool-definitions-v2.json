@@ -30,10 +30,10 @@
         }
     },
     "read-data-warehouse-schema": {
-        "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
+        "description": "Use this tool to retrieve PostHog data warehouse schemas. Pass kind=`data_warehouse_catalog` to list core table schemas (events, groups, persons, sessions) plus a catalog of all available warehouse tables, system tables, and views. Pass kind=`data_warehouse_tables` with `table_names` to fetch full column schemas for specific tables. Use this to understand the data model before writing HogQL queries.",
         "category": "Data schema",
         "feature": "data_schema",
-        "summary": "Read core data warehouse schemas and table lists.",
+        "summary": "Read data warehouse schemas — full catalog or specific tables.",
         "title": "Read data warehouse schema",
         "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
         "new_mcp": true,

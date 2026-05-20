@@ -19,38 +19,38 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
     async def test_tool_has_correct_name(self):
         self.assertEqual(self.tool.name, "read_data_warehouse_schema")
 
-    async def test_returns_core_table_schemas(self):
+    async def test_catalog_returns_core_table_schemas(self):
         content = await self.tool.execute(
-            ReadDataWarehouseSchemaMCPToolArgs(query={"kind": "data_warehouse_schema"}),
+            ReadDataWarehouseSchemaMCPToolArgs(query={"kind": "data_warehouse_catalog"}),
         )
 
         self.assertIn("# Core PostHog tables", content)
         for table in ("events", "groups", "persons", "sessions"):
             self.assertIn(f"## Table `{table}`", content)
 
-    async def test_returns_string(self):
+    async def test_catalog_returns_string(self):
         content = await self.tool.execute(
-            ReadDataWarehouseSchemaMCPToolArgs(query={"kind": "data_warehouse_schema"}),
+            ReadDataWarehouseSchemaMCPToolArgs(query={"kind": "data_warehouse_catalog"}),
         )
 
         self.assertIsInstance(content, str)
 
-    async def test_lists_fields_for_core_tables(self):
+    async def test_catalog_lists_fields_for_core_tables(self):
         content = await self.tool.execute(
-            ReadDataWarehouseSchemaMCPToolArgs(query={"kind": "data_warehouse_schema"}),
+            ReadDataWarehouseSchemaMCPToolArgs(query={"kind": "data_warehouse_catalog"}),
         )
 
         self.assertIn("- event (", content)
         self.assertIn("- timestamp (", content)
 
-    async def test_schema_validates_query(self):
-        validated = self.tool.args_schema.model_validate({"query": {"kind": "data_warehouse_schema"}})
-        self.assertEqual(validated.query.kind, "data_warehouse_schema")
+    async def test_schema_validates_catalog_query(self):
+        validated = self.tool.args_schema.model_validate({"query": {"kind": "data_warehouse_catalog"}})
+        self.assertEqual(validated.query.kind, "data_warehouse_catalog")
 
-    async def test_returns_only_requested_table_when_table_names_provided(self):
+    async def test_tables_kind_returns_only_requested_table(self):
         content = await self.tool.execute(
             ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": ["events"]},
+                query={"kind": "data_warehouse_tables", "table_names": ["events"]},
             ),
         )
 
@@ -61,10 +61,10 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
         self.assertNotIn("# PostHog Postgres tables", content)
         self.assertNotIn("# Data warehouse views", content)
 
-    async def test_returns_multiple_requested_tables(self):
+    async def test_tables_kind_returns_multiple_requested_tables(self):
         content = await self.tool.execute(
             ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": ["events", "persons"]},
+                query={"kind": "data_warehouse_tables", "table_names": ["events", "persons"]},
             ),
         )
 
@@ -73,10 +73,10 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
         self.assertNotIn("# Core PostHog tables", content)
         self.assertNotIn("# Data warehouse tables", content)
 
-    async def test_unknown_table_returns_not_found_section(self):
+    async def test_tables_kind_unknown_table_returns_not_found_section(self):
         content = await self.tool.execute(
             ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": ["does_not_exist"]},
+                query={"kind": "data_warehouse_tables", "table_names": ["does_not_exist"]},
             ),
         )
 
@@ -84,10 +84,10 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
         self.assertIn("`does_not_exist`", content)
         self.assertIn("available tables include:", content)
 
-    async def test_mixed_known_and_unknown_tables(self):
+    async def test_tables_kind_mixed_known_and_unknown_tables(self):
         content = await self.tool.execute(
             ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": ["events", "does_not_exist"]},
+                query={"kind": "data_warehouse_tables", "table_names": ["events", "does_not_exist"]},
             ),
         )
 
@@ -95,50 +95,33 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
         self.assertIn("## Not found", content)
         self.assertIn("`does_not_exist`", content)
 
-    async def test_empty_table_names_falls_back_to_full_catalog(self):
-        content = await self.tool.execute(
-            ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": []},
-            ),
-        )
+    async def test_tables_kind_rejects_empty_table_names(self):
+        # min_length=1 — the tables kind without any names would be ambiguous with
+        # the catalog kind, so Pydantic must reject it.
+        with self.assertRaises(Exception):
+            self.tool.args_schema.model_validate({"query": {"kind": "data_warehouse_tables", "table_names": []}})
 
-        self.assertIn("# Core PostHog tables", content)
-        for table in ("events", "groups", "persons", "sessions"):
-            self.assertIn(f"## Table `{table}`", content)
-        self.assertNotIn("# Requested tables", content)
-
-    async def test_omitted_table_names_unchanged_behavior(self):
-        with_default = await self.tool.execute(
-            ReadDataWarehouseSchemaMCPToolArgs(query={"kind": "data_warehouse_schema"}),
-        )
-        with_none = await self.tool.execute(
-            ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": None},
-            ),
-        )
-
-        self.assertEqual(with_default, with_none)
-
-    async def test_schema_validates_query_with_table_names(self):
+    async def test_schema_validates_tables_query(self):
         validated = self.tool.args_schema.model_validate(
-            {"query": {"kind": "data_warehouse_schema", "table_names": ["events", "stripe_charges"]}}
+            {"query": {"kind": "data_warehouse_tables", "table_names": ["events", "stripe_charges"]}}
         )
+        self.assertEqual(validated.query.kind, "data_warehouse_tables")
         self.assertEqual(validated.query.table_names, ["events", "stripe_charges"])
 
-    async def test_persons_db_tables_excluded(self):
+    async def test_tables_kind_persons_db_tables_excluded(self):
         content = await self.tool.execute(
             ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": ["group_type_mappings"]},
+                query={"kind": "data_warehouse_tables", "table_names": ["group_type_mappings"]},
             ),
         )
 
         self.assertIn("## Not found", content)
         self.assertIn("`group_type_mappings`", content)
 
-    async def test_deduplicates_requested_names(self):
+    async def test_tables_kind_deduplicates_requested_names(self):
         content = await self.tool.execute(
             ReadDataWarehouseSchemaMCPToolArgs(
-                query={"kind": "data_warehouse_schema", "table_names": ["events", "events"]},
+                query={"kind": "data_warehouse_tables", "table_names": ["events", "events"]},
             ),
         )
 
@@ -190,7 +173,7 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
         ):
             content = await self.tool.execute(
                 ReadDataWarehouseSchemaMCPToolArgs(
-                    query={"kind": "data_warehouse_schema", "table_names": ["hubspot_companies"]},
+                    query={"kind": "data_warehouse_tables", "table_names": ["hubspot_companies"]},
                 ),
             )
 
@@ -214,7 +197,7 @@ class TestReadDataWarehouseSchemaMCPTool(NonAtomicBaseTest):
         ):
             content = await self.tool.execute(
                 ReadDataWarehouseSchemaMCPToolArgs(
-                    query={"kind": "data_warehouse_schema", "table_names": ["orphan_table"]},
+                    query={"kind": "data_warehouse_tables", "table_names": ["orphan_table"]},
                 ),
             )
 

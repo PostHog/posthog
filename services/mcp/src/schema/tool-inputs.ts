@@ -609,17 +609,34 @@ export const ExecuteSQLSchema = z.object({
         ),
 })
 
-export const ReadDataWarehouseSchemaSchema = z
+const ListDataWarehouseCatalogQuerySchema = z
     .object({
-        table_names: z
-            .array(z.string().min(1))
-            .optional()
-            .describe(
-                'Optional list of specific warehouse, system, view, or core table names to return schemas for. If omitted, returns the core table schemas plus a catalog of all available warehouse tables, system tables, and views. Use this when you already know which tables you want to inspect to avoid pulling the full catalog.'
-            ),
+        kind: z.literal('data_warehouse_catalog'),
     })
     .describe(
-        'Returns PostHog data warehouse schemas. Without arguments, returns core table schemas plus a catalog of all warehouse tables, system tables, and views. With table_names, returns the full column list for each named table.'
+        "Returns core PostHog table schemas (events, groups, persons, sessions) plus a catalog listing of every available warehouse table, system table, and view by name. Call this first if you don't yet know which tables exist."
+    )
+
+const GetDataWarehouseTablesQuerySchema = z
+    .object({
+        kind: z.literal('data_warehouse_tables'),
+        table_names: z
+            .array(z.string().min(1))
+            .min(1)
+            .describe('Specific warehouse, system, view, or core table names to fetch schemas for.'),
+    })
+    .describe(
+        'Returns full column schemas for the named warehouse, system, view, or core tables. Use this after `data_warehouse_catalog` once you know which tables you need.'
+    )
+
+export const ReadDataWarehouseSchemaSchema = z
+    .object({
+        query: z
+            .discriminatedUnion('kind', [ListDataWarehouseCatalogQuerySchema, GetDataWarehouseTablesQuerySchema])
+            .describe('The data warehouse schema query to execute.'),
+    })
+    .describe(
+        'Returns PostHog data warehouse schemas. Use kind=`data_warehouse_catalog` to list available tables, or kind=`data_warehouse_tables` with `table_names` to fetch full column schemas for specific tables.'
     )
 
 const ReadEventsQuerySchema = z.object({

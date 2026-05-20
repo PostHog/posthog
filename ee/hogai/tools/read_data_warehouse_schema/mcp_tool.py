@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
@@ -11,20 +11,27 @@ _PERSONS_DB_TABLES = {"group_type_mappings", "groups"}
 _CORE_TABLE_NAMES = ["events", "groups", "persons", "sessions"]
 
 
-class ReadDataWarehouseSchemaQuery(BaseModel):
-    kind: Literal["data_warehouse_schema"] = "data_warehouse_schema"
-    table_names: list[str] | None = Field(
-        default=None,
-        description=(
-            "Optional list of specific warehouse, system, view, or core table names. "
-            "If provided, returns schemas only for those tables (catalog sections are omitted). "
-            "If omitted, returns core tables plus the full catalog."
-        ),
+class ListDataWarehouseCatalog(BaseModel):
+    """Returns core PostHog table schemas (events, groups, persons, sessions) plus a catalog listing of every available warehouse table, system table, and view by name. Call this first if you don't yet know which tables exist."""
+
+    kind: Literal["data_warehouse_catalog"] = "data_warehouse_catalog"
+
+
+class GetDataWarehouseTables(BaseModel):
+    """Returns full column schemas for the named warehouse, system, view, or core tables. Use this after `data_warehouse_catalog` once you know which tables you need."""
+
+    kind: Literal["data_warehouse_tables"] = "data_warehouse_tables"
+    table_names: list[str] = Field(
+        min_length=1,
+        description="Specific warehouse, system, view, or core table names to fetch schemas for.",
     )
 
 
+DataWarehouseSchemaQuery = Union[ListDataWarehouseCatalog, GetDataWarehouseTables]
+
+
 class ReadDataWarehouseSchemaMCPToolArgs(BaseModel):
-    query: ReadDataWarehouseSchemaQuery
+    query: DataWarehouseSchemaQuery = Field(..., discriminator="kind")
 
 
 @mcp_tool_registry.register(scopes=["warehouse_table:read", "warehouse_view:read"])
@@ -39,9 +46,11 @@ class ReadDataWarehouseSchemaMCPTool(HogQLDatabaseMixin, MCPTool[ReadDataWarehou
     args_schema = ReadDataWarehouseSchemaMCPToolArgs
 
     async def execute(self, args: ReadDataWarehouseSchemaMCPToolArgs) -> str:
-        if args.query.table_names:
-            return await self._build_specific_tables(args.query.table_names)
-        return await self._build_tables_list()
+        match args.query:
+            case GetDataWarehouseTables():
+                return await self._build_specific_tables(args.query.table_names)
+            case ListDataWarehouseCatalog():
+                return await self._build_tables_list()
 
     @database_sync_to_async(thread_sensitive=False)
     def _build_tables_list(self) -> str:

@@ -38,7 +38,7 @@ describe('read-data-warehouse-schema', { concurrent: false }, () => {
     const tool = readDataWarehouseSchemaTool()
 
     it('should return core PostHog table schemas', async () => {
-        const result = await tool.handler(context, {})
+        const result = await tool.handler(context, { query: { kind: 'data_warehouse_catalog' } })
 
         expect(typeof result).toBe('string')
         expect(result).toContain('# Core PostHog tables')
@@ -47,7 +47,7 @@ describe('read-data-warehouse-schema', { concurrent: false }, () => {
     })
 
     it('should include sessions and groups tables', async () => {
-        const result = await tool.handler(context, {})
+        const result = await tool.handler(context, { query: { kind: 'data_warehouse_catalog' } })
 
         expect(result).toContain('sessions')
         expect(result).toContain('groups')
