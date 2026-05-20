@@ -23,7 +23,7 @@
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
-- image: property-values-aggregator
+- image: property-vals-rs
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
