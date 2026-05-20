@@ -453,6 +453,19 @@ describe('resolveModelCostForProvider()', () => {
             expect(result!.provider).toBe('deepinfra-turbo')
         })
 
+        it('partial matches against the canonical alias key, not just the raw provider name', () => {
+            const costs = createMockCosts({
+                default: { prompt_token: 0.000002, completion_token: 0.000012 },
+                'google-ai-studio-global': { prompt_token: 0.000002, completion_token: 0.000012 },
+                'google-vertex-global': { prompt_token: 0.000002, completion_token: 0.000012 },
+            })
+
+            const result = resolveModelCostForProvider(costs, 'gemini', 'gemini-3-pro-image-preview')
+
+            expect(result).toBeDefined()
+            expect(result!.provider).toBe('google-ai-studio-global')
+        })
+
         it('does not partially match when exact match exists', () => {
             const costs = createMockCosts({
                 openai: { prompt_token: 0.00001, completion_token: 0.00002 },

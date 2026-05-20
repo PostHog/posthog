@@ -156,16 +156,22 @@ export const resolveModelCostForProvider = (
             }
         }
 
-        // Try partial matching
-        const partialMatchKey: string | undefined = Object.keys(providerCosts).find((key: string) =>
-            key.includes(normalizedProvider)
-        )
+        // Search against the canonical key too so regional-only cost records
+        // (e.g. `google-ai-studio-global`) still match when the event uses an alias like `gemini`.
+        const partialMatchSearches: string[] =
+            canonicalKey === normalizedProvider ? [normalizedProvider] : [canonicalKey, normalizedProvider]
 
-        if (partialMatchKey) {
-            const partialMatch: ResolvedModelCost | undefined = findProviderMatch(partialMatchKey)
+        for (const search of partialMatchSearches) {
+            const partialMatchKey: string | undefined = Object.keys(providerCosts).find((key: string) =>
+                key.includes(search)
+            )
 
-            if (partialMatch) {
-                return partialMatch
+            if (partialMatchKey) {
+                const partialMatch: ResolvedModelCost | undefined = findProviderMatch(partialMatchKey)
+
+                if (partialMatch) {
+                    return partialMatch
+                }
             }
         }
     }
