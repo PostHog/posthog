@@ -145,7 +145,6 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         text = serializer.validated_data["text"]
 
         api_key = _require_api_key()
-        HANDS_FREE_SYNTHESIZE_CHARS_COUNTER.inc(len(text))
         voice_id = settings.ELEVENLABS_VOICE_ID
         try:
             upstream = requests.post(
@@ -179,12 +178,18 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status_code=upstream.status_code,
                 body_preview=body_preview,
             )
+            upstream.close()
             raise HandsFreeProviderError(f"Hands-free provider returned {upstream.status_code}.")
 
         HANDS_FREE_SYNTHESIZE_COUNTER.labels(outcome="ok").inc()
-        response = StreamingHttpResponse(
-            upstream.iter_content(chunk_size=4096),
-            content_type="audio/mpeg",
-        )
+        HANDS_FREE_SYNTHESIZE_CHARS_COUNTER.inc(len(text))
+
+        def stream_and_close() -> Any:
+            try:
+                yield from upstream.iter_content(chunk_size=4096)
+            finally:
+                upstream.close()
+
+        response = StreamingHttpResponse(stream_and_close(), content_type="audio/mpeg")
         response["Cache-Control"] = "no-store"
         return response

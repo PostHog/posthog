@@ -30,8 +30,22 @@ const STATUS_HINT: Record<HandsFreeStatus, string> = {
     speaking: 'Start talking to interrupt',
 }
 
+function HandsFreeTopline({ tabId, status }: { tabId: string; status: HandsFreeStatus }): JSX.Element {
+    const { partialTranscript, error } = useValues(handsFreeLogic({ tabId }))
+    return (
+        <div className="hands-free-surface__top">
+            {partialTranscript ? (
+                <p className="hands-free-surface__partial">{partialTranscript}</p>
+            ) : (
+                <p className="hands-free-surface__hint">{STATUS_HINT[status]}</p>
+            )}
+            {error && <p className="hands-free-surface__error">{error}</p>}
+        </div>
+    )
+}
+
 export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element | null {
-    const { status, partialTranscript, error } = useValues(handsFreeLogic({ tabId }))
+    const { status } = useValues(handsFreeLogic({ tabId }))
     const { toggleHandsFree, interruptSpeaking } = useActions(handsFreeLogic({ tabId }))
 
     // Register the v-then-m exit shortcut while the surface is mounted.
@@ -60,14 +74,7 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
 
     return (
         <div className="hands-free-surface" data-attr="max-hands-free-surface" data-status={status}>
-            <div className="hands-free-surface__top">
-                {partialTranscript ? (
-                    <p className="hands-free-surface__partial">{partialTranscript}</p>
-                ) : (
-                    <p className="hands-free-surface__hint">{STATUS_HINT[status]}</p>
-                )}
-                {error && <p className="hands-free-surface__error">{error}</p>}
-            </div>
+            <HandsFreeTopline tabId={tabId} status={status} />
 
             <button
                 type="button"

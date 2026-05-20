@@ -61,3 +61,50 @@ class TestMaxHandsFreeAPI(APIBaseTest):
         self.client.logout()
         response = self.client.post(self._token_url(), format="json")
         assert response.status_code in (401, 403)
+
+    def _synthesize_url(self) -> str:
+        return f"/api/environments/{self.team.id}/max_hands_free/synthesize/"
+
+    @patch("ee.api.hands_free.requests.post")
+    def test_synthesize_streams_audio_from_elevenlabs(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            iter_content=MagicMock(return_value=iter([b"mp3-chunk-1", b"mp3-chunk-2"])),
+        )
+
+        response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
+
+        assert response.status_code == 200
+        assert response["Content-Type"] == "audio/mpeg"
+        assert response["Cache-Control"] == "no-store"
+        assert b"".join(response.streaming_content) == b"mp3-chunk-1mp3-chunk-2"
+        mock_post.return_value.close.assert_called_once()
+
+    def test_synthesize_rejects_text_over_limit(self) -> None:
+        response = self.client.post(
+            self._synthesize_url(),
+            data={"text": "x" * 2001},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_synthesize_rejects_empty_text(self) -> None:
+        response = self.client.post(self._synthesize_url(), data={"text": ""}, format="json")
+        assert response.status_code == 400
+
+    @patch("ee.api.hands_free.requests.post")
+    def test_synthesize_502_when_provider_errors(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = MagicMock(status_code=429, text="quota exceeded")
+        response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
+        assert response.status_code == 502
+        mock_post.return_value.close.assert_called_once()
+
+    @override_settings(ELEVENLABS_API_KEY="")
+    def test_synthesize_503_when_api_key_missing(self) -> None:
+        response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
+        assert response.status_code == 503
+
+    def test_synthesize_requires_authentication(self) -> None:
+        self.client.logout()
+        response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
+        assert response.status_code in (401, 403)
