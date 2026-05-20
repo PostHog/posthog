@@ -684,15 +684,8 @@ export const searchLogic = kea<searchLogicType>([
 
                     // Filter by feature flag if required
                     if (section.flag) {
-                        if (Array.isArray(section.flag)) {
-                            // All flags in the array must pass
-                            if (!section.flag.every((flagKey) => checkFlag(flagKey as Pick<Setting, 'flag'>['flag']))) {
-                                continue
-                            }
-                        } else {
-                            if (!checkFlag(section.flag)) {
-                                continue
-                            }
+                        if (!checkFlag(section.flag as Pick<Setting, 'flag'>['flag'])) {
+                            continue
                         }
                     }
 
