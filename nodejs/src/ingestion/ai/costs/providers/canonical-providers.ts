@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-18 11:17:26 UTC
+// Generated at: 2026-05-19 20:29:55 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -86,6 +86,7 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
@@ -114,6 +115,7 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sambanova'
     | 'sambanova-bf16'
+    | 'sambanova-dedicated'
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'seed-fp8'

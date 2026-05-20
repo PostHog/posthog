@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -9,10 +9,12 @@ import { compactNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { LogsSamplingForm } from 'products/logs/frontend/components/LogsSampling/LogsSamplingForm'
 import { logsSamplingFormLogic } from 'products/logs/frontend/components/LogsSampling/logsSamplingFormLogic'
+import { samplingFormSaveDisabledReason } from 'products/logs/frontend/components/LogsSampling/samplingFormSaveDisabledReason'
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsSamplingDetailSceneLogicProps, logsSamplingDetailSceneLogic } from './logsSamplingDetailSceneLogic'
@@ -53,10 +55,11 @@ export function LogsSamplingDetailScene(): JSX.Element {
 
 function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JSX.Element {
     const formProps = { rule }
-    const { deleteRule } = useActions(logsSamplingDetailSceneLogic)
+    const { deleteRule, loadRuleDropImpact24h } = useActions(logsSamplingDetailSceneLogic)
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic(formProps))
     const { samplingForm, isSamplingFormSubmitting } = useValues(logsSamplingFormLogic(formProps))
     const { ruleDropImpact24h, ruleDropImpact24hLoading } = useValues(logsSamplingDetailSceneLogic)
+    const saveDisabledReason = samplingFormSaveDisabledReason(samplingForm)
 
     const confirmDelete = (): void => {
         LemonDialog.open({
@@ -74,51 +77,75 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name={samplingForm.name || rule.name}
-                resourceType={{ type: 'logs' }}
-                canEdit
-                onNameChange={(name) => setSamplingFormValue('name', name)}
-                renameDebounceMs={0}
-                actions={
-                    <LemonButton type="secondary" status="danger" onClick={confirmDelete}>
-                        Delete
-                    </LemonButton>
-                }
-            />
-            <div className="px-4 pt-2 pb-0 text-secondary text-sm flex items-center gap-1.5">
-                {ruleDropImpact24hLoading ? (
-                    <span className="text-muted">Loading drop impact…</span>
-                ) : ruleDropImpact24h === null ? (
-                    <span className="text-muted" title="Drop impact for the last 24 hours is not available">
-                        —
-                    </span>
-                ) : (
-                    <>
-                        <span>
-                            ~{compactNumber(ruleDropImpact24h)} log lines dropped in the last 24 hours (ingestion).
-                        </span>
-                        <Tooltip
-                            title={
+            <Form logic={logsSamplingFormLogic} props={formProps} formKey="samplingForm" enableFormOnSubmit>
+                <SceneTitleSection
+                    name={samplingForm.name || rule.name}
+                    resourceType={{ type: 'logs' }}
+                    canEdit
+                    onNameChange={(name) => setSamplingFormValue('name', name)}
+                    renameDebounceMs={0}
+                    actions={
+                        <LemonButton type="secondary" status="danger" onClick={confirmDelete}>
+                            Delete
+                        </LemonButton>
+                    }
+                />
+                <SceneStickyBar>
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="text-secondary text-sm flex items-center gap-1.5">
+                            {ruleDropImpact24h === null && !ruleDropImpact24hLoading ? (
+                                <span className="text-muted" title="Drop impact for the last 24 hours is not available">
+                                    —
+                                </span>
+                            ) : ruleDropImpact24h === null ? (
+                                <span className="text-muted">Loading drop impact…</span>
+                            ) : (
                                 <>
-                                    From app metrics keyed by this rule. Service-scoped rules only affect that service;
-                                    others are counted across the project.
+                                    {/* Keep the last known number visible during a manual refresh so
+                                        users can compare before / after rather than seeing it disappear. */}
+                                    <span>
+                                        ~{compactNumber(ruleDropImpact24h)} log lines dropped in the last 24 hours
+                                        (ingestion).
+                                    </span>
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                From app metrics keyed by this rule. Service-scoped rules only affect
+                                                that service; others are counted across the project. Numbers can lag a
+                                                minute or two — refresh after a short wait if you just enabled or edited
+                                                the rule.
+                                            </>
+                                        }
+                                    >
+                                        <IconInfo className="text-muted-alt text-base shrink-0" />
+                                    </Tooltip>
                                 </>
-                            }
+                            )}
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconRefresh />}
+                                onClick={() => loadRuleDropImpact24h(undefined)}
+                                loading={ruleDropImpact24hLoading}
+                                disabledReason={ruleDropImpact24hLoading ? 'Refreshing…' : undefined}
+                                tooltip="Refresh drop impact (last 24h)"
+                                aria-label="Refresh drop impact"
+                            />
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            loading={isSamplingFormSubmitting}
+                            disabledReason={saveDisabledReason ?? undefined}
                         >
-                            <IconInfo className="text-muted-alt text-base shrink-0" />
-                        </Tooltip>
-                    </>
-                )}
-            </div>
-            <div className="flex flex-col gap-6 p-4">
-                <Form logic={logsSamplingFormLogic} props={formProps} formKey="samplingForm" enableFormOnSubmit>
+                            Save changes
+                        </LemonButton>
+                    </div>
+                </SceneStickyBar>
+                <div className="flex flex-col gap-6 p-4">
                     <LogsSamplingForm />
-                    <LemonButton className="mt-4" type="primary" htmlType="submit" loading={isSamplingFormSubmitting}>
-                        Save changes
-                    </LemonButton>
-                </Form>
-            </div>
+                </div>
+            </Form>
         </SceneContent>
     )
 }
