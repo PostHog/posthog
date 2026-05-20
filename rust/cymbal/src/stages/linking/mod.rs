@@ -4,7 +4,7 @@ pub mod issue;
 pub mod rule_suppression;
 pub mod suppression;
 
-use moka::future::{Cache, CacheBuilder};
+use moka::future::Cache;
 
 use crate::{
     app_context::AppContext,
@@ -50,14 +50,11 @@ impl Stage for LinkingStage {
 
 impl From<&Arc<AppContext>> for LinkingStage {
     fn from(ctx: &Arc<AppContext>) -> Self {
-        let issue_cache = CacheBuilder::new(1000)
-            .time_to_live(std::time::Duration::from_secs(
-                ctx.config.issue_cache_ttl_seconds,
-            ))
-            .build();
+        // The issue cache lives on AppContext so it survives across batches; cloning the
+        // moka handle is just a refcount bump on the underlying Arc.
         Self {
             app_context: ctx.clone(),
-            issue_cache,
+            issue_cache: ctx.issue_cache.clone(),
         }
     }
 }

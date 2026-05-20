@@ -1,6 +1,7 @@
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use health::HealthRegistry;
+use moka::future::{Cache, CacheBuilder};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
@@ -10,6 +11,7 @@ use tracing::info;
 use crate::{
     config::{get_aws_config, init_global_state, Config},
     error::UnhandledError,
+    issue_resolution::Issue,
     signals::{MaybeSignalClient, SignalClient},
     stages::resolution::symbol::{local::LocalSymbolResolver, SymbolResolver},
     symbol_store::{
@@ -24,6 +26,7 @@ use crate::{
         BlobClient, Catalog, S3Client,
     },
     teams::TeamManager,
+    types::operator::TeamId,
 };
 
 pub struct AppContext {
@@ -42,6 +45,10 @@ pub struct AppContext {
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     pub signal_client: MaybeSignalClient,
+    // Shared (fingerprint -> issue) cache. Lives on AppContext so it persists across
+    // requests — every batch shares a single LinkingStage cache instead of building a
+    // fresh one. moka caches are cheap to clone (internally Arc'd).
+    pub issue_cache: Cache<(TeamId, String), Issue>,
 }
 
 impl AppContext {
@@ -198,6 +205,10 @@ impl AppContext {
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
+        let issue_cache = CacheBuilder::new(1000)
+            .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
+            .build();
+
         Ok(Self {
             health_registry,
             immediate_producer,
@@ -211,6 +222,7 @@ impl AppContext {
             issue_buckets_redis_client,
             signal_client,
             symbol_resolver,
+            issue_cache,
         })
     }
 }
