@@ -2164,6 +2164,7 @@ class ExternalDataSourceType(StrEnum):
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
     RESEND = "Resend"
+    PG_ANALYZE = "PgAnalyze"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3703,6 +3704,40 @@ class PersonType(BaseModel):
     uuid: str | None = None
 
 
+class PgAnalyzeIssueReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: str | None = None
+    name: str | None = None
+    queryText: str | None = None
+    url: str | None = None
+
+
+class PgAnalyzeIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    database_id: str | None = None
+    references: list[PgAnalyzeIssueReference]
+    server_human_id: str | None = None
+    server_name: str | None = None
+    severity: str | None = None
+    synced_at: str
+
+
+class PgAnalyzeIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: PgAnalyzeIssueSignalExtra
+    source_id: str
+    source_product: Literal["pganalyze"] = "pganalyze"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
 
@@ -4519,6 +4554,7 @@ class SignalSourceProduct(StrEnum):
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
+    PGANALYZE = "pganalyze"
 
 
 class SignalSourceType(StrEnum):
@@ -8407,6 +8443,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | PgAnalyzeIssueSignalInput
     ]
 ):
     root: (
@@ -8419,6 +8456,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | PgAnalyzeIssueSignalInput
     )
 
 
