@@ -58,6 +58,20 @@ export type ErrorTrackingConsumerConfig = {
     /** TTL in seconds for the Redis bucket key. */
     ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: number
 
+    /**
+     * When true, adds a per-(team, exception hash) bucket pre-Cymbal that
+     * catches recursive error loops (one logical exception firing thousands
+     * of times before billing limits trip). Auto-applies for every team —
+     * no per-team opt-in — but only when the master rate limiter switch is
+     * also on. Independent of `ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE`,
+     * which still gates whether decisions get enforced.
+     */
+    ERROR_TRACKING_RATE_LIMITER_PER_HASH_ENABLED: boolean
+    /** Token bucket size for the per-hash limit (max burst before throttling). */
+    ERROR_TRACKING_RATE_LIMITER_PER_HASH_BUCKET_SIZE: number
+    /** Window in minutes over which bucketSize tokens refill (i.e. "N per M minutes"). */
+    ERROR_TRACKING_RATE_LIMITER_PER_HASH_BUCKET_MINUTES: number
+
     /** Pipeline name for metrics labeling */
     INGESTION_PIPELINE: string | null
     /** Lane identifier (main, overflow) for metrics labeling */
@@ -86,6 +100,9 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_RATE_LIMITER_REDIS_PORT: 6379,
         ERROR_TRACKING_RATE_LIMITER_REDIS_TLS: false,
         ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS: 86_400,
+        ERROR_TRACKING_RATE_LIMITER_PER_HASH_ENABLED: false,
+        ERROR_TRACKING_RATE_LIMITER_PER_HASH_BUCKET_SIZE: 100,
+        ERROR_TRACKING_RATE_LIMITER_PER_HASH_BUCKET_MINUTES: 5,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
     }

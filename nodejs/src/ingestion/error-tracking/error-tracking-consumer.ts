@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
@@ -66,6 +67,16 @@ export interface ErrorTrackingConsumerOptions {
     rateLimiterRedisPort: number
     rateLimiterRedisTls: boolean
     rateLimiterTtlSeconds: number
+    /**
+     * Per-(team, exception hash) bucket pre-Cymbal. Auto-applies for every team
+     * when both this and `rateLimiterEnabled` are true. Independent of
+     * `rateLimiterReportingMode`, which still gates enforcement vs. observation.
+     */
+    rateLimiterPerHashEnabled: boolean
+    /** Token bucket size for the per-hash limit (max burst). */
+    rateLimiterPerHashBucketSize: number
+    /** Window in minutes over which `rateLimiterPerHashBucketSize` tokens refill. */
+    rateLimiterPerHashBucketMinutes: number
     /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
     fallbackRedisUrl?: string
     /** Pool sizing for the dedicated rate limiter Redis pool. */
@@ -314,28 +325,44 @@ export class ErrorTrackingConsumer {
                     }
                 },
             },
-            // TODO: Per-exception-hash limit using a coarse pre-Cymbal fingerprint
-            // (Cymbal's proper fingerprint is post-symbolication, so we accept a
-            // weaker-but-cheaper bucket here). Wiring would look like:
-            // {
-            //     rateLimiter: this.rateLimiter,
-            //     appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
-            //     appSource: 'exceptions',
-            //     getKey: (input) => {
-            //         const first = input.event.properties?.$exception_list?.[0]
-            //         if (!first?.type && !first?.value) return null
-            //         const hash = createHash('sha1')
-            //             .update(`${first?.type ?? ''}|${first?.value ?? ''}`)
-            //             .digest('hex')
-            //             .slice(0, 16)
-            //         return `${input.team.id}:exceptions:hash:${hash}`
-            //     },
-            //     getTeamId: (input) => input.team.id,
-            //     reportingMode: this.config.rateLimiterReportingMode,
-            //     dropReason: 'rate_limited:per_hash',
-            //     // getBucketConfig: ... (see TODO above)
-            // },
         ]
+
+        if (this.config.rateLimiterPerHashEnabled) {
+            // Per-(team, exception hash) cap: contains recursive error loops
+            // where a single bug fires the same $exception thousands of times
+            // before the team-global bucket drains. Auto-applies for every team
+            // — no per-team opt-in — because the failure mode is platform-wide
+            // and the bucket is small enough not to clip legitimate traffic.
+            //
+            // Hash is a coarse pre-Cymbal fingerprint (type|value of the first
+            // entry in $exception_list). Cymbal's proper fingerprint is only
+            // available post-symbolication, but we want to drop *before* paying
+            // that cost, so we accept the weaker key here.
+            const bucketSize = this.config.rateLimiterPerHashBucketSize
+            const minutes = this.config.rateLimiterPerHashBucketMinutes
+            const refillRate = bucketSize / (minutes * 60)
+            specs.push({
+                rateLimiter: this.rateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                getKey: (input) => {
+                    const first = input.event.properties?.$exception_list?.[0] as
+                        | { type?: string; value?: string }
+                        | undefined
+                    const type = first?.type ?? ''
+                    const value = first?.value ?? ''
+                    if (!type && !value) {
+                        return null
+                    }
+                    const hash = createHash('sha1').update(`${type}|${value}`).digest('hex').slice(0, 16)
+                    return `${input.team.id}:exceptions:hash:${hash}`
+                },
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:per_hash',
+                getBucketConfig: () => ({ bucketSize, refillRate }),
+            })
+        }
 
         return specs
     }
