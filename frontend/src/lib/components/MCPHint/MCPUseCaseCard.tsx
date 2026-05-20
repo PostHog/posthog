@@ -33,15 +33,18 @@ export function MCPUseCaseCard({
      * empty state (e.g. the SQL editor, which a user revisits often).
      */
     expiresAfterMs,
+    // Force display, only useful in storybook to simplify flags
+    forceDisplay = false,
 }: {
     surfaceKey: SurfaceKey
     className?: string
     expiresAfterMs?: number
+    forceDisplay?: boolean
 }): JSX.Element | null {
     const { effectiveOptOut, featureEnabled } = useValues(mcpHintLogic)
     const [expired] = useState(() => (expiresAfterMs ? getExpiryState(surfaceKey, expiresAfterMs).expired : false))
 
-    if (!featureEnabled || effectiveOptOut || expired) {
+    if (forceDisplay == false && (!featureEnabled || effectiveOptOut || expired)) {
         return null
     }
 
