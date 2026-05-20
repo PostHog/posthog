@@ -117,20 +117,16 @@ class TestSdkDoctorLegacyEndpoint(APIBaseTest):
         return "/api/sdk_doctor/"
 
     @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
-    def test_cold_cache_returns_empty_200(self, mock_github, mock_team) -> None:
+    def test_cold_cache_returns_empty_200(self, mock_team) -> None:
         mock_team.return_value = {}
-        mock_github.return_value = {}
 
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
 
     @patch("posthog.api.sdk_doctor.get_team_data")
-    @patch("posthog.api.sdk_doctor.get_github_sdk_data")
-    def test_genuine_failure_returns_500(self, mock_github, mock_team) -> None:
+    def test_genuine_failure_returns_500(self, mock_team) -> None:
         mock_team.return_value = None
-        mock_github.return_value = {}
 
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
