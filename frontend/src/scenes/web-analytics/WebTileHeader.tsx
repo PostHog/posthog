@@ -1,5 +1,3 @@
-import { useMemo } from 'react'
-
 import { IconChevronDown, IconEllipsis, IconLineGraph } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, LemonSelectOption } from '@posthog/lemon-ui'
 
@@ -32,15 +30,11 @@ export interface WebTileHeaderProps {
 
 function TitleDropdown({ tileId, dropdown }: { tileId: TileId; dropdown: DropdownConfig<string> }): JSX.Element {
     const currentLabel = dropdown.options.find((o) => o.value === dropdown.value)?.label ?? dropdown.value
-    const items: LemonMenuItem[] = useMemo(
-        () =>
-            dropdown.options.map((opt) => ({
-                label: opt.label ?? String(opt.value),
-                active: opt.value === dropdown.value,
-                onClick: () => dropdown.onChange(opt.value),
-            })),
-        [dropdown]
-    )
+    const items: LemonMenuItem[] = dropdown.options.map((opt) => ({
+        label: opt.label ?? String(opt.value),
+        active: opt.value === dropdown.value,
+        onClick: () => dropdown.onChange(opt.value),
+    }))
 
     return (
         <LemonMenu items={items} placement="bottom-start">

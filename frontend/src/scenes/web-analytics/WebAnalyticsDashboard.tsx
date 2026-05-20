@@ -347,9 +347,9 @@ const TabsTileItemV2 = ({ tile }: { tile: TabsTile }): JSX.Element => {
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName || 'md:col-span-1',
-                layout.rowSpanClassName || 'md:row-span-1',
-                layout.orderWhenLargeClassName || '2xl:order-12',
+                layout.colSpanClassName ?? 'md:col-span-1',
+                layout.rowSpanClassName ?? 'md:row-span-1',
+                layout.orderWhenLargeClassName ?? '2xl:order-12',
                 layout.className
             )}
         >
