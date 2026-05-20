@@ -55,6 +55,7 @@ rules:
                       regex: |
                           (?x)(
                               AccessControl
+                              |Account
                               |Action
                               |AgentArtifact
                               |Alert
@@ -64,6 +65,7 @@ rules:
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
+                              |BatchExportOnDemand
                               |BatchImport
                               |ButtonTile
                               |ChangeRequest
@@ -206,7 +208,6 @@ rules:
                               |Tagger
                               |Task
                               |TaskAutomation
-                              |TaskPrewarmedSandbox
                               |TaskRun
                               |EmailChannel
                               |EvaluationReport
@@ -277,6 +278,7 @@ rules:
                 regex: |
                     (?x)(
                         AccessControl
+                        |Account
                         |Action
                         |AgentArtifact
                         |Alert
@@ -286,6 +288,7 @@ rules:
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
+                        |BatchExportOnDemand
                         |BatchImport
                         |ButtonTile
                         |ChangeRequest
@@ -424,7 +427,6 @@ rules:
                         |Tagger
                         |Task
                         |TaskAutomation
-                        |TaskPrewarmedSandbox
                         |TaskRun
                         |EmailChannel
                         |EvaluationReport

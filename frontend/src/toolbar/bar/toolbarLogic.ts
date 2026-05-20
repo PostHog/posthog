@@ -715,7 +715,17 @@ export const toolbarLogic = kea<toolbarLogicType>([
         if (isInIframe) {
             cache.disposables.add(() => {
                 const iframeEventListener = (e: MessageEvent): void => {
-                    // TODO: Probably need to have strict checks here
+                    // Only the PostHog app at uiHost should be driving these actions.
+                    const expectedOrigin = toolbarConfigLogic.findMounted()?.values.uiHost
+                    if (!expectedOrigin || e.origin !== expectedOrigin) {
+                        if (e?.data?.type && typeof e.data.type === 'string' && e.data.type.startsWith('ph-')) {
+                            toolbarLogger.warn('iframe', 'Ignoring parent message from unexpected origin', {
+                                got: e.origin,
+                                expected: expectedOrigin,
+                            })
+                        }
+                        return
+                    }
                     const type: PostHogAppToolbarEvent = e?.data?.type
 
                     if (!type || !type.startsWith('ph-')) {

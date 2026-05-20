@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CopyExperimentToProjectApi,
+    CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
@@ -17,6 +18,7 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentsListParams,
+    ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
@@ -657,11 +659,14 @@ export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number
 }
 
 /**
- * Ship a variant to 100% of users and (optionally) end the experiment.
+ * Ship a variant and (optionally) end the experiment.
 
-Rewrites the feature flag so that the selected variant is served to everyone.
-Existing release conditions (flag groups) are preserved so the change can be
-rolled back by deleting the auto-added release condition in the feature flag UI.
+Updates the feature flag so the selected variant gets 100% of the variant
+distribution. By default, existing release conditions on the flag are preserved
+untouched — the variant is served only to users who already match them. Pass
+``release_to_everyone: true`` to also prepend a catch-all release condition
+that rolls the variant out to 100% of users (overrides any existing release
+conditions on the flag).
 
 Can be called on both running and stopped experiments. If the experiment is
 still running, it will also be ended (end_date set and status marked as stopped).
@@ -749,6 +754,32 @@ export const experimentsUnarchiveCreate = async (
     })
 }
 
+export const getExperimentsCreateFromPromptCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/create_from_prompt/`
+}
+
+/**
+ * Create an experiment that compares N versions of an LLM prompt using a metric template.
+
+The user picks 2+ versions of an existing LLMPrompt and 1+ metric templates
+(cost / latency / eval_pass_rate). The endpoint builds the matching variants
+(control + test-N, each named after its prompt version) and attaches one
+metric per selected template, each scoped to the prompt's $ai_prompt_name.
+Resulting experiment is in draft state.
+ */
+export const experimentsCreateFromPromptCreate = async (
+    projectId: string,
+    createFromPromptInputApi: CreateFromPromptInputApi,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsCreateFromPromptCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createFromPromptInputApi),
+    })
+}
+
 export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/eligible_feature_flags/`
 }
@@ -778,6 +809,26 @@ export const experimentsEligibleFeatureFlagsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getExperimentsPromptTemplatesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/prompt_templates/`
+}
+
+/**
+ * List the LLM metric templates that can be passed to `create_from_prompt`.
+ */
+export const experimentsPromptTemplatesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExperimentsPromptTemplatesRetrieve200Item[]> => {
+    return apiMutator<ExperimentsPromptTemplatesRetrieve200Item[]>(
+        getExperimentsPromptTemplatesRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsRequiresFlagImplementationRetrieveUrl = (projectId: string) => {

@@ -22,7 +22,6 @@ from .constants import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     INITIAL_PERMISSION_MODE_CHOICES,
-    SENDBLUE_TASK_REPOSITORY,
 )
 from .models import SandboxEnvironment, Task, TaskAutomation, TaskRun
 from .services.title_generator import generate_task_title
@@ -204,8 +203,6 @@ class TaskSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
         validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
-        if validated_data["origin_product"] == Task.OriginProduct.SENDBLUE and not validated_data.get("repository"):
-            validated_data["repository"] = SENDBLUE_TASK_REPOSITORY
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
@@ -216,9 +213,7 @@ class TaskSerializer(serializers.ModelSerializer):
         )
 
         # Set default GitHub integration if not provided
-        if validated_data.get("origin_product") != Task.OriginProduct.SENDBLUE and not validated_data.get(
-            "github_integration"
-        ):
+        if not validated_data.get("github_integration"):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration
@@ -262,6 +257,13 @@ class TaskSerializer(serializers.ModelSerializer):
             return task
 
     def update(self, instance, validated_data):
+        # These fields are immutable after creation. origin_product controls
+        # team-wide visibility (SIGNAL_REPORT tasks are visible to all members),
+        # so allowing updates would let a user escalate a private task's visibility.
+        # signal_report and its relationship are set-once associations.
+        validated_data.pop("signal_report", None)
+        validated_data.pop("signal_report_task_relationship", None)
+        validated_data.pop("origin_product", None)
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
         return super().update(instance, validated_data)

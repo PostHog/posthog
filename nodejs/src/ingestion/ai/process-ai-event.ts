@@ -15,7 +15,7 @@ import { EventWithProperties, extractCoreModelParams, processCost } from './cost
 import { processAiErrorNormalization } from './errors'
 import { processAiToolCallExtraction } from './tools'
 
-export { EventWithProperties } from './costs'
+export type { EventWithProperties } from './costs'
 
 const isEventWithProperties = (event: PluginEvent): event is EventWithProperties => {
     return event.properties !== undefined && event.properties !== null

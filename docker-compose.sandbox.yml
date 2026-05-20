@@ -122,9 +122,16 @@ services:
             - app
 
     app:
+        # Base build. When the user has tools.yaml entries, bin/sandbox
+        # generates a Dockerfile.user that layers tool installs on top and
+        # writes an override (docker-compose.tool-auth.yml) that swaps
+        # build.dockerfile to point at it.
         build:
             context: .
             dockerfile: Dockerfile.sandbox
+            args:
+                SANDBOX_UID: '${SANDBOX_UID:-1000}'
+                SANDBOX_GID: '${SANDBOX_GID:-1000}'
         restart: on-failure
         init: true
         # mprocs (used by bin/start) requires a TTY
@@ -159,9 +166,11 @@ services:
             - python-env:/cache/python
             # JetBrains IDE backend for Gateway (populated by bin/sandbox)
             - jetbrains:/opt/idea
-        # Shared service defaults (Postgres, ClickHouse, Redis, etc.) come from
-        # the same env file used by docker-compose.base.yml.
-        env_file: dev-services.env
+        # Sandbox uses the shared service-connection defaults but NOT .env.development —
+        # the latter has host-side URLs (SESSION_RECORDING_V2_S3_ENDPOINT=localhost:8333,
+        # OBJECT_STORAGE_PUBLIC_ENDPOINT=localhost:19000) that don't resolve inside the
+        # container. Dev runtime knobs (DEBUG, etc.) are set inline below.
+        env_file: .env.services
         environment:
             # --- Sandbox identity ---
             SANDBOX_UID: '${SANDBOX_UID:-1000}'

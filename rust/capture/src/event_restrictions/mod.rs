@@ -6,7 +6,7 @@ mod types;
 pub use manager::{EventRestrictionService, RestrictionManager};
 pub use repository::{EventRestrictionsRepository, RedisRestrictionsRepository, RestrictionEntry};
 pub use types::{
-    AppliedRestrictions, EventContext, Restriction, RestrictionFilters, RestrictionScope,
+    AppliedRestrictions, EventContext, Pipeline, Restriction, RestrictionFilters, RestrictionScope,
     RestrictionType,
 };
 

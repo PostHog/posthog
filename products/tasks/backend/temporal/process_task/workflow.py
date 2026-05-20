@@ -15,7 +15,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.services.sandbox import can_clone_without_github_integration
+from products.tasks.backend.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextInput, get_pr_context
 
@@ -215,12 +215,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
-            lambda: (
-                self._task_completed
-                or self._heartbeat_received
-                or self._pending_followup is not None
-                or len(self._pending_followups) > 0
-            )
+            lambda: self._task_completed
+            or self._heartbeat_received
+            or self._pending_followup is not None
+            or len(self._pending_followups) > 0
         )
         return TaskEvent.SIGNAL_RECEIVED
 
@@ -410,7 +408,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "sandbox_id": sandbox_id,
                     "sandbox_url": agent_server_output.sandbox_url,
                     "used_snapshot": sandbox_output.used_snapshot,
-                    "used_prewarmed_sandbox": sandbox_output.used_prewarmed_sandbox,
                     "repository": self.context.repository,
                 },
             )
@@ -619,15 +616,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
-        if created.used_prewarmed_sandbox:
-            await self._emit_progress(
-                "sandbox",
-                "completed",
-                "Attached prewarmed sandbox",
-                "setup",
-                detail="Reused a Sendblue sandbox with posthog/posthog already cloned",
-            )
-        elif prepared.used_snapshot:
+        if prepared.used_snapshot:
             await self._emit_progress(
                 "sandbox",
                 "completed",
@@ -653,17 +642,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        can_clone_without_integration = can_clone_without_github_integration(
-            prepared.repository, self.context.origin_product
-        )
+        can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(
-            prepared.repository
-            and not prepared.used_snapshot
-            and not created.used_prewarmed_sandbox
-            and has_clone_credentials
-        )
+        will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         if will_clone:
@@ -710,8 +692,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             connect_token=created.connect_token,
             used_snapshot=prepared.used_snapshot,
             should_create_snapshot=prepared.should_create_snapshot,
-            used_prewarmed_sandbox=created.used_prewarmed_sandbox,
-            prewarmed_sandbox_pool_entry_id=created.prewarmed_sandbox_pool_entry_id,
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:

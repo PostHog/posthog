@@ -267,6 +267,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -293,7 +294,7 @@ If automatic creation failed due to a permissions error and you're using a restr
     ) -> tuple[bool, str | None]:
         try:
             api_key = self._get_api_key(config, team_id)
-            if validate_stripe_credentials(api_key, schema_name):
+            if validate_stripe_credentials(api_key, schema_name, auth_method=config.auth_method.selection):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
