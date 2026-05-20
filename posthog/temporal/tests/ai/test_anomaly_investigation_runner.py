@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ai.anomaly_investigation.runner import (
@@ -61,9 +62,24 @@ def test_parse_report_keeps_plain_json_fallback() -> None:
     assert report.summary == "Need manual review."
 
 
-def test_build_callbacks_tags_ai_product_for_llm_analytics() -> None:
+@pytest.mark.parametrize(
+    "alert_id,expected_properties",
+    [
+        pytest.param(
+            "alert-uuid",
+            {"ai_product": "alert_investigation_agent", "team_id": 314, "alert_id": "alert-uuid"},
+            id="with_alert",
+        ),
+        pytest.param(
+            None,
+            {"ai_product": "alert_investigation_agent", "team_id": 314},
+            id="without_alert",
+        ),
+    ],
+)
+def test_build_callbacks_tags_ai_product_for_llm_analytics(alert_id, expected_properties) -> None:
     team = MagicMock(id=314)
-    alert = MagicMock(id="alert-uuid")
+    alert = MagicMock(id=alert_id) if alert_id is not None else None
     sentinel_client = MagicMock(name="default_client")
 
     with (
@@ -80,11 +96,7 @@ def test_build_callbacks_tags_ai_product_for_llm_analytics() -> None:
     assert args[0] is sentinel_client
     assert kwargs["distinct_id"] == "314"
     assert kwargs["trace_id"].startswith("alert-investigation-")
-    assert kwargs["properties"] == {
-        "ai_product": "alert_investigation_agent",
-        "team_id": 314,
-        "alert_id": "alert-uuid",
-    }
+    assert kwargs["properties"] == expected_properties
 
 
 def test_build_callbacks_skips_when_default_client_missing() -> None:
@@ -95,20 +107,3 @@ def test_build_callbacks_skips_when_default_client_missing() -> None:
         callbacks = _build_callbacks(team=team, alert=None)
 
     assert callbacks == []
-
-
-def test_build_callbacks_omits_alert_id_when_alert_missing() -> None:
-    team = MagicMock(id=42)
-    sentinel_client = MagicMock(name="default_client")
-
-    with (
-        patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
-        patch("posthog.temporal.ai.anomaly_investigation.runner.CallbackHandler") as mock_handler,
-    ):
-        mock_module.default_client = sentinel_client
-
-        _build_callbacks(team=team, alert=None)
-
-    _args, kwargs = mock_handler.call_args
-    assert "alert_id" not in kwargs["properties"]
-    assert kwargs["properties"]["ai_product"] == "alert_investigation_agent"
