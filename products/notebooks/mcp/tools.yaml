@@ -97,14 +97,6 @@ tools:
     notebooks-partial-update:
         operation: notebooks_partial_update
         enabled: true
-        # Sunsetted when `notebooks-collaboration` flips on. With the flag on, the
-        # agent should use `notebook-edit` instead, which routes through the
-        # streaming collab/save endpoint so edits broadcast to other connected
-        # clients over SSE. Leaving this tool exposed in that state would let the
-        # model accidentally pick the legacy non-streaming PATCH path, which would
-        # silently make agent edits invisible to anyone else viewing the notebook.
-        feature_flag: notebooks-collaboration
-        feature_flag_behavior: disable
         scopes:
             - notebook:write
         annotations:
@@ -119,6 +111,8 @@ tools:
             Retrieve the notebook first to get the latest version.
         exclude_params:
             - _create_in_folder
+        feature_flag: notebooks-collaboration
+        feature_flag_behavior: disable
     notebooks-recording-comments-retrieve:
         operation: notebooks_recording_comments_retrieve
         enabled: false

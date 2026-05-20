@@ -4009,6 +4009,22 @@
             "readOnlyHint": true
         }
     },
+    "notebook-edit": {
+        "description": "Edit a notebook by replacing an exact substring of its serialized content. Same shape as `str_replace_editor` for code files: provide `old_string` (must match exactly, including whitespace and indentation) and `new_string` (must differ). The notebook content is serialized as `JSON.stringify(notebook.content, null, 2)` (2-space indent) — call `notebooks-retrieve` first to see what to match against. `old_string` must be unique unless `replace_all: true`. Edits stream live to other connected clients via the collab/save endpoint. On success, returns the updated notebook. On a concurrent edit (the notebook changed between your read and write) the tool refetches and returns an error containing the latest content so you can re-apply your edit without another read call.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "String replacement against a notebook's serialized content, with live streaming.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
         "category": "Notebooks",
@@ -4062,14 +4078,14 @@
         "title": "Update notebook",
         "required_scopes": ["notebook:write"],
         "new_mcp": true,
-        "feature_flag": "notebooks-collaboration",
-        "feature_flag_behavior": "disable",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "notebooks-collaboration",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
         "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
