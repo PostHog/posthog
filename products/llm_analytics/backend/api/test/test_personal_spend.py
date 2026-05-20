@@ -41,6 +41,28 @@ class TestPersonalSpendEuRedirect(APIBaseTest):
         assert "date_from=-7d" in response["Location"]
         assert "product=posthog_code" in response["Location"]
 
+    def test_eu_redirect_view_strips_unknown_params(self) -> None:
+        from django.test import RequestFactory
+
+        from products.llm_analytics.backend.api.personal_spend import personal_spend_eu_redirect
+
+        factory = RequestFactory()
+        request = factory.get(
+            "/api/llm_analytics/@me/spend/",
+            data={"date_from": "-7d", "evil": "https://attacker.example/", "fragment": "#"},
+        )
+        response = personal_spend_eu_redirect(request)
+
+        assert response.status_code == status.HTTP_302_FOUND
+        # Target host stays hardcoded.
+        assert response["Location"].startswith("https://us.posthog.com/")
+        # Allowed param preserved.
+        assert "date_from=-7d" in response["Location"]
+        # Unknown params dropped (allowlist enforced).
+        assert "evil" not in response["Location"]
+        assert "fragment" not in response["Location"]
+        assert "attacker.example" not in response["Location"]
+
 
 class TestPersonalSpendAuth(APIBaseTest):
     def setUp(self) -> None:

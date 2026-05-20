@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 from typing import Any, cast
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -657,15 +658,23 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         return Response(response_data, status=status.HTTP_200_OK)
 
 
+_EU_REDIRECT_TARGET = "https://us.posthog.com/api/llm_analytics/@me/spend/"
+_EU_REDIRECT_FORWARDED_PARAMS = frozenset({"date_from", "date_to", "product", "limit", "refresh"})
+
+
 def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
     """Redirect EU callers to the US-hosted endpoint where the data actually lives.
 
     EU PostHog Cloud forwards its product LLM telemetry to PostHog Cloud US, so the
     spend analysis only runs there. Returning a 302 makes the new home discoverable
     instead of serving a silent 404. Callers still need a US-valid auth token.
+
+    The target host is hardcoded — only an allowlist of known params is forwarded
+    (re-encoded via `urlencode`) so a malicious caller cannot smuggle extra path or
+    fragment characters into the redirect target.
     """
-    target = "https://us.posthog.com/api/llm_analytics/@me/spend/"
-    query = request.META.get("QUERY_STRING", "")
-    if query:
-        target = f"{target}?{query}"
+    safe_params = {k: v for k, v in request.GET.items() if k in _EU_REDIRECT_FORWARDED_PARAMS}
+    target = _EU_REDIRECT_TARGET
+    if safe_params:
+        target = f"{target}?{urlencode(safe_params)}"
     return HttpResponseRedirect(target)
