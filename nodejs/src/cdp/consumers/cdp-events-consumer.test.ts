@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
@@ -25,7 +26,6 @@ import {
     createKafkaMessage,
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer } from './cdp-events.consumer'
@@ -44,7 +44,7 @@ describe.each([
     let hub: Hub
     let team: Team
     let team2: Team
-    let mockQueueInvocations: jest.Mock
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const teamId = hogFunction.team_id ?? team.id
@@ -70,7 +70,12 @@ describe.each([
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new Consumer(hub, createCdpConsumerDeps(hub))
+        const mockJobQueue = createMockJobQueue()
+
+        processor = new Consumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: mockJobQueue,
+            hogflowQueue: mockJobQueue,
+        })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -79,13 +84,7 @@ describe.each([
             isHealthy: jest.fn(),
         } as any
 
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
-
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = mockJobQueue.queueInvocations
 
         await processor.start()
     })
@@ -587,7 +586,12 @@ describe('hog flow processing', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
-        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub))
+        const mockQueue = createMockJobQueue()
+
+        processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
+            hogQueue: mockQueue,
+            hogflowQueue: mockQueue,
+        })
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -595,12 +599,6 @@ describe('hog flow processing', () => {
             disconnect: jest.fn(),
             isHealthy: jest.fn(),
         } as any
-
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
 
         await processor.start()
     })

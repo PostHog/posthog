@@ -29,7 +29,7 @@ import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } f
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { CyclotronJobQueue } from './services/job-queue/job-queue'
+import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
@@ -82,7 +82,8 @@ export class CdpApi {
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
-    private cyclotronJobQueue: CyclotronJobQueue
+    private hogQueue: JobQueue
+    private hogflowQueue: JobQueue
     private emailTrackingService: EmailTrackingService
     private recipientTokensService: RecipientTokensService
     private outputs: CdpOutputs
@@ -90,7 +91,8 @@ export class CdpApi {
 
     constructor(
         private config: PluginsServerConfig,
-        private deps: CdpApiDeps
+        private deps: CdpApiDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
@@ -111,8 +113,9 @@ export class CdpApi {
             ...deps,
             monitoringOutputs: services.outputs,
         })
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.hogQueue = jobQueues.hogQueue
+        this.hogflowQueue = jobQueues.hogflowQueue
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
@@ -139,16 +142,13 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        // CdpSourceWebhooksConsumer.start() calls startAsProducer on both queues
         await this.cdpSourceWebhooksConsumer.start()
-        await this.cyclotronJobQueue.startAsProducer()
     }
 
     async stop(): Promise<void> {
-        await Promise.all([
-            this.cdpSourceWebhooksConsumer.stop(),
-            this.cyclotronJobQueue.stop(),
-            this.batchExportHogFunctionService.stop(),
-        ])
+        // CdpSourceWebhooksConsumer.stop() calls stopProducer on both queues
+        await Promise.all([this.cdpSourceWebhooksConsumer.stop(), this.batchExportHogFunctionService.stop()])
     }
 
     isHealthy(): HealthCheckResult {
@@ -598,7 +598,7 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
 
-            await this.cyclotronJobQueue.queueInvocations([invocation])
+            await this.hogflowQueue.queueInvocations([invocation])
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {

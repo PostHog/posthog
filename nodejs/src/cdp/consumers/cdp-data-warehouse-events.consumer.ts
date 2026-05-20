@@ -7,6 +7,7 @@ import { PluginsServerConfig, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpEventsConsumer } from './cdp-events.consumer'
@@ -19,8 +20,20 @@ export class CdpDatawarehouseEventsConsumer extends CdpEventsConsumer {
     protected override name = 'CdpDatawarehouseEventsConsumer'
     protected override hogTypes: HogFunctionTypeType[] = ['destination']
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
-        super(config, deps, 'cdp_data_warehouse_source_table', 'cdp-data-warehouse-events-consumer')
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+    ) {
+        super(config, deps, jobQueues, 'cdp_data_warehouse_source_table', 'cdp-data-warehouse-events-consumer')
+    }
+
+    protected override async startQueueProducers(): Promise<void> {
+        await this.hogQueue.startAsProducer()
+    }
+
+    protected override async stopQueueProducers(): Promise<void> {
+        await this.hogQueue.stopProducer()
     }
 
     protected override filterHogFunction(hogFunction: HogFunctionType): boolean {

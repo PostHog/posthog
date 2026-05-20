@@ -7,6 +7,7 @@ import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CdpInternalEventSchema } from '../schema'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -17,8 +18,20 @@ export class CdpInternalEventsConsumer extends CdpEventsConsumer {
     protected override name = 'CdpInternalEventsConsumer'
     protected override hogTypes: HogFunctionTypeType[] = ['internal_destination']
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
-        super(config, deps, KAFKA_CDP_INTERNAL_EVENTS, 'cdp-internal-events-consumer')
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+    ) {
+        super(config, deps, jobQueues, KAFKA_CDP_INTERNAL_EVENTS, 'cdp-internal-events-consumer')
+    }
+
+    protected override async startQueueProducers(): Promise<void> {
+        await this.hogQueue.startAsProducer()
+    }
+
+    protected override async stopQueueProducers(): Promise<void> {
+        await this.hogQueue.stopProducer()
     }
 
     // This consumer always parses from kafka

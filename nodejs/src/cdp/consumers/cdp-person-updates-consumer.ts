@@ -8,6 +8,7 @@ import { ClickHousePerson, Team } from '../../types'
 import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -18,8 +19,20 @@ export class CdpPersonUpdatesConsumer extends CdpEventsConsumer {
     protected override name = 'CdpPersonUpdatesConsumer'
     protected override hogTypes: HogFunctionTypeType[] = ['destination']
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
-        super(config, deps, KAFKA_PERSON, 'cdp-person-updates-consumer')
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+    ) {
+        super(config, deps, jobQueues, KAFKA_PERSON, 'cdp-person-updates-consumer')
+    }
+
+    protected override async startQueueProducers(): Promise<void> {
+        await this.hogQueue.startAsProducer()
+    }
+
+    protected override async stopQueueProducers(): Promise<void> {
+        await this.hogQueue.stopProducer()
     }
 
     protected override filterHogFunction(hogFunction: HogFunctionType): boolean {

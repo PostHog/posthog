@@ -12,7 +12,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
@@ -33,7 +33,8 @@ export class CdpEventsConsumer<
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
-    private cyclotronJobQueue: CyclotronJobQueue
+    protected hogQueue: JobQueue
+    protected hogflowQueue: JobQueue
     protected kafkaConsumer: KafkaConsumerInterface
 
     private hogRateLimiter: KeyedRateLimiterService
@@ -42,11 +43,13 @@ export class CdpEventsConsumer<
     constructor(
         config: TConfig,
         deps: CdpConsumerBaseDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
         topic: string = KAFKA_EVENTS_JSON,
         groupId: string = 'cdp-processed-events-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.hogQueue = jobQueues.hogQueue
+        this.hogflowQueue = jobQueues.hogflowQueue
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic })
         const rateLimiterConfig = {
             name: 'hog-rate-limiter',
@@ -70,16 +73,19 @@ export class CdpEventsConsumer<
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
         await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
-        const invocationsToBeQueued = [
-            ...(await this.createHogFunctionInvocations(invocationGlobals)),
-            ...(await this.createHogFlowInvocations(invocationGlobals)),
-        ]
+        const [hogInvocations, hogflowInvocations] = await Promise.all([
+            this.createHogFunctionInvocations(invocationGlobals),
+            this.createHogFlowInvocations(invocationGlobals),
+        ])
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
-                instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
-                    this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
+                instrumentFn({ key: 'cdp.background_task.queue_hog_invocations', sendException: false }, () =>
+                    this.hogQueue.queueInvocations(hogInvocations)
+                ),
+                instrumentFn({ key: 'cdp.background_task.queue_hogflow_invocations', sendException: false }, () =>
+                    this.hogflowQueue.queueInvocations(hogflowInvocations)
                 ),
                 instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
                     try {
@@ -90,7 +96,7 @@ export class CdpEventsConsumer<
                     }
                 }),
             ]),
-            invocations: invocationsToBeQueued,
+            invocations: [...hogInvocations, ...hogflowInvocations],
         }
     }
 
@@ -467,10 +473,17 @@ export class CdpEventsConsumer<
         return events
     }
 
+    protected async startQueueProducers(): Promise<void> {
+        await Promise.all([this.hogQueue.startAsProducer(), this.hogflowQueue.startAsProducer()])
+    }
+
+    protected async stopQueueProducers(): Promise<void> {
+        await Promise.all([this.hogQueue.stopProducer(), this.hogflowQueue.stopProducer()])
+    }
+
     public override async start(): Promise<void> {
         await super.start()
-        // Make sure we are ready to produce to cyclotron first
-        await this.cyclotronJobQueue.startAsProducer()
+        await this.startQueueProducers()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -489,9 +502,8 @@ export class CdpEventsConsumer<
     public override async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
-        logger.info('💤', 'Stopping cyclotron job queue...')
-        await this.cyclotronJobQueue.stop()
-        logger.info('💤', 'Stopping consumer...')
+        logger.info('💤', 'Stopping job queues...')
+        await this.stopQueueProducers()
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')
