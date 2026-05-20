@@ -18,16 +18,7 @@ import { BreakdownKeyType, ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
-
-// The funnel backend uses the literal "Baseline" (or `['Baseline', ...]` for multi-breakdowns)
-// to mark the overall series, which is not a breakdown the user picked.
-function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): boolean {
-    return (
-        breakdownValue !== undefined &&
-        breakdownValue !== 'Baseline' &&
-        !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
-    )
-}
+import { hasBreakdown } from './funnelUtils'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
