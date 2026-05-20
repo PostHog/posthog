@@ -124,17 +124,11 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             trace_filter_expr = ast.And(exprs=filter_exprs) if len(filter_exprs) > 1 else filter_exprs[0]
 
         if analysis_level == "generation":
-            # Sample generations directly: get the last generation per trace
-            # with the trace's first_timestamp for navigation.
-            # We query all AI event types to get accurate trace_first_timestamp,
-            # but use argMaxIf to only pick generation UUIDs.
-            # Also filters by event count and total properties size to prevent
-            # oversized traces from reaching the CPU-intensive formatting activity.
             generations_query = parse_select(
                 """
                 SELECT
                     properties.$ai_trace_id as trace_id,
-                    argMaxIf(uuid, timestamp, event = '$ai_generation') as last_generation_id,
+                    argMaxIf(uuid, timestamp, event = '$ai_generation' AND {trace_filter}) as last_generation_id,
                     min(timestamp) as trace_first_timestamp,
                     count() as event_count,
                     sum(length(properties)) as total_properties_size
@@ -144,10 +138,10 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
                     AND timestamp < toDateTime({end_ts}, 'UTC')
                     AND properties.$ai_trace_id != ''
                 GROUP BY trace_id
-                HAVING last_generation_id IS NOT NULL
+                -- argMaxIf returns the zero UUID (not NULL) when no rows match
+                HAVING last_generation_id != toUUIDOrZero('')
                     AND event_count <= {max_events}
                     AND total_properties_size <= {max_properties_size}
-                    AND countIf({trace_filter}) > 0
                 ORDER BY trace_first_timestamp DESC
                 LIMIT {limit}
                 """
