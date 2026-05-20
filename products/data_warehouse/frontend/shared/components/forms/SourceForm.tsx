@@ -30,6 +30,7 @@ import {
     type SourceWizardLogicProps,
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
@@ -743,17 +744,24 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             <Group name="payload">
-                {availableSources[sourceConfig.name].fields
-                    .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
-                    .map((field) =>
-                        sourceFieldToElement(
-                            field,
-                            sourceConfig,
-                            jobInputs?.[field.name],
-                            isUpdateMode,
-                            setSourceConnectionDetailsValue
+                {sourceConfig.name === 'Custom' ? (
+                    <CustomSourceManifestBuilder
+                        initialManifestJson={jobInputs?.manifest_json}
+                        sourceWizardLogicProps={sourceWizardLogicProps}
+                    />
+                ) : (
+                    availableSources[sourceConfig.name].fields
+                        .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                        .map((field) =>
+                            sourceFieldToElement(
+                                field,
+                                sourceConfig,
+                                jobInputs?.[field.name],
+                                isUpdateMode,
+                                setSourceConnectionDetailsValue
+                            )
                         )
-                    )}
+                )}
             </Group>
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&
