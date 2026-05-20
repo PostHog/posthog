@@ -17,8 +17,7 @@ export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
-    const { invitesToSend, canSubmit: canSubmitInvites, inviteContainsOwnerLevel } = useValues(inviteLogic)
-    const { invites } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit: canSubmitInvites, inviteContainsOwnerLevel, invites } = useValues(inviteLogic)
 
     const hasFilledEmail = invitesToSend.some(({ target_email }) => !!target_email)
     const hasInvalidEmail = invitesToSend.some(({ isValid }) => !isValid)
