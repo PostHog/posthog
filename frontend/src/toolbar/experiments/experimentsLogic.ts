@@ -46,8 +46,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     breakpoint()
 
                     if (!Array.isArray(results?.results)) {
-                        const bodyShape =
-                            results === null ? 'null' : Array.isArray(results) ? 'array' : typeof results
+                        const bodyShape = results === null ? 'null' : Array.isArray(results) ? 'array' : typeof results
                         throw new Error(
                             `Error loading experiments: unexpected body shape (status=${response.status}, type=${bodyShape})`
                         )
