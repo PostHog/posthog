@@ -29,7 +29,7 @@ def test_channel_name_is_deterministic():
     assert channel_name(1, "onboarding", "nextjs") == "wizard_sessions:team:1:workflow:onboarding:skill:nextjs"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_publish_session_update_publishes_after_commit():
     """In transaction.atomic, the publish should defer to on_commit."""
     redis_mock = MagicMock()
