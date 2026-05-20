@@ -12,7 +12,10 @@ import pyarrow as pa
 from psycopg import sql
 from structlog.types import FilteringBoundLogger
 
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     QueryTimeoutException,
@@ -514,10 +517,12 @@ def build_partition_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return sql.SQL("SELECT * FROM {schema}.{table} WHERE {field} > {last_value} ORDER BY {field} ASC").format(
+    operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
+    return sql.SQL("SELECT * FROM {schema}.{table} WHERE {field} {op} {last_value} ORDER BY {field} ASC").format(
         schema=sql.Identifier(child_schema),
         table=sql.Identifier(child_name),
         field=sql.Identifier(incremental_field),
+        op=operator,
         last_value=sql.Literal(db_incremental_field_last_value),
     )
 
