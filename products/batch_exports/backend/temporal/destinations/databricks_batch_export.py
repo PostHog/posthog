@@ -365,7 +365,8 @@ class DatabricksClient:
 
         We run the query in a separate thread to avoid blocking the event loop in the main thread.
 
-        Use ``execute_async_query`` for queries that should not hold a network connection.
+        Use ``execute_async_query`` for long-running queries, where we poll for results rather than
+        waiting for completion.
         """
         query_kwargs = query_kwargs or {}
         query_start_time = time.time()
@@ -381,7 +382,10 @@ class DatabricksClient:
 
                     return await asyncio.to_thread(cursor.fetchall)
             except (asyncio.CancelledError, TimeoutError):
-                # Abort server-side so the user's warehouse doesn't keep running work nobody's waiting for.
+                # Abort server-side so that:
+                #   a) the user's warehouse doesn't keep running work nobody's waiting for
+                #   b) we cancel the running thread (otherwise, we could potentially run into
+                #      threadpool exhaustion)
                 await self._cancel_cursor(cursor)
                 raise
             finally:
@@ -448,7 +452,10 @@ class DatabricksClient:
 
                 return results
             except (asyncio.CancelledError, TimeoutError):
-                # Abort server-side so the user's warehouse doesn't keep running work nobody's waiting for.
+                # Abort server-side so that:
+                #   a) the user's warehouse doesn't keep running work nobody's waiting for
+                #   b) we cancel the running thread (otherwise, we could potentially run into
+                #      threadpool exhaustion)
                 await self._cancel_cursor(cursor)
                 raise
 
@@ -458,18 +465,8 @@ class DatabricksClient:
         If this basic query takes too long then it's a sign that the warehouse
         is either taking too long to resume or is under heavy load.
         """
-        try:
-            async with handle_common_errors("PING", timeout):
-                await self.execute_query("SELECT 1", timeout=timeout)
-        except DatabricksOperationTimeoutError:
-            # A timeout on `SELECT 1` is the strongest signal we get that the warehouse
-            # isn't responsive, so surface it as such rather than as a generic timeout.
-            raise DatabricksWarehouseStoppedError(
-                "PING",
-                "Timed out waiting for the Databricks SQL warehouse to respond. "
-                "The warehouse may be stopped, still starting up, or under heavy load — "
-                "please check its state in the Databricks console and retry.",
-            )
+        async with handle_common_errors("PING (SELECT 1)", timeout):
+            await self.execute_query("SELECT 1", timeout=timeout)
 
     async def use_catalog(self, catalog: str):
         timeout = ONE_MINUTE
@@ -667,6 +664,10 @@ class DatabricksClient:
                         # depending on the table column mapping mode, this could also be returned via a different attribute
                         column_names = [row.COLUMN_NAME for row in results]
             except (asyncio.CancelledError, TimeoutError):
+                # Abort server-side so that:
+                #   a) the user's warehouse doesn't keep running work nobody's waiting for
+                #   b) we cancel the running thread (otherwise, we could potentially run into
+                #      threadpool exhaustion)
                 await self._cancel_cursor(cursor)
                 raise
             except DatabaseError as err:

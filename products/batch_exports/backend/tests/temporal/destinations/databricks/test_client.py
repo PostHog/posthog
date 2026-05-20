@@ -11,7 +11,7 @@ from databricks.sql.exc import RequestError, ServerOperationError
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
     DatabricksConnectionError,
-    DatabricksWarehouseStoppedError,
+    DatabricksOperationTimeoutError,
 )
 
 # Env vars required for the real-connection tests below. The _BE suffix avoids conflicts
@@ -41,7 +41,8 @@ def client() -> DatabricksClient:
     )
 
 
-def _mock_cursor(client: DatabricksClient) -> MagicMock:
+@pytest.fixture
+def mock_cursor(client: DatabricksClient) -> MagicMock:
     cursor = MagicMock()
     cursor.__enter__ = MagicMock(return_value=cursor)
     cursor.__exit__ = MagicMock(return_value=False)
@@ -53,10 +54,11 @@ def _mock_cursor(client: DatabricksClient) -> MagicMock:
 
 class TestExecuteQuery:
     @pytest.mark.parametrize("trigger", ["cancellation", "timeout"])
-    async def test_cancels_cursor_on_cancellation_or_timeout(self, client: DatabricksClient, trigger: str):
+    async def test_cancels_cursor_on_cancellation_or_timeout(
+        self, client: DatabricksClient, mock_cursor: MagicMock, trigger: str
+    ):
         """Both task cancellation and per-call timeout should issue ``cursor.cancel()`` so the blocked
         worker thread running ``cursor.execute`` releases."""
-        cursor = _mock_cursor(client)
         started_event = threading.Event()
         release_event = threading.Event()
 
@@ -66,8 +68,8 @@ class TestExecuteQuery:
             # Mirrors upstream SDK behavior: after cancel() is called, execute() raises RequestError.
             raise RequestError("query was cancelled")
 
-        cursor.execute.side_effect = blocking_execute
-        cursor.cancel.side_effect = lambda *_a, **_kw: release_event.set()
+        mock_cursor.execute.side_effect = blocking_execute
+        mock_cursor.cancel.side_effect = lambda *_a, **_kw: release_event.set()
 
         if trigger == "cancellation":
             execute_task = asyncio.create_task(client.execute_query("SELECT 1", fetch_results=False))
@@ -79,46 +81,45 @@ class TestExecuteQuery:
             with pytest.raises(TimeoutError):
                 await client.execute_query("SELECT 1", fetch_results=False, timeout=0.1)
 
-        cursor.cancel.assert_called_once()
+        mock_cursor.cancel.assert_called_once()
         assert release_event.is_set()
 
-    async def test_does_not_call_cancel_on_normal_completion(self, client: DatabricksClient):
+    async def test_does_not_call_cancel_on_normal_completion(self, client: DatabricksClient, mock_cursor: MagicMock):
         """A successful query should not trigger a server-side cursor cancel."""
-        cursor = _mock_cursor(client)
-        cursor.fetchall.return_value = []
+        mock_cursor.fetchall.return_value = []
 
         result = await client.execute_query("SELECT 1")
 
         assert result == []
-        cursor.execute.assert_called_once()
-        cursor.cancel.assert_not_called()
+        mock_cursor.execute.assert_called_once()
+        mock_cursor.cancel.assert_not_called()
 
-    async def test_propagates_genuine_request_error(self, client: DatabricksClient):
+    async def test_propagates_genuine_request_error(self, client: DatabricksClient, mock_cursor: MagicMock):
         """A ``RequestError`` raised by ``cursor.execute`` (not from a cancel) should propagate
         unchanged, and we should not issue a redundant ``cursor.cancel()``."""
-        cursor = _mock_cursor(client)
-        cursor.execute.side_effect = RequestError("transient failure")
+        mock_cursor.execute.side_effect = RequestError("transient failure")
 
         with pytest.raises(RequestError, match="transient failure"):
             await client.execute_query("SELECT 1", fetch_results=False)
 
-        cursor.cancel.assert_not_called()
+        mock_cursor.cancel.assert_not_called()
 
-    async def test_async_query_cancels_cursor_on_internal_timeout(self, client: DatabricksClient):
+    async def test_async_query_cancels_cursor_on_internal_timeout(
+        self, client: DatabricksClient, mock_cursor: MagicMock
+    ):
         """``execute_async_query``'s poll-loop timeout should also issue a ``cursor.cancel()``."""
-        cursor = _mock_cursor(client)
-        cursor.is_query_pending.return_value = True
+        mock_cursor.is_query_pending.return_value = True
 
         with pytest.raises(TimeoutError, match="Timed out waiting for query"):
             await client.execute_async_query("SELECT 1", fetch_results=False, poll_interval=0.01, timeout=0.05)
 
-        cursor.cancel.assert_called_once()
+        mock_cursor.cancel.assert_called_once()
 
 
 class TestConnect:
-    async def test_surfaces_warehouse_stopped_error(self, client: DatabricksClient):
+    async def test_when_ping_times_out(self, client: DatabricksClient):
         """If the warehouse is asleep and doesn't resume within the ping timeout, ``connect()`` should
-        raise ``DatabricksWarehouseStoppedError`` before attempting ``use_catalog``."""
+        raise ``DatabricksOperationTimeoutError`` before attempting ``use_catalog``."""
         use_catalog_mock = AsyncMock()
 
         with (
@@ -129,7 +130,7 @@ class TestConnect:
             patch.object(client, "execute_query", side_effect=TimeoutError("timed out")),
             patch.object(client, "use_catalog", new=use_catalog_mock),
         ):
-            with pytest.raises(DatabricksWarehouseStoppedError, match="may be stopped or still starting up"):
+            with pytest.raises(DatabricksOperationTimeoutError):
                 async with client.connect():
                     pass
 
