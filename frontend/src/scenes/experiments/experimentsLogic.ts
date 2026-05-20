@@ -18,10 +18,12 @@ import {
     ActivityScope,
     Breadcrumb,
     Experiment,
+    ExperimentConclusion,
     ExperimentStatus,
     ExperimentVelocityStats,
     ExperimentsTabs,
     FeatureFlagType,
+    MultivariateFlagVariant,
 } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
@@ -124,6 +126,57 @@ export function getShippedVariantKey(experiment: Experiment): string | null {
             ({ rollout_percentage }) => rollout_percentage === 100
         )?.key || null
     )
+}
+
+export interface RecommendedVariantToKeep {
+    variantKey: string
+    reason: string
+}
+
+function findControlVariant(variants: MultivariateFlagVariant[]): MultivariateFlagVariant | undefined {
+    return variants.find((v) => v.key === 'control') ?? variants[0]
+}
+
+export function getRecommendedVariantToKeep(experiment: Experiment): RecommendedVariantToKeep | null {
+    if (isSingleVariantShipped(experiment)) {
+        return null
+    }
+
+    const variants = experiment.feature_flag?.filters.multivariate?.variants ?? []
+    if (variants.length === 0 || !experiment.conclusion) {
+        return null
+    }
+
+    const control = findControlVariant(variants)
+
+    switch (experiment.conclusion) {
+        case ExperimentConclusion.Won: {
+            const winner = variants.find((v) => v.key !== (control?.key ?? 'control'))
+            return winner ? { variantKey: winner.key, reason: 'the test variant won' } : null
+        }
+        case ExperimentConclusion.Lost:
+            return control ? { variantKey: control.key, reason: 'the test variant(s) underperformed' } : null
+        case ExperimentConclusion.Inconclusive:
+            return control
+                ? { variantKey: control.key, reason: 'no clear winner; keeping control changes nothing' }
+                : null
+        case ExperimentConclusion.StoppedEarly:
+            return control
+                ? {
+                      variantKey: control.key,
+                      reason: 'stopped before a conclusion; keeping control changes nothing',
+                  }
+                : null
+        case ExperimentConclusion.Invalid:
+            return control
+                ? {
+                      variantKey: control.key,
+                      reason: "the result isn't trustworthy; keeping control changes nothing",
+                  }
+                : null
+        default:
+            return null
+    }
 }
 
 export function getExperimentStatusLabel(status: ExperimentStatus): string {

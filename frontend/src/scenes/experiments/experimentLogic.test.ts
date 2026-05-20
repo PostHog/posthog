@@ -1176,6 +1176,7 @@ describe('experimentLogic', () => {
                     release_to_everyone: false,
                     conclusion: 'won',
                     conclusion_comment: 'Test variant won clearly',
+                    kept_variant_was_recommended: null,
                 }
             )
 
