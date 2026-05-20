@@ -313,9 +313,17 @@ export class SessionRecordingIngester {
 
         await this.kafkaConsumer.disconnect()
 
-        // The onPartitionsRevoked lifecycle callback runs on disconnect for both v1 and v2,
-        // so partition cleanup is already handled. The promiseScheduler is kept around for
-        // any in-flight pipeline side effects (handleIngestionWarnings, etc.).
+        // Disconnect semantics differ between v1 and v2:
+        // - v1 fires its rebalance handler on the final REVOKE, which invokes
+        //   onPartitionsRevoked → handlePartitionsRevoked → discardPartitions.
+        // - v2's disconnect sets running=false; the final REVOKE from librdkafka is
+        //   handled inline in rebalanceCallback's `if (!this.running)` short-circuit,
+        //   which calls incrementalUnassign but bypasses invokeLifecycleCallback.
+        //   handlePartitionsRevoked does NOT run on v2 shutdown. This is functionally
+        //   safe — drainAll('shutdown') has already settled in-flight flushes, and the
+        //   process is exiting so abandoning the in-memory session buffer is fine.
+        // The promiseScheduler is kept around for any in-flight pipeline side effects
+        // (handleIngestionWarnings, etc.).
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
         this.keyStore.stop()

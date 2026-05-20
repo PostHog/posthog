@@ -816,6 +816,11 @@ describe('KafkaConsumerV2', () => {
         await startConsuming(eachBatch)
 
         const task = triggerablePromise()
+        // Defensive: attach a no-op handler immediately so the rejection is never
+        // briefly-unhandled if the consumer hasn't subscribed yet under CI timing
+        // pressure. The consumer's own `.then(_, reject)` inside raceWithTimeout still
+        // runs, fires captureException, and skips the offset store.
+        task.promise.catch(() => {})
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], task.promise)
         await delay(2)
 
@@ -834,6 +839,8 @@ describe('KafkaConsumerV2', () => {
 
         // Never resolves — guaranteed to trip backgroundTaskTimeoutMs.
         const stuck = triggerablePromise()
+        // Defensive no-op handler (see the rejecting test for the rationale).
+        stuck.promise.catch(() => {})
         await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], stuck.promise)
 
         // Wait past the timeout.
