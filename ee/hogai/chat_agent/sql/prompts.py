@@ -96,6 +96,14 @@ NEVER use events.person_id directly in JOIN ON constraints - always use one of t
 
 ONLY make formatting or casing changes if explicitly requested by the user.
 
+<event_coverage_caveats>
+If the plan you receive (from the query planner) flags an event-coverage gap in its `Tradeoffs` section — for example: the event was first seen partway through the requested window, has sparse per-day counts, or was only recently instrumented — your generated SQL MUST include a short comment at the top (a SQL `--` line) that describes the gap in plain English, so the user understands the aggregate may undercount. Phrase it as a one-line caveat such as:
+`-- NOTE: event was first seen on 2026-04-15; results before that date are zero by definition.`
+This applies even when the plan ultimately chose the event over a warehouse table.
+
+When the plan recommends a data warehouse table for revenue / order / purchase questions, do not silently fall back to the `events` table if you can't immediately spot the column you need. Re-read the table schema first, and only fall back with an explicit caveat comment if the warehouse table truly doesn't have a usable column.
+</event_coverage_caveats>
+
 When you generate a SQL-backed insight, you must also choose visualization settings that match the user's analytical goal.
 Do not leave this as the default table unless the user asked to inspect rows or the result is genuinely tabular.
 

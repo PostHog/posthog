@@ -310,6 +310,42 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("- test_prop – This is a description with multiple lines", output)
         self.assertNotIn("description\nwith", output)
 
+    def test_check_event_coverage_no_events(self):
+        toolkit = DummyToolkit(self.team)
+        result = toolkit.check_event_coverage("never_seen_event")
+        self.assertIn("never_seen_event", result)
+        self.assertIn("has not been seen", result)
+
+    def test_check_event_coverage_empty_input(self):
+        toolkit = DummyToolkit(self.team)
+        self.assertEqual(
+            toolkit.check_event_coverage(""),
+            "Provide an event name to check coverage for.",
+        )
+
+    def test_check_event_coverage_with_events(self):
+        # Spread events over a few recent days so we can verify the per-day breakdown.
+        with freeze_time("2026-05-15T12:00:00Z"):
+            _create_person(distinct_ids=["coverage_user"], team=self.team)
+            for _ in range(3):
+                _create_event(event="purchase", distinct_id="coverage_user", team=self.team)
+        with freeze_time("2026-05-17T12:00:00Z"):
+            for _ in range(2):
+                _create_event(event="purchase", distinct_id="coverage_user", team=self.team)
+
+        with freeze_time("2026-05-18T12:00:00Z"):
+            toolkit = DummyToolkit(self.team)
+            result = toolkit.check_event_coverage("purchase")
+
+        self.assertIn("Coverage for event `purchase`", result)
+        self.assertIn("First-seen timestamp:", result)
+        self.assertIn("2026-05-15", result)
+        # Two days had events, so the human-readable summary should reflect that.
+        self.assertIn("Days with events (out of last 30): 2", result)
+        self.assertIn("- 2026-05-15: 3", result)
+        self.assertIn("- 2026-05-17: 2", result)
+        self.assertIn("Total events in last 30 days: 5", result)
+
 
 class TestFinalAnswerTool(BaseTest):
     def test_normalize_plan(self):

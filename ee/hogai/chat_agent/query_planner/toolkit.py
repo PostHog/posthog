@@ -12,7 +12,9 @@ from posthog.schema import (
     EventTaxonomyQuery,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource
@@ -26,6 +28,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 from ee.hogai.chat_agent.taxonomy.tools import (
     ask_user_for_help,
+    check_event_coverage,
     retrieve_action_properties,
     retrieve_action_property_values,
     retrieve_entity_properties,
@@ -66,6 +69,7 @@ TaxonomyAgentToolUnion = Union[
     retrieve_event_property_values,
     retrieve_action_property_values,
     retrieve_entity_property_values,
+    check_event_coverage,
     ask_user_for_help,
     final_answer,
 ]
@@ -398,6 +402,74 @@ class TaxonomyAgentToolkit:
             unpacked_results.sample_values,
             unpacked_results.sample_count,
             format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+        )
+
+    def check_event_coverage(self, event_name: str) -> str:
+        """
+        Return the first-seen timestamp and per-day counts (last 30 days) for an event,
+        so the planner can detect events that were only recently instrumented or are
+        sparsely captured before aggregating them over a long window.
+        """
+        if not event_name or not isinstance(event_name, str):
+            return "Provide an event name to check coverage for."
+
+        hogql = (
+            "SELECT min(timestamp) AS first_seen, "
+            "max(timestamp) AS last_seen, "
+            "count() AS total_30d, "
+            "groupArray((toDate(timestamp), day_count)) AS per_day "
+            "FROM ("
+            "  SELECT timestamp, count() OVER (PARTITION BY toDate(timestamp)) AS day_count "
+            "  FROM events "
+            "  WHERE event = {event_name} "
+            "  AND timestamp >= now() - INTERVAL 30 DAY "
+            "  AND timestamp <= now()"
+            ")"
+        )
+        try:
+            with tags_context(
+                product=Product.MAX_AI,
+                feature=Feature.POSTHOG_AI,
+                team_id=self._team.pk,
+                org_id=self._team.organization_id,
+            ):
+                response = execute_hogql_query(
+                    query=hogql,
+                    team=self._team,
+                    placeholders={"event_name": ast.Constant(value=event_name)},
+                )
+        except Exception:
+            return f"Could not check coverage for event `{event_name}`."
+
+        if not response.results or not response.results[0]:
+            return f"Event `{event_name}` has not been seen in the last 30 days."
+
+        first_seen, last_seen, total_30d, per_day_raw = response.results[0]
+        if not first_seen or not total_30d:
+            return f"Event `{event_name}` has not been seen in the last 30 days."
+
+        # Collapse duplicated rows produced by the window function down to one row per day.
+        # `groupArray` will repeat a (date, day_count) tuple once per matching row, so we
+        # dedupe on the date.
+        per_day: dict[str, int] = {}
+        for entry in per_day_raw or []:
+            if not entry or len(entry) != 2:
+                continue
+            day, count = entry
+            per_day[str(day)] = int(count)
+        sorted_days = sorted(per_day.items())
+        per_day_lines = "\n".join(f"- {day}: {count}" for day, count in sorted_days) or "- (no days with events)"
+
+        return (
+            f"Coverage for event `{event_name}` over the last 30 days:\n"
+            f"- First-seen timestamp: {first_seen.isoformat() if hasattr(first_seen, 'isoformat') else first_seen}\n"
+            f"- Last-seen timestamp: {last_seen.isoformat() if hasattr(last_seen, 'isoformat') else last_seen}\n"
+            f"- Total events in last 30 days: {int(total_30d)}\n"
+            f"- Days with events (out of last 30): {len(per_day)}\n"
+            f"Per-day counts:\n{per_day_lines}\n"
+            "If the first-seen timestamp is after the start of the user's requested time window, "
+            "the aggregate will undercount. If there are long stretches of zero, the event is sparsely "
+            "instrumented and aggregates may be misleading."
         )
 
     def handle_incorrect_response(self, response: BaseModel) -> str:

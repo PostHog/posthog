@@ -45,6 +45,7 @@ from .toolkit import (
     TaxonomyAgentTool,
     TaxonomyAgentToolkit,
     ask_user_for_help,
+    check_event_coverage,
     final_answer,
     retrieve_action_properties,
     retrieve_action_property_values,
@@ -163,6 +164,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 retrieve_event_property_values,
                 retrieve_action_property_values,
                 dynamic_retrieve_entity_property_values,
+                check_event_coverage,
                 ask_user_for_help,
                 final_answer,
             ],
@@ -318,6 +320,8 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
             output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
         elif input.name == "retrieve_entity_property_values":
             output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
+        elif input.name == "check_event_coverage":
+            output = toolkit.check_event_coverage(input.arguments.event_name)  # type: ignore
         else:
             output = toolkit.handle_incorrect_response(input)
         return output

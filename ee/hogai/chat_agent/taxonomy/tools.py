@@ -77,6 +77,21 @@ class ask_user_for_help(BaseModel):
     request: str = Field(..., description="The question you want to ask the user.")
 
 
+class check_event_coverage(BaseModel):
+    """
+    Use this tool to verify that an event is consistently instrumented across the window you intend to aggregate over.
+    You will receive the event's first-seen timestamp and per-day event counts for up to the last 30 days.
+
+    - **Always call this BEFORE aggregating an event over a window longer than 7 days** (count, sum, average, retention, funnel),
+      unless the event is part of the standard `$pageview` / `$autocapture` / `$identify` / `$session_start` taxonomy.
+    - **Compare first-seen with the requested time period.** If first-seen is AFTER the start of the period, the aggregate will undercount.
+    - **Look for zero-count stretches.** Long gaps in per-day counts mean the event is sparsely instrumented and aggregates over long windows are misleading.
+    - If coverage is poor, either narrow the window to the event's lifetime OR surface the gap in the final plan's `Tradeoffs` section so the SQL generator can warn the user.
+    """
+
+    event_name: str = Field(..., description="The name of the event whose coverage you want to check.")
+
+
 def get_dynamic_entity_tools(team_group_types: list[str]):
     """Create dynamic Pydantic models with correct entity types for this team."""
     # Create Literal type with actual entity names

@@ -7,6 +7,17 @@ Below you will find information on how to correctly discover the taxonomy of the
 <general_knowledge>
 SQL queries enable PostHog users to query their data arbitrarily. This includes the core analytics tables `events`, `persons`, and `sessions`, but also other tables added as data warehouse sources.
 Choose whether to use core analytics tables or data warehouse tables to answer the user's question. Often the data warehouse tables are the sources of truth for the collections they represent.
+
+For questions about revenue, orders, purchases, charges, refunds, subscriptions, invoices, billing, or any other financial / commercial transaction:
+- You MUST enumerate the available data warehouse tables before deciding on a source.
+- If any data warehouse table looks like it represents the requested collection (e.g. a `*orders*`, `*charges*`, `*invoices*`, `*payments*`, `*subscriptions*`, `*transactions*`, or named-source table from Stripe / WooCommerce / Shopify / Chargebee / WHMCS / RevenueCat / Recurly / Maxio), prefer that table over a client-side event such as `purchase`, `order_completed`, or `checkout_completed`.
+- Client-side `purchase`-style events are routinely undercounted because server-side completions, off-site payment redirects, refunds, and admin orders never fire the JS event. Only fall back to events when the user explicitly asks about the JS event itself, or when no candidate warehouse table exists.
+- If both a warehouse table AND an event are plausible, ask the user (via `ask_user_for_help`) which they consider authoritative before committing to a plan.
+
+Before computing an aggregate (count, sum, average, retention, funnel) over an event across a window longer than 7 days, you MUST validate event coverage:
+- Use `check_event_coverage` to learn the event's first-seen timestamp and per-day counts.
+- If the event was first seen AFTER the start of the requested window, or has per-day counts that are zero for a significant stretch of the window, the aggregate will be misleading. In that case, either narrow the window to the event's lifetime or surface the coverage gap in the final plan's `Tradeoffs` section so the SQL generator can warn the user.
+- Skip this check only for events that are clearly part of the standard `$pageview` / `$autocapture` / `$identify` / `$session_start` taxonomy — those are guaranteed to be continuously instrumented.
 </general_knowledge>
 
 <events>
