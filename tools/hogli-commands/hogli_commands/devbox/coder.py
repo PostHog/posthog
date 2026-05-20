@@ -28,6 +28,12 @@ from hogli.manifest import load_manifest
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 _TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
 DEFAULT_TEMPLATE = "posthog-linux"
+# Name of the preset on the PostHog Coder deployment that provisions from the warm
+# pool. Newer coder versions added an interactive "Select a preset" prompt to
+# `coder create` that `--yes` does not bypass, so we must pass `--preset` explicitly
+# or the user gets stuck on a TUI picker. Override with `--preset` on the CLI; pass
+# `"none"` to opt out of presets entirely.
+DEFAULT_PRESET = "Default (warm)"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -973,6 +979,59 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
+def list_template_presets(template: str) -> list[str]:
+    """Return preset names defined on the active version of ``template``.
+
+    Returns an empty list when the CLI rejects the command (older coder
+    server / template has no presets / network failure), so callers can
+    treat "unknown" the same as "no presets" without distinguishing the
+    failure modes.
+    """
+    result = _run(
+        ["coder", "templates", "presets", "list", template, "-o", "json"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [entry["name"] for entry in payload if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+
+
+def resolve_template_preset(template: str, requested: str) -> str:
+    """Resolve ``requested`` to a preset name the template actually defines.
+
+    Coder added an interactive "Select a preset" picker to ``coder create``
+    that ``--yes`` does not bypass — callers must always forward ``--preset``
+    with a concrete value. Resolution rules:
+
+    - ``"none"`` is passed through (explicit opt-out).
+    - A requested name that matches one of the template's presets is used.
+    - Anything else (preset list empty, requested name missing, server too
+      old to expose presets) falls back to ``"none"`` so creation proceeds
+      without prompting. The fallback is logged when there are alternatives
+      the user could have picked.
+    """
+    if requested == "none":
+        return "none"
+    presets = list_template_presets(template)
+    if requested in presets:
+        return requested
+    if presets:
+        click.echo(
+            click.style(
+                f"Warning: preset '{requested}' not found for template '{template}'. "
+                f"Available: {', '.join(presets)}. Falling back to --preset none.",
+                fg="yellow",
+            ),
+        )
+    return "none"
+
+
 def create_workspace(
     name: str,
     disk_size: int,
@@ -982,6 +1041,7 @@ def create_workspace(
     repo: str = "https://github.com/PostHog/posthog",
     *,
     template: str = DEFAULT_TEMPLATE,
+    preset: str = DEFAULT_PRESET,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -991,6 +1051,12 @@ def create_workspace(
     template's Terraform default via ``--use-parameter-defaults``. If a
     forwarded parameter does not exist on the chosen template, coder errors
     pre-provisioning and the retry loop drops the offending key.
+
+    ``preset`` is resolved against the template's actual presets and
+    forwarded as ``--preset`` to suppress coder's interactive picker that
+    ``--yes`` does not bypass. Pass ``"none"`` to opt out of presets
+    entirely; an unknown preset name falls back to ``"none"`` with a
+    warning so creation still proceeds.
     """
     parameters: dict[str, str] = {
         "disk_size": str(disk_size),
@@ -1003,12 +1069,15 @@ def create_workspace(
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
+    resolved_preset = resolve_template_preset(template, preset)
     base_args = [
         "coder",
         "create",
         name,
         "--template",
         template,
+        "--preset",
+        resolved_preset,
         "--use-parameter-defaults",
         "--yes",
     ]
