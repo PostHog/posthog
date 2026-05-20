@@ -1936,13 +1936,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_sortable_semver_rejects_invalid(self, _name: str, version: str) -> None:
         # All inputs match the Rust `semver` crate's rejection behavior — blast
         # radius now mirrors what flag evaluation does at runtime. Invalid input
-        # becomes NULL, which is falsy in WHERE, so the row is excluded from any
-        # semver comparison filter.
+        # becomes [NULL] (Array(Nullable(Int64))), so any element-wise comparison
+        # in WHERE evaluates to NULL — falsy — and the row is excluded from semver
+        # filters. We can't use `IS NULL` on the array itself (ClickHouse forbids
+        # Nullable(Array(...))), so probe for a NULL element instead.
         response = execute_hogql_query(
-            f"SELECT sortableSemVer({version!r}) IS NULL AS is_invalid",
+            f"SELECT arrayExists(x -> x IS NULL, sortableSemVer({version!r})) AS is_invalid",
             team=self.team,
         )
-        self.assertEqual(response.results, [(True,)], f"expected {version!r} to parse as NULL")
+        self.assertEqual(response.results, [(True,)], f"expected {version!r} to parse as [NULL]")
 
     @parameterized.expand(
         [

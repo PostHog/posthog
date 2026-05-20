@@ -8,14 +8,16 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "recordingButton": HogQLFunctionMeta("recordingButton", 1, 2),
     "explainCSPReport": HogQLFunctionMeta("explainCSPReport", 1, 1),
     # Allow case-insensitive matching since people might not know "SemVer" is the right capitalization.
-    # The regex strictly validates X.Y.Z with no leading zeros (matching the Rust `semver` crate used
-    # for flag evaluation), optionally prefixed with 'v' and optionally suffixed with a
-    # pre-release or build identifier. Invalid versions match nothing: `extract` returns "",
-    # `nullIf` converts that to NULL, and NULL propagates through `splitByChar`/`arrayMap`,
-    # so all `WHERE sortableSemVer(prop) <op> sortableSemVer(value)` comparisons evaluate to
-    # NULL/false and the row is excluded — mirroring how Rust treats an unparseable version.
+    # The regex strictly validates X.Y.Z with no leading zeros (matching the Rust `semver` crate
+    # used for flag evaluation), optionally prefixed with 'v' and optionally suffixed with a
+    # pre-release or build identifier. Invalid input falls out of `extract` as an empty string;
+    # `splitByChar('.', '')` yields `['']`, and `toInt64OrNull('')` yields `NULL`, so the result
+    # is `[NULL]` — `Array(Nullable(Int64))`, which ClickHouse allows (unlike the otherwise-tempting
+    # `Nullable(Array(...))`). Any element-wise comparison with a NULL element evaluates to NULL,
+    # which is falsy in WHERE, so invalid versions are excluded from semver comparison filters —
+    # mirroring how Rust treats an unparseable version as a non-match.
     "sortablesemver": HogQLFunctionMeta(
-        "arrayMap(x -> toInt64OrZero(x), splitByChar('.', nullIf(extract(assumeNotNull({}), '^\\\\s*v?((0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*))(?:[-+][^\\\\s]*)?\\\\s*$'), '')))",
+        "arrayMap(x -> toInt64OrNull(x), splitByChar('.', extract(assumeNotNull({}), '^\\\\s*v?((0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*))(?:[-+][^\\\\s]*)?\\\\s*$')))",
         1,
         1,
         case_sensitive=False,
