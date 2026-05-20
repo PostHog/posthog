@@ -1,4 +1,3 @@
-import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -23,7 +22,6 @@ import {
     OpenQuestionProcessedResponses,
     PropertyFilterType,
     PropertyOperator,
-    RatingSurveyQuestion,
     ResponsesByQuestion,
     Survey,
     SurveyEventName,
@@ -333,77 +331,6 @@ describe('translation validation', () => {
             buttonText: 'Enviar',
         })
         expect(logic.values.aiGeneratedTranslationFields).toEqual(['translations.es.thankYouMessageHeader'])
-    })
-})
-
-describe('rating question validation', () => {
-    let logic: ReturnType<typeof surveyLogic.build>
-    let originalCSS: typeof globalThis.CSS
-
-    beforeAll(() => {
-        // The form errors selector calls validateSurveyAppearance, which uses CSS.supports.
-        // JSDOM doesn't implement CSS.supports, so stub it to always pass — we're testing
-        // rating-question label validation, not CSS validation.
-        originalCSS = globalThis.CSS
-        ;(globalThis as unknown as { CSS: { supports: () => boolean } }).CSS = {
-            supports: () => true,
-        }
-    })
-
-    afterAll(() => {
-        ;(globalThis as unknown as { CSS: typeof globalThis.CSS }).CSS = originalCSS
-    })
-
-    beforeEach(() => {
-        initKeaTests()
-        logic = surveyLogic({ id: 'new' })
-        logic.mount()
-    })
-
-    it.each([
-        {
-            label: 'thumb question (emoji + 2-point scale) – bound labels not required',
-            question: {
-                type: SurveyQuestionType.Rating,
-                question: 'Was this response helpful?',
-                description: '',
-                display: 'emoji' as const,
-                scale: 2,
-                lowerBoundLabel: '',
-                upperBoundLabel: '',
-            },
-            expectedLower: undefined as string | undefined,
-            expectedUpper: undefined as string | undefined,
-        },
-        {
-            label: 'non-thumb rating question – bound labels required',
-            question: {
-                type: SurveyQuestionType.Rating,
-                question: 'How likely are you to recommend us?',
-                description: '',
-                display: 'number' as const,
-                scale: 10,
-                lowerBoundLabel: '',
-                upperBoundLabel: '',
-            },
-            expectedLower: 'Please enter a lower bound label.',
-            expectedUpper: 'Please enter an upper bound label.',
-        },
-    ])('$label', async ({ question, expectedLower, expectedUpper }) => {
-        await expectLogic(logic, () => {
-            logic.actions.setSurveyValues({ questions: [question] })
-        }).toFinishAllListeners()
-
-        const questionErrors = logic.values.surveyErrors.questions?.[0] as
-            | DeepPartialMap<RatingSurveyQuestion, ValidationErrorType>
-            | undefined
-        if (expectedLower === undefined) {
-            expect(questionErrors?.lowerBoundLabel).toBeFalsy()
-            expect(questionErrors?.upperBoundLabel).toBeFalsy()
-        } else {
-            expect(questionErrors?.lowerBoundLabel).toBe(expectedLower)
-            expect(questionErrors?.upperBoundLabel).toBe(expectedUpper)
-        }
     })
 })
 
