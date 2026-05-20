@@ -1175,9 +1175,12 @@ impl<'a> Parser<'a> {
                 obj.insert("node".into(), Value::String("UnpivotExpr".into()));
                 obj.insert("table".into(), table);
                 obj.insert("columns".into(), Value::Array(columns));
-                if include_nulls {
-                    obj.insert("include_nulls".into(), Value::Bool(true));
-                }
+                // cpp's `VISIT(JoinExprUnpivot)` always emits the
+                // `include_nulls` field — default `false` when the
+                // `INCLUDE NULLS` modifier isn't present. Rust used to
+                // omit the field entirely. Emit unconditionally to
+                // match the JSON shape.
+                obj.insert("include_nulls".into(), Value::Bool(include_nulls));
                 table = Value::Object(obj);
                 continue;
             }

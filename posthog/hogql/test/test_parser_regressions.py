@@ -1879,6 +1879,22 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_unpivot_emits_include_nulls_false_by_default(self):
+        # cpp's `VISIT(JoinExprUnpivot)` always emits the
+        # `include_nulls` field — default `false` when the
+        # `INCLUDE NULLS` modifier isn't present. Rust used to omit
+        # the field entirely on the no-NULLS path. Emit
+        # unconditionally to match the JSON shape.
+        cases = (
+            "SELECT * FROM t UNPIVOT (val FOR month IN (a, b))",
+            "SELECT * FROM t UNPIVOT INCLUDE NULLS (val FOR month IN (a, b))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_not_with_keyword_infix_treats_not_as_field(self):
         # cpp's ALL(*) prefers `Field([not]) <kw-infix> <rhs>` over
         # `Not(Field([kw]))` when the infix has a valid trailing RHS.
