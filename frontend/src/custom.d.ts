@@ -43,11 +43,6 @@ declare module '*.sql?raw' {
 // This fixes TS2882 errors when side-effect importing .scss files
 declare module '*.scss'
 
-// This fixes a TS error where react-grid-layout/extras cannot be found because of our moduleResolution
-declare module 'react-grid-layout/extras' {
-    export * from 'react-grid-layout/dist/extras'
-}
-
 // `@tailwindcss/vite` only ships types via `package.json#exports`,
 // which `moduleResolution: "node"` doesn't read.
 declare module '@tailwindcss/vite' {
