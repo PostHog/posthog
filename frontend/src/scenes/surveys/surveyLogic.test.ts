@@ -363,46 +363,35 @@ describe('rating question validation', () => {
     it.each([
         {
             label: 'thumb question (emoji + 2-point scale) – bound labels not required',
-            survey: {
-                ...createPersistedSurvey(),
-                type: SurveyType.API,
-                questions: [
-                    {
-                        type: SurveyQuestionType.Rating,
-                        question: 'Was this response helpful?',
-                        description: '',
-                        display: 'emoji' as const,
-                        scale: 2,
-                        lowerBoundLabel: '',
-                        upperBoundLabel: '',
-                    },
-                ],
-            } as Survey,
+            question: {
+                type: SurveyQuestionType.Rating,
+                question: 'Was this response helpful?',
+                description: '',
+                display: 'emoji' as const,
+                scale: 2,
+                lowerBoundLabel: '',
+                upperBoundLabel: '',
+            },
             expectedLower: undefined as string | undefined,
             expectedUpper: undefined as string | undefined,
         },
         {
             label: 'non-thumb rating question – bound labels required',
-            survey: {
-                ...createPersistedSurvey(),
-                questions: [
-                    {
-                        type: SurveyQuestionType.Rating,
-                        question: 'How likely are you to recommend us?',
-                        description: '',
-                        display: 'number' as const,
-                        scale: 10,
-                        lowerBoundLabel: '',
-                        upperBoundLabel: '',
-                    },
-                ],
-            } as Survey,
+            question: {
+                type: SurveyQuestionType.Rating,
+                question: 'How likely are you to recommend us?',
+                description: '',
+                display: 'number' as const,
+                scale: 10,
+                lowerBoundLabel: '',
+                upperBoundLabel: '',
+            },
             expectedLower: 'Please enter a lower bound label.',
             expectedUpper: 'Please enter an upper bound label.',
         },
-    ])('$label', async ({ survey, expectedLower, expectedUpper }) => {
+    ])('$label', async ({ question, expectedLower, expectedUpper }) => {
         await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(survey)
+            logic.actions.setSurveyValues({ questions: [question] })
         }).toFinishAllListeners()
 
         const questionErrors = logic.values.surveyErrors.questions?.[0] as
