@@ -833,7 +833,9 @@ def test_log_messages_renderer_appends_resource_to_message():
     }
 
     rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
-    payload = json.loads(rendered["produce_message"].decode("utf-8"))
+    produced = rendered["produce_message"]
+    assert produced is not None
+    payload = json.loads(produced.decode("utf-8"))
     assert payload["message"] == "cdc_batch_written [example_table_cdc]"
 
     # `resource_name` (consumer-side contextvar) works too.
@@ -842,7 +844,9 @@ def test_log_messages_renderer_appends_resource_to_message():
     event_dict2["resource_name"] = "example_table"
     event_dict2["msg"] = "batch_picked_up"
     rendered2 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict2)
-    payload2 = json.loads(rendered2["produce_message"].decode("utf-8"))
+    produced2 = rendered2["produce_message"]
+    assert produced2 is not None
+    payload2 = json.loads(produced2.decode("utf-8"))
     assert payload2["message"] == "batch_picked_up [example_table]"
 
     # Lines without a resource marker render unchanged.
@@ -850,7 +854,9 @@ def test_log_messages_renderer_appends_resource_to_message():
     event_dict3.pop("resource")
     event_dict3["msg"] = "cdc_extract_completed"
     rendered3 = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict3)
-    payload3 = json.loads(rendered3["produce_message"].decode("utf-8"))
+    produced3 = rendered3["produce_message"]
+    assert produced3 is not None
+    payload3 = json.loads(produced3.decode("utf-8"))
     assert payload3["message"] == "cdc_extract_completed"
 
 
