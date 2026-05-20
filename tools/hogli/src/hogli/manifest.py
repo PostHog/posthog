@@ -183,7 +183,12 @@ class Manifest:
         raw_files = env_config.get("files") or []
         if not isinstance(raw_files, list):
             raise ValueError("config.env.files must be a list of repo-relative paths")
-        return [self._resolve_repo_relative_path("config.env.files", str(p)) for p in raw_files]
+        resolved: list[Path] = []
+        for entry in raw_files:
+            if not isinstance(entry, str) or not entry:
+                raise ValueError("config.env.files entries must be non-empty strings")
+            resolved.append(self._resolve_repo_relative_path("config.env.files", entry))
+        return resolved
 
     @property
     def secrets_config(self) -> dict[str, Any] | None:
@@ -191,7 +196,10 @@ class Manifest:
 
         Returned dict has:
         - ``file``: absolute Path to the secrets file (caller checks existence)
-        - ``marker``: substring that triggers the wrap (may be None to always wrap)
+        - ``marker``: required, non-empty substring that triggers the wrap.
+          Required (rather than optional) to keep behavior unambiguous: an
+          "always wrap" mode would force a process exec on every invocation
+          even when no secrets need resolving, which we never want.
         - ``wrap``: list[str], with ``{file}`` placeholder substituted to the
           absolute path of ``file`` at call time by the loader (not here, so
           the manifest stays declarative).
@@ -205,12 +213,12 @@ class Manifest:
 
         file_str = secrets.get("file")
         if not isinstance(file_str, str) or not file_str:
-            raise ValueError("config.env.secrets.file is required and must be a string")
+            raise ValueError("config.env.secrets.file is required and must be a non-empty string")
         file_path = self._resolve_repo_relative_path("config.env.secrets.file", file_str)
 
         marker = secrets.get("marker")
-        if marker is not None and not isinstance(marker, str):
-            raise ValueError("config.env.secrets.marker must be a string when set")
+        if not isinstance(marker, str) or not marker:
+            raise ValueError("config.env.secrets.marker is required and must be a non-empty string")
 
         wrap = secrets.get("wrap")
         if wrap is not None:

@@ -76,7 +76,7 @@ Same primitive works for Doppler (`wrap: [doppler, run, --]`), Infisical (`wrap:
 Anti-patterns flagged during PR review (don't re-introduce):
 
 - Hardcoded filenames in `hogli/cli.py`. Always read from manifest.
-- `if shutil.which("op"):` or any tool-specific binary check in core. The wrap config makes the binary configurable; just check whether `shlex.split(wrap[0])` is on PATH.
+- `if shutil.which("op"):` or any tool-specific binary check in core. The wrap config makes the binary configurable; use `shutil.which(wrap[0])` so any wrap tool the user declared works the same way.
 - Provider-specific helpful error messages ("install brew install 1password-cli"). Core's error message should be tool-agnostic ("the configured wrap binary `<x>` is not on PATH"). The PostHog-side extension can layer richer messaging via the hooks API if needed.
 - Adding behavior to `tools/hogli/src/hogli/cli.py` that's only useful to PostHog. Move it to `tools/hogli-commands/` and register via `boot_modules`.
 

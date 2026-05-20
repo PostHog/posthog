@@ -379,6 +379,64 @@ class TestApplyEnvConfig:
         mock_exec.assert_not_called()
         assert os.environ["PLAIN_KEY"] == "plain_value"
 
+    def test_secrets_file_overrides_env_files_in_fallback_path(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """In the no-wrap fallback path, .env.local literal values must win
+        over .env.development / .env.services — same precedence the wrap path
+        gives (where the resolver layers .env.local on top). This guards the
+        regression Codex flagged: loading env_files first with only_if_unset
+        meant .env.development was beating .env.local literal overrides."""
+        from hogli.cli import _apply_env_config
+
+        secrets_file = tmp_path / ".env.local"
+        secrets_file.write_text("SHARED_KEY=local_wins\n")
+        env_file = tmp_path / ".env.development"
+        env_file.write_text("SHARED_KEY=dev_loses\nDEV_ONLY=dev_value\n")
+
+        secrets = {
+            "file": secrets_file,
+            "marker": "op://",
+            "wrap": ["op", "run", "--env-file", "{file}", "--"],
+        }
+        monkeypatch.setattr(
+            "hogli.cli.get_manifest",
+            lambda: self._make_manifest(env_files=[env_file], secrets_config=secrets),
+        )
+        for k in ("SHARED_KEY", "DEV_ONLY", "HOGLI_SECRETS_WRAPPED"):
+            monkeypatch.delenv(k, raising=False)
+
+        with patch("os.execvp") as mock_exec:
+            _apply_env_config()
+
+        mock_exec.assert_not_called()
+        assert os.environ["SHARED_KEY"] == "local_wins"
+        assert os.environ["DEV_ONLY"] == "dev_value"
+
+    def test_missing_secrets_file_falls_through_silently(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No `.env.local` file at all (fresh user) — env_files still load and
+        no errors are raised. This is the bin/start "if one does not have the
+        .env.local file already" scenario."""
+        from hogli.cli import _apply_env_config
+
+        env_file = tmp_path / ".env.development"
+        env_file.write_text("DEV_ONLY=ok\n")
+        secrets = {
+            "file": tmp_path / ".env.local",  # doesn't exist
+            "marker": "op://",
+            "wrap": ["op", "run", "--env-file", "{file}", "--"],
+        }
+        monkeypatch.setattr(
+            "hogli.cli.get_manifest",
+            lambda: self._make_manifest(env_files=[env_file], secrets_config=secrets),
+        )
+        for k in ("DEV_ONLY", "HOGLI_SECRETS_WRAPPED"):
+            monkeypatch.delenv(k, raising=False)
+
+        with patch("os.execvp") as mock_exec:
+            _apply_env_config()
+
+        mock_exec.assert_not_called()
+        assert os.environ["DEV_ONLY"] == "ok"
+
     def test_marker_hit_with_wrap_binary_present_reexecs(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
         """When marker matches and wrap binary is on PATH, hogli re-execs under it.
 

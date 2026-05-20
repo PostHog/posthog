@@ -311,18 +311,21 @@ def _apply_env_config() -> None:
     - No ``config.env``: no-op. hogli stays a transparent CLI.
     - ``config.env.files``: each file is loaded with only_if_unset=True. First
       file in the list wins for duplicate keys; shell env always wins.
-    - ``config.env.secrets``: optional wrapper for a secrets file (e.g. one
-      containing 1Password ``op://`` refs).
-        * If the file exists, has the marker, and the wrap binary is on PATH:
-          set the ``HOGLI_SECRETS_WRAPPED`` sentinel and ``execvp`` into the
-          wrap command, which re-runs this hogli invocation with secrets
-          resolved. Files are pre-loaded so wrap's child inherits them.
-        * If the file exists but the wrap binary is missing: load the file
-          directly with the marker as ``skip_pattern`` so ref lines don't
-          leak as literal strings. Warn the user.
-        * If the sentinel is already set, we are the child of a wrap re-exec —
-          skip the wrap entirely and proceed to load the files normally
-          (wrap has already populated the env from the secrets file).
+    - ``config.env.secrets``: wrapper for a secrets file (e.g. one containing
+      1Password ``op://`` refs).
+        * If the file exists, contains the marker, and the wrap binary is on
+          PATH: set the ``HOGLI_SECRETS_WRAPPED`` sentinel and ``execvp`` into
+          the wrap command, which re-runs hogli with secrets resolved. Files
+          are pre-loaded so wrap's child inherits them.
+        * If the wrap binary is missing or the marker doesn't hit, load the
+          file directly. Lines whose value contains the marker are skipped
+          (so unresolved refs don't leak as garbage env values).
+        * If the sentinel is already set we are the child of a wrap re-exec —
+          skip the wrap entirely and proceed to load the files normally.
+
+    Precedence (in both wrap-resolved and fallback paths, highest wins):
+    shell env > secrets file > env files (earlier files in the list win for
+    duplicate keys).
     """
     manifest = get_manifest()
     try:
@@ -340,15 +343,14 @@ def _apply_env_config() -> None:
     if secrets is not None and not already_wrapped:
         _maybe_reexec_via_wrap(secrets, env_files)
 
-    # Either no secrets configured, or we're the child of a wrap re-exec, or
-    # the wrap binary was missing / the marker didn't hit. Load files now.
+        # Reached here = no re-exec happened (no marker hit, file missing, or
+        # wrap binary missing). Load secrets BEFORE env_files so .env.local
+        # literals override .env.development / .env.services — matches the
+        # wrap-resolved path's precedence (where op layers .env.local on top).
+        _load_env_file(secrets["file"], only_if_unset=True, skip_pattern=secrets["marker"])
+
     for path in env_files:
         _load_env_file(path, only_if_unset=True)
-
-    if secrets is not None and not already_wrapped:
-        # Load any literal values from the secrets file; skip ref lines so
-        # unresolved markers don't leak as garbage env values.
-        _load_env_file(secrets["file"], only_if_unset=True, skip_pattern=secrets["marker"])
 
 
 def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> None:
@@ -358,7 +360,7 @@ def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> No
     file loading). Otherwise replaces the current process via ``os.execvp``.
     """
     secrets_file: Path = secrets["file"]
-    marker: str | None = secrets["marker"]
+    marker: str = secrets["marker"]
     wrap: list[str] | None = secrets["wrap"]
 
     if wrap is None or not secrets_file.exists():
@@ -367,12 +369,11 @@ def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> No
     # Marker-gated re-exec: only wrap when the file actually references the
     # external resolver. Saves a process exec on dev workflows that haven't
     # set up secrets yet.
-    if marker:
-        try:
-            if marker not in secrets_file.read_text():
-                return
-        except OSError:
+    try:
+        if marker not in secrets_file.read_text():
             return
+    except OSError:
+        return
 
     wrap_binary = wrap[0]
     if not shutil.which(wrap_binary):

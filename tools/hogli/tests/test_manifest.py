@@ -312,14 +312,12 @@ class TestEnvConfig:
         with pytest.raises(ValueError, match="must be a list"):
             _ = manifest.env_files
 
-    def test_secrets_config_minimal(self, tmp_path: Path, manifest_at) -> None:
-        """Marker and wrap are both optional — file alone is valid."""
-        manifest = manifest_at({"env": {"secrets": {"file": ".env.local"}}})
-        cfg = manifest.secrets_config
-        assert cfg is not None
-        assert cfg["file"] == tmp_path.resolve() / ".env.local"
-        assert cfg["marker"] is None
-        assert cfg["wrap"] is None
+    def test_env_files_rejects_non_string_entry(self, manifest_at) -> None:
+        """YAML can drop a number or mapping into the list — reject explicitly so
+        we don't silently `str()`-coerce it into a surprise path like `.` or `42`."""
+        manifest = manifest_at({"env": {"files": [".env.development", 42]}})
+        with pytest.raises(ValueError, match="non-empty strings"):
+            _ = manifest.env_files
 
     def test_secrets_config_full(self, tmp_path: Path, manifest_at) -> None:
         manifest = manifest_at(
@@ -344,12 +342,27 @@ class TestEnvConfig:
         with pytest.raises(ValueError, match="file is required"):
             _ = manifest.secrets_config
 
+    def test_secrets_config_requires_marker(self, manifest_at) -> None:
+        """Marker must be set + non-empty: 'always wrap' would force a process
+        exec on every invocation, and an empty string is too ambiguous to
+        deserve a behavior."""
+        manifest = manifest_at({"env": {"secrets": {"file": ".env.local", "wrap": ["op", "run", "--"]}}})
+        with pytest.raises(ValueError, match="marker is required"):
+            _ = manifest.secrets_config
+
+    def test_secrets_config_rejects_empty_marker(self, manifest_at) -> None:
+        manifest = manifest_at({"env": {"secrets": {"file": ".env.local", "marker": "", "wrap": ["op"]}}})
+        with pytest.raises(ValueError, match="marker is required"):
+            _ = manifest.secrets_config
+
     def test_secrets_config_rejects_empty_wrap(self, manifest_at) -> None:
-        manifest = manifest_at({"env": {"secrets": {"file": ".env.local", "wrap": []}}})
+        manifest = manifest_at({"env": {"secrets": {"file": ".env.local", "marker": "op://", "wrap": []}}})
         with pytest.raises(ValueError, match="must not be empty"):
             _ = manifest.secrets_config
 
     def test_secrets_config_rejects_non_string_wrap_items(self, manifest_at) -> None:
-        manifest = manifest_at({"env": {"secrets": {"file": ".env.local", "wrap": ["op", 42, "--"]}}})
+        manifest = manifest_at(
+            {"env": {"secrets": {"file": ".env.local", "marker": "op://", "wrap": ["op", 42, "--"]}}}
+        )
         with pytest.raises(ValueError, match="list of strings"):
             _ = manifest.secrets_config

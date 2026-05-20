@@ -284,7 +284,7 @@ config:
   env:
     secrets:
       file: .env.local # the file that contains secret references
-      marker: 'op://' # optional: only wrap when this substring appears in the file
+      marker: 'op://' # substring that triggers the wrap; required, non-empty
       wrap: [op, run, --env-file, '{file}', --]
 ```
 
@@ -295,10 +295,17 @@ What happens at startup:
    absolute path of the secrets file). The wrap binary resolves secrets and
    re-runs hogli with them in the env. A `HOGLI_SECRETS_WRAPPED=1` sentinel
    prevents infinite re-exec loops.
-2. If the wrap binary is missing, hogli loads the file directly but skips
-   any line whose value contains `marker` (so unresolved `op://...` strings
-   don't leak as garbage env values that produce confusing 401s downstream).
-3. If there's no marker hit, hogli loads the file directly without wrap.
+2. If the wrap binary is missing or the marker isn't present, hogli loads the
+   file directly with marker-matching lines skipped (so unresolved `op://...`
+   strings don't leak as garbage env values that produce confusing 401s
+   downstream — only literal values get loaded).
+
+Precedence in either path (highest wins): shell env > secrets file > env
+files. So a literal override in `.env.local` always beats `.env.development`,
+matching what `op run` does when it's available.
+
+`marker` is required (not optional) — an "always wrap" mode would force a
+process exec on every hogli invocation, which we never want.
 
 The same shape works for Doppler (`wrap: [doppler, run, --]`), Vault
 (`wrap: [vault, exec, --]`), Infisical (`wrap: [infisical, run, --]`),
