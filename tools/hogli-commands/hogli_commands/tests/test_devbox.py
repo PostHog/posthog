@@ -1078,9 +1078,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
-        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
@@ -1090,8 +1088,6 @@ class TestDevboxCommands:
         result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
 
         assert result.exit_code == 0
-        # Compact status block surfaces the saved identity as a single line, replacing
-        # the noisy per-option "Using saved …" / "Run --configure-X to change" pairs.
         assert "Currently configured:" in result.output
         assert "Git identity" in result.output
         assert "Existing User <existing@example.com>" in result.output
@@ -1337,48 +1333,41 @@ class TestDevboxCommands:
         assert "hogli devbox:forward --port 8011" in result.output
 
 
+@pytest.fixture
+def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
+    for name in (
+        "ensure_tailscale_connected",
+        "ensure_tailscale_routes_accepted",
+        "ensure_coder_reachable",
+        "ensure_coder_authenticated",
+    ):
+        monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
+    monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
+    monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
+    monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+    monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: True)
+
+
 class TestDevboxSetupResets:
-    """Cover the --reset-* flags added to ``hogli devbox:setup``.
-
-    Each reset must (1) wipe the right local/remote state, (2) bypass the Y/n
-    gate (since an explicit per-option flag was passed), and (3) leave the
-    other settings alone. The dotfiles reset is exercised separately because
-    it also has to push an empty parameter to every existing workspace — the
-    fix that closes the "Arthur's `.zshrc` keeps reapplying" loop.
-    """
-
-    @staticmethod
-    def _stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-        for name in (
-            "ensure_tailscale_connected",
-            "ensure_tailscale_routes_accepted",
-            "ensure_coder_reachable",
-            "ensure_coder_authenticated",
-            "_confirm_run_setup",
-        ):
-            monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: True)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
-        monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
-        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+    """Cover the --reset-* flags added to ``hogli devbox:setup``."""
 
     def test_reset_dotfiles_clears_config_and_pushes_empty_param_to_existing_workspaces(
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_setup_environment: None,
     ) -> None:
         devbox_config_path.write_text(json.dumps({"dotfiles_uri": "https://github.com/user/dotfiles"}))
 
         param_pushes: list[tuple[str, dict[str, str]]] = []
-        self._stub_setup_environment(monkeypatch)
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
@@ -1394,9 +1383,6 @@ class TestDevboxSetupResets:
 
         assert result.exit_code == 0
         assert devbox_config.load_config() == {}
-        # Empty-string push is the actual fix: without it, the workspace's
-        # baked-in dotfiles_uri parameter survives and the repo re-clones on
-        # every boot.
         assert param_pushes == [
             ("devbox-test-user", {"dotfiles_uri": ""}),
             ("devbox-test-user-mobile", {"dotfiles_uri": ""}),
@@ -1405,8 +1391,8 @@ class TestDevboxSetupResets:
 
     def test_reset_git_identity_clears_only_identity_keys(
         self,
-        monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_setup_environment: None,
     ) -> None:
         devbox_config_path.write_text(
             json.dumps(
@@ -1417,7 +1403,6 @@ class TestDevboxSetupResets:
                 }
             )
         )
-        self._stub_setup_environment(monkeypatch)
 
         result = runner.invoke(cli, ["devbox:setup", "--reset-git-identity"])
 
@@ -1425,9 +1410,10 @@ class TestDevboxSetupResets:
         assert devbox_config.load_config() == {"dotfiles_uri": "https://github.com/user/dotfiles"}
         assert "Cleared saved Git identity" in result.output
 
-    def test_reset_git_signing_deletes_user_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_reset_git_signing_deletes_user_secret(
+        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    ) -> None:
         deleted: list[str] = []
-        self._stub_setup_environment(monkeypatch)
         monkeypatch.setattr(
             devbox_cli,
             "delete_user_secret",
@@ -1439,9 +1425,10 @@ class TestDevboxSetupResets:
         assert result.exit_code == 0
         assert deleted == [coder.GIT_SIGNING_KEY_SECRET]
 
-    def test_reset_claude_deletes_user_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_reset_claude_deletes_user_secret(
+        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    ) -> None:
         deleted: list[str] = []
-        self._stub_setup_environment(monkeypatch)
         monkeypatch.setattr(
             devbox_cli,
             "delete_user_secret",
@@ -1457,10 +1444,10 @@ class TestDevboxSetupResets:
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_setup_environment: None,
     ) -> None:
         devbox_config_path.write_text(json.dumps({"dotfiles_uri": "https://github.com/user/dotfiles"}))
         param_pushes: list[tuple[str, dict[str, str]]] = []
-        self._stub_setup_environment(monkeypatch)
         monkeypatch.setattr(
             devbox_cli,
             "update_workspace_parameters",
@@ -1475,39 +1462,11 @@ class TestDevboxSetupResets:
 
 
 class TestDevboxSetupGate:
-    """Cover the Y/n gate at the top of ``hogli devbox:setup``.
+    """Cover the Y/n gate at the top of ``hogli devbox:setup``."""
 
-    The gate exists for unguided runs so first-time users see a 1-line
-    explanation of what setup will do. It must NOT trigger for scripted
-    callers (non-TTY stdin) or for callers who already named the option they
-    want (``--configure-X`` / ``--skip-configure-X`` / ``--reset-X``) — those
-    invocations would otherwise break CI and re-introduce friction.
-    """
-
-    @staticmethod
-    def _stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-        for name in (
-            "ensure_tailscale_connected",
-            "ensure_tailscale_routes_accepted",
-            "ensure_coder_reachable",
-            "ensure_coder_authenticated",
-        ):
-            monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
-        monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
-        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
-
-    def test_gate_bypassed_when_explicit_configure_flag_passed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._stub_setup_environment(monkeypatch)
+    def test_gate_bypassed_when_explicit_configure_flag_passed(
+        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    ) -> None:
         gate_calls: list[None] = []
         monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: gate_calls.append(None) or True)
 
@@ -1516,8 +1475,9 @@ class TestDevboxSetupGate:
         assert result.exit_code == 0
         assert gate_calls == []
 
-    def test_gate_bypassed_when_explicit_reset_flag_passed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._stub_setup_environment(monkeypatch)
+    def test_gate_bypassed_when_explicit_reset_flag_passed(
+        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    ) -> None:
         gate_calls: list[None] = []
         monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: gate_calls.append(None) or True)
         monkeypatch.setattr(
@@ -1529,10 +1489,10 @@ class TestDevboxSetupGate:
         assert result.exit_code == 0
         assert gate_calls == []
 
-    def test_gate_shown_when_no_flags_and_aborts_on_no(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._stub_setup_environment(monkeypatch)
+    def test_gate_shown_when_no_flags_and_aborts_on_no(
+        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    ) -> None:
         monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: False)
-        # If the gate is honored, none of the maybe_configure_* helpers should fire.
         configure_calls: list[str] = []
         monkeypatch.setattr(
             devbox_cli,
@@ -1547,8 +1507,6 @@ class TestDevboxSetupGate:
         assert "Aborted" in result.output
 
     def test_gate_helper_returns_true_when_stdin_is_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # The helper itself, not via the CLI: simulate a piped stdin and
-        # confirm we don't even reach click.confirm (which would block).
         monkeypatch.setattr(devbox_cli.sys.stdin, "isatty", lambda: False)
         monkeypatch.setattr(
             devbox_cli.click,

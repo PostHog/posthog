@@ -308,12 +308,7 @@ def _prompt_for_claude_token() -> str | None:
 
 
 def maybe_configure_git_identity(configure_git_identity: bool | None) -> None:
-    """Optionally persist Git identity defaults for new workspaces.
-
-    Stays silent on the "already saved" path: the compact status block at the
-    top of ``devbox_setup`` is the single source of truth for what's set, so
-    re-running setup no longer prints "Using saved …" lines for every option.
-    """
+    """Optionally persist Git identity defaults for new workspaces."""
     config = load_config()
     existing_git_name = config.get("git_name")
     existing_git_email = config.get("git_email")
@@ -470,13 +465,7 @@ def maybe_configure_git_signing(configure_git_signing: bool | None) -> None:
 
 
 def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
-    """Optionally persist a dotfiles repo URL for new workspaces.
-
-    When called with no explicit flag and an existing URL is saved, returns
-    silently — the compact status block at the top of ``devbox_setup`` already
-    surfaces the saved value, and ``--reset-dotfiles`` is the documented path
-    to clear it.
-    """
+    """Optionally persist a dotfiles repo URL for new workspaces."""
     config = load_config()
     existing_uri = config.get("dotfiles_uri")
 
@@ -596,25 +585,23 @@ def maybe_configure_claude_secret(configure_claude: bool | None) -> None:
 def _collect_setup_status() -> list[tuple[str, str | None]]:
     """Return one ``(label, value)`` tuple per configurable setting.
 
-    ``value`` is ``None`` when the setting isn't configured. The compact
-    status block at the top of ``devbox_setup`` renders this directly, so the
-    individual prompt helpers no longer need to print their own "Using saved …"
-    lines on every run.
+    A single ``coder secret list`` call fuels both secret-backed rows;
+    ``None`` from that call also covers older servers that don't support
+    user secrets, so we don't need a separate version probe here.
     """
     config = load_config()
     git_name = config.get("git_name")
     git_email = config.get("git_email")
     git_identity = f"{git_name} <{git_email}>" if git_name and git_email else None
 
-    git_signing = "configured" if user_secret_exists(GIT_SIGNING_KEY_SECRET) else None
-    dotfiles = config.get("dotfiles_uri")
-    claude = "configured" if server_supports_user_secrets() and has_claude_oauth_secret() else None
+    secrets = list_user_secrets() or []
+    secret_names = {s.get("name") for s in secrets if isinstance(s, dict)}
 
     return [
         ("Git identity", git_identity),
-        ("Git signing", git_signing),
-        ("Dotfiles", dotfiles),
-        ("Claude token", claude),
+        ("Git signing", "configured" if GIT_SIGNING_KEY_SECRET in secret_names else None),
+        ("Dotfiles", config.get("dotfiles_uri")),
+        ("Claude token", "configured" if CLAUDE_CODE_OAUTH_ENV in secret_names else None),
     ]
 
 
@@ -630,6 +617,14 @@ def _print_setup_status(status: list[tuple[str, str | None]]) -> None:
         click.echo(f"  {label:<{width}} {rendered}")
 
 
+def _reset_user_secret(secret_name: str) -> None:
+    """Delete a Coder user secret, reporting whether anything was actually removed."""
+    if delete_user_secret(secret_name).returncode == 0:
+        click.echo(f"Deleted Coder user secret '{secret_name}'.")
+    else:
+        click.echo(f"Nothing to delete: '{secret_name}' was not set.")
+
+
 def _apply_resets(
     *,
     reset_git_identity: bool,
@@ -639,11 +634,9 @@ def _apply_resets(
 ) -> bool:
     """Apply any requested resets and return whether at least one fired.
 
-    Dotfiles reset is special: in addition to clearing the local config (which
-    only controls future workspaces), it pushes ``dotfiles_uri=""`` to every
-    existing workspace so the template stops re-cloning the repo on each boot.
-    Without this, a saved repo's ``.zshrc`` (or whatever) keeps applying until
-    the user wipes the parameter from the Coder UI.
+    Dotfiles reset also pushes ``dotfiles_uri=""`` to every existing workspace
+    so the template parameter is overridden — clearing the local config alone
+    only affects future workspaces.
     """
     fired = False
 
@@ -653,11 +646,7 @@ def _apply_resets(
         fired = True
 
     if reset_git_signing:
-        result = delete_user_secret(GIT_SIGNING_KEY_SECRET)
-        if result.returncode == 0:
-            click.echo(f"Deleted Coder user secret '{GIT_SIGNING_KEY_SECRET}'.")
-        else:
-            click.echo(f"Nothing to delete: '{GIT_SIGNING_KEY_SECRET}' was not set.")
+        _reset_user_secret(GIT_SIGNING_KEY_SECRET)
         fired = True
 
     if reset_dotfiles:
@@ -671,11 +660,7 @@ def _apply_resets(
         fired = True
 
     if reset_claude:
-        result = delete_user_secret(CLAUDE_CODE_OAUTH_ENV)
-        if result.returncode == 0:
-            click.echo(f"Deleted Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
-        else:
-            click.echo(f"Nothing to delete: '{CLAUDE_CODE_OAUTH_ENV}' was not set.")
+        _reset_user_secret(CLAUDE_CODE_OAUTH_ENV)
         fired = True
 
     return fired
@@ -685,18 +670,8 @@ def _explicit_option_flag_passed(
     configure_flags: list[bool | None],
     reset_flags: list[bool],
 ) -> bool:
-    """Return whether the user passed any per-option flag.
-
-    The Y/n confirmation gate exists for unguided ``hogli devbox:setup``
-    invocations. When the user already named what they want — via
-    ``--configure-X`` / ``--skip-configure-X`` / ``--reset-X`` — the gate would
-    just be noise (and would break scripted callers), so we bypass it.
-    """
-    if any(flag is not None for flag in configure_flags):
-        return True
-    if any(reset_flags):
-        return True
-    return False
+    """Return whether the user passed any per-option flag (configure or reset)."""
+    return any(flag is not None for flag in configure_flags) or any(reset_flags)
 
 
 def _confirm_run_setup() -> bool:
