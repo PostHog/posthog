@@ -132,7 +132,7 @@ class TestProperty(BaseTest):
             self._property_to_expr(
                 Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
             ),
-            self._parse_expr("properties.arr > 100"),
+            self._parse_expr("toFloat(properties.arr) > 100"),
         )
 
     def test_property_to_expr_group_booleans(self):
@@ -1334,17 +1334,17 @@ class TestProperty(BaseTest):
     def test_property_to_expr_between_operator(self):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "between", "value": [18, 65]}),
-            self._parse_expr("(properties.age >= 18 AND properties.age <= 65)"),
+            self._parse_expr("(toFloat(properties.age) >= 18 AND toFloat(properties.age) <= 65)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "between", "value": [25, 50]}),
-            self._parse_expr("(person.properties.age >= 25 AND person.properties.age <= 50)"),
+            self._parse_expr("(toFloat(person.properties.age) >= 25 AND toFloat(person.properties.age) <= 50)"),
         )
 
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "score", "operator": "not_between", "value": [0, 100]}),
-            self._parse_expr("(properties.score < 0 OR properties.score > 100)"),
+            self._parse_expr("(toFloat(properties.score) < 0 OR toFloat(properties.score) > 100)"),
         )
 
     def test_property_to_expr_between_operator_validation(self):
@@ -1383,26 +1383,56 @@ class TestProperty(BaseTest):
         # Test MIN operator (alias for GTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "min", "value": 18}),
-            self._parse_expr("properties.age >= 18"),
+            self._parse_expr("toFloat(properties.age) >= 18"),
         )
 
         # Test MAX operator (alias for LTE)
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "age", "operator": "max", "value": 65}),
-            self._parse_expr("properties.age <= 65"),
+            self._parse_expr("toFloat(properties.age) <= 65"),
         )
 
         # Test MIN with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "age", "operator": "min", "value": 25}),
-            self._parse_expr("person.properties.age >= 25"),
+            self._parse_expr("toFloat(person.properties.age) >= 25"),
         )
 
         # Test MAX with person properties
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "score", "operator": "max", "value": 100}),
-            self._parse_expr("person.properties.score <= 100"),
+            self._parse_expr("toFloat(person.properties.score) <= 100"),
         )
+
+    def test_property_to_expr_numeric_coercion_for_comparison_operators(self):
+        """LT/LTE/GT/GTE on event JSON properties must coerce the LHS to a number.
+
+        Event ``properties`` are stored as JSON-extracted strings in ClickHouse.
+        Comparing String <= Float64 has no supertype and the query errors out
+        with "There is no supertype for types String, Float64". The hog VM that
+        evaluates the same filter at delivery time auto-coerces via
+        unifyComparisonTypes, so the ClickHouse path needs to match.
+        """
+        for operator, op_sql in [("lt", "<"), ("lte", "<="), ("gt", ">"), ("gte", ">=")]:
+            self.assertEqual(
+                self._property_to_expr({"type": "event", "key": "rating", "value": 3, "operator": operator}),
+                self._parse_expr(f"toFloat(properties.rating) {op_sql} 3"),
+            )
+            # Float values also trigger coercion.
+            self.assertEqual(
+                self._property_to_expr({"type": "event", "key": "rating", "value": 3.5, "operator": operator}),
+                self._parse_expr(f"toFloat(properties.rating) {op_sql} 3.5"),
+            )
+            # String values keep lexicographic comparison (existing behavior).
+            self.assertEqual(
+                self._property_to_expr({"type": "event", "key": "rating", "value": "3", "operator": operator}),
+                self._parse_expr(f"properties.rating {op_sql} '3'"),
+            )
+            # Booleans are not numeric in this context.
+            self.assertEqual(
+                self._property_to_expr({"type": "event", "key": "flag", "value": True, "operator": operator}),
+                self._parse_expr(f"properties.flag {op_sql} true"),
+            )
 
     def test_property_to_expr_semver_operators(self):
         # Test semver_eq

@@ -355,6 +355,32 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     return value
 
 
+def _is_numeric_value(value: ValueT) -> bool:
+    """Check whether ``value`` should drive numeric coercion of the LHS.
+
+    Booleans subclass int in Python, so ``isinstance(True, int)`` is ``True`` —
+    exclude them explicitly so boolean comparisons stay literal.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _force_numeric(expr: ast.Expr) -> ast.Expr:
+    """Coerce ``expr`` to Float64 for numeric comparison.
+
+    Event JSON properties live as strings (``JSONExtractRaw`` returns a String),
+    so a String-vs-Int comparison like ``properties.rating <= 3`` is rejected by
+    ClickHouse with "no supertype for types String, Float64". The hog VM that
+    evaluates filters at delivery time auto-coerces strings to numbers via
+    ``unifyComparisonTypes``; this helper makes the ClickHouse path match.
+
+    Wrapping in ``toFloat`` (which maps to ``accurateCastOrNull(..., 'Float64')``)
+    lets a row through only when the property parses cleanly as a number;
+    non-numeric strings become NULL and the comparison drops them — same as the
+    runtime VM rejects them.
+    """
+    return ast.Call(name="toFloat", args=[expr])
+
+
 def _force_datetime(expr: ast.Expr) -> ast.Expr:
     """Coerce ``expr`` to DateTime for chronological IS_DATE_* comparison.
 
@@ -514,7 +540,8 @@ def _expr_to_compare_op(
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
     elif operator == PropertyOperator.LT:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric(expr) if _is_numeric_value(value) else expr
+        return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -523,7 +550,8 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.GT:
-        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric(expr) if _is_numeric_value(value) else expr
+        return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_AFTER:
         assert isinstance(value, str)
         return ast.CompareOperation(
@@ -532,25 +560,35 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
-        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric(expr) if _is_numeric_value(value) else expr
+        return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
-        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+        left = _force_numeric(expr) if _is_numeric_value(value) else expr
+        return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=value))
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
+        # _validate_between_values already enforces numeric bounds, so the LHS
+        # always needs numeric coercion here.
+        left_low = _force_numeric(expr) if _is_numeric_value(value[0]) else expr
+        left_high = _force_numeric(expr) if _is_numeric_value(value[1]) else expr
         return ast.And(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value[1])),
+                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left_low, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq, left=left_high, right=ast.Constant(value=value[1])
+                ),
             ]
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
+        left_low = _force_numeric(expr) if _is_numeric_value(value[0]) else expr
+        left_high = _force_numeric(expr) if _is_numeric_value(value[1]) else expr
         return ast.Or(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value[0])),
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value[1])),
+                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left_low, right=ast.Constant(value=value[0])),
+                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left_high, right=ast.Constant(value=value[1])),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
