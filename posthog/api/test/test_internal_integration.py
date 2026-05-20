@@ -205,9 +205,7 @@ class TestInternalIntegrationLookupUser:
 
     def test_team_match_wins_over_user_match(self, client: HttpClient):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
-        connector = User.objects.create_user(
-            email="connector@acme.test", first_name="Conn", password="password"
-        )
+        connector = User.objects.create_user(email="connector@acme.test", first_name="Conn", password="password")
         OrganizationMembership.objects.create(user=connector, organization=self.organization)
         team_integration = Integration.objects.create(
             team=other_team,

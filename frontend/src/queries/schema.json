@@ -22087,6 +22087,7 @@
             "enum": [
                 "slack",
                 "slack-posthog-code",
+                "discord-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -22101,6 +22102,7 @@
                 "email",
                 "twilio",
                 "linear",
+                "linear-agent",
                 "github",
                 "gitlab",
                 "meta-ads",
