@@ -186,6 +186,10 @@ export class PersonHogClient {
                 return await next(req)
             })
         }
+        interceptors.push((next) => async (req) => {
+            req.header.set('x-read-consistency', 'eventual')
+            return await next(req)
+        })
 
         const sessionManager = new Http2SessionManager(`${scheme}://${config.addr}`, {
             pingIntervalMs: config.pingIntervalMs ?? 30_000,

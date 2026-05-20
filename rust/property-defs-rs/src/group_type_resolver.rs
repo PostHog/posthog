@@ -144,9 +144,9 @@ impl GroupTypeResolver {
             team_ids: unique_team_ids,
             read_options: None,
         });
-        request
-            .metadata_mut()
-            .insert("x-client-name", "property-defs-rs".parse().unwrap());
+        let metadata = request.metadata_mut();
+        metadata.insert("x-client-name", "property-defs-rs".parse().unwrap());
+        metadata.insert("x-read-consistency", "eventual".parse().unwrap());
 
         let response = client.get_group_type_mappings_by_team_ids(request).await?;
 
