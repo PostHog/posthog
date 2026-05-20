@@ -243,19 +243,54 @@ impl<'a> Parser<'a> {
         Ok(text)
     }
 
-    /// Read a single tag-name / attribute-name token. cpp's `identifier`
-    /// rule accepts plain idents, quoted idents, and most keywords;
-    /// mirror that here so `<from a='1' />` (`from` is a keyword) parses
-    /// cleanly.
+    /// Read a single tag-name / attribute-name token. cpp's
+    /// `HOGQLX_TAG_OPEN` / `HOGQLX_TAG_CLOSE` lexer modes
+    /// (`HogQLLexer.common.g4:315 + 326`) admit
+    /// `[a-zA-Z_][a-zA-Z0-9_-]*` — hyphens are part of the identifier
+    /// inside tag-open / tag-close modes. Rust's lexer doesn't have
+    /// modes, so `a-b` lexes as `Ident a`, `Dash`, `Ident b`; stitch
+    /// them back together here when the dash is followed immediately
+    /// by an ident-like token with no intervening whitespace.
     fn parse_hogqlx_identifier(&mut self, what: &str) -> Result<String, ParseError> {
-        let t = self.bump()?;
-        match t.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent => Ok(identifier_text(self.text(t), t.kind)),
-            TokenKind::Keyword(_) => Ok(identifier_text(self.text(t), t.kind)),
-            _ => Err(self.err(format!(
-                "expected {} (identifier or keyword), got {:?}",
-                what, t.kind
-            ))),
+        let head = self.bump()?;
+        let mut name = match head.kind {
+            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                identifier_text(self.text(head), head.kind)
+            }
+            _ => {
+                return Err(self.err(format!(
+                    "expected {} (identifier or keyword), got {:?}",
+                    what, head.kind
+                )));
+            }
+        };
+        let mut last_end = head.end;
+        // Greedy hyphen-stitch loop. Per the grammar, hyphens may
+        // appear anywhere AFTER the leading char and must be
+        // immediately followed by another `[a-zA-Z0-9_]` character.
+        // Require a zero-byte gap on either side of the dash so we
+        // don't paper over actual whitespace-separated tokens.
+        while self.peek() == TokenKind::Dash && self.peek0.start == last_end {
+            let cont_start = self.peek_next_start();
+            if self.peek0.end != cont_start {
+                break;
+            }
+            if !matches!(
+                self.peek_next(),
+                TokenKind::Ident | TokenKind::Keyword(_) | TokenKind::Number,
+            ) {
+                break;
+            }
+            self.bump()?; // dash
+            let next = self.bump()?;
+            name.push('-');
+            name.push_str(self.text(next));
+            last_end = next.end;
         }
+        Ok(name)
+    }
+
+    fn peek_next_start(&self) -> usize {
+        self.peek1.start
     }
 }

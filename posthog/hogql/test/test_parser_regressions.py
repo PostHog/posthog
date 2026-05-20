@@ -809,6 +809,27 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_hogqlx_tag_identifier_allows_hyphens(self):
+        # The grammar's `HOGQLX_TAG_OPEN` / `HOGQLX_TAG_CLOSE` lexer modes
+        # (`HogQLLexer.common.g4:315 + 326`) admit
+        # `[a-zA-Z_][a-zA-Z0-9_-]*` for tag names AND attribute names,
+        # so hyphens are part of the identifier inside tag delimiters.
+        # Rust's mode-less lexer split `a-b` into Ident-Dash-Ident, and
+        # `parse_hogqlx_identifier` returned only the first chunk.
+        cases = (
+            "<a-b />",
+            "<a-b-c />",
+            "<my-tag a-b={1}>x</my-tag>",
+            "<tag a-b={1}/>",
+            "<tag><my-child/></tag>",
+            "<a-b>{1}</a-b>",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_join_expr_parens_does_not_take_outer_alias(self):
         # Grammar:
         #   joinExpr  : ... | LPAREN joinExpr RPAREN  # JoinExprParens
