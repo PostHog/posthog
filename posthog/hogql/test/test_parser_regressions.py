@@ -1789,6 +1789,35 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_expr(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_hogqlx_comments_skipped_between_attributes(self):
+        # The HOGQLX_TAG_OPEN / HOGQLX_TAG_CLOSE lexer modes used to
+        # have no comment rules and no catch-all, so the lexer's
+        # recoverable token-recognition error silently dropped comment
+        # delimiters and re-tokenised the identifier-shaped content as
+        # phantom attribute names — `<a /*c*/ b={1}/>` emitted both
+        # `c` and `b`. Add comment-skip + UNEXPECTED_CHARACTER catch-all
+        # to both modes.
+        cases = (
+            "<a /*c*/ b={1}/>",
+            "<a /* c */b={1}/>",
+            "<a -- comment\n b={1}/>",
+            "<a // comment\n b={1}/>",
+            "<a /*c*/ />",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Unknown bytes (`#`, `&`, `@`) inside a tag now reject in cpp
+        # via the UNEXPECTED_CHARACTER catch-all, matching rust's
+        # existing rejection. Both raise.
+        for src in ("<a # comment\n />", "<a @x b={1}/>"):
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="cpp-json")
+            with self.assertRaises(ExposedHogQLError, msg=src):
+                parse_expr(src, backend="rust-json")
+
     def test_float_subnormal_preserved_not_flattened_to_infinity(self):
         # cpp's `visitNumberLiteral` used to call `std::stod` (which
         # throws `out_of_range` for BOTH overflow and underflow) and

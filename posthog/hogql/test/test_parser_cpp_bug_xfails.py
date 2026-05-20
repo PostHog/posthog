@@ -52,49 +52,6 @@ def _strip(value):
 
 class TestParserCppBugXfails(BaseTest):
     @unittest.expectedFailure
-    def test_hogqlx_block_comment_phantom_attribute(self):
-        """`<a /*c*/ b={1}/>` — C++ emits a phantom `c` boolean attribute.
-
-        C++ HOGQLX-mode lexer doesn't skip block comments between
-        attributes; it tokenises the comment's word content as an
-        attribute name. Rust ignores the comment and produces only
-        the real `b={1}` attribute. Same bug pattern fires for:
-
-          - `<a /*c d*/ /\>` → cpp emits both `c` and `d` as phantom attrs
-          - `<a /* c */b={1}/>` → cpp renames `b` to `c`
-        """
-        src = "<a /*c*/ b={1}/>"
-        cpp_ast = clear_locations(parse_expr(src, backend="cpp-json"))
-        rust_ast = clear_locations(parse_expr(src, backend="rust-json"))
-        self.assertEqual(cpp_ast, rust_ast)
-
-    @unittest.expectedFailure
-    def test_hogqlx_dash_dash_line_comment_phantom_attribute(self):
-        """`<a -- comment\\n />` — C++ emits a phantom `comment` attribute.
-
-        Same root cause as the block-comment case: the HOGQLX-mode
-        lexer doesn't recognise `--` line comments and tokenises the
-        identifier-shaped content as an attribute name. Rust correctly
-        rejects the `-` token in the attribute slot.
-        """
-        src = "<a -- comment\n />"
-        cpp_ast = clear_locations(parse_expr(src, backend="cpp-json"))
-        rust_ast = clear_locations(parse_expr(src, backend="rust-json"))
-        self.assertEqual(cpp_ast, rust_ast)
-
-    @unittest.expectedFailure
-    def test_hogqlx_hash_line_comment_phantom_attribute(self):
-        """`<a # comment\\n />` — C++ accepts as if `#` opens a line
-        comment but the lexer then re-tokenises `comment` as an
-        attribute name. Rust correctly rejects `#` in HOGQLX attribute
-        position.
-        """
-        src = "<a # comment\n />"
-        cpp_ast = clear_locations(parse_expr(src, backend="cpp-json"))
-        rust_ast = clear_locations(parse_expr(src, backend="rust-json"))
-        self.assertEqual(cpp_ast, rust_ast)
-
-    @unittest.expectedFailure
     def test_hog_compound_assignment_op_garbage_recovery(self):
         """`let x := 1; x *= 2;` — C++ silently splits `x *= 2` into
         three nonsensical ExprStatements (`x`, then `* == 2`).

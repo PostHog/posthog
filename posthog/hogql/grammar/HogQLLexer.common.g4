@@ -311,20 +311,38 @@ mode HOGQLX_TAG_OPEN;
 TAG_SELF_CLOSE_GT : '/>' -> type(SLASH_GT), popMode;   // <tag …/>
 TAG_OPEN_GT       :  '>' -> type(GT), popMode, pushMode(HOGQLX_TEXT);   // <tag …>
 
+// Block and line comments are skipped between attributes — without these
+// rules the lexer's recoverable token-recognition error would silently
+// drop the comment delimiters and re-tokenise the comment's identifier
+// content as a phantom attribute name (e.g. `<a /*c*/ b={1}/>` would
+// emit a fake `c` attribute alongside `b`). Mirrors the default-mode
+// comment rules.
+TAG_MULTI_LINE_COMMENT  : '/*' .*? '*/'                                -> skip;
+TAG_SINGLE_LINE_COMMENT : ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
+
 // minimal token set; map everything back to the default token types
 TAG_IDENT   : [a-zA-Z_][a-zA-Z0-9_-]* -> type(IDENTIFIER);
 TAG_EQ      : '='                     -> type(EQ_SINGLE);
 TAG_STRING  : STRING_LITERAL          -> type(STRING_LITERAL);
 TAG_WS      : [ \t\r\n]+              -> channel(HIDDEN);
 TAG_LBRACE  : '{'                     -> type(LBRACE), pushMode(DEFAULT_MODE);
+// Catch-all: any byte not matched above (e.g. `#`, `&`, `@`) is emitted
+// as UNEXPECTED_CHARACTER, mirroring the default-mode fallback so the
+// parser fails loudly instead of dropping the character and silently
+// re-tokenising the surrounding text into a different valid-looking
+// attribute list.
+TAG_UNEXPECTED : . -> type(UNEXPECTED_CHARACTER);
 
 
 // ───────── HOGQLX TAG MODE for closing tags ─────────
 mode HOGQLX_TAG_CLOSE;
 
 TAGC_GT     :  '>' -> type(GT), popMode;                // *** no TEXT push ***
+TAGC_MULTI_LINE_COMMENT  : '/*' .*? '*/'                                -> skip;
+TAGC_SINGLE_LINE_COMMENT : ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 TAGC_IDENT  : [a-zA-Z_][a-zA-Z0-9_-]* -> type(IDENTIFIER);
 TAGC_WS     : [ \t\r\n]+              -> channel(HIDDEN);
+TAGC_UNEXPECTED : . -> type(UNEXPECTED_CHARACTER);
 
 
 // ───────── HOGQLX TEXT MODE ─────────
