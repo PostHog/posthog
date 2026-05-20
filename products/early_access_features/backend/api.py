@@ -114,18 +114,14 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         user_data = UserBasicSerializer(request.user).data if request.user else None
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
-        stage_will_change = (
-            "stage" in self.initial_data and instance.stage != stage and instance.feature_flag is not None
-        )
-        if stage_will_change:
-            warn_if_missing_feature_flag_write_scope(
-                request,
-                action="early_access_feature.stage_change",
-                team_id=instance.team_id,
-                feature_flag_id=instance.feature_flag.id,
-            )
-
         if instance.stage != stage:
+            if "stage" in self.initial_data and instance.feature_flag is not None:
+                warn_if_missing_feature_flag_write_scope(
+                    request,
+                    action="early_access_feature.stage_change",
+                    team_id=instance.team_id,
+                    feature_flag_id=instance.feature_flag.id,
+                )
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:

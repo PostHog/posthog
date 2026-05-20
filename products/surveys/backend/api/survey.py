@@ -1745,19 +1745,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
-        related_internal_targeting_flag = instance.internal_targeting_flag
-
-        if related_targeting_flag or related_internal_targeting_flag:
+        if related_targeting_flag:
             warn_if_missing_feature_flag_write_scope(
                 request,
                 action="survey.destroy",
                 team_id=self.team_id,
-                feature_flag_id=related_targeting_flag.id if related_targeting_flag else None,
+                feature_flag_id=related_targeting_flag.id,
             )
-
-        if related_targeting_flag:
             related_targeting_flag.delete()
 
+        related_internal_targeting_flag = instance.internal_targeting_flag
         if related_internal_targeting_flag:
             related_internal_targeting_flag.delete()
 
