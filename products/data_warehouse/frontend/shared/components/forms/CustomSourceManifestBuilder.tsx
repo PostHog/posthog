@@ -1,13 +1,10 @@
-import { useActions, useValues } from 'kea'
 import { FieldName } from 'kea-forms'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-
-import { SourceWizardLogicProps, sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 
 type AuthType = 'none' | 'bearer' | 'api_key' | 'http_basic'
 type Paginator =
@@ -242,52 +239,87 @@ function parseStream(resource: any): StreamForm {
 
 export interface CustomSourceManifestBuilderProps {
     initialManifestJson?: string
-    sourceWizardLogicProps?: SourceWizardLogicProps
+    /**
+     * Writes the serialized manifest into the outer form. Differs between
+     * mount sites: the wizard provides
+     * `sourceWizardLogic.actions.setSourceConnectionDetailsValue`, and the
+     * configuration page (existing source) provides
+     * `sourceSettingsLogic.actions.setSourceConfigValue`. Either accepts a
+     * `(path, value)` signature.
+     */
+    setValue: (path: FieldName, value: unknown) => void
 }
 
 /**
  * Visual builder for the Custom REST source's manifest. Maintains its own
  * structured form state (base URL, auth, headers, streams) and serializes to
  * the JSON `RESTAPIConfig` that the backend expects on
- * `sourceConnectionDetails.payload.manifest_json`.
+ * `payload.manifest_json` of whichever outer form mounts it.
  *
  * The form payload mirrors `RESTAPIConfig` exactly so the backend can hand it
  * straight to `rest_api_resource()` without translation.
  */
 export function CustomSourceManifestBuilder({
     initialManifestJson,
-    sourceWizardLogicProps,
+    setValue,
 }: CustomSourceManifestBuilderProps): JSX.Element {
-    const logic = sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic
-    const { setSourceConnectionDetailsValue } = useActions(logic)
-    const { sourceConnectionDetails } = useValues(logic)
+    const [state, setState] = useState<ManifestState>(() => parseManifestIntoState(initialManifestJson))
 
-    const existingManifest =
-        initialManifestJson ?? (sourceConnectionDetails?.payload?.manifest_json as string | undefined)
+    // The configuration page loads `source.job_inputs` via a poll, so the
+    // first render typically has no manifest and a real one arrives a beat
+    // later. Re-parse when the prop changes (but only on *prop* changes —
+    // we ignore our own re-renders to avoid wiping the user's edits).
+    const lastSeenInitialRef = useRef(initialManifestJson)
+    useEffect(() => {
+        if (initialManifestJson !== lastSeenInitialRef.current) {
+            lastSeenInitialRef.current = initialManifestJson
+            if (initialManifestJson) {
+                setState(parseManifestIntoState(initialManifestJson))
+            }
+        }
+    }, [initialManifestJson])
 
-    const [state, setState] = useState<ManifestState>(() => parseManifestIntoState(existingManifest))
+    // Only write to the outer form once the user has actually engaged — either
+    // by typing, or by an initial manifest arriving from the parent. Without
+    // this guard, the configuration page would clobber the saved manifest with
+    // empty defaults on the render that sits between mount and prop-arrival.
+    const [hasContent, setHasContent] = useState<boolean>(() => !!initialManifestJson)
+    useEffect(() => {
+        if (initialManifestJson) {
+            setHasContent(true)
+        }
+    }, [initialManifestJson])
 
     const manifestJson = useMemo(() => JSON.stringify(buildManifest(state), null, 2), [state])
 
     useEffect(() => {
-        setSourceConnectionDetailsValue(['payload', 'manifest_json'] as FieldName, manifestJson)
-    }, [manifestJson, setSourceConnectionDetailsValue])
+        if (hasContent) {
+            setValue(['payload', 'manifest_json'] as FieldName, manifestJson)
+        }
+    }, [manifestJson, hasContent, setValue])
 
-    const updateState = (patch: Partial<ManifestState>): void => setState((prev) => ({ ...prev, ...patch }))
+    // Wrap every mutation so a user edit also unblocks the setValue effect —
+    // in wizard mode `initialManifestJson` is undefined, so without this any
+    // typing would compute a new manifest but never push it to the form.
+    const editState = (updater: (prev: ManifestState) => ManifestState): void => {
+        setHasContent(true)
+        setState(updater)
+    }
+    const updateState = (patch: Partial<ManifestState>): void => editState((prev) => ({ ...prev, ...patch }))
     const updateStream = (index: number, patch: Partial<StreamForm>): void =>
-        setState((prev) => ({
+        editState((prev) => ({
             ...prev,
             streams: prev.streams.map((stream, i) => (i === index ? { ...stream, ...patch } : stream)),
         }))
     const updatePaginator = (index: number, paginator: Paginator): void => updateStream(index, { paginator })
-    const addStream = (): void => setState((prev) => ({ ...prev, streams: [...prev.streams, emptyStream()] }))
+    const addStream = (): void => editState((prev) => ({ ...prev, streams: [...prev.streams, emptyStream()] }))
     const removeStream = (index: number): void =>
-        setState((prev) => ({ ...prev, streams: prev.streams.filter((_, i) => i !== index) }))
-    const addHeader = (): void => setState((prev) => ({ ...prev, headers: [...prev.headers, { key: '', value: '' }] }))
+        editState((prev) => ({ ...prev, streams: prev.streams.filter((_, i) => i !== index) }))
+    const addHeader = (): void => editState((prev) => ({ ...prev, headers: [...prev.headers, { key: '', value: '' }] }))
     const removeHeader = (index: number): void =>
-        setState((prev) => ({ ...prev, headers: prev.headers.filter((_, i) => i !== index) }))
+        editState((prev) => ({ ...prev, headers: prev.headers.filter((_, i) => i !== index) }))
     const updateHeader = (index: number, patch: Partial<HeaderEntry>): void =>
-        setState((prev) => ({
+        editState((prev) => ({
             ...prev,
             headers: prev.headers.map((header, i) => (i === index ? { ...header, ...patch } : header)),
         }))

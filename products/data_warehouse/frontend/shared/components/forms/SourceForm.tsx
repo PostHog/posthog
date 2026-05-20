@@ -744,24 +744,35 @@ export function SourceFormComponent({
                 </LemonField>
             )}
             <Group name="payload">
-                {sourceConfig.name === 'Custom' ? (
-                    <CustomSourceManifestBuilder
-                        initialManifestJson={jobInputs?.manifest_json}
-                        sourceWizardLogicProps={sourceWizardLogicProps}
-                    />
-                ) : (
-                    availableSources[sourceConfig.name].fields
-                        .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
-                        .map((field) =>
-                            sourceFieldToElement(
-                                field,
-                                sourceConfig,
-                                jobInputs?.[field.name],
-                                isUpdateMode,
-                                setSourceConnectionDetailsValue
-                            )
-                        )
-                )}
+                {sourceConfig.name === 'Custom'
+                    ? (() => {
+                          const setValue = setSourceConfigValue ?? setSourceConnectionDetailsValue
+                          if (!setValue) {
+                              return (
+                                  <LemonBanner type="error">
+                                      Custom source form is misconfigured: neither setSourceConfigValue nor
+                                      sourceWizardLogicProps was provided to SourceForm.
+                                  </LemonBanner>
+                              )
+                          }
+                          return (
+                              <CustomSourceManifestBuilder
+                                  initialManifestJson={jobInputs?.manifest_json}
+                                  setValue={setValue}
+                              />
+                          )
+                      })()
+                    : availableSources[sourceConfig.name].fields
+                          .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
+                          .map((field) =>
+                              sourceFieldToElement(
+                                  field,
+                                  sourceConfig,
+                                  jobInputs?.[field.name],
+                                  isUpdateMode,
+                                  setSourceConnectionDetailsValue
+                              )
+                          )}
             </Group>
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&
