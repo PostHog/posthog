@@ -46,7 +46,11 @@ import pytest
 
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
-from ee.hogai.eval.sandboxed.experiments.scorers import CitesDiagnosticGroup, DoesNotRecommendEdit
+from ee.hogai.eval.sandboxed.experiments.scorers import (
+    AdvisesAgainstShipping,
+    CitesDiagnosticGroup,
+    DoesNotRecommendEdit,
+)
 from ee.hogai.eval.sandboxed.experiments.seeders import (
     ENDED_EXPERIMENT_NAME,
     ROLLOUT_EXPERIMENT_NAME,
@@ -97,26 +101,25 @@ async def eval_midrun_changes(sandboxed_demo_data, pytestconfig, posthog_client,
             ),
             setup=seed_running_experiment,
             expected={
-                # Diagnostic framing: this is C10 (ship-variant default risk) + E7
-                # (release-mode choice) + C4 (guardrail vs primary). The agent must NOT
-                # casually recommend shipping the test variant; it must flag the guardrail
-                # as a reason to hold or default to control, and if release mode is
-                # discussed, "all users" should be discouraged.
+                # diagnosis_group tests identification only: did the agent name the
+                # ship-variant default risk, guardrail vs primary tension, and release-mode
+                # choice? Behavioral grading ("must not greenlight a ship") lives in
+                # advises_against_shipping. Splitting them mirrors eval_interpretation_traps.py
+                # — content and behavior regress on different axes and should be measured
+                # independently.
                 "diagnosis_group": (
-                    "The agent advises AGAINST a confident ship of the test variant on this "
-                    "evidence. It must name at least one of these reasons: (a) the guardrail / "
-                    "secondary metric is trending negative, which is exactly the gap the "
-                    "ship-variant recommendation logic does NOT consider — sophisticated users "
-                    "who set guardrails are the ones the default would mislead, (b) the primary's "
+                    "The agent identifies at least one of these as the relevant diagnostic: "
+                    "(a) the guardrail / secondary metric trending negative is the gap the "
+                    "ship-variant recommendation logic does NOT consider — guardrail-aware "
+                    "users are the ones the default would mislead, (b) the primary's "
                     "chance-to-win is in the noise band where early flips happen, so the "
-                    "significance is not settled, (c) on ambiguous ships the safe default is to "
-                    "keep control rather than ship the position-default test variant. If the "
-                    "agent discusses release mode at all, it must recommend the 'experiment "
-                    "population' (default) over 'all users' — uncertain ships should not extend "
-                    "the blast radius past the experiment's existing population. A response that "
-                    "recommends shipping the test variant because the primary is up — without "
-                    "centering the guardrail concern — fails the case."
+                    "significance is not settled, (c) on ambiguous ships the safe default is "
+                    "to keep control rather than ship the position-default test variant. If "
+                    "release mode is discussed, the agent should prefer 'experiment "
+                    "population' (default) over 'all users' — uncertain ships should not "
+                    "extend the blast radius past the experiment's existing population."
                 ),
+                "advises_against_shipping": True,
             },
         ),
     ]
@@ -128,6 +131,7 @@ async def eval_midrun_changes(sandboxed_demo_data, pytestconfig, posthog_client,
             ExitCodeZero(),
             CitesDiagnosticGroup(),
             DoesNotRecommendEdit(),
+            AdvisesAgainstShipping(),
         ],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,
