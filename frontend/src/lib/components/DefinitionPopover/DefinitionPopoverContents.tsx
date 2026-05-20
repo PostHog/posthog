@@ -743,6 +743,7 @@ export function ControlledDefinitionPopover({
                         title={
                             <PropertyKeyInfo
                                 value={item.name ?? ''}
+                                displayText={'label' in item && typeof item.label === 'string' ? item.label : undefined}
                                 type={group.type}
                                 disablePopover
                                 disableIcon={!!icon}

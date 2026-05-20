@@ -12,7 +12,12 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { allOperatorsMapping } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { getSurveyEndDateForQuery, getSurveyIdBasedResponseKey, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
+import {
+    getSurveyEndDateForQuery,
+    getSurveyIdBasedResponseKey,
+    getSurveyStartDateForQuery,
+    getSurveyResponseFilterDisplayData,
+} from 'scenes/surveys/utils'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -142,6 +147,9 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
         return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
     }).length
 
+    const { propertyFiltersWithSurveyLabels, taxonomicFilterOptionsFromProp, excludedProperties } =
+        getSurveyResponseFilterDisplayData(survey as Survey, propertyFilters)
+
     return (
         <div className="deprecated-space-y-2">
             <div className="flex justify-between items-center">
@@ -171,7 +179,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                         </LemonButton>
                     )}
                     <PropertyFilters
-                        propertyFilters={propertyFilters}
+                        propertyFilters={propertyFiltersWithSurveyLabels}
                         onChange={setPropertyFilters}
                         pageKey="survey-results"
                         buttonText="Add filter"
@@ -183,6 +191,8 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                             TaxonomicFilterGroupType.HogQLExpression,
                             ...groupsTaxonomicTypes,
                         ]}
+                        taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                        excludedProperties={excludedProperties}
                     />
                 </div>
                 <div className="flex gap-2 items-center">

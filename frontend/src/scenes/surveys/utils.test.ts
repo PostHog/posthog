@@ -1,11 +1,14 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    AnyPropertyFilter,
     EventPropertyFilter,
     FeatureFlagFilters,
     PropertyOperator,
     PropertyFilterType,
+    PropertyType,
     Survey,
     SurveyAppearance,
     SurveyDisplayConditions,
@@ -30,6 +33,8 @@ import {
     getSurveyDisplayConditionsSummary,
     getSurveyEndDateForQuery,
     getSurveyResponse,
+    getSurveyResponseFilterDisplayData,
+    getSurveyResponsePropertyKeys,
     getSurveyStartDateForQuery,
     isSimpleSurveyAudienceTargeting,
     sanitizeColor,
@@ -304,6 +309,143 @@ describe('survey utils', () => {
             } as SurveyQuestion
 
             expect(getSurveyResponse(question, 1)).toBe("getSurveyResponse(1, 'question-456', true)")
+        })
+    })
+
+    describe('getSurveyResponsePropertyKeys', () => {
+        const makeSurvey = (questions: { question: string; type: SurveyQuestionType; id?: string }[]): Survey =>
+            ({
+                questions: questions.map((question, index) => ({
+                    ...question,
+                    id: question.id ?? `question-${index}`,
+                })),
+            }) as unknown as Survey
+
+        it('generates display labels, legacy keys, and UUID keys for survey response questions', () => {
+            const survey = makeSurvey([
+                { question: 'How likely are you to recommend us?', type: SurveyQuestionType.Rating, id: 'rating-id' },
+                { question: 'What can we improve?', type: SurveyQuestionType.Open, id: 'open-id' },
+            ])
+
+            expect(getSurveyResponsePropertyKeys(survey)).toEqual([
+                {
+                    key: '$survey_response',
+                    uuidKey: '$survey_response_rating-id',
+                    filterLabel: 'Survey response for 1st question',
+                    buttonLabel: 'How likely are you to recommend us?',
+                    question: 'How likely are you to recommend us?',
+                },
+                {
+                    key: '$survey_response_1',
+                    uuidKey: '$survey_response_open-id',
+                    filterLabel: 'Survey response for 2nd question',
+                    buttonLabel: 'What can we improve?',
+                    question: 'What can we improve?',
+                },
+            ])
+        })
+
+        it('skips link questions but preserves original question indices', () => {
+            const survey = makeSurvey([
+                { question: 'Rate us', type: SurveyQuestionType.Rating, id: 'rating-id' },
+                { question: 'Visit our site', type: SurveyQuestionType.Link, id: 'link-id' },
+                { question: 'Any feedback?', type: SurveyQuestionType.Open, id: 'open-id' },
+            ])
+
+            expect(getSurveyResponsePropertyKeys(survey)).toEqual([
+                {
+                    key: '$survey_response',
+                    uuidKey: '$survey_response_rating-id',
+                    filterLabel: 'Survey response for 1st question',
+                    buttonLabel: 'Rate us',
+                    question: 'Rate us',
+                },
+                {
+                    key: '$survey_response_2',
+                    uuidKey: '$survey_response_open-id',
+                    filterLabel: 'Survey response for 3rd question',
+                    buttonLabel: 'Any feedback?',
+                    question: 'Any feedback?',
+                },
+            ])
+        })
+
+        it('uses th for 11th, 12th, and 13th question labels', () => {
+            const survey = makeSurvey(
+                Array.from({ length: 13 }, (_, index) => ({
+                    question: `Question ${index + 1}`,
+                    type: SurveyQuestionType.Open,
+                }))
+            )
+
+            const result = getSurveyResponsePropertyKeys(survey)
+
+            expect(result[10].filterLabel).toBe('Survey response for 11th question')
+            expect(result[11].filterLabel).toBe('Survey response for 12th question')
+            expect(result[12].filterLabel).toBe('Survey response for 13th question')
+        })
+
+        it('truncates only the add-filter button label', () => {
+            const survey = makeSurvey([
+                {
+                    question: 'This is a very long question that should be truncated at forty characters',
+                    type: SurveyQuestionType.Open,
+                },
+            ])
+
+            const result = getSurveyResponsePropertyKeys(survey)
+
+            expect(result[0].buttonLabel).toBe('This is a very long question that shoul...')
+            expect(result[0].question).toBe('This is a very long question that should be truncated at forty characters')
+        })
+    })
+
+    describe('getSurveyResponseFilterDisplayData', () => {
+        it('adds display labels only to matching event property filters and returns UUID picker options', () => {
+            const survey = {
+                questions: [{ id: 'open-id', question: 'What can we improve?', type: SurveyQuestionType.Open }],
+            } as unknown as Survey
+            const filters: AnyPropertyFilter[] = [
+                {
+                    key: '$survey_response_open-id',
+                    value: 'pricing',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+                {
+                    key: '$survey_response_open-id',
+                    value: 'pricing',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Person,
+                },
+            ]
+
+            const {
+                propertyFiltersWithSurveyLabels,
+                surveyResponsePropertyOptions,
+                taxonomicFilterOptionsFromProp,
+                excludedProperties,
+            } = getSurveyResponseFilterDisplayData(survey, filters)
+
+            expect(propertyFiltersWithSurveyLabels[0]).toEqual({
+                ...filters[0],
+                label: 'Survey response for 1st question',
+            })
+            expect(propertyFiltersWithSurveyLabels[1]).toEqual(filters[1])
+            expect(surveyResponsePropertyOptions).toEqual([
+                {
+                    name: '$survey_response_open-id',
+                    label: 'Survey response for 1st question',
+                    description: 'What can we improve?',
+                    property_type: PropertyType.String,
+                },
+            ])
+            expect(taxonomicFilterOptionsFromProp).toEqual({
+                [TaxonomicFilterGroupType.EventProperties]: surveyResponsePropertyOptions,
+            })
+            expect(excludedProperties).toEqual({
+                [TaxonomicFilterGroupType.EventProperties]: ['$survey_response_open-id'],
+            })
         })
     })
 

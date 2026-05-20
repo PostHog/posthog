@@ -7,11 +7,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
-import { truncate } from 'lib/utils'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
+import { getSurveyResponseFilterDisplayData } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'
+import { SurveyEventName } from '~/types'
 
 import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
 import {
@@ -48,20 +48,6 @@ export function getSelectedSurveyId(config: HogFlowAction['config']): string | n
 function getCompletedResponsesOnly(config: EventTriggerConfig): boolean {
     const completedProp = config.filters?.properties?.find((p: any) => p.key === '$survey_completed')
     return completedProp?.value === true
-}
-
-export function getSurveyResponsePropertyKeys(
-    survey: Survey
-): { key: string; buttonLabel: string; question: string }[] {
-    return survey.questions
-        .map((q, index) => {
-            if (q.type === SurveyQuestionType.Link) {
-                return null
-            }
-            const key = index === 0 ? '$survey_response' : `$survey_response_${index}`
-            return { key, buttonLabel: truncate(q.question, 40), question: q.question }
-        })
-        .filter(Boolean) as { key: string; buttonLabel: string; question: string }[]
 }
 
 const MANAGED_PROPERTY_KEYS = new Set(['$survey_id', '$survey_completed'])
@@ -124,6 +110,12 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
         selectedSurveyId && selectedSurveyId !== 'any' ? allSurveys.find((s) => s.id === selectedSurveyId) : null
     const selectedSurveyLabel =
         selectedSurvey?.name ?? (selectedSurveyId && selectedSurveyId !== 'any' ? 'Loading...' : null)
+
+    const {
+        surveyResponsePropertyKeys,
+        propertyFiltersWithSurveyLabels: userPropertiesWithSurveyLabels,
+        surveyResponsePropertyOptions,
+    } = getSurveyResponseFilterDisplayData(selectedSurvey, userProperties)
 
     const surveyOptions = [
         ...(selectedSurveyId && selectedSurveyLabel
@@ -310,8 +302,9 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
             <LemonField.Pure label="Only trigger for specific answers">
                 <div className="flex flex-col gap-2">
                     <HogFlowPropertyFilters
+                        filters={{ properties: userPropertiesWithSurveyLabels }}
+                        eventPropertyOptions={surveyResponsePropertyOptions}
                         filtersKey={`survey-trigger-${node.data.id}`}
-                        filters={{ properties: userProperties }}
                         setFilters={(filters) => {
                             updateTriggerConfig(selectedSurveyId, completedOnly, filters?.properties ?? [])
                         }}
@@ -320,7 +313,7 @@ function StepTriggerConfigurationSurvey({ node }: { node: any }): JSX.Element {
                         <div className="flex flex-col gap-1">
                             <span className="text-xs text-muted">Add filter for a question:</span>
                             <div className="flex flex-wrap gap-1">
-                                {getSurveyResponsePropertyKeys(selectedSurvey).map(({ key, buttonLabel, question }) => (
+                                {surveyResponsePropertyKeys.map(({ key, buttonLabel, question }) => (
                                     <LemonButton
                                         key={key}
                                         type="secondary"

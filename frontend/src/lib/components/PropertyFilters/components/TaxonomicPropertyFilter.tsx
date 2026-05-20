@@ -251,6 +251,7 @@ export function TaxonomicPropertyFilter({
                 : filter?.key && (
                       <PropertyKeyInfo
                           value={filter.key}
+                          displayText={filter.label}
                           disablePopover
                           ellipsis
                           type={PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filter.type]}

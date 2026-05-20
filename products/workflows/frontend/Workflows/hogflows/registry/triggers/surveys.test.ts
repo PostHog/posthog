@@ -1,17 +1,7 @@
-import { Survey, SurveyEventName, SurveyQuestionType } from '~/types'
+import { SurveyEventName } from '~/types'
 
-import {
-    buildProperties,
-    getSelectedSurveyId,
-    getSurveyResponsePropertyKeys,
-    getUserProperties,
-    isSurveyTriggerConfig,
-} from './surveys'
+import { buildProperties, getSelectedSurveyId, getUserProperties, isSurveyTriggerConfig } from './surveys'
 import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
-
-// Partial mock — getSurveyResponsePropertyKeys only accesses survey.questions
-const makeSurvey = (questions: { question: string; type: SurveyQuestionType }[]): Survey =>
-    ({ questions: questions.map((q) => ({ ...q, id: 'q-id' })) }) as unknown as Survey
 
 describe('surveys', () => {
     const getSurveyTriggerType = (): ReturnType<typeof getRegisteredTriggerTypes>[number] => {
@@ -230,49 +220,6 @@ describe('surveys', () => {
             },
         ])('$name', ({ surveyId, completedOnly, userProps, expected }) => {
             expect(buildProperties(surveyId, completedOnly, userProps)).toEqual(expected)
-        })
-    })
-
-    describe('getSurveyResponsePropertyKeys', () => {
-        it('generates correct keys for multiple questions', () => {
-            const survey = makeSurvey([
-                { question: 'How likely are you to recommend us?', type: SurveyQuestionType.Rating },
-                { question: 'What can we improve?', type: SurveyQuestionType.Open },
-            ])
-            const result = getSurveyResponsePropertyKeys(survey)
-            expect(result).toEqual([
-                {
-                    key: '$survey_response',
-                    buttonLabel: 'How likely are you to recommend us?',
-                    question: 'How likely are you to recommend us?',
-                },
-                { key: '$survey_response_1', buttonLabel: 'What can we improve?', question: 'What can we improve?' },
-            ])
-        })
-
-        it('skips link questions but preserves indices', () => {
-            const survey = makeSurvey([
-                { question: 'Rate us', type: SurveyQuestionType.Rating },
-                { question: 'Visit our site', type: SurveyQuestionType.Link },
-                { question: 'Any feedback?', type: SurveyQuestionType.Open },
-            ])
-            const result = getSurveyResponsePropertyKeys(survey)
-            expect(result).toEqual([
-                { key: '$survey_response', buttonLabel: 'Rate us', question: 'Rate us' },
-                { key: '$survey_response_2', buttonLabel: 'Any feedback?', question: 'Any feedback?' },
-            ])
-        })
-
-        it('truncates long question text', () => {
-            const survey = makeSurvey([
-                {
-                    question: 'This is a very long question that should be truncated at forty characters',
-                    type: SurveyQuestionType.Open,
-                },
-            ])
-            const result = getSurveyResponsePropertyKeys(survey)
-            expect(result[0].buttonLabel).toBe('This is a very long question that shoul...')
-            expect(result[0].question).toBe('This is a very long question that should be truncated at forty characters')
         })
     })
 })

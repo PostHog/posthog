@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SimpleOption, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorSemver } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -44,6 +44,7 @@ export type HogFlowFiltersProps = {
     setFilters: (filters: HogFlowAction['filters']) => void
     typeKey?: string
     buttonCopy?: string
+    eventPropertyOptions?: SimpleOption[]
 }
 
 /**
@@ -102,7 +103,12 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
     )
 }
 
-export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
+export function HogFlowPropertyFilters({
+    filtersKey,
+    filters,
+    setFilters,
+    eventPropertyOptions = [],
+}: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { workflow } = useValues(workflowLogic)
@@ -112,6 +118,11 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
         [TaxonomicFilterGroupType.WorkflowVariables]: (workflow?.variables ?? []).map((variable) => ({
             name: variable.key,
         })),
+        ...(eventPropertyOptions.length
+            ? {
+                  [TaxonomicFilterGroupType.EventProperties]: eventPropertyOptions,
+              }
+            : {}),
     }
     return (
         <PropertyFilters
@@ -130,6 +141,13 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+            excludedProperties={
+                eventPropertyOptions.length
+                    ? {
+                          [TaxonomicFilterGroupType.EventProperties]: eventPropertyOptions.map((option) => option.name),
+                      }
+                    : undefined
+            }
             metadataSource={{
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),

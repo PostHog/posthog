@@ -13,7 +13,12 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { OPERATOR_OPTIONS } from 'scenes/surveys/SurveyResponseFilters'
-import { getSurveyEndDateForQuery, getSurveyIdBasedResponseKey, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
+import {
+    getSurveyEndDateForQuery,
+    getSurveyIdBasedResponseKey,
+    getSurveyResponseFilterDisplayData,
+    getSurveyStartDateForQuery,
+} from 'scenes/surveys/utils'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -111,6 +116,9 @@ export function SurveyResultsFiltersBar(): JSX.Element {
         return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
     }).length
 
+    const { propertyFiltersWithSurveyLabels, taxonomicFilterOptionsFromProp, excludedProperties } =
+        getSurveyResponseFilterDisplayData(survey as Survey, propertyFilters)
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-2 items-center justify-between">
@@ -134,7 +142,7 @@ export function SurveyResultsFiltersBar(): JSX.Element {
                         </LemonButton>
                     )}
                     <PropertyFilters
-                        propertyFilters={propertyFilters}
+                        propertyFilters={propertyFiltersWithSurveyLabels}
                         onChange={setPropertyFilters}
                         pageKey="survey-results"
                         buttonText="Add filter"
@@ -146,6 +154,8 @@ export function SurveyResultsFiltersBar(): JSX.Element {
                             TaxonomicFilterGroupType.HogQLExpression,
                             ...groupsTaxonomicTypes,
                         ]}
+                        taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                        excludedProperties={excludedProperties}
                     />
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">

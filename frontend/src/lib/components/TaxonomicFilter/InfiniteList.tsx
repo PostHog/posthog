@@ -253,6 +253,7 @@ const renderItemContents = ({
                 {icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}
+                    displayText={'label' in item && typeof item.label === 'string' ? item.label : undefined}
                     disablePopover
                     disableIcon
                     className="w-full"

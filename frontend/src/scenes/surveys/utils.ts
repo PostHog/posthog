@@ -2,13 +2,19 @@ import DOMPurify from 'dompurify'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import {
+    type ExcludedProperties,
+    TaxonomicFilterGroupType,
+    type TaxonomicFilterProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs, truncate } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    AnyPropertyFilter,
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
     CyclotronJobFiltersType,
@@ -18,6 +24,7 @@ import {
     MultipleSurveyQuestion,
     PropertyFilterType,
     PropertyOperator,
+    PropertyType,
     QuestionProcessedResponses,
     RatingSurveyQuestion,
     Survey,
@@ -107,6 +114,66 @@ export function getSurveyIdBasedResponseKey(questionId: string): string {
     return `${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`
 }
 
+export type SurveyResponsePropertyKey = {
+    key: string
+    uuidKey?: string
+    filterLabel: string
+    buttonLabel: string
+    question: string
+}
+
+export type SurveyResponsePropertyOption = {
+    name: string
+    label: string
+    description: string
+    property_type: PropertyType
+}
+
+export type SurveyResponseFilterDisplayData = {
+    surveyResponsePropertyKeys: SurveyResponsePropertyKey[]
+    propertyFiltersWithSurveyLabels: AnyPropertyFilter[]
+    surveyResponsePropertyOptions: SurveyResponsePropertyOption[]
+    taxonomicFilterOptionsFromProp?: TaxonomicFilterProps['optionsFromProp']
+    excludedProperties?: ExcludedProperties
+}
+
+function ordinal(value: number): string {
+    const remainder = value % 100
+    if (remainder >= 11 && remainder <= 13) {
+        return `${value}th`
+    }
+
+    switch (value % 10) {
+        case 1:
+            return `${value}st`
+        case 2:
+            return `${value}nd`
+        case 3:
+            return `${value}rd`
+        default:
+            return `${value}th`
+    }
+}
+
+export function getSurveyResponsePropertyKeys(survey: Survey): SurveyResponsePropertyKey[] {
+    return survey.questions
+        .map((question, index) => {
+            if (question.type === SurveyQuestionType.Link) {
+                return null
+            }
+            const questionOrdinal = ordinal(index + 1)
+
+            return {
+                key: getSurveyResponseKey(index),
+                uuidKey: question.id ? getSurveyIdBasedResponseKey(question.id) : undefined,
+                filterLabel: `Survey response for ${questionOrdinal} question`,
+                buttonLabel: truncate(question.question, 40),
+                question: question.question,
+            }
+        })
+        .filter(Boolean) as SurveyResponsePropertyKey[]
+}
+
 type SurveyExampleContext = Pick<Survey, 'id' | 'name' | 'questions'> | null | undefined
 
 function getExampleSurveyResponseValue(question: SurveyQuestion, index: number): string | string[] | undefined {
@@ -121,6 +188,69 @@ function getExampleSurveyResponseValue(question: SurveyQuestion, index: number):
             return question.choices.slice(0, Math.min(question.choices.length, 2))
         case SurveyQuestionType.Link:
             return undefined
+    }
+}
+
+export function getSurveyResponseFilterDisplayData(
+    survey: Survey | null | undefined,
+    propertyFilters: AnyPropertyFilter[]
+): SurveyResponseFilterDisplayData {
+    const surveyResponsePropertyKeys = survey ? getSurveyResponsePropertyKeys(survey) : []
+
+    const surveyResponsePropertyByKey = new Map<string, SurveyResponsePropertyKey>(
+        surveyResponsePropertyKeys.flatMap((property) =>
+            property.uuidKey
+                ? [[property.key, property] as const, [property.uuidKey, property] as const]
+                : [[property.key, property] as const]
+        )
+    )
+
+    const propertyFiltersWithSurveyLabels = propertyFilters.map((property) => {
+        if (property.type !== PropertyFilterType.Event || typeof property.key !== 'string') {
+            return property
+        }
+
+        const surveyResponseProperty = surveyResponsePropertyByKey.get(property.key)
+
+        return surveyResponseProperty
+            ? {
+                  ...property,
+                  label: surveyResponseProperty.filterLabel,
+              }
+            : property
+    })
+
+    const surveyResponsePropertyOptions = surveyResponsePropertyKeys.flatMap(({ uuidKey, filterLabel, question }) =>
+        uuidKey
+            ? [
+                  {
+                      name: uuidKey,
+                      label: filterLabel,
+                      description: question,
+                      property_type: PropertyType.String,
+                  },
+              ]
+            : []
+    )
+
+    const taxonomicFilterOptionsFromProp = surveyResponsePropertyOptions.length
+        ? {
+              [TaxonomicFilterGroupType.EventProperties]: surveyResponsePropertyOptions,
+          }
+        : undefined
+
+    const excludedProperties = surveyResponsePropertyOptions.length
+        ? {
+              [TaxonomicFilterGroupType.EventProperties]: surveyResponsePropertyOptions.map((option) => option.name),
+          }
+        : undefined
+
+    return {
+        surveyResponsePropertyKeys,
+        propertyFiltersWithSurveyLabels,
+        surveyResponsePropertyOptions,
+        taxonomicFilterOptionsFromProp,
+        excludedProperties,
     }
 }
 
