@@ -540,21 +540,12 @@ impl<'a> Parser<'a> {
             return self.parse_hogqlx_tag_element();
         }
         if self.peek() == TokenKind::LParen {
-            // Before the standard tableExpr-paren alts: `(<Tag />)` is
-            // the paren-wrapped HogQLX form. Probe via checkpoint —
-            // if the inner is a tag, consume it + the closing paren
-            // and return; otherwise restore and fall through to the
-            // try_alt below.
-            if self.peek_next() == TokenKind::Lt {
-                let cp = self.checkpoint();
-                self.bump()?; // `(`
-                if self.peek_starts_hogqlx_tag() {
-                    let tag = self.parse_hogqlx_tag_element()?;
-                    self.expect(TokenKind::RParen, ")")?;
-                    return Ok(tag);
-                }
-                self.restore(cp)?;
-            }
+            // `(<Tag/>)` is `LPAREN joinExpr RPAREN` per the grammar,
+            // where the inner `joinExpr → tableExpr → hogqlxTagElement`.
+            // Don't shortcut — fall through to the JoinExprParens path
+            // below so the tag gets wrapped in a JoinExpr (which the
+            // outer table-atom code refuses to alias) and the inner
+            // alias / FINAL / SAMPLE / JOIN decorations on the tag work.
             // Three competing grammar arms when the next token is `(`:
             //
             //   tableExpr: LPAREN selectSetStmt RPAREN  # TableExprSubquery

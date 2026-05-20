@@ -809,6 +809,40 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_hogqlx_tag_in_from_paren_decorations(self):
+        # `(<Tag/>)` parses as `LPAREN joinExpr RPAREN` where the inner
+        # `joinExpr → tableExpr → hogqlxTagElement`. Per the grammar:
+        #   - Inside the parens: `tableExpr (alias | AS identifier)` and
+        #     `JoinExprTable (... FINAL? sampleClause?)` bind to the tag.
+        #   - Outside the parens: the wrapper is `JoinExprParens` (a
+        #     joinExpr alt), not a `tableExpr` — alias / FINAL / SAMPLE
+        #     cannot bind (same root cause as the parens-alias fix).
+        # Rust had a `(<Tag />)` shortcut that returned a bare tag,
+        # bypassing both sides — accepting outer decorations and
+        # rejecting inner ones.
+        from posthog.hogql.errors import BaseHogQLError
+
+        accept = (
+            "SELECT 1 FROM (<Tag /> AS y)",
+            "SELECT 1 FROM (<Tag /> JOIN b ON x)",
+            "SELECT 1 FROM (<Tag /> FINAL)",
+        )
+        for src in accept:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+        reject = (
+            "SELECT 1 FROM (<Tag />) AS x",
+            "SELECT 1 FROM (<Tag />) x",
+            "SELECT 1 FROM (<Tag />) FINAL",
+        )
+        for src in reject:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+
     def test_hogqlx_tag_identifier_allows_hyphens(self):
         # The grammar's `HOGQLX_TAG_OPEN` / `HOGQLX_TAG_CLOSE` lexer modes
         # (`HogQLLexer.common.g4:315 + 326`) admit
