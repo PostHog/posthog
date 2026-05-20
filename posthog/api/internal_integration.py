@@ -38,10 +38,14 @@ _TOKEN_CACHE_TTL_SECONDS = 5 * 60 * 60
 _TOKEN_CACHE_PREFIX = "posthog:internal_integration_lookup"
 
 
-def _cache_key(scope_id: str, kind: str, integration_id: str) -> str:
-    # Compose scope_id with (kind, integration_id) so a caller cannot accidentally
-    # cross integrations by reusing a scope_id — each lookup gets its own bucket.
-    return f"{_TOKEN_CACHE_PREFIX}:{scope_id}:{kind}:{integration_id}"
+def _cache_key(scope_id: str, kind: str, integration_id: str, integration_pk: str) -> str:
+    # Compose scope_id with (kind, integration_id, integration_pk) so a caller cannot
+    # accidentally cross integrations by reusing a scope_id, and the cache is invalidated
+    # automatically when ownership of an external identifier moves to a different row
+    # (e.g. an SMS number being reassigned to another user creates a new UserIntegration
+    # row with a new pk). Without the pk component, a stale cached token for a previous
+    # owner could be returned for up to the cache TTL.
+    return f"{_TOKEN_CACHE_PREFIX}:{scope_id}:{kind}:{integration_id}:{integration_pk}"
 
 
 def _load_cached_token(cache_key: str) -> str | None:
@@ -190,16 +194,26 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
         if not isinstance(scope_id, str) or not scope_id:
             return Response({"error": "scope_id is required"}, status=400)
 
-        cache_key = _cache_key(scope_id, kind, integration_id)
-
-        team_match = (
+        # `Integration` only enforces uniqueness of (kind, integration_id) per team, so the
+        # same external workspace connected to two PostHog projects would otherwise resolve
+        # to whichever row sorts first and mint a task token for the wrong project. Fetch
+        # two rows and refuse to disambiguate when more than one team owns the identifier —
+        # the caller has to pass a team-scoped lookup, or the integration has to be cleaned
+        # up, before a token can be minted.
+        team_matches = list(
             Integration.objects.filter(kind=kind, integration_id=integration_id)
             .select_related("team", "team__organization", "created_by")
-            .order_by("id")
-            .first()
+            .order_by("id")[:2]
         )
+        if len(team_matches) > 1:
+            return Response(
+                {"error": "Multiple teams own this integration; cannot disambiguate"},
+                status=409,
+            )
+        team_match = team_matches[0] if team_matches else None
         if team_match is not None:
             organization_id = str(team_match.team.organization_id)
+            cache_key = _cache_key(scope_id, kind, integration_id, str(team_match.id))
             # The original integration creator can only mint a task token if they
             # are still an active member of the owning organization. A user who
             # was removed from the org must not retain the ability to drive team
@@ -229,14 +243,24 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
                 }
             )
 
-        user_match = (
+        # Apply the same disambiguation rule to personal integrations — `UserIntegration`
+        # does not globally enforce uniqueness either (it only does so for the SMS kind via
+        # a partial unique constraint), so a duplicate external id across two users must
+        # also refuse to mint a token.
+        user_matches = list(
             UserIntegration.objects.filter(kind=kind, integration_id=integration_id)
             .select_related("user", "user__current_team", "user__current_organization")
-            .order_by("-created_at")
-            .first()
+            .order_by("-created_at")[:2]
         )
+        if len(user_matches) > 1:
+            return Response(
+                {"error": "Multiple users own this integration; cannot disambiguate"},
+                status=409,
+            )
+        user_match = user_matches[0] if user_matches else None
         if user_match is not None:
             user = user_match.user
+            cache_key = _cache_key(scope_id, kind, integration_id, str(user_match.id))
             if user.current_team_id is None or user.current_organization_id is None:
                 return Response({"error": "User has no current team"}, status=404)
             # Personal integrations should not keep granting a token to a user who has
