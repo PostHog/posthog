@@ -2626,6 +2626,7 @@ const api = {
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
+                    ActivityScope.COHORT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -5036,6 +5037,17 @@ const api = {
                 .surveysResponsesCount()
                 .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
                 .get()
+        },
+        async questionLabels(): Promise<{
+            labels: {
+                question_id: string
+                question_text: string
+                question_index: number
+                survey_id: string
+                survey_name: string
+            }[]
+        }> {
+            return await new ApiRequest().surveys().withAction('question_labels').get()
         },
         async summarize_responses(
             surveyId: Survey['id'],

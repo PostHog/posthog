@@ -54,7 +54,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-    ):
+    ) -> None:
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
         if not self.query.pathsFilter:
@@ -824,7 +824,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             now=datetime.now(),
         )
 
-    def _refresh_frequency(self):
+    def _refresh_frequency(self) -> timedelta:
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
@@ -841,7 +841,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return refresh_frequency
 
-    def validate_results(self, results):
+    def validate_results(self, results: list) -> list:
         # Query guarantees results list to be:
         # 1. Directed, Acyclic Tree where each node has only 1 child
         # 2. All start nodes beginning with 1_

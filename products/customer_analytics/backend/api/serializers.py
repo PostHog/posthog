@@ -1,8 +1,36 @@
 import json
 
+from drf_spectacular.utils import extend_schema_field
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 
-from products.customer_analytics.backend.models import CustomerJourney, CustomerProfileConfig
+from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
+from products.customer_analytics.backend.models.account import AccountProperties
+
+_ACCOUNT_ASSIGNMENT_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        "id": {"type": "integer"},
+        "email": {"type": "string"},
+    },
+    "required": ["id", "email"],
+}
+
+_ACCOUNT_PROPERTIES_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "csm": _ACCOUNT_ASSIGNMENT_SCHEMA,
+        "account_executive": _ACCOUNT_ASSIGNMENT_SCHEMA,
+        "account_owner": _ACCOUNT_ASSIGNMENT_SCHEMA,
+    },
+}
+
+
+@extend_schema_field(_ACCOUNT_PROPERTIES_SCHEMA)
+class AccountPropertiesField(serializers.JSONField):
+    pass
 
 
 class CustomerProfileConfigSerializer(serializers.ModelSerializer):
@@ -84,3 +112,83 @@ class CustomerJourneySerializer(serializers.ModelSerializer):
             return super().create(validated_data)
         except IntegrityError:
             raise Conflict("A customer journey already exists for this insight.")
+
+
+class AccountSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Human-readable name of the account.",
+    )
+    external_id = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Identifier for the account in an external system (e.g. CRM ID). Optional.",
+    )
+    properties = AccountPropertiesField(
+        source="_properties",
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Typed account properties: assignment fields (csm, account_executive, account_owner). "
+            "Defaults to an empty object. Unknown keys are rejected."
+        ),
+    )
+
+    class Meta:
+        model = Account
+        fields = [
+            "id",
+            "name",
+            "external_id",
+            "properties",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+    def validate_properties(self, value):
+        if value is None:
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("properties must be a JSON object.")
+
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError("properties must be JSON-serializable.")
+
+        try:
+            AccountProperties.model_validate(value)
+        except PydanticValidationError as exc:
+            raise serializers.ValidationError(_format_pydantic_errors(exc))
+
+        return value
+
+    def create(self, validated_data):
+        from django.db import IntegrityError
+
+        from posthog.exceptions import Conflict
+
+        validated_data["created_by"] = self.context["request"].user
+        validated_data["team_id"] = self.context["team_id"]
+        try:
+            return super().create(validated_data)
+        except IntegrityError:
+            raise Conflict("An account with this external_id already exists for this team.")
+
+
+def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
+    messages = []
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err["loc"])
+        messages.append(f"{loc}: {err['msg']}" if loc else err["msg"])
+    return messages

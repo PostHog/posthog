@@ -1453,6 +1453,120 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD)
         assert not adapter.supports_level(MarketingAnalyticsDrillDownLevel.AD_GROUP)
 
+    @parameterized.expand(
+        [
+            # (name, ad_table_columns, expected fallback columns in priority order)
+            (
+                "all_columns_present",
+                [
+                    "ad_group_ad_ad_id",
+                    "ad_group_ad_ad_name",
+                    "ad_group_ad_ad_expanded_text_ad_headline_part1",
+                    "ad_group_ad_ad_text_ad_headline",
+                    "ad_group_ad_ad_image_ad_name",
+                ],
+                [
+                    "ad_group_ad_ad_name",
+                    "ad_group_ad_ad_expanded_text_ad_headline_part1",
+                    "ad_group_ad_ad_text_ad_headline",
+                    "ad_group_ad_ad_image_ad_name",
+                ],
+            ),
+            # Legacy sync missing the optional headline columns — only the
+            # always-present id and whatever exists should be coalesced.
+            (
+                "only_name_and_id",
+                ["ad_group_ad_ad_id", "ad_group_ad_ad_name"],
+                ["ad_group_ad_ad_name"],
+            ),
+        ]
+    )
+    def test_google_ad_name_falls_back_when_ad_name_empty(self, _name, ad_columns, expected_label_columns):
+        # Google leaves `ad.name` empty for search/text/responsive ads, so the
+        # Ad column coalesces across the type-specific headline columns and
+        # finally the ad id — never rendering blank.
+        ad_table = self._create_mock_table("googleads_ad", "GoogleAds")
+        ad_table.columns = {col: {"clickhouse": "Nullable(String)"} for col in ad_columns}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("googleads_campaign", "GoogleAds"),
+            stats_table=self._create_mock_table("googleads_campaign_stats", "GoogleAds"),
+            ad_table=ad_table,
+            ad_stats_table=self._create_mock_table("googleads_ad_stats", "GoogleAds"),
+            source_type="GoogleAds",
+            source_id="google_ad_name_test",
+        )
+        context = replace(self.context, drill_down_level=MarketingAnalyticsDrillDownLevel.AD)
+        adapter = GoogleAdsAdapter(config=config, context=context)
+
+        name_hogql = adapter._get_ad_name_field().to_hogql()
+
+        # Coalesces, in declared priority order, every label column that exists.
+        assert "coalesce(" in name_hogql
+        for column in expected_label_columns:
+            assert column in name_hogql, f"expected {column} in fallback: {name_hogql}"
+        # The ad id is always the last-resort fallback so the column is never blank.
+        assert name_hogql.rstrip().endswith("toString(googleads_ad.ad_group_ad_ad_id))")
+
+    def test_google_ad_name_extracts_responsive_search_ad_headline(self):
+        # RSA headlines live in a double-encoded JSON column; the first
+        # headline's `text` is pulled out via two nested JSONExtractString
+        # calls and joins the fallback chain ahead of the ad id.
+        ad_table = self._create_mock_table("googleads_ad", "GoogleAds")
+        ad_table.columns = {
+            "ad_group_ad_ad_id": {"clickhouse": "Nullable(String)"},
+            "ad_group_ad_ad_responsive_search_ad_headlines": {"clickhouse": "Nullable(String)"},
+        }
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("googleads_campaign", "GoogleAds"),
+            stats_table=self._create_mock_table("googleads_campaign_stats", "GoogleAds"),
+            ad_table=ad_table,
+            ad_stats_table=self._create_mock_table("googleads_ad_stats", "GoogleAds"),
+            source_type="GoogleAds",
+            source_id="google_ad_name_rsa_test",
+        )
+        context = replace(self.context, drill_down_level=MarketingAnalyticsDrillDownLevel.AD)
+        adapter = GoogleAdsAdapter(config=config, context=context)
+
+        name_hogql = adapter._get_ad_name_field().to_hogql()
+
+        assert (
+            "JSONExtractString(JSONExtractString("
+            "googleads_ad.ad_group_ad_ad_responsive_search_ad_headlines, 1), 'text')" in name_hogql
+        )
+        assert name_hogql.rstrip().endswith("toString(googleads_ad.ad_group_ad_ad_id))")
+
+    def _build_google_ad_level_adapter(
+        self, ad_columns: list[str], level: MarketingAnalyticsDrillDownLevel
+    ) -> GoogleAdsAdapter:
+        ad_table = self._create_mock_table("googleads_ad", "GoogleAds")
+        ad_table.columns = {col: {"clickhouse": "Nullable(String)"} for col in ad_columns}
+        config = GoogleAdsConfig(
+            campaign_table=self._create_mock_table("googleads_campaign", "GoogleAds"),
+            stats_table=self._create_mock_table("googleads_campaign_stats", "GoogleAds"),
+            ad_table=ad_table,
+            ad_stats_table=self._create_mock_table("googleads_ad_stats", "GoogleAds"),
+            source_type="GoogleAds",
+            source_id="google_ad_name_test",
+        )
+        return GoogleAdsAdapter(config=config, context=replace(self.context, drill_down_level=level))
+
+    @parameterized.expand(
+        [
+            # At AD level with only the id column present, the coalesce
+            # collapses to a bare toString — no one-argument coalesce wrapper.
+            ("at_ad_level", MarketingAnalyticsDrillDownLevel.AD, "toString(googleads_ad.ad_group_ad_ad_id)"),
+            # Below the AD drill-down, the ad-name field must be NULL, mirroring
+            # the base adapter contract for hierarchy fields.
+            ("below_ad_level", MarketingAnalyticsDrillDownLevel.CAMPAIGN, None),
+        ]
+    )
+    def test_google_ad_name_with_only_id_column(self, _name, level, expected_hogql):
+        field = self._build_google_ad_level_adapter(["ad_group_ad_ad_id"], level)._get_ad_name_field()
+        if expected_hogql is None:
+            assert isinstance(field, ast.Constant) and field.value is None
+        else:
+            assert field.to_hogql() == expected_hogql
+
     def test_tiktok_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("tiktokads_campaigns", "TikTokAds")
         stats_table = self._create_mock_table("tiktokads_campaign_report", "TikTokAds")
