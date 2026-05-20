@@ -1308,13 +1308,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         management_mode = payload.get("cdc_management_mode", "posthog")
         slot_name = payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}"
-        # In self-managed mode the customer's DBA runs the CREATE PUBLICATION statement out-of-band
-        # — using whatever name the setup SQL we showed them used. Defaulting to a
-        # source-id-suffixed name here breaks the verify step because the publication the DBA
-        # actually created has the unsuffixed name. The SQL dialog hard-codes `posthog_pub`
-        # when the form doesn't supply a custom name, so match that.
-        # In posthog-managed mode we own the publication end-to-end and a unique suffix
-        # prevents collisions when the same database backs multiple PostHog sources.
         default_pub_name = (
             "posthog_pub" if management_mode == "self_managed" else f"posthog_pub_{source_model.id.hex[:12]}"
         )

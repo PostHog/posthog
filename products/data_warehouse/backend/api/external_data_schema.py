@@ -63,13 +63,7 @@ _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
 
 
 def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str | None) -> bool:
-    """True when the new cdc_table_mode introduces a physical write target that the old mode didn't have.
-
-    `consolidated` writes to `<schema>` (the consolidated DWH table). `cdc_only` writes to `<schema>_cdc`
-    (the SCD2 history table). `both` writes to both. Adding a target requires a fresh snapshot so the new
-    table is seeded from the current source state via `_seed_cdc_companion_from_snapshot`. Dropping a target
-    leaves existing tables untouched and skips the snapshot.
-    """
+    """True when the new mode adds a physical write target (consolidated and/or cdc history table)."""
     if old_mode == new_mode:
         return False
     old_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(old_mode or "", frozenset())
@@ -78,11 +72,10 @@ def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str 
 
 
 def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
-    """Cancel any running workflow and reset the schema so the next run does a full snapshot.
+    """Cancel any running workflow and reset schema state so the next run does a full snapshot.
 
-    Shared between the `resync` action and the `cdc_table_mode` PATCH path. The save inside this helper is
-    deliberate: the per-schema sync workflow loads the schema fresh from DB, and if it sees `cdc_mode='streaming'`
-    it raises `CDCHandledExternally` and the snapshot never runs.
+    Must save before triggering: the workflow reloads the schema and bails via
+    `CDCHandledExternally` if it sees `cdc_mode='streaming'`.
     """
     latest_running_job = (
         ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id).order_by("-created_at").first()

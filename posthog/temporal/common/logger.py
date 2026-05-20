@@ -161,17 +161,11 @@ class LogMessagesRenderer:
             try:
                 log_source, log_source_id = resolve_log_source(event_dict["workflow_type"], event_dict["workflow_id"])
 
-                # Allow event/bind-level overrides so a single workflow type can route lines to
-                # multiple log_source / log_source_id combinations (e.g. CDC extraction is
-                # source-scoped at the workflow level but emits per-schema log lines).
+                # Event-level overrides let one workflow_type route to multiple schemas.
                 log_source = event_dict.pop("log_source", log_source)
                 log_source_id = event_dict.pop("log_source_id", log_source_id)
 
-                # The Syncs UI's log_entries view only shows the `message` column, so structured
-                # fields like `resource_name` get hidden. CDC schemas with `cdc_table_mode='both'`
-                # produce two parallel batches per logical event (one per write target), which
-                # surfaces as two identical-looking rows in the panel. Surface the resource
-                # disambiguator inline so the duplicate rows are distinguishable.
+                # Append resource to message so the Syncs UI distinguishes parallel batches.
                 message_text = event_dict[self.event_key]
                 resource_marker = event_dict.get("resource_name") or event_dict.get("resource")
                 if resource_marker:
@@ -544,11 +538,8 @@ def configure_logger(
     log_producer = None
     log_producer_error = None
 
-    # In a TTY (local dev) we normally drop the Kafka produce path and write pretty console output only.
-    # That's the right default for unit-test-by-stderr-watch flows, but it leaves the Syncs page in
-    # PostHog's local UI permanently empty — `log_entries` is populated by the produce path. Set
-    # `TEMPORAL_LOGS_TO_KAFKA=true` to force the produce path on (you'll also get JSON instead of
-    # pretty stderr — same trade-off prod runs make).
+    # `TEMPORAL_LOGS_TO_KAFKA=true` forces produce path on a TTY (local dev). No effect in prod
+    # (no TTY anyway) or tests (settings.TEST always wins).
     force_produce = os.getenv("TEMPORAL_LOGS_TO_KAFKA", "").strip().lower() in ("1", "true", "yes", "on")
     is_test_or_tty = settings.TEST or (sys.stderr.isatty() and not force_produce)
 
@@ -886,12 +877,8 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
         log_source = "external_data_jobs"
     elif workflow_type == "cdc-extraction":
-        # WorkflowID is f"cdc-extraction-{source_id}-{data_interval_end}". CDC extraction is source-scoped at
-        # the workflow level — default log_source_id to the source id so source-level lifecycle logs are
-        # attributable. Per-schema log lines override `log_source_id` at emit time so they show up under the
-        # right schema in the syncs UI (which queries log_entries by schema_id).
-        # `source_id` is a 36-char UUID; strip the fixed prefix and take the next 36 chars to avoid
-        # parsing ambiguity from dashes in both the UUID and the iso timestamp suffix.
+        # WorkflowID is f"cdc-extraction-{source_id}-{iso_ts}". Per-schema lines override
+        # log_source_id at emit time; default here is the source id.
         without_prefix = workflow_id.removeprefix("cdc-extraction-")
         log_source_id = without_prefix[:36] if len(without_prefix) >= 36 else without_prefix
         log_source = "external_data_jobs"

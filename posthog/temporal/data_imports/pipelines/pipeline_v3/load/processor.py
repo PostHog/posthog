@@ -501,9 +501,6 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         )
 
         if export_signal.is_final_batch:
-            # Promoted from DEBUG to INFO: this is the line that confirms a sync has fully landed
-            # in DeltaLake. Without it surfaced under the default Syncs filter, "did my data arrive?"
-            # is answerable only by re-querying the warehouse table directly.
             logger.info(
                 "final_batch_received",
                 total_batches=export_signal.total_batches,

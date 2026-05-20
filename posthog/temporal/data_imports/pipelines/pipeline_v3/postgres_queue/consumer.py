@@ -38,35 +38,6 @@ from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 logger = structlog.get_logger(__name__)
 
 
-def _bind_log_context_for_batch(
-    batch: PendingBatch, workflow_id: str | None, workflow_run_id: str | None
-) -> dict[str, Any]:
-    """Build the kwargs passed to `structlog.contextvars.bind_contextvars` for a batch.
-
-    `LogMessagesRenderer` (in `posthog.temporal.common.logger`) requires `workflow_type`,
-    `workflow_id`, `workflow_run_id`, and `team_id` to produce a log_entries-bound message,
-    plus an event-level `log_source_id` so the line routes under the right schema in the
-    Syncs UI. Setting these via contextvars means every existing `logger.info(...)` call
-    on the consumer side picks them up automatically — no rewrite of call sites needed.
-
-    Falls back to placeholder values when the workflow lookup failed (job row deleted between
-    produce and consume): logs still write to stdout but won't be routed into log_entries.
-    """
-    return {
-        "team_id": batch.team_id,
-        "schema_id": batch.schema_id,
-        "source_id": batch.source_id,
-        "job_id": batch.job_id,
-        "run_uuid": batch.run_uuid,
-        "batch_id": batch.id,
-        "resource_name": batch.resource_name,
-        "workflow_type": "cdc-extraction",
-        "workflow_id": workflow_id or "",
-        "workflow_run_id": workflow_run_id or "",
-        "log_source_id": batch.schema_id,
-    }
-
-
 MAX_ATTEMPTS = 3
 POLL_INTERVAL_SECONDS = 2.0
 
@@ -203,10 +174,8 @@ class BatchConsumer:
     async def _process_single(self, batch: PendingBatch) -> None:
         """Increment attempt, check max retries, then process the batch.
 
-        Wraps the body in `structlog.contextvars` bindings so every log line emitted from this
-        consumer (including downstream calls like `process_message` in the loader) lands in
-        ClickHouse `log_entries` under the right schema and workflow run, surfacing in the
-        Syncs UI panel for that schema.
+        Binds per-batch contextvars so every downstream log line (including loader calls)
+        routes to log_entries under the right schema/workflow.
         """
         assert self._conn is not None
 
@@ -216,8 +185,19 @@ class BatchConsumer:
 
         workflow_id, workflow_run_id = await self._lookup_workflow_ids(batch.job_id)
 
+        # LogMessagesRenderer needs workflow_type/id/run_id + team_id; log_source_id routes the line.
         structlog.contextvars.bind_contextvars(
-            **_bind_log_context_for_batch(batch, workflow_id, workflow_run_id),
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            source_id=batch.source_id,
+            job_id=batch.job_id,
+            run_uuid=batch.run_uuid,
+            batch_id=batch.id,
+            resource_name=batch.resource_name,
+            workflow_type="cdc-extraction",
+            workflow_id=workflow_id or "",
+            workflow_run_id=workflow_run_id or "",
+            log_source_id=batch.schema_id,
             attempt=attempt,
         )
         try:
@@ -226,19 +206,7 @@ class BatchConsumer:
             structlog.contextvars.clear_contextvars()
 
     async def _lookup_workflow_ids(self, job_id: str) -> tuple[str | None, str | None]:
-        """Resolve `(workflow_id, workflow_run_id)` for a batch's job by querying Postgres.
-
-        No caching — pipelines should not hold mutable in-memory state that can drift from the
-        source of truth. The lookup is one indexed PK read per batch (~1ms), and CDC runs
-        produce single-digit batches per cycle, so the cost is negligible. If profiling later
-        shows this dominates, persist `workflow_run_id` directly on `sourcebatch` rather than
-        reintroducing a cache.
-
-        Returns `(None, None)` when the job row is missing — the consumer keeps processing
-        (the batch produces a stdout log line) but the line won't reach `log_entries` because
-        `LogMessagesRenderer` requires both fields. This is the right trade-off versus crashing
-        the consumer for a missing audit-only field.
-        """
+        """Look up `(workflow_id, workflow_run_id)` for a batch's job. One PK read per batch — no cache."""
         return await sync_to_async(_load_job_workflow_ids, thread_sensitive=False)(job_id)
 
     async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
@@ -256,7 +224,7 @@ class BatchConsumer:
             return
 
         logger.info(
-            "batch_picked_up",
+            f"batch_picked_up: batch_id={batch.id} batch_index={batch.batch_index} final={batch.is_final_batch}",
             batch_id=batch.id,
             run_uuid=batch.run_uuid,
             batch_index=batch.batch_index,
@@ -288,7 +256,7 @@ class BatchConsumer:
             )
             BATCHES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
             logger.info(
-                "batch_processed_ok",
+                f"batch_processed_ok: batch_id={batch.id} batch_index={batch.batch_index} duration={round(duration, 3)}s",
                 batch_id=batch.id,
                 run_uuid=batch.run_uuid,
                 batch_index=batch.batch_index,
@@ -415,12 +383,7 @@ ProcessBatchFn = Callable[[PendingBatch], Coroutine[Any, Any, None]]
 
 
 def _load_job_workflow_ids(job_id: str) -> tuple[str | None, str | None]:
-    """Look up `(workflow_id, workflow_run_id)` for a job row, returning `(None, None)` if missing.
-
-    Wraps the query in a broad except so a malformed `job_id` (e.g. test fixtures with
-    non-UUID strings) or a missing row degrades gracefully — the consumer keeps processing,
-    and the line just doesn't make it into log_entries.
-    """
+    """Look up `(workflow_id, workflow_run_id)` for a job. `(None, None)` on missing row or bad uuid."""
     from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 
     try:

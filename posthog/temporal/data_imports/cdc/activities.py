@@ -122,13 +122,7 @@ class CDCExtractActivity:
     # Logger helpers
     # ------------------------------------------------------------------
     def _schema_log(self, schema: ExternalDataSchema) -> structlog.types.FilteringBoundLogger:
-        """Return a logger bound to this schema's id so log_entries rows route under the schema.
-
-        The Syncs UI queries log_entries by `(log_source='external_data_jobs', log_source_id=schema.id,
-        instance_id=workflow_run_id)`. The CDC extraction workflow is source-scoped, so without a per-schema
-        binding every line would land under the source id and miss the per-schema filter. `LogMessagesRenderer`
-        honors event-level `log_source_id` overrides — see `posthog.temporal.common.logger`.
-        """
+        """Logger bound with per-schema `log_source_id` so lines route under the schema in the Syncs UI."""
         return self.log.bind(log_source_id=str(schema.id))
 
     # ------------------------------------------------------------------

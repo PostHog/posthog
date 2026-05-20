@@ -270,13 +270,6 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
 
 
 def is_cdc_enabled_for_team(team: Team) -> bool:
-    """Check if the CDC feature flag is enabled for a team.
-
-    Single source of truth: the `dwh-postgres-cdc` PostHog feature flag. Local
-    development must enable the flag explicitly (matches the frontend gate in
-    `SourceForm.tsx`) — no DEBUG bypass, so the backend-allowed/frontend-hidden
-    skew that previously confused local setup can't recur.
-    """
     import posthoganalytics
 
     return posthoganalytics.feature_enabled(
