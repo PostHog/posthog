@@ -20,19 +20,20 @@ export interface Technology {
     name: string
     image: string | null
     docsLink: string
-    envVars: { apiKey: string; host: string; projectId: string }
+    envVars: { apiKey: string }
     buildPrompt: (env: { host: string; projectId: number | string }) => string
 }
 
-const PLUGIN_ENV = { apiKey: 'POSTHOG_API_KEY', host: 'POSTHOG_HOST', projectId: 'POSTHOG_PROJECT_ID' }
-const CLI_ENV = { apiKey: 'POSTHOG_CLI_API_KEY', host: 'POSTHOG_CLI_HOST', projectId: 'POSTHOG_CLI_PROJECT_ID' }
-const NEXTJS_ENV = { apiKey: 'POSTHOG_API_KEY', host: 'NEXT_PUBLIC_POSTHOG_HOST', projectId: 'POSTHOG_PROJECT_ID' }
+const PLUGIN_ENV = { apiKey: 'POSTHOG_API_KEY' }
+const CLI_ENV = { apiKey: 'POSTHOG_CLI_API_KEY' }
 
 const trim = (s: string): string => s.replace(/^\n/, '').replace(/\n+$/, '\n')
 
 const autoPrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog source map uploads for this project so error tracking shows our original source code instead of minified bundles.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything or invoking CLIs. Examples in this prompt use \`npm\` only as a placeholder; translate them (\`pnpm add\`, \`yarn add\`, \`bun add\`, \`pnpm dlx\` / \`npx\`, etc.) to match the project.
 
 Detect the bundler/framework from package.json and apply the matching integration from PostHog's docs:
 
@@ -45,14 +46,20 @@ Detect the bundler/framework from package.json and apply the matching integratio
 - Android native → apply the \`com.posthog.android\` gradle plugin (AGP 8+).
 - Anything else → install \`@posthog/cli\` and run \`posthog-cli sourcemap inject\` + \`posthog-cli sourcemap upload\` against the build output directory as a CI step.
 
-Env vars already provisioned in CI — use the set that matches the chosen integration:
+The only secret the build needs is the personal API key — use whichever name the integration expects:
 
-- Plugin integrations (Next.js, Vite, Rollup, Webpack): \`POSTHOG_API_KEY\`, \`POSTHOG_PROJECT_ID\`, \`POSTHOG_HOST\` (Next.js uses \`NEXT_PUBLIC_POSTHOG_HOST\` instead).
-- CLI integrations (Nuxt, React Native, iOS, Android, generic): \`POSTHOG_CLI_API_KEY\`, \`POSTHOG_CLI_PROJECT_ID\`, \`POSTHOG_CLI_HOST\`.
+- Plugin integrations (Next.js, Vite, Rollup, Webpack): \`POSTHOG_API_KEY\`.
+- CLI integrations (Nuxt, React Native, iOS, Android, generic): \`POSTHOG_CLI_API_KEY\`.
 
-Values: host \`${host}\`, project ID \`${projectId}\`.
+This var should already be available to whatever terminal runs the build (\`.env\`, CI secrets, shell exports — whatever this project already uses); do not introduce others.
 
-After applying changes, run a release build and confirm a new symbol set appears in PostHog → Error tracking → Symbol sets.
+The PostHog host and project ID are fixed for this project — hardcode them everywhere they're referenced (plugin config \`host\` / \`projectId\` options, CLI \`--host\` / \`--project-id\` flags). Do not introduce env vars for them. Host = \`${host}\`, project ID = \`${projectId}\`.
+
+After applying changes, trigger a build using whatever command this project actually uses (inspect \`package.json\` scripts, \`Fastfile\`, \`build.gradle\`, CI config, etc. before guessing — don't default to \`npm run build\` / \`./gradlew assembleRelease\` if the project has a custom command).
+
+Read the build output carefully: look for PostHog plugin/CLI log lines indicating the upload happened (e.g. "uploading source maps", "uploaded symbol set", "uploaded N files"). If those lines are absent, or you see PostHog-related errors / warnings / non-zero exits, stop and surface them to me before moving on — the integration likely isn't wired up correctly.
+
+Then ask me whether to wire up a quick verification — a "Throw test error" button (or an equivalent invocation if the project has no UI) that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — so I can trigger one error against the new build and confirm the stack trace symbolicates back to original source in PostHog.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps
 `)
@@ -60,6 +67,8 @@ Docs: https://posthog.com/docs/error-tracking/upload-source-maps
 const nextjsPrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog source map uploads for my Next.js app.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything. The \`npm\` commands below are placeholders; translate them (\`pnpm add\`, \`yarn add\`, \`bun add\`, etc.) accordingly.
 
 1. Install the integration:
 
@@ -73,8 +82,8 @@ Set up PostHog source map uploads for my Next.js app.
 
     export default withPostHogConfig(nextConfig, {
       personalApiKey: process.env.POSTHOG_API_KEY,
-      projectId: process.env.POSTHOG_PROJECT_ID,
-      host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+      projectId: "${projectId}",
+      host: "${host}",
       sourcemaps: {
         enabled: true,
         releaseName: "my-application",
@@ -83,12 +92,14 @@ Set up PostHog source map uploads for my Next.js app.
       },
     });
 
-3. Env vars already provisioned in CI:
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
-   - \`POSTHOG_PROJECT_ID\` = ${projectId}
-   - \`NEXT_PUBLIC_POSTHOG_HOST\` = ${host}
 
-4. Run \`npm run build\` and confirm \`.js.map\` files are produced under \`.next\` and a new symbol set appears in PostHog.
+4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts (\`build\`, \`build:prod\`, etc.), CI config, or any \`README\`/Makefile before defaulting to \`npm run build\`. Then confirm \`.js.map\` files are produced under \`.next\`.
+
+5. Read the build output: \`@posthog/nextjs-config\` should log lines about uploading source maps to PostHog. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits, stop and surface them to me before continuing.
+
+6. After that, ask me whether to add a "Throw test error" button to the app that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — I want to fire one real error against the new build to confirm the stack trace symbolicates back to my original TSX/TS source.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps/nextjs
 `)
@@ -96,6 +107,8 @@ Docs: https://posthog.com/docs/error-tracking/upload-source-maps/nextjs
 const nuxtPrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog source map uploads for my Nuxt app.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything or invoking CLIs. The \`npm\` commands below are placeholders; translate them (\`pnpm add\` / \`pnpm dlx\`, \`yarn add\`, \`bun add\` / \`bunx\`, \`npx\`, etc.) accordingly. Prefer adding \`@posthog/cli\` as a devDependency over a global install — the build hooks just need it on PATH or via \`npx\`.
 
 1. Install the CLI:
 
@@ -109,18 +122,20 @@ Set up PostHog source map uploads for my Nuxt app.
       sourcemap: { client: true },
       hooks: {
         close: async () => {
-          execSync("posthog-cli sourcemap inject --directory '.output'", { stdio: 'inherit' })
-          execSync("posthog-cli sourcemap upload --directory '.output'", { stdio: 'inherit' })
+          execSync("posthog-cli sourcemap inject --directory '.output' --host '${host}' --project-id '${projectId}'", { stdio: 'inherit' })
+          execSync("posthog-cli sourcemap upload --directory '.output' --host '${host}' --project-id '${projectId}'", { stdio: 'inherit' })
         },
       },
     })
 
-3. Env vars already provisioned in CI:
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are passed as CLI flags above, only the API key needs to be in env):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
-   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
-   - \`POSTHOG_CLI_HOST\` = ${host}
 
-4. Run \`nuxt build\` and confirm the injected \`.mjs.map\` files reach PostHog (look for the new symbol set).
+4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config before defaulting to \`nuxt build\`. Confirm the build runs the \`close\` hook and that \`.mjs.map\` files are produced under \`.output\`.
+
+5. Read the build output: the \`posthog-cli sourcemap inject\` / \`upload\` commands should log lines about injecting + uploading source maps. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits from the CLI, stop and surface them to me before continuing.
+
+6. After that, ask me whether to add a "Throw test error" button to a page in the app that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — I want to trigger one error against the new build and confirm the stack trace symbolicates back to my Vue/TS source in PostHog.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps/nuxt
 `)
@@ -128,6 +143,8 @@ Docs: https://posthog.com/docs/error-tracking/upload-source-maps/nuxt
 const vitePrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog source map uploads for my Vite app.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything. The \`npm\` commands below are placeholders; translate them (\`pnpm add\`, \`yarn add\`, \`bun add\`, etc.) accordingly.
 
 1. Install the plugin (Vite reuses the rollup plugin):
 
@@ -142,8 +159,8 @@ Set up PostHog source map uploads for my Vite app.
       plugins: [
         posthog({
           personalApiKey: process.env.POSTHOG_API_KEY,
-          projectId: process.env.POSTHOG_PROJECT_ID,
-          host: process.env.POSTHOG_HOST,
+          projectId: "${projectId}",
+          host: '${host}',
           sourcemaps: {
             enabled: true,
             releaseName: 'my-application',
@@ -154,12 +171,14 @@ Set up PostHog source map uploads for my Vite app.
       ],
     })
 
-3. Env vars already provisioned in CI:
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
-   - \`POSTHOG_PROJECT_ID\` = ${projectId}
-   - \`POSTHOG_HOST\` = ${host}
 
-4. Run \`npm run build\` and confirm a new symbol set appears in PostHog.
+4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config before defaulting to \`npm run build\`.
+
+5. Read the build output: \`@posthog/rollup-plugin\` should log lines about uploading source maps to PostHog. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits, stop and surface them to me before continuing.
+
+6. After that, ask me whether to add a "Throw test error" button to the app that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — I want to fire one error against the new build to confirm the stack trace symbolicates back to my original source.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps/vite
 `)
@@ -167,6 +186,8 @@ Docs: https://posthog.com/docs/error-tracking/upload-source-maps/vite
 const rollupPrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog source map uploads for my Rollup project.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything. The \`npm\` commands below are placeholders; translate them (\`pnpm add\`, \`yarn add\`, \`bun add\`, etc.) accordingly.
 
 1. Install the plugin:
 
@@ -182,8 +203,8 @@ Set up PostHog source map uploads for my Rollup project.
       plugins: [
         posthog({
           personalApiKey: process.env.POSTHOG_API_KEY,
-          projectId: process.env.POSTHOG_PROJECT_ID,
-          host: process.env.POSTHOG_HOST,
+          projectId: "${projectId}",
+          host: '${host}',
           sourcemaps: {
             enabled: true,
             releaseName: 'my-application',
@@ -194,12 +215,14 @@ Set up PostHog source map uploads for my Rollup project.
       ],
     }
 
-3. Env vars already provisioned in CI:
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
-   - \`POSTHOG_PROJECT_ID\` = ${projectId}
-   - \`POSTHOG_HOST\` = ${host}
 
-4. Run the build and confirm a new symbol set appears in PostHog.
+4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config to find the real build command (e.g. \`rollup -c\`, a custom \`build\` script).
+
+5. Read the build output: \`@posthog/rollup-plugin\` should log lines about uploading source maps to PostHog. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits, stop and surface them to me before continuing.
+
+6. After that, ask me whether to add a quick verification — a "Throw test error" button if the bundle ships a UI, or a one-off invocation in the entry file otherwise — that calls \`posthog.captureException(new Error('PostHog source maps test'))\` so I can confirm the stack trace symbolicates back to my original source in PostHog.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps/rollup
 `)
@@ -207,6 +230,8 @@ Docs: https://posthog.com/docs/error-tracking/upload-source-maps/rollup
 const webpackPrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog source map uploads for my Webpack project.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything. The \`npm\` commands below are placeholders; translate them (\`pnpm add\`, \`yarn add\`, \`bun add\`, etc.) accordingly.
 
 1. Install the plugin:
 
@@ -221,8 +246,8 @@ Set up PostHog source map uploads for my Webpack project.
       plugins: [
         new PostHogPlugin({
           personalApiKey: process.env.POSTHOG_API_KEY,
-          projectId: process.env.POSTHOG_PROJECT_ID,
-          host: process.env.POSTHOG_HOST,
+          projectId: "${projectId}",
+          host: '${host}',
           sourcemaps: {
             enabled: true,
             releaseName: 'my-application',
@@ -233,12 +258,14 @@ Set up PostHog source map uploads for my Webpack project.
       ],
     }
 
-3. Env vars already provisioned in CI:
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; host + project ID are hardcoded above, only the API key needs to be in env):
    - \`POSTHOG_API_KEY\` — personal API key with \`error_tracking:write\`
-   - \`POSTHOG_PROJECT_ID\` = ${projectId}
-   - \`POSTHOG_HOST\` = ${host}
 
-4. Run the build and confirm a new symbol set appears in PostHog.
+4. Trigger a build using whatever command this project actually uses — check \`package.json\` scripts and CI config to find the real build command (e.g. \`webpack --mode production\`, a custom \`build\` script).
+
+5. Read the build output: \`@posthog/webpack-plugin\` should log lines about uploading source maps to PostHog. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits, stop and surface them to me before continuing.
+
+6. After that, ask me whether to add a "Throw test error" button to the app that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — I want to trigger one error against the new build and confirm the stack trace symbolicates back to my original source in PostHog.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps/webpack
 `)
@@ -246,6 +273,8 @@ Docs: https://posthog.com/docs/error-tracking/upload-source-maps/webpack
 const reactNativePrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog source map uploads for my React Native (Expo 50+) app.
+
+Use this project's package manager — detect it from the lockfile (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) before installing anything or invoking CLIs. The \`npm\` commands below are placeholders; translate them accordingly. Prefer adding \`@posthog/cli\` as a devDependency over a global install — the Metro / Xcode / gradle integrations just need it resolvable.
 
 1. Install the CLI:
 
@@ -271,12 +300,14 @@ Set up PostHog source map uploads for my React Native (Expo 50+) app.
 
 5. iOS — in the "Bundle React Native code" build phase, call \`posthog-xcode.sh\` then \`react-native-xcode.sh\`. Disable User Script Sandboxing (\`ENABLE_USER_SCRIPT_SANDBOXING=NO\`).
 
-6. Env vars already provisioned in CI:
+6. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; pass \`--host '${host}' --project-id '${projectId}'\` directly to the upload commands the Metro / gradle / Xcode integrations invoke — don't introduce env vars for host or project ID):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
-   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
-   - \`POSTHOG_CLI_HOST\` = ${host}
 
-7. Run a release build (iOS + Android) and confirm symbol sets appear in PostHog.
+7. Trigger a release build for both iOS and Android using whatever commands this project uses (e.g. \`eas build\`, \`expo run\`, native \`xcodebuild\` / \`./gradlew assembleRelease\`, or a custom script — check \`package.json\`, \`eas.json\`, and CI config).
+
+8. Read the build output for both platforms: the PostHog Metro plugin (on the JS bundle), the gradle plugin (Android), and the iOS Run Script / \`posthog-cli\` invocations should all log lines about uploading source maps + dSYMs. If any of those are missing, or you see PostHog-related errors / warnings / non-zero exits, stop and surface them to me before continuing.
+
+9. After that, ask me whether to add a "Throw test error" button to a screen in the app that calls \`posthog.captureException(new Error('PostHog source maps test'))\` — I want to fire one error against the new release build and confirm the stack trace symbolicates back to my original TSX/TS source in PostHog.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps/react-native
 `)
@@ -284,6 +315,8 @@ Docs: https://posthog.com/docs/error-tracking/upload-source-maps/react-native
 const iosPrompt = ({ host, projectId }: { host: string; projectId: number | string }): string =>
     trim(`
 Set up PostHog dSYM uploads for my iOS app.
+
+If this project also has a JS side (React Native, Capacitor, etc.) and a lockfile, use that project's package manager (\`pnpm-lock.yaml\` → pnpm, \`yarn.lock\` → yarn, \`bun.lockb\` → bun, \`package-lock.json\` → npm) instead of defaulting to \`npm install -g\`. For pure-native iOS projects without Node tooling, Homebrew (\`brew install posthog/posthog/cli\`) or downloading the release binary is usually preferable to a global npm install.
 
 1. Install the CLI (only required if you build outside Xcode):
 
@@ -307,12 +340,14 @@ Set up PostHog dSYM uploads for my iOS app.
 
     $(DWARF_DSYM_FOLDER_PATH)/$(DWARF_DSYM_FILE_NAME)/Contents/Resources/DWARF/$(EXECUTABLE_NAME)
 
-5. Env vars already provisioned in CI:
+5. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; pass \`--host '${host}' --project-id '${projectId}'\` to \`upload-symbols.sh\` rather than introducing env vars for host or project ID):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\`
-   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
-   - \`POSTHOG_CLI_HOST\` = ${host}
 
-6. Archive a release build and confirm dSYMs land in PostHog.
+6. Trigger an archive / release build using whatever command this project uses (Xcode Archive, \`xcodebuild archive\`, fastlane, or a CI script — check \`Fastfile\`, CI config, and any \`README\` first).
+
+7. Read the build output: the \`upload-symbols.sh\` Run Script (and \`posthog-cli\` underneath it) should log lines about uploading dSYMs. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits from the Run Script phase, stop and surface them to me before continuing.
+
+8. After that, ask me whether to add a "Throw test error" button to a screen in the app that calls the iOS SDK's exception capture API (the Swift equivalent of \`posthog.captureException(...)\`) — I want to fire one error against the archived build and confirm the stack trace symbolicates back to my Swift source in PostHog.
 
 Docs: https://posthog.com/docs/error-tracking/upload-source-maps/ios
 `)
@@ -330,14 +365,16 @@ Set up PostHog ProGuard/R8 mapping uploads for my Android app.
         id("com.posthog.android") version "<latest>"
     }
 
-3. Env vars already provisioned in CI:
+3. Env vars available to the build terminal (\`.env\`, CI secrets, shell exports — whatever this project already uses; hardcode both \`postHogHost = "${host}"\` and \`postHogProjectId = "${projectId}"\` on \`PostHogCliExecTask\` — don't introduce env vars for host or project ID):
    - \`POSTHOG_CLI_API_KEY\` — personal API key with \`error_tracking:write\` and \`organization:read\`
-   - \`POSTHOG_CLI_PROJECT_ID\` = ${projectId}
-   - \`POSTHOG_CLI_HOST\` = ${host}
 
-   (If you'd rather configure inline, the plugin exposes \`postHogApiKey\` / \`postHogProjectId\` / \`postHogHost\` on \`PostHogCliExecTask\`.)
+   (The plugin also exposes \`postHogApiKey\` on \`PostHogCliExecTask\` for inline configuration if you'd rather not use env at all.)
 
-4. Run \`./gradlew assembleRelease\`. The plugin uploads the mapping automatically as part of the release build — confirm the symbol set in PostHog.
+4. Trigger a release build using whatever command this project uses (e.g. \`./gradlew assembleRelease\`, \`./gradlew bundleRelease\`, or a fastlane lane — check the project's \`Fastfile\`, CI config, and any \`README\` first). The plugin uploads the mapping automatically as part of the release build.
+
+5. Read the gradle output: the \`com.posthog.android\` plugin's \`PostHogCliExecTask\` should log lines about uploading the ProGuard/R8 mapping to PostHog. If you don't see them, or you see PostHog-related errors / warnings / non-zero exits from that task, stop and surface them to me before continuing.
+
+6. After that, ask me whether to add a "Throw test error" button to a screen in the app that calls the Android SDK's exception capture API (the Kotlin/Java equivalent of \`posthog.captureException(...)\`) — I want to fire one error against the release build and confirm the stack trace deobfuscates back to my Kotlin/Java source in PostHog.
 
 Docs: https://posthog.com/docs/error-tracking/upload-mappings/android
 `)
@@ -356,7 +393,7 @@ export const SOURCE_MAPS_TECHNOLOGIES: Technology[] = [
         name: 'Next.js',
         image: nextjsImage,
         docsLink: 'https://posthog.com/docs/error-tracking/upload-source-maps/nextjs',
-        envVars: NEXTJS_ENV,
+        envVars: PLUGIN_ENV,
         buildPrompt: nextjsPrompt,
     },
     {

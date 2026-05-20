@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { PersonalAPIKeyType } from '~/types'
@@ -136,7 +137,7 @@ export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
     selectors({
         technologies: [() => [], (): Technology[] => SOURCE_MAPS_TECHNOLOGIES],
         selectedTechnology: [(s) => [s.selectedTechKey], (key): Technology => getTechnology(key)],
-        host: [() => [], (): string => window.location.origin],
+        host: [() => [], (): string => apiHostOrigin()],
         projectId: [(s) => [s.currentTeam], (currentTeam): number | string => currentTeam?.id ?? 'your-project-id'],
         prompt: [
             (s) => [s.selectedTechnology, s.host, s.projectId],

@@ -13,8 +13,8 @@ import { SOURCE_MAPS_TECHNOLOGIES, Technology } from './sourceMapsTechnologies'
 
 const STEPS: { step: WizardStep; label: string }[] = [
     { step: 1, label: 'Technology' },
-    { step: 2, label: 'Prompt' },
-    { step: 3, label: 'Configure CI' },
+    { step: 2, label: 'Configure' },
+    { step: 3, label: 'Prompt' },
     { step: 4, label: 'Verify' },
 ]
 
@@ -62,8 +62,8 @@ export function SourceMapsFixModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 <Stepper currentStep={currentStep} />
                 <div className="min-h-[380px]">
                     {currentStep === 1 && <Step1Technology />}
-                    {currentStep === 2 && <Step2Prompt />}
-                    {currentStep === 3 && <Step3Configure />}
+                    {currentStep === 2 && <Step2Configure />}
+                    {currentStep === 3 && <Step3Prompt />}
                     {currentStep === 4 && <Step4Verify />}
                 </div>
             </div>
@@ -195,7 +195,7 @@ function TechnologyCard({
     )
 }
 
-function Step2Prompt(): JSX.Element {
+function Step3Prompt(): JSX.Element {
     const { prompt, selectedTechnology, promptRevealed } = useValues(sourceMapsFixWizardLogic)
     const { setPromptRevealed } = useActions(sourceMapsFixWizardLogic)
 
@@ -243,17 +243,19 @@ function Step2Prompt(): JSX.Element {
     )
 }
 
-function Step3Configure(): JSX.Element {
-    const { host, projectId, selectedTechnology, createdApiKey, isCreatingApiKey, apiKeyError } =
-        useValues(sourceMapsFixWizardLogic)
+function Step2Configure(): JSX.Element {
+    const { selectedTechnology, createdApiKey, isCreatingApiKey, apiKeyError } = useValues(sourceMapsFixWizardLogic)
     const { createApiKey } = useActions(sourceMapsFixWizardLogic)
     const { envVars } = selectedTechnology
 
     return (
         <div className="flex flex-col gap-4">
             <p className="text-sm text-secondary m-0">
-                Drop these into your CI provider's environment so the build can authenticate with PostHog. Names match
-                the {selectedTechnology.name} integration.
+                The only secret the build needs is a personal API key. Make it available to whatever terminal runs the
+                build — usually that means a <span className="font-mono font-medium text-default">.env</span> file plus
+                your CI provider's secrets, but use whatever setup this project already has (shell exports, doppler,
+                direnv, etc.). The variable name matches the {selectedTechnology.name} integration and the prompt in the
+                next step references it verbatim.
             </p>
 
             <section className="flex flex-col gap-2">
@@ -290,37 +292,12 @@ function Step3Configure(): JSX.Element {
                     )}
                 </div>
             </section>
-
-            <section className="flex flex-col gap-2">
-                <SectionLabel>Plain config values</SectionLabel>
-                <div className="rounded-md border border-primary bg-surface-primary divide-y divide-border-primary">
-                    <ConfigRow name={envVars.host} value={host} label="host" />
-                    <ConfigRow name={envVars.projectId} value={String(projectId)} label="project ID" />
-                </div>
-            </section>
         </div>
     )
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="text-[10px] uppercase tracking-wider font-semibold text-muted">{children}</div>
-}
-
-function ConfigRow({ name, value, label }: { name: string; value: string; label: string }): JSX.Element {
-    return (
-        <div className="flex items-center justify-between gap-2 p-3">
-            <div className="min-w-0">
-                <div className="text-sm font-mono font-semibold">{name}</div>
-                <code className="text-xs text-secondary font-mono truncate block">{value}</code>
-            </div>
-            <LemonButton
-                size="small"
-                type="secondary"
-                icon={<IconCopy />}
-                onClick={() => copyToClipboard(value, label)}
-            />
-        </div>
-    )
 }
 
 function CopyableRow({ value, label, hideValue }: { value: string; label: string; hideValue?: boolean }): JSX.Element {
