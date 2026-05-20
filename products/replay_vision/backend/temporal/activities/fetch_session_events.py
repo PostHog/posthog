@@ -1,4 +1,5 @@
 import hashlib
+import datetime as dt
 from typing import Any
 
 from asgiref.sync import sync_to_async
@@ -19,6 +20,7 @@ from products.replay_vision.backend.temporal.state import (
     store_data_in_redis,
 )
 from products.replay_vision.backend.temporal.types import (
+    EventCitation,
     EventTable,
     FetchSessionEventsInputs,
     LensLlmInputs,
@@ -33,7 +35,9 @@ _MAX_EVENT_PAGES = 5  # Hard cap on prompt size for very chatty sessions; sets `
 _EVENTS_TO_IGNORE = ["$feature_flag_called"]
 
 # `properties.*` is the HogQL-side prefix for JSON-property fields; bare names refer to top-level columns.
+# `uuid` is fetched so we can map the LLM-facing short event_id back to the real PostHog event; not shown to the LLM.
 _EXTRA_FIELDS = [
+    "uuid",
     "elements_chain_ids",
     "properties.$exception_types",
     "properties.$exception_values",
@@ -120,7 +124,9 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
     if columns is None or not all_rows:
         return None
 
-    processed_columns, processed_rows, url_mapping, window_mapping = _process_events(columns, all_rows)
+    processed_columns, processed_rows, url_mapping, window_mapping, event_id_mapping = _process_events(
+        columns, all_rows, session_start=metadata["start_time"]
+    )
     # `RecordingMetadata` doesn't carry inactive_seconds directly; derive from duration minus active.
     # CH data quality can sporadically yield active > duration (tab visibility, clock skew), so clamp at 0.
     inactive_seconds = max(0.0, duration_seconds - active_seconds)
@@ -132,6 +138,7 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
         events=EventTable(columns=processed_columns, rows=processed_rows),
         url_mapping=url_mapping,
         window_mapping=window_mapping,
+        event_id_mapping=event_id_mapping,
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
             duration_seconds=duration_seconds,
@@ -148,14 +155,19 @@ def _fetch_payload(team_id: int, session_id: str) -> LensLlmInputs | None:
 
 
 def _process_events(
-    raw_columns: list[str], raw_rows: list[list[Any]]
-) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str]]:
-    """Dedup by content hash, truncate oversized fields, intern URLs and window IDs; prepend event_id + event_index columns."""
+    raw_columns: list[str], raw_rows: list[list[Any]], *, session_start: dt.datetime
+) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str], dict[str, EventCitation]]:
+    """Dedup by content hash, truncate oversized fields, intern URLs and window IDs; prepend event_id, hide uuid behind the event_id mapping."""
     url_index = raw_columns.index("$current_url") if "$current_url" in raw_columns else None
     window_index = raw_columns.index("$window_id") if "$window_id" in raw_columns else None
+    # `uuid` is fetched purely so we can map short event_id -> real UUID for downstream citation resolution.
+    uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
+    timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
+    keep_indexes = [i for i in range(len(raw_columns)) if i != uuid_index]
 
     url_tokens: dict[str, str] = {}  # actual -> token; flipped at the end for the prompt
     window_tokens: dict[str, str] = {}
+    event_id_mapping: dict[str, EventCitation] = {}  # short event_id (LLM-facing) -> citation metadata
     seen_hashes: set[str] = set()
     processed: list[list[Any]] = []
 
@@ -171,13 +183,26 @@ def _process_events(
             simplified[url_index] = _intern(simplified[url_index], url_tokens, _URL_PREFIX)
         if window_index is not None:
             simplified[window_index] = _intern(simplified[window_index], window_tokens, _WINDOW_PREFIX)
-        # event_index is sequential in the deduplicated output, not the raw input.
-        processed.append([raw_hash, len(processed), *simplified])
+        if uuid_index is not None and row[uuid_index] is not None:
+            # ClickHouse returns `uuid` columns as `uuid.UUID` objects; stringify defensively.
+            event_id_mapping[raw_hash] = EventCitation(
+                uuid=str(row[uuid_index]),
+                timestamp_ms=_relative_ms(row[timestamp_index] if timestamp_index is not None else None, session_start),
+            )
+        projected = [simplified[i] for i in keep_indexes]
+        processed.append([raw_hash, *projected])
 
-    output_columns = ["event_id", "event_index", *raw_columns]
+    output_columns = ["event_id", *(raw_columns[i] for i in keep_indexes)]
     url_mapping = {token: actual for actual, token in url_tokens.items()}
     window_mapping = {token: actual for actual, token in window_tokens.items()}
-    return output_columns, processed, url_mapping, window_mapping
+    return output_columns, processed, url_mapping, window_mapping, event_id_mapping
+
+
+def _relative_ms(event_timestamp: Any, session_start: dt.datetime) -> int:
+    """Milliseconds since session start; 0 when the timestamp is missing, malformed, or earlier than start (clock skew)."""
+    if not isinstance(event_timestamp, dt.datetime):
+        return 0
+    return max(0, int((event_timestamp - session_start).total_seconds() * 1000))
 
 
 def _intern(value: Any, mapping: dict[str, str], prefix: str) -> Any:

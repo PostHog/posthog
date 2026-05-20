@@ -378,14 +378,13 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert stored.session_id == "sess-1"
         assert stored.team_id == lens.team_id
-        assert stored.events.columns == ["event_id", "event_index", "event", "timestamp", "$session_id"]
+        assert stored.events.columns == ["event_id", "event", "timestamp", "$session_id"]
         assert stored.session_end_time == end
         assert stored.metadata.start_time == start
         assert stored.metadata.duration_seconds == 300.0
         assert len(stored.events.rows) == 1
-        # Row is prepended with [event_id (hash), event_index (0), ...original values]
-        assert stored.events.rows[0][1] == 0
-        assert stored.events.rows[0][2:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
+        # Row is prepended with [event_id (hash), ...original values]
+        assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
 
     @pytest.mark.asyncio
     async def test_paginates_through_get_events_until_short_page(self) -> None:

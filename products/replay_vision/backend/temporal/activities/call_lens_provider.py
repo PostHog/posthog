@@ -1,5 +1,6 @@
 """Single Gemini call per lens application; retries once on validation failure with the error fed back."""
 
+import re
 import asyncio
 from uuid import UUID
 
@@ -34,6 +35,8 @@ from products.replay_vision.backend.temporal.types import (
 logger = structlog.get_logger(__name__)
 
 _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended
+# Matches the 16-char hex event_id the LLM is instructed to cite (`event_id <hash>` or `event_id: <hash>`).
+_EVENT_ID_CITATION_RE = re.compile(r"\b[0-9a-f]{16}\b")
 
 
 @activity.defn
@@ -61,7 +64,10 @@ async def call_lens_provider_activity(inputs: CallLensProviderInputs) -> LensCal
     finalized = await _call_with_retry(
         lens=lens, model=snapshot.model.value, prompt_parts=prompt_parts, team_id=inputs.team_id
     )
-    return LensCallOutput(model_output=finalized)
+    # Keep only the citations the LLM actually referenced; drops thousands of unused entries from the persisted blob.
+    cited_hashes = set(_EVENT_ID_CITATION_RE.findall(finalized.model_dump_json()))
+    filtered_mapping = {h: c for h, c in llm_inputs.event_id_mapping.items() if h in cited_hashes}
+    return LensCallOutput(model_output=finalized, event_id_mapping=filtered_mapping)
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> LensSnapshot:

@@ -16,7 +16,12 @@ class BaseLensOutput(BaseModel, frozen=True):
     confidence: float = Field(
         ge=0,
         le=1,
-        description="Your confidence in this answer, 0 to 1. 0.5 means uncertain; 1.0 means absolutely sure.",
+        description=(
+            "Calibrated confidence, 0.0 to 1.0 with one decimal; use the full range — most answers fall in 0.6-0.9. "
+            "Ask: could a reasonable alternative answer be defended on the same evidence? If yes, cap at 0.7. "
+            "Reserve 0.9+ for unambiguous evidence with no plausible alternative. "
+            "1.0 should be exceedingly rare — pick 0.95 instead."
+        ),
     )
 
     def to_event_properties(self) -> dict[str, Any]:

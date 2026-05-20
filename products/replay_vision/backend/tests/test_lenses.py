@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.lenses import (
     IndexerLens,
     IndexerOutput,
     MonitorLens,
+    MonitorLlmResponse,
     MonitorOutput,
     ScorerLens,
     ScorerOutput,
@@ -65,7 +66,8 @@ class TestMonitorLens:
         assert isinstance(lens, MonitorLens)
         assert lens.prompt == "did the user export?"
         assert lens.emits_signals is False
-        assert lens.llm_response_schema is MonitorOutput
+        # The LLM-facing schema excludes `lens_type`; that's stamped by `finalize`.
+        assert lens.llm_response_schema is MonitorLlmResponse
 
     def test_lens_from_db_raises_on_missing_prompt(self) -> None:
         with pytest.raises(ApplicationError, match="prompt"):
@@ -135,10 +137,15 @@ class TestMonitorLens:
         assert "<session_metadata>" in rendered
         assert '"active_seconds":180' in rendered
 
-    def test_finalize_is_identity_for_monitor(self) -> None:
+    def test_finalize_stamps_lens_type_onto_llm_response(self) -> None:
         lens = lens_from_db(_build_replay_lens())
-        llm_output = MonitorOutput(verdict=True, reasoning="user clicked Export at 0:42", confidence=0.9)
-        assert lens.finalize(llm_output) is llm_output
+        llm_response = MonitorLlmResponse(verdict=True, reasoning="user clicked Export at 0:42", confidence=0.9)
+        finalized = lens.finalize(llm_response)
+        assert isinstance(finalized, MonitorOutput)
+        assert finalized.lens_type == LensType.MONITOR
+        assert finalized.verdict is True
+        assert finalized.reasoning == "user clicked Export at 0:42"
+        assert finalized.confidence == 0.9
 
     def test_validate_semantics_passes_for_well_formed_output(self) -> None:
         lens = lens_from_db(_build_replay_lens())
@@ -374,9 +381,10 @@ class TestIndexerLens:
 
     def test_output_round_trip_includes_all_facets(self) -> None:
         out = IndexerOutput(
+            intent="File a regression report",
             summary="Bug report",
-            user_type="Power user filing a regression",
             outcome="Submitted ticket",
+            friction_points=["upload failure"],
             keywords=["bug", "regression", "ticket"],
             confidence=0.8,
         )
@@ -385,7 +393,24 @@ class TestIndexerLens:
 
     def test_output_rejects_empty_keywords(self) -> None:
         with pytest.raises(ValidationError):
-            IndexerOutput(summary="x", user_type="x", outcome="x", keywords=[], confidence=0.8)
+            IndexerOutput(intent="x", summary="x", outcome="x", keywords=[], confidence=0.8)
+
+    def test_finalize_lowercases_keywords_and_friction_points(self) -> None:
+        lens = lens_from_db(_build_replay_lens(lens_type=LensType.INDEXER, lens_config={"prompt": "index"}))
+        from products.replay_vision.backend.temporal.lenses import IndexerLlmResponse
+
+        response = IndexerLlmResponse(
+            intent="Authenticate",
+            summary="Tried to log in",
+            outcome="Reached reset page",
+            friction_points=["Invalid Password Error", "Buffering Page"],
+            keywords=["Login", "Failed Attempt", "Reset"],
+            confidence=0.9,
+        )
+        finalized = lens.finalize(response)
+        assert isinstance(finalized, IndexerOutput)
+        assert finalized.friction_points == ["invalid password error", "buffering page"]
+        assert finalized.keywords == ["login", "failed attempt", "reset"]
 
 
 class TestToEventProperties:

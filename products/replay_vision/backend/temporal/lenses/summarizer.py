@@ -16,10 +16,17 @@ _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
 }
 
 
-class SummarizerOutput(BaseLensOutput, frozen=True):
-    lens_type: Literal[LensType.SUMMARIZER] = LensType.SUMMARIZER
+class SummarizerLlmResponse(BaseLensOutput, frozen=True):
+    """LLM-facing schema: the model decides these fields; `lens_type` is stamped by the workflow in `finalize`."""
+
     title: str = Field(max_length=120, description="Short title for the session (~80 chars). Plain text, no quotes.")
     summary: str = Field(description="Body text whose length follows the lens's configured length.")
+
+
+class SummarizerOutput(SummarizerLlmResponse, frozen=True):
+    """Persisted output: adds the discriminator for the `AnyLensOutput` union."""
+
+    lens_type: Literal[LensType.SUMMARIZER] = LensType.SUMMARIZER
 
 
 class SummarizerLens(BaseLens, frozen=True):
@@ -29,7 +36,10 @@ class SummarizerLens(BaseLens, frozen=True):
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:
-        return SummarizerOutput
+        return SummarizerLlmResponse
+
+    def finalize(self, llm_response: BaseModel) -> BaseLensOutput:
+        return SummarizerOutput(**llm_response.model_dump())
 
     def prompt_context(self) -> dict[str, Any]:
         return {"length_guidance": _LENGTH_GUIDANCE[self.length]}

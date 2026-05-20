@@ -1,0 +1,4 @@
+{# Citation policy that lenses can opt into. Call as `{{ cite_in('reasoning') }}` or `{{ cite_in('summary') }}`. #}
+{%- macro cite_in(field_name) -%}
+When you cite a specific event inside `{{ field_name }}`, write exactly one `(event_id <hex-hash>)` parenthesized aside per citation (e.g. `(event_id 030df0f4f45a4d7a)`). Cite only key claims a reader might want to verify or jump to in the player — turning points, blocking issues, the climax of the user's intent. Routine navigation does not need a citation. Aim for at most 1–2 citations per paragraph; short answers may need none. Never group multiple events in one parenthesis. Never write a citation as a bare phrase glued to surrounding prose. Never cite events by position, ordinal, or any other identifier.
+{%- endmacro -%}

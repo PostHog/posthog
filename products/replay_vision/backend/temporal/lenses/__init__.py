@@ -8,10 +8,14 @@ from temporalio.exceptions import ApplicationError
 from products.replay_vision.backend.models.replay_lens import LensType, ReplayLens
 from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLensOutput
 from products.replay_vision.backend.temporal.lenses.classifier import ClassifierLens, ClassifierOutput
-from products.replay_vision.backend.temporal.lenses.indexer import IndexerLens, IndexerOutput
-from products.replay_vision.backend.temporal.lenses.monitor import MonitorLens, MonitorOutput
+from products.replay_vision.backend.temporal.lenses.indexer import IndexerLens, IndexerLlmResponse, IndexerOutput
+from products.replay_vision.backend.temporal.lenses.monitor import MonitorLens, MonitorLlmResponse, MonitorOutput
 from products.replay_vision.backend.temporal.lenses.scorer import ScorerLens, ScorerOutput, ScoreScale
-from products.replay_vision.backend.temporal.lenses.summarizer import SummarizerLens, SummarizerOutput
+from products.replay_vision.backend.temporal.lenses.summarizer import (
+    SummarizerLens,
+    SummarizerLlmResponse,
+    SummarizerOutput,
+)
 from products.replay_vision.backend.temporal.types import AnyLensOutput, LensSnapshot
 
 AnyLens = Annotated[
@@ -64,13 +68,16 @@ __all__ = [
     "ClassifierLens",
     "ClassifierOutput",
     "IndexerLens",
+    "IndexerLlmResponse",
     "IndexerOutput",
     "MonitorLens",
+    "MonitorLlmResponse",
     "MonitorOutput",
     "ScoreScale",
     "ScorerLens",
     "ScorerOutput",
     "SummarizerLens",
+    "SummarizerLlmResponse",
     "SummarizerOutput",
     "lens_from_db",
     "lens_from_snapshot",
