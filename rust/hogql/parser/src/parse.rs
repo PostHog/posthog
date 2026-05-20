@@ -192,6 +192,15 @@ pub(crate) struct Parser<'a> {
     /// `parse_expr_tuple_or_single` sets this to that `in` so the
     /// operand parse stops there.
     pub(crate) pivot_in_stop: Option<usize>,
+    /// When non-zero, `bump()` converts a lex error on the new peek1
+    /// to a synthetic `Eof` token. Used inside HogQLX tag-body parsing:
+    /// cpp's `HOGQLX_TEXT` lexer mode admits any byte except `<` / `{`,
+    /// but rust's mode-less lexer would reject punctuation like `&` /
+    /// `!` / `@` when pre-loading peek1 across a `>` / `/>` / closing
+    /// `>` boundary. `parse_hogqlx_children` byte-walks the body
+    /// directly and re-seeks the lexer, so peek1's transient invalid
+    /// state is recoverable.
+    pub(crate) hogqlx_text_lookahead_depth: u32,
 }
 
 impl<'a> Parser<'a> {
@@ -219,6 +228,7 @@ impl<'a> Parser<'a> {
             stop_postfix_call_before_colon_equals: false,
             limit_body_depth: 0,
             pivot_in_stop: None,
+            hogqlx_text_lookahead_depth: 0,
         })
     }
 
@@ -230,7 +240,27 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn bump(&mut self) -> Result<Token, ParseError> {
-        let next = self.lexer.next_token()?;
+        let next = match self.lexer.next_token() {
+            Ok(t) => t,
+            Err(_e) if self.hogqlx_text_lookahead_depth > 0 => {
+                // We're inside a HogQLX tag body (`HOGQLX_TEXT` lexer
+                // mode in cpp). Defer the error — the immediate caller
+                // is about to byte-walk the text body and re-seek the
+                // lexer via `set_lexer_pos`, so peek1's invalid state
+                // is transient. Stash a synthetic Eof at the current
+                // lexer position; if `peek_next()` is consulted before
+                // the re-seek, the parser will see Eof and bail out
+                // cleanly (matching what it would have done in a
+                // boundary token's presence).
+                let pos = self.lexer.pos();
+                Token {
+                    kind: TokenKind::Eof,
+                    start: pos,
+                    end: pos,
+                }
+            }
+            Err(e) => return Err(e),
+        };
         let old = std::mem::replace(&mut self.peek0, self.peek1);
         self.peek1 = next;
         self.last_consumed_end = old.end;

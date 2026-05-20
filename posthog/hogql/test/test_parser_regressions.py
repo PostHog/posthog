@@ -873,6 +873,26 @@ class TestParserRegressions(BaseTest):
                 with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
                     parse_select(src, backend=backend)
 
+    def test_hogqlx_tag_text_accepts_arbitrary_non_brace_non_lt(self):
+        # cpp's `HOGQLX_TEXT_TEXT: ~[<{]+` — any byte except `<` and `{`
+        # is valid tag-body text. Rust's mode-less lexer rejected `&`,
+        # `!`, `@`, etc. when pre-loading peek1 across the `>` / `/>` /
+        # closing `>` boundary, before `consume_hogqlx_text` could
+        # byte-walk the body.
+        cases = (
+            "<a>foo&bar</a>",
+            "<a>foo!</a>",
+            "<a>foo@bar</a>",
+            "<a>1 + 2</a>",
+            "<a>!@#%^*()</a>",
+            "<outer><inner>foo!bar</inner>baz&qux</outer>",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_hogqlx_tag_identifier_allows_hyphens(self):
         # The grammar's `HOGQLX_TAG_OPEN` / `HOGQLX_TAG_CLOSE` lexer modes
         # (`HogQLLexer.common.g4:315 + 326`) admit

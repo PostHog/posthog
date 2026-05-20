@@ -54,7 +54,23 @@ impl<'a> Parser<'a> {
     /// "Opening and closing HogQLX tags must match" error otherwise)
     /// and auto-injects the `children` attribute from any parsed child
     /// elements.
+    ///
+    /// Tolerate peek1 lex errors while parsing the tag (and any nested
+    /// tags): cpp's `HOGQLX_TEXT` lexer mode admits any byte except
+    /// `<` / `{` inside the body, but rust's mode-less lexer rejects
+    /// punctuation like `&` / `!` / `@` when pre-loading peek1 across
+    /// a `>` / `/>` / `</…>` boundary. `parse_hogqlx_children`
+    /// byte-walks the body directly and re-seeks the lexer via
+    /// `consume_hogqlx_text`, so peek1's transient invalid state is
+    /// recoverable.
     pub(crate) fn parse_hogqlx_tag_element(&mut self) -> Result<Value, ParseError> {
+        self.hogqlx_text_lookahead_depth += 1;
+        let result = self.parse_hogqlx_tag_element_inner();
+        self.hogqlx_text_lookahead_depth -= 1;
+        result
+    }
+
+    fn parse_hogqlx_tag_element_inner(&mut self) -> Result<Value, ParseError> {
         self.expect(TokenKind::Lt, "<")?;
         let kind = self.parse_hogqlx_identifier("tag name")?;
         let mut attributes: Vec<Value> = Vec::new();
@@ -218,13 +234,17 @@ impl<'a> Parser<'a> {
     fn consume_hogqlx_text(&mut self) -> Result<String, ParseError> {
         let start = self.last_consumed_end;
         let bytes = self.src.as_bytes();
-        // Skip if peek0 is already at a tag/expr boundary (no text to
-        // consume) — avoids the empty-string + needless re-seek.
-        if matches!(
-            self.peek(),
-            TokenKind::Lt | TokenKind::LtSlash | TokenKind::LBrace | TokenKind::Eof
-        ) && self.peek0.start == start
-        {
+        // Truth-of-the-bytes check: are we already at a real
+        // tag-body boundary? Don't trust peek0 alone — when
+        // `hogqlx_text_lookahead_depth > 0` the parser may carry a
+        // synthetic `Eof` token in peek0/peek1 because the default-mode
+        // lexer choked on a text-only byte. Look at the actual source
+        // byte at `start`.
+        if start >= bytes.len() {
+            return Ok(String::new());
+        }
+        let head_byte = bytes[start];
+        if head_byte == b'<' || head_byte == b'{' {
             return Ok(String::new());
         }
         let mut i = start;
@@ -234,9 +254,6 @@ impl<'a> Parser<'a> {
                 break;
             }
             i += 1;
-        }
-        if i == start {
-            return Ok(String::new());
         }
         let text = self.src[start..i].to_string();
         self.set_lexer_pos(i)?;
