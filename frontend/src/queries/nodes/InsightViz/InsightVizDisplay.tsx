@@ -39,7 +39,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightVizNode, LegendPosition, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
@@ -135,6 +135,7 @@ export function InsightVizDisplay({
         isPaths,
         hasDetailedResultsTable,
         showLegend,
+        legendPosition,
         hasFormula,
         supportsDisplay,
         samplingFactor,
@@ -441,15 +442,19 @@ export function InsightVizDisplay({
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',
-                                supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
+                                supportsDisplay &&
+                                    showLegend &&
+                                    `InsightVizDisplay__content--with-legend InsightVizDisplay__content--legend-${
+                                        legendPosition ?? LegendPosition.Right
+                                    }`
                             )}
                         >
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
                             ) : supportsDisplay && showLegend ? (
                                 <>
-                                    <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
-                                    <div className="InsightVizDisplay__content__right empty:hidden">
+                                    <div className="InsightVizDisplay__content__chart">{renderActiveView()}</div>
+                                    <div className="InsightVizDisplay__content__legend empty:hidden">
                                         {display === ChartDisplayType.BoxPlot ? <BoxPlotLegend /> : <InsightLegend />}
                                     </div>
                                 </>

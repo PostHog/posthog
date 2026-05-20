@@ -260,6 +260,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedTrendsProps.show_labels_on_series = queryCopy.trendsFilter?.showLabelsOnSeries
         camelCasedTrendsProps.show_percent_stack_view = queryCopy.trendsFilter?.showPercentStackView
         camelCasedTrendsProps.show_legend = queryCopy.trendsFilter?.showLegend
+        camelCasedTrendsProps.legend_position = queryCopy.trendsFilter?.legendPosition
         camelCasedTrendsProps.show_values_on_series = queryCopy.trendsFilter?.showValuesOnSeries
         camelCasedTrendsProps.y_axis_scale_type = queryCopy.trendsFilter?.yAxisScaleType
         camelCasedTrendsProps.show_multiple_y_axes = queryCopy.trendsFilter?.showMultipleYAxes
@@ -272,6 +273,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.showLabelsOnSeries
         delete queryCopy.trendsFilter?.showPercentStackView
         delete queryCopy.trendsFilter?.showLegend
+        delete queryCopy.trendsFilter?.legendPosition
         delete queryCopy.trendsFilter?.showValuesOnSeries
         delete queryCopy.trendsFilter?.yAxisScaleType
         delete queryCopy.trendsFilter?.showMultipleYAxes
@@ -367,18 +369,22 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.funnelPathsFilter
     } else if (isStickinessQuery(queryCopy)) {
         camelCasedStickinessProps.show_legend = queryCopy.stickinessFilter?.showLegend
+        camelCasedStickinessProps.legend_position = queryCopy.stickinessFilter?.legendPosition
         camelCasedStickinessProps.show_values_on_series = queryCopy.stickinessFilter?.showValuesOnSeries
         camelCasedStickinessProps.hidden_legend_keys = hiddenLegendItemsToKeys(
             queryCopy.stickinessFilter?.hiddenLegendIndexes
         )
         delete queryCopy.stickinessFilter?.showLegend
+        delete queryCopy.stickinessFilter?.legendPosition
         delete queryCopy.stickinessFilter?.showValuesOnSeries
         delete queryCopy.stickinessFilter?.hiddenLegendIndexes
     } else if (isLifecycleQuery(queryCopy)) {
         camelCasedLifecycleProps.show_values_on_series = queryCopy.lifecycleFilter?.showValuesOnSeries
         camelCasedLifecycleProps.show_legend = queryCopy.lifecycleFilter?.showLegend
+        camelCasedLifecycleProps.legend_position = queryCopy.lifecycleFilter?.legendPosition
         camelCasedLifecycleProps.toggledLifecycles = queryCopy.lifecycleFilter?.toggledLifecycles
         delete queryCopy.lifecycleFilter?.showLegend
+        delete queryCopy.lifecycleFilter?.legendPosition
         delete queryCopy.lifecycleFilter?.showValuesOnSeries
         delete queryCopy.lifecycleFilter?.toggledLifecycles
     }

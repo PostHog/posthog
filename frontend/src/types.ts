@@ -61,6 +61,7 @@ import type {
     HogQLVariable,
     InsightVizNode,
     MarketingAnalyticsConfig,
+    LegendPosition,
     Node,
     NodeKind,
     ProductItemCategory,
@@ -2941,6 +2942,7 @@ export interface TrendsFilterType extends FilterType {
     // frontend only
     show_alert_threshold_lines?: boolean // used to show/hide horizontal lines on insight representing alert thresholds set on the insight
     show_legend?: boolean // used to show/hide legend next to insights graph
+    legend_position?: LegendPosition // where to place the legend relative to the chart
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
@@ -2963,6 +2965,7 @@ export interface StickinessFilterType extends FilterType {
 
     // frontend only
     show_legend?: boolean // used to show/hide legend next to insights graph
+    legend_position?: LegendPosition // where to place the legend relative to the chart
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
     show_values_on_series?: boolean
     show_multiple_y_axes?: boolean
@@ -3075,6 +3078,7 @@ export interface LifecycleFilterType extends FilterType {
 
     // frontend only
     show_legend?: boolean
+    legend_position?: LegendPosition
     show_values_on_series?: boolean
     toggledLifecycles?: LifecycleToggle[]
 }

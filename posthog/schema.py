@@ -4198,6 +4198,13 @@ class ResultCustomizationBy(StrEnum):
     POSITION = "position"
 
 
+class LegendPosition(StrEnum):
+    RIGHT = "right"
+    LEFT = "left"
+    TOP = "top"
+    BOTTOM = "bottom"
+
+
 class ResultCustomizationByPosition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7396,6 +7403,10 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.RIGHT,
+        description="Where to place the legend relative to the chart.",
+    )
     showLegend: bool | None = False
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
@@ -8542,6 +8553,10 @@ class StickinessFilter(BaseModel):
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.RIGHT,
+        description="Where to place the legend relative to the chart.",
+    )
     resultCustomizationBy: ResultCustomizationBy | None = Field(
         default=ResultCustomizationBy.VALUE,
         description=("Whether result datasets are associated by their values or by their order."),
@@ -9030,6 +9045,10 @@ class TrendsFilter(BaseModel):
             default=None,
             description="Customizations for the appearance of result datasets.",
         )
+    )
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.RIGHT,
+        description="Where to place the legend relative to the chart.",
     )
     showAlertThresholdLines: bool | None = False
     showConfidenceIntervals: bool | None = None

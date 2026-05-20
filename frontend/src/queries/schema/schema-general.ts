@@ -1359,6 +1359,13 @@ export enum ResultCustomizationBy {
     Position = 'position',
 }
 
+export enum LegendPosition {
+    Right = 'right',
+    Left = 'left',
+    Top = 'top',
+    Bottom = 'bottom',
+}
+
 export type TrendsFormulaNode = {
     formula: string
     /** Optional user-defined name for the formula */
@@ -1378,6 +1385,11 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     /** @default false */
     showLegend?: TrendsFilterLegacy['show_legend']
+    /**
+     * Where to place the legend relative to the chart.
+     * @default right
+     */
+    legendPosition?: LegendPosition
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
@@ -1449,6 +1461,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'formula',
     'display',
     'showLegend',
+    'legendPosition',
     'breakdown_histogram_bin_count',
     'aggregationAxisFormat',
     'aggregationAxisPrefix',
@@ -1802,6 +1815,11 @@ export interface StickinessCriteria {
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
+    /**
+     * Where to place the legend relative to the chart.
+     * @default right
+     */
+    legendPosition?: LegendPosition
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1821,6 +1839,7 @@ export type StickinessFilter = {
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
+    'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
 ])
@@ -1864,6 +1883,11 @@ export type LifecycleFilter = {
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
+    /**
+     * Where to place the legend relative to the chart.
+     * @default right
+     */
+    legendPosition?: LegendPosition
     /** @default true */
     stacked?: boolean
 }

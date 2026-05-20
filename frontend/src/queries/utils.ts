@@ -39,6 +39,7 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
+    LegendPosition,
     LifecycleDataWarehouseNode,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
@@ -566,6 +567,17 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.trendsFilter?.showLegend
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
+    }
+    return undefined
+}
+
+export const getLegendPosition = (query: InsightQueryNode): LegendPosition | undefined => {
+    if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.legendPosition
+    } else if (isTrendsQuery(query)) {
+        return query.trendsFilter?.legendPosition
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.legendPosition
     }
     return undefined
 }

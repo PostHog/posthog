@@ -22399,6 +22399,10 @@
             ],
             "type": "object"
         },
+        "LegendPosition": {
+            "enum": ["right", "left", "top", "bottom"],
+            "type": "string"
+        },
         "LifecycleDataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
@@ -22480,6 +22484,11 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
+                    "default": "right",
+                    "description": "Where to place the legend relative to the chart."
+                },
                 "showLegend": {
                     "default": false,
                     "type": "boolean"
@@ -22504,6 +22513,10 @@
             "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
+                "legend_position": {
+                    "enum": ["right", "left", "top", "bottom"],
+                    "type": "string"
+                },
                 "show_legend": {
                     "type": "boolean"
                 },
@@ -36621,6 +36634,11 @@
                     },
                     "type": "array"
                 },
+                "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
+                    "default": "right",
+                    "description": "Where to place the legend relative to the chart."
+                },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
@@ -36686,6 +36704,10 @@
                         ]
                     },
                     "type": "object"
+                },
+                "legend_position": {
+                    "enum": ["right", "left", "top", "bottom"],
+                    "type": "string"
                 },
                 "show_legend": {
                     "type": "boolean"
@@ -38392,6 +38414,11 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
+                    "default": "right",
+                    "description": "Where to place the legend relative to the chart."
+                },
                 "minDecimalPlaces": {
                     "type": "number"
                 },
@@ -38509,6 +38536,10 @@
                         ]
                     },
                     "type": "object"
+                },
+                "legend_position": {
+                    "enum": ["right", "left", "top", "bottom"],
+                    "type": "string"
                 },
                 "min_decimal_places": {
                     "type": "number"

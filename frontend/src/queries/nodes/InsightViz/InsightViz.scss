@@ -116,22 +116,53 @@
             flex-direction: row;
         }
 
-        .InsightVizDisplay__content__left {
+        &--legend-right {
+            flex-direction: row;
+        }
+
+        &--legend-left {
+            flex-direction: row-reverse;
+        }
+
+        &--legend-top {
+            flex-direction: column-reverse;
+        }
+
+        &--legend-bottom {
+            flex-direction: column;
+        }
+
+        .InsightVizDisplay__content__chart {
             position: relative;
             display: flex;
             flex: 1;
             flex-direction: column;
             width: 100%;
+            min-height: 0;
         }
 
-        .InsightVizDisplay__content__right {
+        .InsightVizDisplay__content__legend {
             display: flex;
             flex-shrink: 1;
             align-items: center;
+            margin: 1rem;
+        }
+
+        // Vertically-stacked legend (left/right) keeps the original sidebar dimensions
+        &--legend-right .InsightVizDisplay__content__legend,
+        &--legend-left .InsightVizDisplay__content__legend {
             width: fit-content;
             max-width: 45%;
             max-height: var(--insight-viz-min-height);
-            margin: 1rem;
+        }
+
+        // Horizontally-stacked legend (top/bottom) spans the chart width
+        &--legend-top .InsightVizDisplay__content__legend,
+        &--legend-bottom .InsightVizDisplay__content__legend {
+            justify-content: center;
+            width: 100%;
+            max-height: 30%;
+            margin: 0.5rem 0;
         }
     }
 
