@@ -9,6 +9,9 @@ feature: customer_analytics
 url_prefix: /customer-analytics
 ui_apps: {}
 tools:
+    accounts-bulk-update-tags-create:
+        operation: accounts_bulk_update_tags_create
+        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true
