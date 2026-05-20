@@ -1043,8 +1043,10 @@ jobs:
                   done
 
             - name: Build CH migration SQL PR comment
-              # Render the same per-environment SQL as a nested markdown list
-              # (environment -> node type(s) -> SQL) for posting as a PR comment.
+              # Render the per-environment CH migration SQL as a nested markdown list
+              # (environment -> node type(s) -> SQL). Environments that render identically
+              # are grouped together; if all environments match, the environment level is
+              # collapsed entirely and only the node type(s) -> SQL list remains.
               if: github.event_name == 'pull_request'
               run: |
                   CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
@@ -1055,9 +1057,41 @@ jobs:
                   } > ch_migration_sql_comment.md
                   if [ -z "$CHANGED" ]; then
                       echo '_No ClickHouse migrations changed in this PR._' >> ch_migration_sql_comment.md
+                      exit 0
+                  fi
+                  mkdir -p ch_sql_env
+                  DEPLOYMENTS=('' US EU DEV)
+                  LABELS=(unset US EU DEV)
+                  # Bucket environments by identical rendered output (parallel indexed arrays;
+                  # avoids bash 4 associative arrays) so divergent SQL prints once.
+                  BUCKET_HASH=()
+                  BUCKET_LABEL=()
+                  BUCKET_FILE=()
+                  for idx in "${!DEPLOYMENTS[@]}"; do
+                      file="ch_sql_env/${idx}.md"
+                      CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} > "$file" || true
+                      h=$(sha1sum "$file" | cut -d' ' -f1)
+                      found=-1
+                      for b in "${!BUCKET_HASH[@]}"; do
+                          if [ "${BUCKET_HASH[$b]}" = "$h" ]; then found=$b; break; fi
+                      done
+                      if [ "$found" -ge 0 ]; then
+                          BUCKET_LABEL[$found]="${BUCKET_LABEL[$found]}, ${LABELS[$idx]}"
+                      else
+                          BUCKET_HASH+=("$h")
+                          BUCKET_LABEL+=("${LABELS[$idx]}")
+                          BUCKET_FILE+=("$file")
+                      fi
+                  done
+                  if [ "${#BUCKET_HASH[@]}" -eq 1 ]; then
+                      # Every environment renders the same SQL — collapse the environment level.
+                      echo '_Identical across all cloud environments (unset, US, EU, DEV)._' >> ch_migration_sql_comment.md
+                      echo '' >> ch_migration_sql_comment.md
+                      cat "${BUCKET_FILE[0]}" >> ch_migration_sql_comment.md
                   else
-                      for deployment in '' US EU DEV; do
-                          CLOUD_DEPLOYMENT="${deployment}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} >> ch_migration_sql_comment.md || true
+                      for b in "${!BUCKET_HASH[@]}"; do
+                          echo "- **${BUCKET_LABEL[$b]}**" >> ch_migration_sql_comment.md
+                          sed 's/^/  /' "${BUCKET_FILE[$b]}" >> ch_migration_sql_comment.md
                       done
                   fi
 

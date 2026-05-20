@@ -70,9 +70,10 @@ class Command(BaseCommand):
                 print(indent(sql, "    "))
 
     def _handle_markdown(self, names: list[str]) -> None:
-        env_label = settings.CLOUD_DEPLOYMENT or "<unset>"
-        # node-role label -> list of SQL strings, preserving first-seen order.
-        # PR checks allow only one migration file per PR, so we don't nest by migration.
+        # Emit only the node type(s) -> SQL list, without an environment header. The
+        # CI step renders this once per CLOUD_DEPLOYMENT and adds the environment level
+        # itself, collapsing it when environments render identically. PR checks allow
+        # only one migration file per PR, so we don't nest by migration either.
         groups: OrderedDict[str, list[str]] = OrderedDict()
         notes: list[str] = []
         for name in names:
@@ -90,17 +91,16 @@ class Command(BaseCommand):
                     continue
                 groups.setdefault(self._node_role_label(op), []).append(sql)
 
-        print(f"- **{env_label}**")
         if not groups and not notes:
-            print("  - _no SQL operations under this environment_")
+            print("- _no SQL operations under this environment_")
         for note in notes:
-            print(f"  - {note}")
+            print(f"- {note}")
         for label, sqls in groups.items():
-            print(f"  - **{label}**")
+            print(f"- **{label}**")
             for sql in sqls:
-                print("    ```sql")
-                print(indent(sql.strip(), "    "))
-                print("    ```")
+                print("  ```sql")
+                print(indent(sql.strip(), "  "))
+                print("  ```")
 
     @staticmethod
     def _node_role_label(op) -> str:
