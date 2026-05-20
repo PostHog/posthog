@@ -332,6 +332,7 @@
     'button_tile',
     'dashboard',
     'insight',
+    'team',
     'text',
   ])
 # ---
@@ -575,6 +576,7 @@
     'refreshing',
     'save',
     'sort_tiles_by_layout',
+    'team_id',
     'text_id',
   ])
 # ---
