@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
@@ -8,7 +7,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
@@ -18,10 +16,13 @@ import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { deleteRevenueEventModalLogic } from './deleteRevenueEventModalLogic'
-import { EventConfigurationModal } from './EventConfigurationModal'
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
-export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
+export function EventConfiguration({
+    onOpenEventModal,
+}: {
+    onOpenEventModal: (event?: RevenueAnalyticsEventItem) => void
+}): JSX.Element {
     const { events } = useValues(revenueAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { views, eventName: eventToBeDeleted } = useValues(deleteRevenueEventModalLogic)
@@ -31,11 +32,6 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
     const { setEventName: setEventToBeDeleted } = useActions(deleteRevenueEventModalLogic)
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
-
-    const [modalState, setModalState] = useState<{
-        isOpen: boolean
-        event?: RevenueAnalyticsEventItem
-    }>({ isOpen: false })
 
     const onDeleteEvent = async (): Promise<boolean> => {
         if (!eventToBeDeleted) {
@@ -69,8 +65,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
-                            onClick={() => setModalState({ isOpen: true })}
-                            ref={buttonRef}
+                            onClick={() => onOpenEventModal()}
                         >
                             Add Revenue Event
                         </LemonButton>
@@ -193,7 +188,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                         size="small"
                                         type="secondary"
                                         icon={<IconGear />}
-                                        onClick={() => setModalState({ isOpen: true, event: item })}
+                                        onClick={() => onOpenEventModal(item)}
                                         tooltip="Edit event configuration"
                                     />
                                 </AccessControlAction>
@@ -228,14 +223,6 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                     },
                 ]}
             />
-
-            {modalState.isOpen &&
-                userHasAccess(AccessControlResourceType.RevenueAnalytics, AccessControlLevel.Editor) && (
-                    <EventConfigurationModal
-                        event={modalState.event}
-                        onClose={() => setModalState({ isOpen: false, event: undefined })}
-                    />
-                )}
 
             {managedViewsetsEnabled && (
                 <DataWarehouseManagedViewsetImpactModal
