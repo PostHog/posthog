@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -47,7 +48,7 @@ const NEW_TOPIC_SUGGESTIONS = [
 ]
 
 export function UserInterviews(): JSX.Element {
-    const { topics, topicsLoading } = useValues(userInterviewsLogic)
+    const { topics, topicsLoading, featureEnabled, receivedFeatureFlags } = useValues(userInterviewsLogic)
 
     const { openMax } = useMaxTool({
         identifier: 'create_user_interview_topic',
@@ -55,6 +56,10 @@ export function UserInterviews(): JSX.Element {
         initialMaxPrompt: NEW_TOPIC_PROMPT,
         suggestions: NEW_TOPIC_SUGGESTIONS,
     })
+
+    if (receivedFeatureFlags && !featureEnabled) {
+        return <NotFound object="user research topic" />
+    }
 
     return (
         <SceneContent>

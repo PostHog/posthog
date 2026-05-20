@@ -1,6 +1,8 @@
-import { afterMount, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -12,17 +14,28 @@ import type { userInterviewsLogicType } from './userInterviewsLogicType'
 
 export const userInterviewsLogic = kea<userInterviewsLogicType>([
     path(['products', 'user_interviews', 'frontend', 'userInterviewsLogic']),
+    connect(() => ({
+        values: [featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
+    })),
     loaders({
         topics: {
             __default: [] as UserInterviewTopicApi[],
             loadTopics: async () => {
                 const projectId = String(teamLogic.values.currentTeamId)
-                const response = await userInterviewTopicsList(projectId)
-                return response.results
+                try {
+                    const response = await userInterviewTopicsList(projectId)
+                    return response.results
+                } catch {
+                    return []
+                }
             },
         },
     }),
     selectors({
+        featureEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.USER_INTERVIEWS],
+        ],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
