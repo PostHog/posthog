@@ -151,7 +151,7 @@ const PlanCard = ({
                     </Link>
                 </div>
             )}
-            {pricedPlan?.flat_rate && (
+            {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
                 <PlanPrice addon={addon} unit_amount_usd={pricedPlan.unit_amount_usd} unit_label={pricedPlan.unit} />
             )}
             <div className="-mt-2">
