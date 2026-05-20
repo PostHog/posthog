@@ -192,7 +192,7 @@ const OverviewItemCell = ({
                 )}
             >
                 {usedLazyPrecompute ? (
-                    <PreAggregatedBadge variant="lazy" />
+                    <PreAggregatedBadge variant="precomputed" />
                 ) : usedPreAggregatedTables ? (
                     <PreAggregatedBadge variant="preagg" />
                 ) : null}
