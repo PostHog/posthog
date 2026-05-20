@@ -88,13 +88,13 @@ export function Login(): JSX.Element {
         devLoginTimeSavedLabel,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
-    const isDev = !!preflight?.is_debug
+    const allowDevLogin = !!preflight?.allow_dev_login
 
     useEffect(() => {
-        if (isDev) {
+        if (allowDevLogin) {
             loadDevUsers(null)
         }
-    }, [isDev, loadDevUsers])
+    }, [allowDevLogin, loadDevUsers])
 
     const passwordInputRef = useRef<HTMLInputElement>(null)
     const preventPasswordError = useRef(false)
@@ -308,7 +308,7 @@ export function Login(): JSX.Element {
                         showPasskey
                     />
                 )}
-                {isDev && (
+                {allowDevLogin && (
                     <div className="deprecated-space-y-2 border-t border-dashed pt-4 mt-4">
                         <div className="flex items-center justify-between">
                             <h4 className="m-0">Dev login</h4>

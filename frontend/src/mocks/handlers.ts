@@ -184,6 +184,12 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': require('./fixtures/_preflight.json'),
+        '/api/login/dev': {
+            users: [
+                { email: 'test@posthog.com', is_staff: true, label: 'Default test user' },
+                { email: 'staff@posthog.com', is_staff: true, label: null },
+            ],
+        },
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response

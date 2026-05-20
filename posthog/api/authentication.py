@@ -52,6 +52,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.two_factor_session import (
     _obfuscate_token,
     clear_two_factor_session_flags,
@@ -457,14 +458,14 @@ DEV_LOGIN_KNOWN_EMAIL_LABELS = {
 class DevLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(
         write_only=True,
-        help_text="Email of the active user to log in as. Only honored when settings.DEBUG is True.",
+        help_text="Email of the active user to log in as. Only honored when dev login is allowed (DEBUG and ALLOW_DEV_LOGIN).",
     )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
 
     def create(self, validated_data: dict[str, str]) -> Any:
-        if not settings.DEBUG:
+        if not is_dev_login_allowed():
             raise Http404()
 
         request = self.context["request"]
@@ -483,8 +484,8 @@ class DevLoginSerializer(serializers.Serializer):
 class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     """
     Dev-only convenience endpoint. Lists active users and lets the login UI
-    one-click sign in as any of them without a password. Returns 404 when
-    settings.DEBUG is False so this surface never exists in production.
+    one-click sign in as any of them without a password. Returns 404 unless
+    both DEBUG and ALLOW_DEV_LOGIN are enabled.
     """
 
     queryset = User.objects.none()
@@ -492,7 +493,7 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     permission_classes = (permissions.AllowAny,)
 
     def list(self, request: Request) -> Response:
-        if not settings.DEBUG:
+        if not is_dev_login_allowed():
             raise Http404()
 
         users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])

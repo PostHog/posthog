@@ -6,11 +6,13 @@ import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
@@ -340,3 +342,18 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "available": True,
             "client_id": "client-id",
         }
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_preflight_includes_allow_dev_login_when_enabled(self):
+        with self.is_cloud(False):
+            response = self.client.get("/_preflight/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["allow_dev_login"] is True
+        assert is_dev_login_allowed()
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_preflight_omits_allow_dev_login_when_disabled(self):
+        with self.is_cloud(False):
+            response = self.client.get("/_preflight/")
+        assert response.status_code == status.HTTP_200_OK
+        assert "allow_dev_login" not in response.json()

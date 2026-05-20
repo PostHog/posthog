@@ -139,7 +139,7 @@ export const loginLogic = kea<loginLogicType>([
                         const response = await api.get<{ users: DevUser[] }>('api/login/dev')
                         return response.users
                     } catch {
-                        // Endpoint is dev-only — silently no-op outside DEBUG.
+                        // Endpoint is unavailable unless allow_dev_login is set in preflight.
                         return []
                     }
                 },

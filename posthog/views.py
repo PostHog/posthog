@@ -30,6 +30,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import SlackIntegration
@@ -232,6 +233,9 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
 
     if settings.DEBUG or settings.E2E_TESTING:
         response["is_debug"] = True
+
+    if is_dev_login_allowed():
+        response["allow_dev_login"] = True
 
     if settings.TEST:
         response["is_test"] = True
