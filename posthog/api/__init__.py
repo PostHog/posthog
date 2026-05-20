@@ -114,7 +114,7 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import (
+from products.user_interviews.backend.presentation.views import (
     IntervieweeContextViewSet,
     UserInterviewTopicViewSet,
     UserInterviewViewSet,

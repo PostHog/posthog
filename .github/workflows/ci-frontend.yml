@@ -55,6 +55,7 @@ jobs:
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
                         - 'playwright/**'
+                        - 'services/mcp/**'
                         - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
@@ -86,6 +87,7 @@ jobs:
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
                         - 'playwright/**'
+                        - 'services/mcp/**'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
                         - .oxfmtrc*

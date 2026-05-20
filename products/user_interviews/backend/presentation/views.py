@@ -39,7 +39,9 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import absolute_uri
 
-from .models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
+from ..facade.api import parse_interviewee_identifier
+from ..facade.enums import SEARCH_DOCUMENT_TYPES
+from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
 
@@ -243,7 +245,6 @@ Record the agreed-upon next steps, including any additional actions that need to
         return str(uuid4())
 
 
-SEARCH_DOCUMENT_TYPES = ("transcript", "summary")
 SEARCH_EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072.value
 SEARCH_CONTENT_SNIPPET_LIMIT = 500
 SEARCH_MAX_LIMIT = 50
@@ -537,20 +538,9 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
 
 
 def _parse_identifier(identifier: str) -> tuple[str, str | None]:
-    """Split an interviewee identifier into a display name and (optional) email.
-
-    Accepts the same display-name format the topic validator accepts —
-    ``"Display Name <email@host>"`` — falling back to a best-effort
-    title-cased local-part for raw emails and the identifier as-is for
-    distinct IDs.
-    """
-    display_match = re.match(EmailWithDisplayNameValidator.display_name_regex, identifier)
-    if display_match:
-        return display_match.group(1).strip(), display_match.group(2).strip()
-    if "@" in identifier:
-        local_part = identifier.split("@", 1)[0]
-        return local_part.replace(".", " ").replace("_", " ").strip().title() or identifier, identifier
-    return identifier, None
+    """Tuple-shaped shim around the facade's identifier parser for legacy internal callers."""
+    identity = parse_interviewee_identifier(identifier)
+    return identity.display_name, identity.email
 
 
 def _merge_agent_context(topic_context: str, personal_context: str) -> str:
