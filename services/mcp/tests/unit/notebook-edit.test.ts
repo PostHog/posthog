@@ -26,11 +26,7 @@ describe('NotebookEditSchema', () => {
     })
 
     it('accepts a minimal valid payload', () => {
-        const result = NotebookEditSchema.safeParse({
-            short_id: 'abc',
-            old_string: 'a',
-            new_string: 'b',
-        })
+        const result = NotebookEditSchema.safeParse({ short_id: 'abc', old_string: 'a', new_string: 'b' })
         expect(result.success).toBe(true)
     })
 
@@ -48,22 +44,10 @@ describe('NotebookEditSchema', () => {
 // ---------- editHandler — handler-level smoke test --------------------------
 
 interface MockState {
-    /**
-     * Current "server view" of the notebook. Every GET returns the latest
-     * values. Tests can mutate these between operations to simulate a
-     * concurrent edit landing on the server.
-     */
-    notebookContent: typeof sampleDoc | Record<string, unknown>
+    notebookContent: typeof sampleDoc | Record<string, unknown> | null
     version: number
     saveCalls: Array<{ body: any }>
-    /** GET call counter — useful for tests that want to verify refetch happened. */
     getCalls: number
-    /**
-     * Optional callback fired AFTER each POST resolves, before the next GET.
-     * Use this to mutate `notebookContent` + `version` to simulate a
-     * concurrent edit having landed in between.
-     */
-    onPost?: (postIndex: number) => void
     saveResponses: Array<{ status: number; body: unknown }>
 }
 
@@ -78,13 +62,11 @@ function createMockContext(state: MockState): Context {
         }
     })
     const requestRawMock = vi.fn(async (opts: { body: any }) => {
-        const idx = state.saveCalls.length
         state.saveCalls.push({ body: opts.body })
         const response = state.saveResponses.shift()
         if (!response) {
             throw new Error('No queued response for requestRaw call')
         }
-        state.onPost?.(idx)
         return response
     })
     return {
@@ -99,47 +81,36 @@ function createMockContext(state: MockState): Context {
 }
 
 describe('editHandler', () => {
-    it('happy path: matches old_string against serialized content, posts steps', async () => {
+    it('happy path: returns the updated notebook with new content', async () => {
+        const updatedNotebook = {
+            short_id: 'aBcD1234',
+            content: sampleDoc,
+            version: 8,
+            title: 'Original',
+        }
         const state: MockState = {
             notebookContent: sampleDoc,
             version: 7,
             saveCalls: [],
             getCalls: 0,
-            saveResponses: [
-                {
-                    status: 200,
-                    body: { short_id: 'aBcD1234', content: sampleDoc, version: 8, title: 'Original' },
-                },
-            ],
+            saveResponses: [{ status: 200, body: updatedNotebook }],
         }
         const context = createMockContext(state)
 
-        // old_string is a literal substring of JSON.stringify(content, null, 2).
-        // Pull it from the actual serialization to avoid hand-counting indents.
-        const serialized = JSON.stringify(sampleDoc, null, JSON_INDENT)
-        const targetIdx = serialized.indexOf('"First paragraph."')
-        expect(targetIdx).toBeGreaterThan(0)
-        const oldString = '"First paragraph."'
-        const newString = '"First paragraph EDITED."'
-
         const result = await editHandler(context, {
             short_id: 'aBcD1234',
-            old_string: oldString,
-            new_string: newString,
+            old_string: '"First paragraph."',
+            new_string: '"First paragraph EDITED."',
         })
 
-        if (result.isError) {
-            throw new Error(`expected ok, got: ${JSON.stringify(result.error)}`)
-        }
-        expect(result.replacements).toBe(1)
-        expect(result.steps_applied).toBe(1)
-        expect(result.conflicts).toBe(0)
+        // Returns the full notebook from the server (already includes new content + bumped version).
+        expect(result).toEqual(updatedNotebook)
         expect(state.saveCalls).toHaveLength(1)
-        // The text we sent up should reflect the change.
+        expect(state.saveCalls[0]!.body.version).toBe(7)
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('First paragraph EDITED.')
     })
 
-    it('returns not_found when old_string does not appear', async () => {
+    it('throws not-found error when old_string does not appear', async () => {
         const state: MockState = {
             notebookContent: sampleDoc,
             version: 7,
@@ -148,20 +119,17 @@ describe('editHandler', () => {
             saveResponses: [],
         }
         const context = createMockContext(state)
-        const result = await editHandler(context, {
-            short_id: 'aBcD1234',
-            old_string: '"This text does not exist anywhere"',
-            new_string: '"replacement"',
-        })
-        expect(result.isError).toBe(true)
-        if (!result.isError) {
-            return
-        }
-        expect((result.error as { code: string }).code).toBe('not_found')
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_string: '"This text does not exist anywhere"',
+                new_string: '"replacement"',
+            })
+        ).rejects.toThrow(/old_string was not found/)
         expect(state.saveCalls).toHaveLength(0)
     })
 
-    it('returns ambiguous when old_string matches more than once without replace_all', async () => {
+    it('throws ambiguous error when old_string matches more than once without replace_all', async () => {
         const dupDoc = {
             type: 'doc',
             content: [
@@ -177,17 +145,14 @@ describe('editHandler', () => {
             saveResponses: [],
         }
         const context = createMockContext(state)
-        const result = await editHandler(context, {
-            short_id: 'aBcD1234',
-            old_string: '"duplicate"',
-            new_string: '"unique"',
-        })
-        expect(result.isError).toBe(true)
-        if (!result.isError) {
-            return
-        }
-        expect((result.error as { code: string }).code).toBe('ambiguous')
-        expect((result.error as unknown as { match_count: number }).match_count).toBe(2)
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_string: '"duplicate"',
+                new_string: '"unique"',
+            })
+        ).rejects.toThrow(/matches 2 places/)
+        expect(state.saveCalls).toHaveLength(0)
     })
 
     it('replaces every occurrence when replace_all is true', async () => {
@@ -198,17 +163,13 @@ describe('editHandler', () => {
                 { type: 'paragraph', content: [{ type: 'text', text: 'duplicate' }] },
             ],
         }
+        const updated = { short_id: 'aBcD1234', content: dupDoc, version: 8, title: 'x' }
         const state: MockState = {
             notebookContent: dupDoc as unknown as typeof sampleDoc,
             version: 7,
             saveCalls: [],
             getCalls: 0,
-            saveResponses: [
-                {
-                    status: 200,
-                    body: { short_id: 'aBcD1234', content: dupDoc, version: 8, title: 'x' },
-                },
-            ],
+            saveResponses: [{ status: 200, body: updated }],
         }
         const context = createMockContext(state)
         const result = await editHandler(context, {
@@ -217,16 +178,12 @@ describe('editHandler', () => {
             new_string: '"unique"',
             replace_all: true,
         })
-
-        if (result.isError) {
-            throw new Error(`expected ok, got: ${JSON.stringify(result.error)}`)
-        }
-        expect(result.replacements).toBe(2)
+        expect(result).toEqual(updated)
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('"text":"unique"')
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).not.toContain('"text":"duplicate"')
     })
 
-    it('returns invalid_resulting_json when the replacement breaks JSON syntax', async () => {
+    it('throws when the replacement breaks JSON syntax', async () => {
         const state: MockState = {
             notebookContent: sampleDoc,
             version: 7,
@@ -235,32 +192,21 @@ describe('editHandler', () => {
             saveResponses: [],
         }
         const context = createMockContext(state)
-        // Replace one of the closing braces with garbage so the result no longer parses.
-        const result = await editHandler(context, {
-            short_id: 'aBcD1234',
-            old_string: '"First paragraph."',
-            new_string: '"First paragraph."}}}',
-        })
-        expect(result.isError).toBe(true)
-        if (!result.isError) {
-            return
-        }
-        expect((result.error as { code: string }).code).toBe('invalid_resulting_json')
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_string: '"First paragraph."',
+                new_string: '"First paragraph."}}}',
+            })
+        ).rejects.toThrow(/no longer valid JSON/)
         expect(state.saveCalls).toHaveLength(0)
     })
 
-    it('handles 409 by refetching and re-running str_replace', async () => {
-        // Simulate: agent reads notebook at version 7, computes edit, POSTs.
-        // Server has moved on to version 8 due to a concurrent edit that
-        // renamed the heading but didn't touch the paragraph we're editing.
-        // Server returns 409. We refetch (now seeing version 8 + the
-        // concurrent rename), re-run str_replace against the new content
-        // (which still contains "First paragraph." — the concurrent edit
-        // didn't touch it), and POST again with version 8.
+    it('on 409, refetches and surfaces the latest content in the error message', async () => {
         const concurrentEditedDoc = {
             ...sampleDoc,
             content: [
-                { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Renamed' }] },
+                { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: 'Renamed by someone else' }] },
                 sampleDoc.content[1],
                 sampleDoc.content[2],
                 sampleDoc.content[3],
@@ -271,87 +217,38 @@ describe('editHandler', () => {
             version: 7,
             saveCalls: [],
             getCalls: 0,
-            // Simulate the server-side state moving forward to version 8
-            // between our 1st POST (which 409s) and our refetch.
-            onPost: (idx) => {
-                if (idx === 0) {
-                    state.notebookContent = concurrentEditedDoc as unknown as typeof sampleDoc
-                    state.version = 8
-                }
-            },
-            saveResponses: [
-                { status: 409, body: { code: 'conflict' } },
-                {
-                    status: 200,
-                    body: {
-                        short_id: 'aBcD1234',
-                        content: concurrentEditedDoc,
-                        version: 9,
-                        title: 'Original',
-                    },
-                },
-            ],
-        }
-        const context = createMockContext(state)
-        const result = await editHandler(context, {
-            short_id: 'aBcD1234',
-            old_string: '"First paragraph."',
-            new_string: '"First paragraph EDITED."',
-        })
-
-        if (result.isError) {
-            throw new Error(`expected ok, got: ${JSON.stringify(result.error)}`)
-        }
-        expect(result.conflicts).toBe(1)
-        // 2 GETs (initial + refetch) and 2 POSTs (initial 409 + retry 200).
-        expect(state.getCalls).toBe(2)
-        expect(state.saveCalls).toHaveLength(2)
-        // Second POST targets version 8 — the version we refetched.
-        expect(state.saveCalls[1]!.body.version).toBe(8)
-        // And carries the renamed heading from the concurrent edit, proving
-        // we computed against the refetched state rather than rebasing locally.
-        expect(JSON.stringify(state.saveCalls[1]!.body.content)).toContain('Renamed')
-    })
-
-    it('on 409, surfaces a clean not_found if the concurrent edit removed the target', async () => {
-        // Simulate: someone else deleted "First paragraph." between our
-        // initial GET and our POST. After 409, refetch sees no match and we
-        // return the agent a structured `not_found` instead of silently
-        // doing nothing or merging anyway.
-        const deletedDoc = {
-            ...sampleDoc,
-            content: [sampleDoc.content[0], sampleDoc.content[2], sampleDoc.content[3]],
-        }
-        const state: MockState = {
-            notebookContent: sampleDoc,
-            version: 7,
-            saveCalls: [],
-            getCalls: 0,
-            onPost: (idx) => {
-                if (idx === 0) {
-                    state.notebookContent = deletedDoc as unknown as typeof sampleDoc
-                    state.version = 8
-                }
-            },
             saveResponses: [{ status: 409, body: { code: 'conflict' } }],
         }
         const context = createMockContext(state)
-        const result = await editHandler(context, {
+
+        // Simulate concurrent edit having landed: after our 1st GET + 1st POST,
+        // the next GET (post-409 refetch) sees the new content.
+        state.notebookContent = sampleDoc
+        const requestMock = context.api.request as any
+        requestMock.mockImplementationOnce(async () => ({
             short_id: 'aBcD1234',
-            old_string: '"First paragraph."',
-            new_string: '"First paragraph EDITED."',
-        })
-        expect(result.isError).toBe(true)
-        if (!result.isError) {
-            return
-        }
-        expect((result.error as { code: string }).code).toBe('not_found')
-        // Only the initial POST happened; after 409, refetch reveals not_found
-        // before we attempt a second POST.
-        expect(state.saveCalls).toHaveLength(1)
+            content: sampleDoc,
+            version: 7,
+            title: 'Original',
+        }))
+        requestMock.mockImplementationOnce(async () => ({
+            short_id: 'aBcD1234',
+            content: concurrentEditedDoc,
+            version: 8,
+            title: 'Original',
+        }))
+
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_string: '"First paragraph."',
+                new_string: '"First paragraph EDITED."',
+            })
+        ).rejects.toThrow(/modified by someone else.*Renamed by someone else/s)
+        expect(state.saveCalls).toHaveLength(1) // POST once, then 409 → throw (no retry)
     })
 
-    it('returns stale_buffer on 410', async () => {
+    it('on 410, throws with a "refetch and re-apply" message', async () => {
         const state: MockState = {
             notebookContent: sampleDoc,
             version: 7,
@@ -360,47 +257,35 @@ describe('editHandler', () => {
             saveResponses: [{ status: 410, body: { code: 'conflict_stale' } }],
         }
         const context = createMockContext(state)
-        const result = await editHandler(context, {
-            short_id: 'aBcD1234',
-            old_string: '"First paragraph."',
-            new_string: '"updated"',
-        })
-        expect(result.isError).toBe(true)
-        if (!result.isError) {
-            return
-        }
-        expect((result.error as { code: string }).code).toBe('stale_buffer')
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_string: '"First paragraph."',
+                new_string: '"updated"',
+            })
+        ).rejects.toThrow(/edited extensively.*notebooks-retrieve.*re-apply your edit/s)
     })
 
-    it('returns no_content when the notebook has no editable content', async () => {
+    it('throws when the notebook has no editable content', async () => {
         const state: MockState = {
-            notebookContent: null as unknown as typeof sampleDoc,
+            notebookContent: null,
             version: 7,
             saveCalls: [],
             getCalls: 0,
             saveResponses: [],
         }
         const context = createMockContext(state)
-        const result = await editHandler(context, {
-            short_id: 'aBcD1234',
-            old_string: 'a',
-            new_string: 'b',
-        })
-        expect(result.isError).toBe(true)
-        if (!result.isError) {
-            return
-        }
-        expect((result.error as { code: string }).code).toBe('no_content')
+        await expect(editHandler(context, { short_id: 'aBcD1234', old_string: 'a', new_string: 'b' })).rejects.toThrow(
+            /no editable content/
+        )
     })
 
     it('uses 2-space indent for the serialization the agent matches against', () => {
         // Sanity check that JSON_INDENT is exposed and the tool description
-        // accurately reflects what the agent will see. Nested levels accumulate
-        // (level 2 = 4 spaces, level 3 = 6 spaces, etc.) which is expected and
-        // what makes deeply-anchored old_strings recognizable for the agent.
+        // accurately reflects what the agent will see.
         expect(JSON_INDENT).toBe(2)
         const serialized = JSON.stringify(sampleDoc, null, JSON_INDENT)
-        expect(serialized).toContain('  "type"') // level-1 indent
-        expect(serialized).toContain('      "type"') // level-3 indent (inside content array)
+        expect(serialized).toContain('  "type"')
+        expect(serialized).toContain('      "type"')
     })
 })
