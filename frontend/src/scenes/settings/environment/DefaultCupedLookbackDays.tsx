@@ -18,12 +18,13 @@ export function DefaultCupedLookbackDays(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const savedValue = experimentsConfig?.default_cuped_lookback_days ?? DEFAULT_LOOKBACK_DAYS
-    const [localValue, setLocalValue] = useState<number | undefined>(savedValue)
+    const savedValue = experimentsConfig?.default_cuped_lookback_days ?? null
+    const displayValue = savedValue ?? DEFAULT_LOOKBACK_DAYS
+    const [localValue, setLocalValue] = useState<number | undefined>(displayValue)
 
     useEffect(() => {
-        setLocalValue(savedValue)
-    }, [savedValue])
+        setLocalValue(displayValue)
+    }, [displayValue])
 
     const isInvalid =
         localValue === undefined ||
@@ -33,7 +34,7 @@ export function DefaultCupedLookbackDays(): JSX.Element {
 
     const commit = (): void => {
         if (isInvalid) {
-            setLocalValue(savedValue)
+            setLocalValue(displayValue)
             return
         }
         const rounded = Math.round(localValue as number)
