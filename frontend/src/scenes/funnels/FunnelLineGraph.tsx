@@ -19,6 +19,16 @@ import { BreakdownKeyType, ChartParams, GraphDataset, GraphType } from '~/types'
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
 
+// The funnel backend uses the literal "Baseline" (or `['Baseline', ...]` for multi-breakdowns)
+// to mark the overall series, which is not a breakdown the user picked.
+function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): boolean {
+    return (
+        breakdownValue !== undefined &&
+        breakdownValue !== 'Baseline' &&
+        !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
+    )
+}
+
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
         return <>{children}</>
@@ -72,7 +82,7 @@ export function FunnelLineGraph({
                 goalLines={goalLines ?? []}
                 tooltip={{
                     renderSeries: (_, datum) => {
-                        if (datum.breakdown_value !== undefined && !!datum.breakdown_value) {
+                        if (hasBreakdown(datum.breakdown_value)) {
                             return <div className="datum-label-column">{getDatumTitle(datum, breakdownFilter)}</div>
                         }
                         return <div className="datum-label-column">Conversion</div>
@@ -95,11 +105,7 @@ export function FunnelLineGraph({
                               const day = dataset?.days?.[index] ?? ''
                               const breakdownValue = (dataset as { breakdown_value?: BreakdownKeyType })
                                   ?.breakdown_value
-                              const hasBreakdown =
-                                  breakdownValue !== undefined &&
-                                  breakdownValue !== 'Baseline' &&
-                                  !(Array.isArray(breakdownValue) && breakdownValue[0] === 'Baseline')
-                              const breakdownLabel = hasBreakdown
+                              const breakdownLabel = hasBreakdown(breakdownValue)
                                   ? formatBreakdownLabel(
                                         breakdownValue,
                                         breakdownFilter,
@@ -128,7 +134,7 @@ export function FunnelLineGraph({
                                   funnelTrendsDropOff: false,
                                   includeRecordings: true,
                                   funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
-                                  ...(hasBreakdown ? { funnelStepBreakdown: breakdownValue } : {}),
+                                  ...(hasBreakdown(breakdownValue) ? { funnelStepBreakdown: breakdownValue } : {}),
                               }
                               openPersonsModal({
                                   title,
