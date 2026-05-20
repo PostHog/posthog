@@ -52,6 +52,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     iterate_partitions,
     list_child_partitions,
 )
+from posthog.temporal.data_imports.sources.postgres.query_builders import build_select_clause
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -776,15 +777,25 @@ def _build_query(
     add_sampling: Optional[bool] = False,
     *,
     upper_bound_inclusive: Optional[Any] = None,
+    enabled_columns: Optional[list[str]] = None,
+    primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
+    select_clause = build_select_clause(enabled_columns, primary_keys, incremental_field)
+
     if not should_use_incremental_field:
         if add_sampling:
             if table_type == "view":
-                query = sql.SQL("SELECT * FROM {} WHERE random() < 0.01").format(sql.Identifier(schema, table_name))
+                query = sql.SQL("SELECT {cols} FROM {table} WHERE random() < 0.01").format(
+                    cols=select_clause, table=sql.Identifier(schema, table_name)
+                )
             else:
-                query = sql.SQL("SELECT * FROM {} TABLESAMPLE SYSTEM (1)").format(sql.Identifier(schema, table_name))
+                query = sql.SQL("SELECT {cols} FROM {table} TABLESAMPLE SYSTEM (1)").format(
+                    cols=select_clause, table=sql.Identifier(schema, table_name)
+                )
         else:
-            query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
+            query = sql.SQL("SELECT {cols} FROM {table}").format(
+                cols=select_clause, table=sql.Identifier(schema, table_name)
+            )
 
         if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
@@ -809,8 +820,9 @@ def _build_query(
     if add_sampling:
         if table_type == "view":
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
+                "SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
             ).format(
+                cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
@@ -819,8 +831,9 @@ def _build_query(
             )
         else:
             query = sql.SQL(
-                "SELECT * FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} {op} {last_value}"
+                "SELECT {cols} FROM {schema}.{table} TABLESAMPLE SYSTEM (1) WHERE {incremental_field} {op} {last_value}"
             ).format(
+                cols=select_clause,
                 schema=sql.Identifier(schema),
                 table=sql.Identifier(table_name),
                 incremental_field=sql.Identifier(incremental_field),
@@ -828,7 +841,8 @@ def _build_query(
                 last_value=sql.Literal(db_incremental_field_last_value),
             )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+            cols=select_clause,
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
@@ -1461,6 +1475,22 @@ def _get_table(
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
+def _project_table_columns(
+    table: Table[PostgreSQLColumn],
+    retained: list[str] | None,
+) -> Table[PostgreSQLColumn]:
+    """Return a new `Table` whose columns are filtered to `retained` (in source order).
+
+    `None` retained returns the table unchanged. Columns missing from `retained` are dropped from
+    the Arrow schema so projected SELECT output zips correctly into the schema."""
+    if retained is None:
+        return table
+
+    retained_set = set(retained)
+    filtered = [column for column in table.columns if column.name in retained_set]
+    return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
+
+
 def postgres_source(
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
@@ -1478,6 +1508,7 @@ def postgres_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
     is_initial_sync: bool = False,
+    enabled_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -1521,39 +1552,20 @@ def postgres_source(
                 # `is_initial_sync or full_table_scan` gating used a few lines below for
                 # partitioned-table row estimation.
                 fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
-                table = _get_table(
+                full_table = _get_table(
                     cursor,
                     schema,
                     table_name,
                     logger,
                     probe_unconstrained_numeric_scale=fresh_schema_being_created,
                 )
-                logger.debug(f"Source schema: {table.to_arrow_schema()}")
 
-                inner_query_with_limit = _build_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    table.type,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                    add_sampling=True,
-                )
-
-                count_query = _build_count_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                )
                 cursor.execute(
                     sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
                         timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
                     )
                 )
+
                 try:
                     logger.debug("Checking if source is a read replica...")
                     using_read_replica = _is_read_replica(cursor)
@@ -1562,6 +1574,56 @@ def postgres_source(
                     primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     if primary_keys:
                         logger.debug(f"Found primary keys: {primary_keys}")
+
+                    # Fallback on checking for an `id` field on the table. Resolve the PKs
+                    # before building queries so chunk-size sampling and the actual reader
+                    # project the same columns.
+                    used_id_pk_fallback = False
+                    if primary_keys is None and "id" in full_table:
+                        logger.debug("Falling back to ['id'] for primary keys...")
+                        primary_keys = ["id"]
+                        used_id_pk_fallback = True
+
+                    # Project both the Arrow schema and the SELECT clause so the cursor's row shape
+                    # matches what downstream consumers expect.
+                    retained_columns: list[str] | None = None
+                    if enabled_columns is not None:
+                        retained_set: set[str] = set(enabled_columns)
+                        for pk in primary_keys or []:
+                            retained_set.add(pk)
+                        if incremental_field:
+                            retained_set.add(incremental_field)
+                        retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
+                        # Mirror build_select_clause's fallback: when nothing remains after projection
+                        # the SQL emits `SELECT *`, so the Arrow schema must stay full-table to match.
+                        if not retained_columns:
+                            retained_columns = None
+
+                    table = _project_table_columns(full_table, retained_columns)
+                    logger.debug(f"Source schema: {table.to_arrow_schema()}")
+
+                    inner_query_with_limit = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        table.type,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                        add_sampling=True,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                    )
+
+                    count_query = _build_count_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                    )
+
                     logger.debug("Checking if table is partitioned...")
                     is_partitioned = False
                     child_partitions: list = []
@@ -1642,11 +1704,7 @@ def postgres_source(
                     )
 
                     has_duplicate_primary_keys = False
-
-                    # Fallback on checking for an `id` field on the table
-                    if primary_keys is None and "id" in table:
-                        logger.debug("Falling back to ['id'] for primary keys...")
-                        primary_keys = ["id"]
+                    if used_id_pk_fallback:
                         logger.debug("Checking duplicate primary keys...")
                         has_duplicate_primary_keys = _has_duplicate_primary_keys(
                             cursor, schema, table_name, primary_keys, logger
@@ -1731,6 +1789,8 @@ def postgres_source(
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
                 )
 
                 successive_errors = 0
@@ -1802,6 +1862,8 @@ def postgres_source(
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
 
                 yield from iterate_partitions(
@@ -1831,6 +1893,8 @@ def postgres_source(
                         incremental_field_type,
                         lo,
                         upper_bound_inclusive=hi,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
 
                 yield from iterate_date_windows(
@@ -1861,6 +1925,8 @@ def postgres_source(
                             incremental_field,
                             incremental_field_type,
                             db_incremental_field_last_value,
+                            enabled_columns=enabled_columns,
+                            primary_keys=primary_keys,
                         )
                         logger.debug(f"Postgres query: {query.as_string()}")
 

@@ -72,6 +72,8 @@ Do not generate any code like Python scripts. Users don't have the ability to ru
 
 When users ask about SQL variables or query variables, use SQL mode and query `system.insight_variables` directly. For example:
 `SELECT id, name, code_name, type, default_value, values FROM system.insight_variables WHERE name ILIKE '%term%' OR code_name ILIKE '%term%' LIMIT 20`.
+
+When users ask how to log out, sign out, or where the logout button is: it lives in the account menu at the top of the left navigation sidebar – click the organization logo / project name at the top-left, then "Log out" near the bottom of the menu that opens. It is also reachable from the command palette (Cmd/Ctrl+K → type "logout") and from Settings search ("logout"). Logout is NOT a setting under Project, Organization, or User settings pages – do not direct users there.
 </basic_functionality>
 """.strip()
 

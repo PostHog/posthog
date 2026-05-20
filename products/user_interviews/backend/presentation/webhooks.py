@@ -37,7 +37,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from .models import UserInterview, UserInterviewTopic
+from ..models import UserInterview, UserInterviewTopic
 
 logger = structlog.get_logger(__name__)
 
@@ -209,7 +209,7 @@ def start_call(request: Request, access_token: str) -> Response:
     they also use it to actually start the call. The win is removing the leak from the
     initial HTML and giving us a single, auditable, rate-limitable surface.
     """
-    from .api import _merge_agent_context, _parse_identifier
+    from .views import _merge_agent_context, _parse_identifier
 
     if not settings.VAPI_PUBLIC_KEY or not settings.VAPI_ASSISTANT_ID:
         logger.warning("user_interviews_start_call_misconfigured")
