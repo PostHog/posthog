@@ -43,15 +43,6 @@ declare module '*.sql?raw' {
 // This fixes TS2882 errors when side-effect importing .scss files
 declare module '*.scss'
 
-// `@tailwindcss/vite` only ships types via `package.json#exports`,
-// which `moduleResolution: "node"` doesn't read.
-declare module '@tailwindcss/vite' {
-    import type { Plugin } from 'vite'
-    type PluginOptions = { optimize?: boolean | { minify?: boolean } }
-    const tailwindcss: (opts?: PluginOptions) => Plugin[]
-    export default tailwindcss
-}
-
 // This fixes TS2882 errors when side-effect importing .css files
 declare module '*.css'
 
