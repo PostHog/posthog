@@ -8,12 +8,13 @@ import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
+import { Experiment, ExperimentConclusion, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
 import {
     experimentsLogic,
     getExperimentStatus,
     getExperimentStatusColor,
+    getRecommendedVariantToKeep,
     hasEnded,
     isExperimentPaused,
 } from './experimentsLogic'
@@ -561,6 +562,105 @@ describe('utility functions', () => {
             },
         ])('returns $expected when $desc', ({ end_date, status, expected }) => {
             expect(hasEnded(createMockExperiment({ end_date, status }))).toBe(expected)
+        })
+    })
+
+    describe('getRecommendedVariantToKeep', () => {
+        const baseFlag = {
+            id: 1,
+            key: 'flag',
+            active: true,
+            filters: {
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                },
+                groups: [{ properties: [], rollout_percentage: 100 }],
+            },
+        }
+
+        const withConclusion = (conclusion: ExperimentConclusion | null): Experiment =>
+            createMockExperiment({
+                feature_flag: baseFlag,
+                conclusion,
+                parameters: { feature_flag_variants: baseFlag.filters.multivariate.variants },
+            })
+
+        it('returns null when no conclusion is set', () => {
+            expect(getRecommendedVariantToKeep(withConclusion(null))).toBeNull()
+        })
+
+        it('returns null when there are no variants on the flag', () => {
+            const experiment = createMockExperiment({
+                feature_flag: { id: 1, key: 'flag', active: true, filters: { groups: [] } },
+                conclusion: ExperimentConclusion.Won,
+            })
+            expect(getRecommendedVariantToKeep(experiment)).toBeNull()
+        })
+
+        it('recommends the first test variant when Won', () => {
+            const result = getRecommendedVariantToKeep(withConclusion(ExperimentConclusion.Won))
+            expect(result).toEqual({ variantKey: 'test', reason: 'the test variant won' })
+        })
+
+        it('recommends control when Lost', () => {
+            const result = getRecommendedVariantToKeep(withConclusion(ExperimentConclusion.Lost))
+            expect(result?.variantKey).toBe('control')
+            expect(result?.reason).toMatch(/underperformed/)
+        })
+
+        it.each([ExperimentConclusion.Inconclusive, ExperimentConclusion.StoppedEarly, ExperimentConclusion.Invalid])(
+            'recommends control with safe-reversal reason when %s',
+            (conclusion) => {
+                const result = getRecommendedVariantToKeep(withConclusion(conclusion))
+                expect(result?.variantKey).toBe('control')
+                expect(result?.reason).toMatch(/changes nothing/)
+            }
+        )
+
+        it('returns null when the experiment already has a single variant shipped at 100%', () => {
+            const shippedFlag = {
+                ...baseFlag,
+                filters: {
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 0 },
+                            { key: 'test', rollout_percentage: 100 },
+                        ],
+                    },
+                    groups: [{ properties: [], rollout_percentage: 100 }],
+                },
+            }
+            const experiment = createMockExperiment({
+                feature_flag: shippedFlag,
+                conclusion: ExperimentConclusion.Won,
+                parameters: { feature_flag_variants: shippedFlag.filters.multivariate.variants },
+            })
+            expect(getRecommendedVariantToKeep(experiment)).toBeNull()
+        })
+
+        it('falls back to first variant when no key is literally "control"', () => {
+            const flag = {
+                ...baseFlag,
+                filters: {
+                    multivariate: {
+                        variants: [
+                            { key: 'baseline', rollout_percentage: 50 },
+                            { key: 'experiment', rollout_percentage: 50 },
+                        ],
+                    },
+                    groups: [{ properties: [], rollout_percentage: 100 }],
+                },
+            }
+            const experiment = createMockExperiment({
+                feature_flag: flag,
+                conclusion: ExperimentConclusion.Lost,
+                parameters: { feature_flag_variants: flag.filters.multivariate.variants },
+            })
+            const result = getRecommendedVariantToKeep(experiment)
+            expect(result?.variantKey).toBe('baseline')
         })
     })
 })
