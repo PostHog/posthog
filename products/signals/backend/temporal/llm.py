@@ -14,6 +14,12 @@ logger = structlog.get_logger(__name__)
 
 MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
 
+# Marker attached to every $ai_generation captured by this client. Customer-facing
+# LLM evaluators (e.g. "Unhappy User") must filter generations carrying this tag out
+# of their input set — otherwise the signals pipeline's own description-writer calls
+# get re-evaluated and the inbox recurses on itself.
+SIGNALS_INTERNAL_AI_PRODUCT = "posthog_signals_internal"
+
 # Models that support Anthropic extended thinking. Keep in sync with the models we actually use.
 ANTHROPIC_THINKING_MODELS = {
     "claude-haiku-4-5",
@@ -120,6 +126,11 @@ async def call_llm(
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "temperature": temperature,
+        # Tag every generation so the project's evaluators can exclude the signals
+        # pipeline's own LLM calls — without this, generated signal descriptions
+        # get re-evaluated and trigger a recursive feedback loop.
+        "posthog_properties": {"ai_product": SIGNALS_INTERNAL_AI_PRODUCT},
+        "posthog_distinct_id": SIGNALS_INTERNAL_AI_PRODUCT,
     }
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
