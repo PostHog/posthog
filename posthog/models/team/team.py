@@ -40,6 +40,7 @@ from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -126,7 +127,13 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards
-        dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
+        default_app_template = DashboardTemplate.original_template()
+        dashboard = Dashboard.objects.db_manager(self.db).create(
+            name="My App Dashboard",
+            pinned=True,
+            team=team,
+            description=default_app_template.dashboard_description or "",
+        )
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 

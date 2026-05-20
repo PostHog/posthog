@@ -170,6 +170,8 @@ hogli start                                 # auto-resolves op:// via `op run`
 
 If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself under `op run --env-file=.env.local`. No need to remember the wrapper command.
 
+If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
+
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
