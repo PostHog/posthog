@@ -40,10 +40,10 @@ hogli wait -y            # blocks until all phrocs-managed units are ready
 hogli doctor             # optional: stale migrations, zombie phrocs, disk pressure
 ```
 
-Verify and screenshot via the driver:
+Verify and screenshot via the driver (run from the repo root):
 
 ```bash
-node .agents/skills/run-posthog/driver.mjs
+node .claude/skills/run-posthog/driver.mjs
 ```
 
 What the driver does:
@@ -60,6 +60,8 @@ Flags:
 
 - `--no-browser` — HTTP smoke only, skip Playwright (useful in CI / no chromium).
 - `BASE_URL=...` — override the proxy URL (default `http://localhost:8010`).
+
+The driver only proves the stack boots and renders the unauthenticated entry page (preflight/login). To verify an authenticated scene or a specific UI change, point `chrome-devtools-mcp` or `playwright` MCP at `http://localhost:8010` and drive it from there — the stack is already up, the screenshot in `/tmp/posthog-shots/latest.png` confirms it.
 
 Stop the stack when done:
 
@@ -107,6 +109,6 @@ hogli test path/to/test_module.py::TestClass::test_method
 
 - **`hogli up -d` exits with `Another instance of bin/start is already running (lock file: bin/start.lock)`** — a previous run is still active or crashed without cleanup. Check `phrocs status` (or `lsof bin/start.lock`); if nothing's there, `rm bin/start.lock` and retry.
 - **`docker info` fails with `dial unix /Users/<you>/.orbstack/run/docker.sock: connect: no such file or directory`** — OrbStack is stopped. `open -a OrbStack` (macOS) or restart the daemon; sockets reappear under `~/.orbstack/run/`.
-- **Driver fails on `Cannot find module 'playwright'`** — Playwright is a frontend dep. Run from the repo root after `pnpm install`, or invoke with `pnpm exec node .agents/skills/run-posthog/driver.mjs`.
+- **Driver fails on `Cannot find module 'playwright'`** — Playwright is a frontend dep. Run from the repo root after `pnpm install`, or invoke with `pnpm exec node .claude/skills/run-posthog/driver.mjs`.
 - **First navigation in the driver times out (`page.goto` > 60s)** — Vite is compiling routes on demand. Re-run; the second pass uses the warm cache and completes in <5s.
 - **`/api/projects/@current` returns 500 instead of 401** — Postgres or ClickHouse isn't reachable. `docker ps | grep posthog-` and look for non-healthy containers; `hogli services:ready` waits for all of them.
