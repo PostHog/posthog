@@ -773,7 +773,20 @@ impl<'a> Parser<'a> {
         // `Call(if,[x]) := y`, `f() := 1` is `Call(f) := 1`). The
         // guard is only for a *RHS* parse, where a trailing `(…) :=`
         // would be the next statement's target.
-        let expr = self.parse_expr_bp(0)?;
+        //
+        // We *do* enable the Pratt-RHS-failure recovery flag: cpp's
+        // ALL(*) splits `x *= 2` into `x` + `* = 2` (the `*= 2` lexes
+        // as `*` `=` `2`, and `* = 2` is a valid Compare(Field(*), =,
+        // 2) statement on its own). Rust used to hard-error on the
+        // failed RHS of `*`. Wrap the leading parse in checkpoint +
+        // recovery so a failed infix RHS at the top level yields the
+        // LHS so far and the operator becomes the next statement's
+        // leading token.
+        let prev_recover = self.stmt_rhs_recover_on_pratt_rhs_failure;
+        self.stmt_rhs_recover_on_pratt_rhs_failure = true;
+        let expr_result = self.parse_expr_bp(0);
+        self.stmt_rhs_recover_on_pratt_rhs_failure = prev_recover;
+        let expr = expr_result?;
         if self.eat(TokenKind::ColonEquals)? {
             let right = self.parse_stmt_rhs_expr()?;
             // `exprStmt: expression (COLONEQUALS expression)? SEMICOLON?`

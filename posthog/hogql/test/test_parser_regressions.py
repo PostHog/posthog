@@ -1879,6 +1879,35 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_stmt_expression_pratt_recovers_at_statement_level(self):
+        # `x *= 2` lexes as `x`, `*`, `=`, `2` — there's no `*=` token
+        # in the grammar. cpp's ALL(*) splits the input into TWO
+        # statements: `x` (ExprStatement(Field(x))) plus `* = 2`
+        # (ExprStatement(Compare(Field(*), "==", 2)) — `*` as a
+        # top-level asterisk-primary, `= 2` as the comparison rhs).
+        # Rust used to greedy-parse `x *` as a multiplication then
+        # hard-error on the failed RHS parse of `=` (not a primary
+        # form). Setting the stmt-rhs Pratt-recovery flag at the
+        # leading-expression slot of parse_expr_or_assignment_stmt
+        # lets rust mirror cpp's split.
+        cases = (
+            "x *= 2",
+            "x * = 2",  # equivalent — same lexing
+            "let x := 1; x *= 2;",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guard: `* = 2` standalone is a valid Compare; `* 2` is two
+        # bare ExprStatements; `x * y` is a single multiplication.
+        for src in ("* = 2", "* 2", "x * y", "x = 2"):
+            oracle = clear_locations(parse_program(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_program(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_let_decl_shortens_rhs_when_trailing_colon_equals(self):
         # cpp's varDecl grammar (`LET ident (':=' expression)?`) has
         # no place for a trailing `:=` after the expression. When one

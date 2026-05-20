@@ -20,60 +20,17 @@ For Rust-correctness regression tests (where Rust used to be wrong and
 we fixed it), see `test_parser_regressions.py`. This file is the
 inverse: regressions for *C++* whose AST the Rust port deliberately
 does not bug-match.
+
+Currently empty — all five original cpp-side monsters resolved:
+  - HOGQLX block-comment phantom attribute → grammar lexer fix
+  - HOGQLX `--` line-comment phantom attribute → grammar lexer fix
+  - HOGQLX `#` unrecognised character → grammar UNEXPECTED_CHARACTER catch-all
+  - Float subnormal underflow → cpp `strtod` + errno fix
+  - Hog `*= 2` (parser-level) → rust stmt-rhs Pratt-failure recovery
 """
 
-import json
-import unittest
-
-import hogql_parser as cpp
-import hogql_parser_rs
-
-from posthog.hogql.visitor import clear_locations
-from posthog.hogql.parser import parse_expr, parse_program
 from posthog.test.base import BaseTest
 
 
-def _strip(value):
-    """Drop start/end and explicit None fields so AST trees compare on
-    structure rather than serialiser-specific filler."""
-    if isinstance(value, dict):
-        out = {}
-        for k, v in value.items():
-            if k in ("start", "end"):
-                continue
-            if v is None:
-                continue
-            out[k] = _strip(v)
-        return out
-    if isinstance(value, list):
-        return [_strip(x) for x in value]
-    return value
-
-
 class TestParserCppBugXfails(BaseTest):
-    @unittest.expectedFailure
-    def test_hog_compound_assignment_op_garbage_recovery(self):
-        """`let x := 1; x *= 2;` — C++ silently splits `x *= 2` into
-        three nonsensical ExprStatements (`x`, then `Compare(Field("*"),
-        op="==", right=2)`). The other compound-assignment operators
-        (`+=` / `-=` / `/=` / `%=`) all reject in cpp; only `*=` is
-        recovered via ANTLR's automatic single-token-insertion
-        (`*=` is read as `*` then `=`, then ANTLR inserts a missing
-        second `=` to make the comparison operator `==`).
-
-        Rust correctly rejects (`unexpected token in expression:
-        EqDouble`). To resolve, cpp would need to disable ANTLR's
-        token-insertion error recovery for this slot or add an
-        explicit `*=` reject token — both are involved. The cleaner
-        long-term fix is to implement compound assignment in both
-        parsers (`x *= 2` → desugar to `x := x * 2`); meanwhile both
-        rejecting is acceptable since no production query relies on
-        the recovered AST.
-        """
-        src = "let x := 1; x *= 2;"
-        # Both should accept-and-desugar OR both should reject. Today
-        # cpp accepts garbage and rust rejects, so assertEqual on the
-        # parse result fails (rust raises before we can compare ASTs).
-        cpp_ast = clear_locations(parse_program(src, backend="cpp-json"))
-        rust_ast = clear_locations(parse_program(src, backend="rust-json"))
-        self.assertEqual(cpp_ast, rust_ast)
+    pass
