@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -64,6 +64,40 @@ export const ListQueryParams = /* @__PURE__ */ zod.object({
 
 export const RetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
+})
+
+export const PartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this organization.'),
+})
+
+export const partialUpdateBodyNameMax = 64
+
+export const PartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    logo_media_id: zod.uuid().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    default_experiment_stats_method: zod
+        .union([
+            zod.enum(['bayesian', 'frequentist']).describe('* `bayesian` - Bayesian\n* `frequentist` - Frequentist'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Default statistical method for new experiments in this organization.\n\n* `bayesian` - Bayesian\n* `frequentist` - Frequentist'
+        ),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
 })
 
 export const MembersListParams = /* @__PURE__ */ zod.object({

@@ -13,6 +13,7 @@ function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
         cache: {} as any,
         getDistinctId: async () => 'test-distinct-id',
         trackEvent: async () => {},
+        elicit: vi.fn().mockResolvedValue({ action: 'accept', content: { confirmed: true } }),
     }
 }
 

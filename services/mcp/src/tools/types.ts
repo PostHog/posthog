@@ -1,3 +1,5 @@
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js'
+import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js'
 import type { z } from 'zod'
 
 import type { ApiClient, GroupType } from '@/api/client'
@@ -92,6 +94,13 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
+    /**
+     * Request structured input from the user via the MCP client (e.g. a confirmation modal).
+     * Returns the client's response, including the user's action (`accept`/`decline`/`cancel`)
+     * and any submitted form content. Used by `confirmAction()` to gate destructive operations
+     * behind manual user confirmation. Throws if the client does not implement elicitation.
+     */
+    elicit: (params: ElicitRequestFormParams, options?: RequestOptions) => Promise<ElicitResult>
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {

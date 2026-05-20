@@ -54,6 +54,7 @@ export function createTestContext(client: ApiClient): Context {
         sessionManager: new SessionManager(cache),
         getDistinctId: async () => 'test-distinct-id',
         trackEvent: async () => {},
+        elicit: async () => ({ action: 'accept', content: { confirmed: true } }),
     }
 
     return context

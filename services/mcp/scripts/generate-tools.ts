@@ -766,6 +766,7 @@ function generateToolCode(
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    needsConfirmAction: boolean
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
@@ -811,6 +812,16 @@ function generateToolCode(
 
     // Build handler body
     let handlerBody = ''
+    const needsConfirmAction = config.confirmation_required === true
+    if (needsConfirmAction) {
+        const confirmTitle = config.title ?? toolName
+        const confirmDescription =
+            config.description ?? resolved.operation.description ?? resolved.operation.summary ?? toolName
+        handlerBody += `        await confirmAction(context, {\n`
+        handlerBody += `            title: ${JSON.stringify(confirmTitle)},\n`
+        handlerBody += `            description: ${JSON.stringify(confirmDescription.trim())},\n`
+        handlerBody += `        })\n`
+    }
     if (needsOrgId) {
         handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
     }
@@ -948,6 +959,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         needsWithPostHogUrl,
         hasEnrichment,
         responseFilterImport: responseFilter.helperImport,
+        needsConfirmAction,
     }
 }
 
@@ -969,6 +981,7 @@ function generateCustomSchemaToolCode(
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
+    needsConfirmAction: boolean
 } {
     const pathParamNames = extractPathParams(resolved.path)
 
@@ -981,6 +994,16 @@ function generateCustomSchemaToolCode(
     const needsOrgId = resolved.path.includes('{organization_id}')
 
     let handlerBody = ''
+    const needsConfirmAction = config.confirmation_required === true
+    if (needsConfirmAction) {
+        const confirmTitle = config.title ?? toolName
+        const confirmDescription =
+            config.description ?? resolved.operation.description ?? resolved.operation.summary ?? toolName
+        handlerBody += `        await confirmAction(context, {\n`
+        handlerBody += `            title: ${JSON.stringify(confirmTitle)},\n`
+        handlerBody += `            description: ${JSON.stringify(confirmDescription.trim())},\n`
+        handlerBody += `        })\n`
+    }
     if (needsOrgId) {
         handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
     }
@@ -1054,6 +1077,7 @@ ${handlerBody}    },
         needsWithPostHogUrl: false,
         hasEnrichment: false,
         responseFilterImport: responseFilter.helperImport,
+        needsConfirmAction,
     }
 }
 
@@ -1133,6 +1157,7 @@ function generateCategoryFile(
     let hasWithPostHogUrl = false
 
     let hasEnrichment = false
+    let hasConfirmAction = false
 
     const responseFilterImports = new Set<string>()
 
@@ -1170,6 +1195,9 @@ function generateCategoryFile(
         }
         if (result.responseFilterImport) {
             responseFilterImports.add(result.responseFilterImport)
+        }
+        if (result.needsConfirmAction) {
+            hasConfirmAction = true
         }
     }
 
@@ -1308,13 +1336,15 @@ function generateCategoryFile(
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
+    const confirmActionImportLine = hasConfirmAction ? `import { confirmAction } from '@/lib/confirm-action'\n` : ''
+
     const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
 
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${confirmActionImportLine}${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

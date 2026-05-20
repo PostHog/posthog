@@ -387,6 +387,7 @@ describe('exec tool', () => {
                 sessionManager: new SessionManager({} as any),
                 getDistinctId: async () => 'test-distinct-id',
                 trackEvent: async () => {},
+                elicit: async () => ({ action: 'accept', content: { confirmed: true } }),
             }
         }
 

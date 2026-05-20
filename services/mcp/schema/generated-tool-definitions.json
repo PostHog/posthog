@@ -3786,6 +3786,21 @@
             "readOnlyHint": true
         }
     },
+    "organization-enforce-2fa-update": {
+        "description": "Toggle 2FA enforcement for an organization. The MCP client will show a confirmation modal; the change is only applied if the user accepts.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Enforce 2FA for organization",
+        "title": "Enforce 2FA for organization",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "organization-get": {
         "description": "Get details of an organization by ID including name, membership level, member count, teams, and projects. If no ID is provided, returns the active organization.",
         "category": "Platform Features",

@@ -256,6 +256,7 @@ const createMockContext = (scopes: string[]): Context => ({
     sessionManager: new SessionManager({} as any),
     getDistinctId: async () => 'test-distinct-id',
     trackEvent: async () => {},
+    elicit: async () => ({ action: 'accept', content: { confirmed: true } }),
 })
 
 describe('Tool Filtering - API Scopes', () => {
@@ -488,6 +489,7 @@ describe('Tool Filtering - AI Consent', () => {
             sessionManager: new SessionManager({} as any),
             getDistinctId: async () => 'test-distinct-id',
             trackEvent: async () => {},
+            elicit: async () => ({ action: 'accept', content: { confirmed: true } }),
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
@@ -514,6 +516,7 @@ describe('Tool Filtering - AI Consent', () => {
             sessionManager: new SessionManager({} as any),
             getDistinctId: async () => 'test-distinct-id',
             trackEvent: async () => {},
+            elicit: async () => ({ action: 'accept', content: { confirmed: true } }),
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)

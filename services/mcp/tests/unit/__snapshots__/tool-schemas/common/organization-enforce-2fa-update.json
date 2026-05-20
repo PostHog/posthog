@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enforce_2fa": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "True to require 2FA for all members; false to disable; null to clear."
+        },
+        "id": {
+            "description": "Organization ID, or `@current` for the caller's active org.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

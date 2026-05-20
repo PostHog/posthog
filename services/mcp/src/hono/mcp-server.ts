@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
@@ -84,7 +85,10 @@ export class HonoMcpServer {
         this.env = getEnv()
         this.server = new McpServer(
             { name: 'PostHog', version: '1.0.0' },
-            { instructions: instructionsFormatter.buildV1Instructions() }
+            {
+                instructions: instructionsFormatter.buildV1Instructions(),
+                jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
+            }
         )
     }
 
@@ -340,7 +344,7 @@ export class HonoMcpServer {
     async getContext(): Promise<Context> {
         const api = await this.api()
         const stateManager = new StateManager(this.cache, api)
-        const partialContext: Omit<Context, 'trackEvent'> = {
+        const partialContext: Omit<Context, 'trackEvent' | 'elicit'> = {
             api,
             cache: this.cache,
             env: this.env,
@@ -352,7 +356,8 @@ export class HonoMcpServer {
             const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
             await this.trackEvent(event, properties, analyticsContext ? { context: analyticsContext } : undefined)
         }
-        return { ...partialContext, trackEvent }
+        const elicit: Context['elicit'] = (params, options) => this.server.server.elicitInput(params, options)
+        return { ...partialContext, trackEvent, elicit }
     }
 
     async init(): Promise<void> {
@@ -499,7 +504,10 @@ export class HonoMcpServer {
             }
         }
 
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        this.server = new McpServer(
+            { name: 'PostHog', version: '1.0.0' },
+            { instructions, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() }
+        )
 
         // Register prompts and resources
         await Promise.all([

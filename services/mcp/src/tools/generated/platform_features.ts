@@ -14,6 +14,8 @@ import {
     CommentsThreadRetrieveParams,
     ListQueryParams,
     MembersListQueryParams,
+    PartialUpdateBody,
+    PartialUpdateParams,
     RetrieveParams,
     RolesListQueryParams,
     RolesRetrieveParams,
@@ -23,6 +25,7 @@ import {
     UserHomeSettingsPartialUpdateParams,
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
+import { confirmAction } from '@/lib/confirm-action'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -378,6 +381,48 @@ const organizationsList = (): ToolBase<
     },
 })
 
+const OrganizationEnforce2faUpdateSchema = PartialUpdateParams.extend(
+    PartialUpdateBody.omit({
+        name: true,
+        logo_media_id: true,
+        members_can_invite: true,
+        members_can_use_personal_api_keys: true,
+        allow_publicly_shared_resources: true,
+        is_ai_data_processing_approved: true,
+        default_experiment_stats_method: true,
+        default_anonymize_ips: true,
+        default_role_id: true,
+    }).shape
+).extend({
+    id: PartialUpdateParams.shape['id'].describe("Organization ID, or `@current` for the caller's active org."),
+    enforce_2fa: PartialUpdateBody.shape['enforce_2fa'].describe(
+        'True to require 2FA for all members; false to disable; null to clear.'
+    ),
+})
+
+const organizationEnforce2faUpdate = (): ToolBase<typeof OrganizationEnforce2faUpdateSchema, Schemas.Organization> => ({
+    name: 'organization-enforce-2fa-update',
+    schema: OrganizationEnforce2faUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof OrganizationEnforce2faUpdateSchema>) => {
+        await confirmAction(context, {
+            title: 'Enforce 2FA for organization',
+            description:
+                'Toggle 2FA enforcement for an organization. The MCP client will show a confirmation modal; the change is only applied if the user accepts.',
+        })
+        const body: Record<string, unknown> = {}
+        if (params.enforce_2fa !== undefined) {
+            body['enforce_2fa'] = params.enforce_2fa
+        }
+        const result = await context.api.request<Schemas.Organization>({
+            method: 'PATCH',
+            path: `/api/organizations/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['id', 'name', 'enforce_2fa']) as typeof result
+        return filtered
+    },
+})
+
 const RoleGetSchema = RolesRetrieveParams.omit({ organization_id: true })
 
 const roleGet = (): ToolBase<typeof RoleGetSchema, Schemas.Role> => ({
@@ -494,6 +539,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'org-members-list': orgMembersList,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
+    'organization-enforce-2fa-update': organizationEnforce2faUpdate,
     'role-get': roleGet,
     'role-members-list': roleMembersList,
     'roles-list': rolesList,

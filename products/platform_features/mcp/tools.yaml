@@ -319,9 +319,32 @@ tools:
                 - name
                 - slug
                 - membership_level
-    organizations-partial-update:
+    organization-enforce-2fa-update:
         operation: partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Enforce 2FA for organization
+        description: >
+            Toggle 2FA enforcement for an organization. The MCP client will show a confirmation
+            modal; the change is only applied if the user accepts.
+        confirmation_required: true
+        include_params:
+            - enforce_2fa
+        param_overrides:
+            id:
+                description: Organization ID, or `@current` for the caller's active org.
+            enforce_2fa:
+                description: True to require 2FA for all members; false to disable; null to clear.
+        response:
+            include:
+                - id
+                - name
+                - enforce_2fa
     organizations-update:
         operation: update
         enabled: false

@@ -123,6 +123,14 @@ export const ToolConfigSchema = z
          */
         requires_ai_consent: z.boolean().optional(),
         /**
+         * When true, the tool's handler will request a manual user confirmation via the MCP
+         * client (using the `elicitation/create` protocol primitive) before performing the
+         * action. The user is shown the tool's title, description, and the resolved parameters.
+         * If the client does not support elicitation, the action is refused — sensitive
+         * actions fail closed. Use for destructive or hard-to-reverse operations.
+         */
+        confirmation_required: z.boolean().optional(),
+        /**
          * Maps original OpenAPI field names to MCP-safe aliases. The generated tool
          * schema uses the alias (which must match ^[a-zA-Z0-9_.-]{1,64}$), while
          * the request body still sends the original field name.

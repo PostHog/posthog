@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js'
 import guidelines from '@shared/guidelines.md'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
@@ -87,7 +88,10 @@ export type RequestProperties = {
 export class MCP extends McpAgent<Env> {
     server = new McpServer(
         { name: 'PostHog', version: '1.0.0' },
-        { instructions: instructionsFormatter.buildV1Instructions() }
+        {
+            instructions: instructionsFormatter.buildV1Instructions(),
+            jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
+        }
     )
 
     initialState: State = {
@@ -531,7 +535,7 @@ export class MCP extends McpAgent<Env> {
     async getContext(): Promise<Context> {
         const api = await this.api()
         const stateManager = new StateManager(this.cache, api)
-        const partialContext: Omit<Context, 'trackEvent'> = {
+        const partialContext: Omit<Context, 'trackEvent' | 'elicit'> = {
             api,
             cache: this.cache,
             env: this.env,
@@ -543,7 +547,8 @@ export class MCP extends McpAgent<Env> {
             const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
             await this.trackEvent(event, properties, analyticsContext ? { context: analyticsContext } : undefined)
         }
-        return { ...partialContext, trackEvent }
+        const elicit: Context['elicit'] = (params, options) => this.server.server.elicitInput(params, options)
+        return { ...partialContext, trackEvent, elicit }
     }
 
     async init(): Promise<void> {
@@ -706,7 +711,10 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        this.server = new McpServer(
+            { name: 'PostHog', version: '1.0.0' },
+            { instructions, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() }
+        )
 
         // Register prompts and resources
         await Promise.all([
