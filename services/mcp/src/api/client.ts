@@ -141,6 +141,89 @@ export class ApiClient {
     }
 
     /**
+     * Raw HTTP request that returns status code + parsed body without throwing
+     * on application-level non-2xx responses. Use this when the caller needs
+     * to branch on specific status codes (e.g. notebooks `collab/save` returns
+     * 409 with a recoverable rebase body and 410 with a "reload" body).
+     *
+     * Still throws on:
+     *   - 401 (treated as INVALID_API_KEY upstream)
+     *   - 403 with `permission_denied` (typed PostHogPermissionError)
+     *   - transport errors (network / no response body)
+     * so the standard auth-error handling continues to work.
+     *
+     * Status codes other than the above are surfaced as a plain `Response`
+     * via `{ status, body }` where `body` is JSON-parsed when possible and
+     * `null` otherwise.
+     */
+    async requestRaw(opts: {
+        method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+        path: string
+        body?: Record<string, unknown>
+        query?: Record<string, unknown>
+        headers?: Record<string, string>
+    }): Promise<{ status: number; body: unknown }> {
+        const searchParams = new URLSearchParams()
+        if (opts.query) {
+            for (const [k, v] of Object.entries(opts.query)) {
+                if (v === undefined || v === null) {
+                    continue
+                }
+                if (Array.isArray(v) && v.length === 0) {
+                    continue
+                }
+                if (typeof v === 'object') {
+                    searchParams.append(k, JSON.stringify(v))
+                } else {
+                    searchParams.append(k, String(v))
+                }
+            }
+        }
+        const qs = searchParams.toString()
+        const url = `${this.baseUrl}${opts.path}${qs ? `?${qs}` : ''}`
+
+        const fetchOptions: RequestInit = {
+            method: opts.method,
+            ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+            ...(opts.headers ? { headers: opts.headers } : {}),
+        }
+
+        const response = await this.fetch(url, fetchOptions)
+
+        // Preserve the existing auth-error handling so callers don't need to
+        // duplicate it. Anything else (including 409/410) we return raw.
+        if (response.status === 401) {
+            throw new Error(ErrorCode.INVALID_API_KEY)
+        }
+
+        const text = await response.text()
+        let body: unknown = null
+        if (text.length > 0) {
+            try {
+                body = JSON.parse(text)
+            } catch {
+                body = text
+            }
+        }
+
+        if (response.status === 403) {
+            const errorData = (body ?? {}) as { code?: string; detail?: string }
+            if (errorData.code === 'permission_denied') {
+                const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+                const missingScope = scopeMatch?.[1]
+                throw new PostHogPermissionError({
+                    detail: errorData.detail || 'permission denied',
+                    missingScope,
+                    url,
+                    method: opts.method,
+                })
+            }
+        }
+
+        return { status: response.status, body }
+    }
+
+    /**
      * Generic HTTP request with auth, rate limiting, and retries.
      * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
      */
