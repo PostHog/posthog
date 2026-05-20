@@ -31,11 +31,13 @@ If you see `🔐 Resolving secrets from .env.local via 1Password` and don't have
 
 ## Run (agent path)
 
-Bring the stack up in the background and wait for it:
+Bring the stack up in the background, wait for it, and sanity-check the host:
 
 ```bash
-hogli up -d -y      # forks bin/start under phrocs; downloads GeoLite2 on first run
-hogli wait -y       # blocks until all phrocs-managed units are ready
+hogli up -d -y           # forks bin/start under phrocs; downloads GeoLite2 on first run
+hogli services:ready -y  # gates on Docker service health (Postgres, CH, Kafka, Redis)
+hogli wait -y            # blocks until all phrocs-managed units are ready
+hogli doctor             # optional: stale migrations, zombie phrocs, disk pressure
 ```
 
 Verify and screenshot via the driver:
@@ -48,17 +50,16 @@ What the driver does:
 
 | step                              | what it checks                                                             |
 | --------------------------------- | -------------------------------------------------------------------------- |
-| `GET :8000/_health`               | Django ASGI (granian) is alive                                             |
 | `GET :8010/_health`               | Envoy-style proxy in front of Django + Vite is alive                       |
 | `GET :8010/`                      | redirects to `/preflight` or `/login` (200/302)                            |
-| `GET :8010/api/projects/@current` | returns a structured 401 — proves DB is reachable                          |
+| `GET :8010/api/projects/@current` | returns a structured 401 — proves Django + DB are reachable                |
 | Playwright nav to `:8010/`        | renders the preflight/login page in headless Chromium                      |
 | screenshot                        | written to `/tmp/posthog-shots/<timestamp>.png`, symlinked to `latest.png` |
 
 Flags:
 
 - `--no-browser` — HTTP smoke only, skip Playwright (useful in CI / no chromium).
-- `PROXY_URL=...` / `DJANGO_URL=...` — point at non-default ports.
+- `BASE_URL=...` — override the proxy URL (default `http://localhost:8010`).
 
 Stop the stack when done:
 
