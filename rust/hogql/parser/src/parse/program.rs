@@ -471,11 +471,8 @@ impl<'a> Parser<'a> {
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
             let right = self.parse_stmt_rhs_expr()?;
-            let left = self.wrap_pos_to(
-                json!({"node": "Field", "chain": [name]}),
-                id_start,
-                id_end,
-            );
+            let left =
+                self.wrap_pos_to(json!({"node": "Field", "chain": [name]}), id_start, id_end);
             return Ok(json!({
                 "node": "VariableAssignment",
                 "left": left,
@@ -786,11 +783,8 @@ impl<'a> Parser<'a> {
             // expression)? SEMICOLON?`) — consume the optional trailing
             // `;` so `if (c) a := b ; else d` sees the `else`.
             let _ = self.eat(TokenKind::Semicolon)?;
-            let left = self.wrap_pos_to(
-                json!({"node": "Field", "chain": [name]}),
-                id_start,
-                id_end,
-            );
+            let left =
+                self.wrap_pos_to(json!({"node": "Field", "chain": [name]}), id_start, id_end);
             return Ok(json!({
                 "node": "VariableAssignment",
                 "left": left,
