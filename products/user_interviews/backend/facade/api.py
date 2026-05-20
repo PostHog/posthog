@@ -21,6 +21,7 @@ class UserInterviewsAPI:
         title-cased local-part for raw emails and the identifier as-is for
         distinct IDs.
         """
+        identifier = identifier.strip()
         display_match = re.match(EmailWithDisplayNameValidator.display_name_regex, identifier)
         if display_match:
             return IntervieweeIdentity(
