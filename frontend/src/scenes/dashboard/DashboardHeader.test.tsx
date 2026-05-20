@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -17,21 +19,6 @@ jest.mock('lib/components/FullScreen', () => ({
 }))
 jest.mock('scenes/max/MaxTool', () => ({
     MaxTool: ({ children }: any) => <>{children}</>,
-}))
-
-let dashboardMinimalViewFlagEnabled = false
-let sceneMenuBarFlagEnabled = false
-
-jest.mock('lib/hooks/useFeatureFlag', () => ({
-    useFeatureFlag: (flag: string) => {
-        if (flag === 'DASHBOARD_MINIMAL_VIEW') {
-            return dashboardMinimalViewFlagEnabled
-        }
-        if (flag === 'SCENE_MENU_BAR') {
-            return sceneMenuBarFlagEnabled
-        }
-        return false
-    },
 }))
 
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
@@ -63,6 +50,26 @@ function makeDashboard(overrides: Record<string, any> = {}): DashboardType<Query
     return { ...MOCK_DASHBOARD, ...overrides }
 }
 
+function setDashboardHeaderFeatureFlags({
+    minimalViewFlag = false,
+    sceneMenuBar = false,
+}: {
+    minimalViewFlag?: boolean
+    sceneMenuBar?: boolean
+}): void {
+    const flags: string[] = []
+    const variants: Record<string, boolean> = {}
+    if (sceneMenuBar) {
+        flags.push(FEATURE_FLAGS.SCENE_MENU_BAR)
+        variants[FEATURE_FLAGS.SCENE_MENU_BAR] = true
+    }
+    if (minimalViewFlag) {
+        flags.push(FEATURE_FLAGS.DASHBOARD_MINIMAL_VIEW)
+        variants[FEATURE_FLAGS.DASHBOARD_MINIMAL_VIEW] = true
+    }
+    featureFlagLogic.actions.setFeatureFlags(flags, variants)
+}
+
 beforeAll(() => {
     const root = document.createElement('div')
     root.id = 'root'
@@ -79,8 +86,8 @@ describe('DashboardHeader', () => {
             },
         })
         initKeaTests()
-        dashboardMinimalViewFlagEnabled = false
-        sceneMenuBarFlagEnabled = false
+        featureFlagLogic.mount()
+        setDashboardHeaderFeatureFlags({})
     })
 
     afterEach(() => {
@@ -90,16 +97,20 @@ describe('DashboardHeader', () => {
     function renderHeader(opts: {
         dashboard?: DashboardType<QueryBasedInsightModel>
         dashboardMode?: DashboardMode | null
+        minimalViewFlag?: boolean
         minimalView?: boolean
     }): { logic: ReturnType<typeof dashboardLogic.build> } {
-        const { dashboard = MOCK_DASHBOARD, dashboardMode = null, minimalView = false } = opts
+        const { dashboard = MOCK_DASHBOARD, dashboardMode = null, minimalViewFlag = false, minimalView = false } = opts
+
+        setDashboardHeaderFeatureFlags({
+            minimalViewFlag,
+            sceneMenuBar: minimalViewFlag,
+        })
 
         const logic = dashboardLogic({ id: dashboard.id, dashboard })
         logic.mount()
 
         if (minimalView) {
-            dashboardMinimalViewFlagEnabled = true
-            sceneMenuBarFlagEnabled = true
             logic.actions.setMinimalViewEnabled(true)
         }
 
@@ -125,9 +136,23 @@ describe('DashboardHeader', () => {
             notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-menubar-minimal-view'],
         },
         {
+            scenario: 'Minimal view flag on, toggle off',
+            dashboardMode: null as DashboardMode | null,
+            canEdit: true,
+            minimalViewFlag: true,
+            visible: [
+                'dashboard-menubar-view',
+                'dashboard-share-button',
+                'dashboard-add-tile',
+                'dashboard-edit-mode-button',
+            ],
+            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-menubar-minimal-view'],
+        },
+        {
             scenario: 'Minimal view, can edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: true,
+            minimalViewFlag: true,
             minimalView: true,
             visible: ['dashboard-menubar-view'],
             notVisible: [
@@ -142,13 +167,8 @@ describe('DashboardHeader', () => {
             scenario: 'View mode, cannot edit',
             dashboardMode: null as DashboardMode | null,
             canEdit: false,
-            visible: ['dashboard-share-button'],
-            notVisible: [
-                'dashboard-edit-mode-discard',
-                'dashboard-edit-mode-save',
-                'dashboard-edit-mode-button',
-                'dashboard-add-tile',
-            ],
+            visible: ['dashboard-share-button', 'dashboard-add-tile'],
+            notVisible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-edit-mode-button'],
         },
         {
             scenario: 'Edit mode',
@@ -164,19 +184,22 @@ describe('DashboardHeader', () => {
             visible: ['dashboard-exit-presentation-mode'],
             notVisible: ['dashboard-share-button', 'dashboard-edit-mode-save'],
         },
-    ])('$scenario shows correct action buttons', ({ dashboardMode, canEdit, minimalView, visible, notVisible }) => {
-        const dashboard = makeDashboard({
-            user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
-        })
-        const { logic } = renderHeader({ dashboard, dashboardMode, minimalView })
+    ])(
+        '$scenario shows correct action buttons',
+        ({ dashboardMode, canEdit, minimalViewFlag, minimalView, visible, notVisible }) => {
+            const dashboard = makeDashboard({
+                user_access_level: canEdit ? AccessControlLevel.Editor : AccessControlLevel.Viewer,
+            })
+            const { logic } = renderHeader({ dashboard, dashboardMode, minimalViewFlag, minimalView })
 
-        for (const attr of visible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
-        }
-        for (const attr of notVisible) {
-            expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
-        }
+            for (const attr of visible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).toBeInTheDocument()
+            }
+            for (const attr of notVisible) {
+                expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
+            }
 
-        logic.unmount()
-    })
+            logic.unmount()
+        }
+    )
 })

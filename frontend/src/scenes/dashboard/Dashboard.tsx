@@ -7,7 +7,6 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -78,10 +77,9 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         accessDeniedToDashboard,
         refreshAnalysisResult,
         analysisRating,
-        minimalViewEnabled,
+        shouldHideDashboardFilterBar,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
-    const isMinimalViewActive = useFeatureFlag('DASHBOARD_MINIMAL_VIEW') && minimalViewEnabled
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult, setAnalysisRating, setLayoutZoom } =
         useActions(dashboardLogic)
@@ -157,7 +155,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                         </LemonBanner>
                     )}
 
-                    {!isMinimalViewActive && (
+                    {!shouldHideDashboardFilterBar && (
                         <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                             <DashboardFilterBar backTo={backTo} />
                             {dashboardMode === DashboardMode.Edit &&

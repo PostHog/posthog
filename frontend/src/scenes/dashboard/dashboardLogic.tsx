@@ -1161,6 +1161,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return hasFeatureFlag && hasSSESupport
             },
         ],
+        isMinimalViewFeatureEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_MINIMAL_VIEW],
+        ],
+        isMinimalViewActive: [
+            (s) => [s.isMinimalViewFeatureEnabled, s.minimalViewEnabled],
+            (isMinimalViewFeatureEnabled, minimalViewEnabled): boolean =>
+                isMinimalViewFeatureEnabled && minimalViewEnabled,
+        ],
+        shouldHideDashboardFilterBar: [
+            (s) => [s.isMinimalViewActive, s.placement],
+            (isMinimalViewActive, placement): boolean =>
+                isMinimalViewActive && placement === DashboardPlacement.Dashboard,
+        ],
         canAutoPreview: [
             (s) => [s.dashboard],
             (dashboard) => {

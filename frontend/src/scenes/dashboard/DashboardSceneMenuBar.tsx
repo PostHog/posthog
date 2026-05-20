@@ -23,7 +23,6 @@ import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { urlForSubscriptions } from 'lib/components/Subscriptions/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { slugify } from 'lib/utils'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -57,8 +56,8 @@ import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTem
 const RESOURCE_TYPE = 'dashboard'
 
 export function DashboardSceneMenuBar(): JSX.Element | null {
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    if (!sceneMenuBarEnabled) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]) {
         return null
     }
     return <DashboardSceneMenuBarInner />
@@ -78,10 +77,10 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         tiles,
         apiUrl,
         minimalViewEnabled,
+        isMinimalViewFeatureEnabled,
     } = useValues(dashboardLogic)
     const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen, setMinimalViewEnabled } =
         useActions(dashboardLogic)
-    const isMinimalViewFeatureEnabled = useFeatureFlag('DASHBOARD_MINIMAL_VIEW')
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)

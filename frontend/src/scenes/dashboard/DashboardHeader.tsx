@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { FullScreen } from 'lib/components/FullScreen'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -21,11 +20,10 @@ export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard, minimalViewEnabled } =
+    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard, isMinimalViewActive } =
         useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
-    const isMinimalViewActive = useFeatureFlag('DASHBOARD_MINIMAL_VIEW') && minimalViewEnabled
 
     if (!dashboard && !dashboardLoading) {
         return null
