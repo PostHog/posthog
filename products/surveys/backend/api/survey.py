@@ -47,6 +47,7 @@ from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -1215,6 +1216,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
+        warn_if_missing_feature_flag_write_scope(
+            self.context["request"],
+            action="survey.create",
+            team_id=self.context["team_id"],
+        )
         if validated_data.get("targeting_flag_filters"):
             targeting_feature_flag = self._create_or_update_targeting_flag(
                 None, validated_data["targeting_flag_filters"], validated_data["name"]
@@ -1249,6 +1255,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
+
+        warn_if_missing_feature_flag_write_scope(
+            self.context["request"],
+            action="survey.update",
+            team_id=self.context["team_id"],
+            feature_flag_id=instance.targeting_flag_id,
+        )
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
@@ -1732,10 +1745,19 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
+        related_internal_targeting_flag = instance.internal_targeting_flag
+
+        if related_targeting_flag or related_internal_targeting_flag:
+            warn_if_missing_feature_flag_write_scope(
+                request,
+                action="survey.destroy",
+                team_id=self.team_id,
+                feature_flag_id=related_targeting_flag.id if related_targeting_flag else None,
+            )
+
         if related_targeting_flag:
             related_targeting_flag.delete()
 
-        related_internal_targeting_flag = instance.internal_targeting_flag
         if related_internal_targeting_flag:
             related_internal_targeting_flag.delete()
 

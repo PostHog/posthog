@@ -12,7 +12,11 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
+from posthog.api.feature_flag import (
+    FeatureFlagSerializer,
+    MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
@@ -109,6 +113,17 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         request = self.context["request"]
         user_data = UserBasicSerializer(request.user).data if request.user else None
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
+
+        stage_will_change = (
+            "stage" in self.initial_data and instance.stage != stage and instance.feature_flag is not None
+        )
+        if stage_will_change:
+            warn_if_missing_feature_flag_write_scope(
+                request,
+                action="early_access_feature.stage_change",
+                team_id=instance.team_id,
+                feature_flag_id=instance.feature_flag.id,
+            )
 
         if instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
@@ -265,6 +280,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
 
+        warn_if_missing_feature_flag_write_scope(
+            self.context["request"],
+            action="early_access_feature.create",
+            team_id=self.context["team_id"],
+            feature_flag_id=validated_data.get("feature_flag_id"),
+        )
+
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
         default_condition = [
@@ -349,6 +371,12 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         related_feature_flag = instance.feature_flag
 
         if related_feature_flag:
+            warn_if_missing_feature_flag_write_scope(
+                request,
+                action="early_access_feature.destroy",
+                team_id=instance.team_id,
+                feature_flag_id=related_feature_flag.id,
+            )
             related_feature_flag.filters = {
                 **related_feature_flag.filters,
                 "super_groups": None,

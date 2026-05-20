@@ -126,6 +126,53 @@ RUST_FLAG_FIELDS = (
 )
 
 
+def warn_if_missing_feature_flag_write_scope(
+    request,
+    *,
+    action: str,
+    team_id: int | None = None,
+    feature_flag_id: int | None = None,
+) -> None:
+    # Temporary observability for a cross-resource scope bypass: SurveyViewSet and
+    # EarlyAccessFeatureViewSet mutate FeatureFlag rows under their own scope
+    # (`survey:write` / `early_access_feature:write`). Before enforcing
+    # `feature_flag:write` on these paths we want to know which customers rely on
+    # the transitive access so we can notify them. Remove this helper and its
+    # call sites once the scope is enforced.
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        scopes = list(authenticator.personal_api_key.scopes or [])
+        auth_kind = "personal_api_key"
+        auth_id: str | None = authenticator.personal_api_key.id
+        auth_label: str | None = authenticator.personal_api_key.label
+    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+        scope_string = authenticator.access_token.scope or ""
+        scopes = scope_string.split()
+        auth_kind = "oauth_access_token"
+        raw_id = getattr(authenticator.access_token, "id", None)
+        auth_id = str(raw_id) if raw_id is not None else None
+        auth_label = None
+    else:
+        return
+
+    if "*" in scopes or "feature_flag:write" in scopes:
+        return
+
+    logger.warning(
+        "feature_flag_write_via_other_scope",
+        extra={
+            "action": action,
+            "team_id": team_id,
+            "feature_flag_id": feature_flag_id,
+            "scopes": scopes,
+            "auth_kind": auth_kind,
+            "auth_id": auth_id,
+            "auth_label": auth_label,
+            "user_id": getattr(getattr(request, "user", None), "id", None),
+        },
+    )
+
+
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
     """Check whether the realtime cohort flag targeting feature is enabled for this request."""
     try:
