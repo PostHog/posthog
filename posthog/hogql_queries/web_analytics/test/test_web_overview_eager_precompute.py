@@ -16,6 +16,10 @@ from posthog.schema import (
     WebOverviewQuery,
 )
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
+    TRUNCATE_WEB_OVERVIEW_PREAGGREGATED_TABLE_SQL,
+)
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import (
     can_use_eager_precompute,
@@ -34,6 +38,10 @@ class TestWebOverviewEagerPrecompute(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+        # Truncate the preaggregated sharded table so data from a previous test
+        # cannot bleed through. ClickHouse INSERTs are non-transactional and are
+        # not rolled back by Django's test-savepoint mechanism.
+        sync_execute(TRUNCATE_WEB_OVERVIEW_PREAGGREGATED_TABLE_SQL())
 
     def _enable_eager(self):
         return override_instance_config("WEB_ANALYTICS_EAGER_PRECOMPUTE_TEAM_IDS", [self.team.pk])
