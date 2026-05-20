@@ -168,11 +168,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         filterGlobals: FilterGlobals,
         incomingEventName: string
     ): Promise<boolean> {
-        // TODO: drop the `as any` once the schema lands `events` on wait_until_condition
-        // (wait-until-event RFC, phase 2). Until then the field is allowed by the consumer
-        // but absent from the type so existing workflows that only have a condition still work.
-        const events = (action.config as any).events as { filters?: any }[] | undefined
-        for (const eventConfig of events ?? []) {
+        for (const eventConfig of action.config.events ?? []) {
             if (await this.evaluateEventConfig(eventConfig, filterGlobals, incomingEventName, action.id)) {
                 return true
             }
@@ -185,9 +181,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         filterGlobals: FilterGlobals,
         incomingEventName: string
     ): Promise<boolean> {
-        // TODO: drop the `as any` once the schema lands `events` on `conversion`
-        // (wait-until-event RFC, phase 2). Same situation as wait_until_condition above.
-        const conversionEvents = ((hogflow.conversion as any)?.events ?? []) as { filters?: any }[]
+        const conversionEvents = hogflow.conversion?.events ?? []
         const contextId = `${hogflow.id}/conversion`
         for (const eventConfig of conversionEvents) {
             if (await this.evaluateEventConfig(eventConfig, filterGlobals, incomingEventName, contextId)) {
@@ -365,7 +359,7 @@ function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     if (hogflow.actions.some((a: HogFlowAction) => a.type === 'wait_until_condition')) {
         return true
     }
-    const conversionEvents = (hogflow.conversion as any)?.events
+    const conversionEvents = hogflow.conversion?.events
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
 }
 
