@@ -1,3 +1,4 @@
+from contextlib import AbstractContextManager
 from datetime import timedelta
 
 import pytest
@@ -6,10 +7,33 @@ from posthog.test.base import BaseTest
 from django.db import IntegrityError
 from django.utils import timezone
 
+from posthog.models.scoping import team_scope
+
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
 
 
-class TestSignalScoutModels(BaseTest):
+class _ScoutTeamScopedTestMixin:
+    """Wraps setUp/tearDown with team_scope so test-body queries to the
+    TeamScopedRootMixin-backed scout models find a team context."""
+
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()  # type: ignore[misc]
+        cm = team_scope(self.team.id)  # type: ignore[attr-defined]
+        cm.__enter__()
+        self._team_scope_cm = cm
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            try:
+                self._team_scope_cm.__exit__(None, None, None)
+            finally:
+                self._team_scope_cm = None
+        super().tearDown()  # type: ignore[misc]
+
+
+class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
     def test_signal_scout_config_round_trip(self) -> None:
         config = SignalScoutConfig.objects.create(
             team=self.team,

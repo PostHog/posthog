@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
@@ -383,8 +384,16 @@ class SignalReportTask(UUIDModel):
 # / `default=dict` (Django applies the default Python-side on every INSERT).
 
 
-class SignalScoutConfig(UUIDModel):
+class SignalScoutConfig(TeamScopedRootMixin, UUIDModel):
     """Per-team binding for the headless Signals scout. One row per team."""
+
+    # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
+    # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
+    # (admin changelist queryset, related-object access, prefetch_related) that must not
+    # filter by team. `default_manager_name` routes `_default_manager` / `_base_manager`
+    # there. Same pattern as ProductTeamModel — duplicated here because TeamScopedRootMixin
+    # doesn't bake it in (most callers don't need it).
+    all_teams = models.Manager()  # noqa: DJ012
 
     team = models.OneToOneField(
         "posthog.Team",
@@ -420,10 +429,14 @@ class SignalScoutConfig(UUIDModel):
     class Meta:
         verbose_name = "Signal scout config"
         verbose_name_plural = "Signal scout configs"
+        default_manager_name = "all_teams"
 
 
-class SignalScoutRun(UUIDModel):
+class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     """Run diary — one row per scheduled scout run. Holds everything per-run."""
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
 
     class Status(models.TextChoices):
         SCHEDULED = "scheduled", "Scheduled"
@@ -468,13 +481,14 @@ class SignalScoutRun(UUIDModel):
     class Meta:
         verbose_name = "Signal scout run"
         verbose_name_plural = "Signal scout runs"
+        default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "-started_at"], name="signal_scout_run_recent_idx"),
             models.Index(fields=["team", "status"], name="signal_scout_run_status_idx"),
         ]
 
 
-class SignalScratchpad(UUIDModel):
+class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     """Scout working notes — ephemeral by default, durable when explicitly scoped to the team.
 
     Scratchpads are the scout's place to write down things mid-run (and across runs) that
@@ -483,6 +497,9 @@ class SignalScratchpad(UUIDModel):
     tied to a single run and are safe to garbage-collect when that run finalizes; `TEAM`
     entries persist as durable steering until they expire or are manually deleted.
     """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
 
     class Authority(models.TextChoices):
         SCOUT_INFERENCE = "scout_inference", "Scout inference"
@@ -524,6 +541,7 @@ class SignalScratchpad(UUIDModel):
     class Meta:
         verbose_name = "Signal scratchpad"
         verbose_name_plural = "Signal scratchpads"
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
         ]

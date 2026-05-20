@@ -70,6 +70,7 @@ class SignalReportAdmin(admin.ModelAdmin):
     inlines = [SignalReportArtefactInline]
 
 
+@admin.register(SignalScoutConfig)
 class SignalScoutConfigAdmin(admin.ModelAdmin):
     list_display = ("id", "team_link", "enabled", "shadow_mode", "created_at", "updated_at")
     list_display_links = ("id",)
@@ -89,6 +90,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         )
 
 
+@admin.register(SignalScoutRun)
 class SignalScoutRunAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -116,6 +118,7 @@ class SignalScoutRunAdmin(admin.ModelAdmin):
         "summary",
         "findings",
         "hypotheses_considered",
+        "run_metrics",
         "metadata",
     )
     list_select_related = ("team", "team__organization", "scout_config")
@@ -130,6 +133,7 @@ class SignalScoutRunAdmin(admin.ModelAdmin):
         )
 
 
+@admin.register(SignalScratchpad)
 class SignalScratchpadAdmin(admin.ModelAdmin):
     list_display = ("id", "team_link", "key", "scope", "authority", "created_at", "expires_at")
     list_display_links = ("id",)
