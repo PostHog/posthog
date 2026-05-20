@@ -13,7 +13,7 @@ from posthog.schema import (
     HumanMessage,
 )
 
-from posthog.models import Action
+from products.actions.backend.models.action import Action
 
 from ee.hogai.chat_agent.retention.nodes import RetentionGeneratorNode, RetentionSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState

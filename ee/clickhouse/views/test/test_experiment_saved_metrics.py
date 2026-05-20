@@ -846,7 +846,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
     def test_saved_metric_refreshes_action_names(self):
         """Test that saved metrics show current action names when actions are renamed."""
-        from posthog.models.action.action import Action
+        from products.actions.backend.models.action import Action
 
         # Create an action
         action = Action.objects.create(team=self.team, name="Original Action Name")
@@ -885,7 +885,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
     def test_saved_metric_preserves_name_for_deleted_action(self):
         """Test that saved metrics preserve old names when actions are deleted."""
-        from posthog.models.action.action import Action
+        from products.actions.backend.models.action import Action
 
         # Create an action
         action = Action.objects.create(team=self.team, name="Action to Delete")

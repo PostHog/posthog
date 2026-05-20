@@ -17,8 +17,6 @@ from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.scoping_audit import skip_team_scope_audit
@@ -40,6 +38,8 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_from_dict_or_attr
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 

@@ -22,7 +22,8 @@ from pydantic import BaseModel, Field
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
-from posthog.models.alert import AlertConfiguration
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 MAX_HOGQL_ROWS = 50
 MAX_SERIES_POINTS = 120

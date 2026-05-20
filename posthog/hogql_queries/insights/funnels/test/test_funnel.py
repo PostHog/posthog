@@ -57,12 +57,13 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.models import Action, Element
+from posthog.models import Element
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 

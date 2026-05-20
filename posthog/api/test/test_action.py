@@ -10,8 +10,10 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
-from posthog.models import Action, Cohort, Insight, Tag, User
+from posthog.models import Cohort, Insight, Tag, User
 from posthog.models.hog_functions.hog_function import HogFunction
+
+from products.actions.backend.models.action import Action
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

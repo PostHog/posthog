@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from posthog.models import Insight
-from posthog.models.alert import AlertCheck, AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notebooks.backend.util import (
     TipTapContent,
     TipTapNode,

@@ -20,7 +20,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
-from posthog.models import Action, Element
+from posthog.models import Element
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
@@ -28,6 +28,8 @@ from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.test_journeys import journeys_for
+
+from products.actions.backend.models.action import Action
 
 
 class TestFunnelBreakdown(

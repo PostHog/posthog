@@ -39,9 +39,9 @@ from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithE
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 SEPARATOR = "','"

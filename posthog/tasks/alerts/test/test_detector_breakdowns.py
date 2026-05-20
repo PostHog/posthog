@@ -15,12 +15,14 @@ from posthog.schema import (
 )
 
 from posthog.caching.fetch_from_cache import InsightResult
-from posthog.models import AlertConfiguration, Insight
+from posthog.models import Insight
 from posthog.tasks.alerts.detector import (
     MAX_DETECTOR_BREAKDOWN_VALUES,
     check_trends_alert_with_detector,
     simulate_detector_on_insight,
 )
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 
 def _make_trend_result(label: str, data: list[float], breakdown_value: str = "") -> dict[str, Any]:

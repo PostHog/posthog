@@ -17,12 +17,13 @@ from posthog.schema import (
 
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.insight import Insight
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool

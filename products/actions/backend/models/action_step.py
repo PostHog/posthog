@@ -41,3 +41,6 @@ class ActionStep(models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     # DEPRECATED, don't store new data here
     tag_name = models.CharField(max_length=400, null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_actionstep"

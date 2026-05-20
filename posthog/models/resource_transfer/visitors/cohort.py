@@ -36,7 +36,9 @@ class CohortVisitor(
 
     @classmethod
     def get_dynamic_edges(cls, resource: Any) -> list[ResourceTransferEdge]:
-        from posthog.models import Action, Cohort
+        from posthog.models import Cohort
+
+        from products.actions.backend.models.action import Action
 
         cohort_ids = cls._extract_cohort_ids(resource.filters)
         action_ids = cls._extract_action_ids(resource.filters)

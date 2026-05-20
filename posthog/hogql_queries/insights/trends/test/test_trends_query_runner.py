@@ -69,13 +69,13 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 

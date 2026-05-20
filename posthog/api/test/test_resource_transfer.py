@@ -6,12 +6,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Action, Insight, Project, Team
+from posthog.models import Insight, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.surveys.backend.models import Survey

@@ -12,11 +12,12 @@ from django.dispatch import receiver
 from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
 
-from posthog.models import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
 from posthog.storage.hypercache import HyperCache
+
+from products.actions.backend.models.action import Action
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value

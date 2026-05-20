@@ -7,9 +7,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Action, Team
+from posthog.models import Team
 from posthog.models.utils import uuid7
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.weekly_digest import (
     _format_duration,
     auto_select_project_for_user,

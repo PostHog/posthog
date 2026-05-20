@@ -63,7 +63,7 @@ from posthog.helpers.trigram_search import (
     MIN_NAME_TRIGRAM_SIMILARITY,
     normalize_search_term,
 )
-from posthog.models import Action, Insight
+from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
@@ -74,6 +74,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.actions.backend.models.action import Action
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation

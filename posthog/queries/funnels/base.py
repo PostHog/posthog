@@ -20,7 +20,6 @@ from posthog.constants import (
     FunnelOrderType,
 )
 from posthog.models import Entity, Filter, Team
-from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
 from posthog.models.property.util import (
     box_value,
@@ -37,6 +36,8 @@ from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
 from posthog.utils import generate_short_id, relative_date_parse
+
+from products.actions.backend.models.util import format_action_filter
 
 
 class ClickhouseFunnelBase(ABC):

@@ -30,7 +30,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -38,6 +37,8 @@ from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, validate_alert_config
 from posthog.utils import relative_date_parse
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 
 
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]

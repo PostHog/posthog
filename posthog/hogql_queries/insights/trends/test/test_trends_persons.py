@@ -38,10 +38,10 @@ from posthog.api.test.test_team import create_team
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import Cohort, Team
-from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 

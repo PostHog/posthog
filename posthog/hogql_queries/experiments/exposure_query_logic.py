@@ -21,8 +21,9 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 logger = logging.getLogger(__name__)
 

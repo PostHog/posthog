@@ -24,7 +24,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Action
+from products.actions.backend.models.action import Action
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.chat_agent.retention.nodes import RetentionSchemaGeneratorOutput

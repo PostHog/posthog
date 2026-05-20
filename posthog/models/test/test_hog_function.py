@@ -6,13 +6,14 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.hog_functions import refresh_affected_hog_functions
+
+from products.actions.backend.models.action import Action
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 

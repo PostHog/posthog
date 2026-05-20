@@ -16,8 +16,10 @@ from posthog.schema import (
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.hogql_queries.web_analytics.web_goals import WebGoalsQueryRunner
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.models import Action, Cohort
+from posthog.models import Cohort
 from posthog.models.utils import uuid7
+
+from products.actions.backend.models.action import Action
 
 
 class TestWebAnalyticsCohortFilter(ClickhouseTestMixin, APIBaseTest):

@@ -22,7 +22,6 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
@@ -32,6 +31,7 @@ from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simula
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.models import Notebook
 
 logger = structlog.get_logger(__name__)

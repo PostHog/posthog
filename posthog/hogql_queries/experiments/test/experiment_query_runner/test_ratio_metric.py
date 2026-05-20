@@ -21,8 +21,9 @@ from posthog.schema import (
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from posthog.models.action.action import Action
 from posthog.test.test_journeys import journeys_for
+
+from products.actions.backend.models.action import Action
 
 
 @override_settings(IN_UNIT_TESTING=True)

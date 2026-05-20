@@ -17,7 +17,8 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import Action
+
+from products.actions.backend.models.action import Action
 
 DEFAULT_LIMIT = 500
 

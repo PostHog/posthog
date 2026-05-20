@@ -13,8 +13,6 @@ from posthog.schema import AlertCalculationInterval, AlertState
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.checks import AlertCheckException, add_alert_check, check_alert_for_insight
@@ -41,6 +39,7 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,

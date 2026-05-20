@@ -34,11 +34,11 @@ from posthog.schema import (
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from posthog.models.action.action import Action
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 

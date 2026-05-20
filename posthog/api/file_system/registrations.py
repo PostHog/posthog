@@ -339,7 +339,7 @@ def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> Non
 def register_core_file_system_types() -> None:
     register_file_system_type(
         "action",
-        "posthog",
+        "actions",
         "Action",
         undo_message="Send PATCH /api/projects/@current/actions/{id} with deleted=false.",
     )

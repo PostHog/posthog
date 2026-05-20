@@ -24,7 +24,7 @@ from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Action, FeatureFlag, Person, User
+from posthog.models import FeatureFlag, Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
@@ -39,6 +39,8 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
 )
+
+from products.actions.backend.models.action import Action
 
 from ee.clickhouse.materialized_columns.analyze import materialize
 

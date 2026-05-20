@@ -6,10 +6,11 @@ from django.dispatch.dispatcher import receiver
 
 import structlog
 
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
+
+from products.actions.backend.models.action import Action
 
 if TYPE_CHECKING:
     pass

@@ -21,7 +21,7 @@ from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
-from posthog.models import Action, ExportedAsset
+from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -45,6 +45,8 @@ from posthog.tasks.exports.csv_exporter import (
 from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
+
+from products.actions.backend.models.action import Action
 
 TEST_PREFIX = "Test-Exports"
 

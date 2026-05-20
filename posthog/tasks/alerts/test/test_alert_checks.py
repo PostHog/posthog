@@ -22,14 +22,15 @@ from posthog.schema import (
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
-from posthog.models import AlertConfiguration, User
-from posthog.models.alert import AlertCheck, AlertSubscription
+from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
 from posthog.tasks.alerts.checks import check_alert, check_alert_task
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")

@@ -4,8 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.action.action import Action
-
+from products.actions.backend.models.action import Action
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
 
 

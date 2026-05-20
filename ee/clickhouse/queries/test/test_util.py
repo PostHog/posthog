@@ -7,10 +7,11 @@ from posthog.test.base import _create_event
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.queries.breakdown_props import _parse_breakdown_cohorts
 from posthog.queries.util import get_earliest_timestamp
+
+from products.actions.backend.models.action import Action
 
 
 def test_get_earliest_timestamp(db, team):

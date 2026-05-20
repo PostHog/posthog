@@ -8,9 +8,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
 
