@@ -230,7 +230,6 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
                           - SharedMetricModal (can't add shared metrics)
                           - SharedMetricDetailsModal (can't manage shared metrics)
                           - ExposureCriteriaModal (can't edit exposure)
-                          - RunningTimeCalculatorModal (modern feature)
                           - EditConclusionModal (uses legacy version instead)
                         */}
                     </>

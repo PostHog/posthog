@@ -36,6 +36,9 @@ except ImportError:
     print("  Or activate the flox environment first.", file=sys.stderr)
     sys.exit(1)
 
+import sandbox_tools
+from sandbox_tools import TOOLS_FILE, Tool, ToolsError
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -43,13 +46,38 @@ except ImportError:
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
 PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
-HOST_GIT_DIR = REPO_ROOT / ".git"
 GIT_HELPER_IMAGE = "alpine/git:latest"
 SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
+
+
+@functools.cache
+def _host_git_dir() -> Path:
+    """Path to mount as /host-git for the in-container clone helper.
+
+    For a regular checkout this is `<repo>/.git`. In a git worktree, that
+    path is a gitdir pointer file rather than a directory, so we resolve
+    the common .git dir via `rev-parse --git-common-dir` instead. The
+    in-container clone only needs refs/objects, which both layouts expose
+    from the common dir.
+    """
+    git_path = REPO_ROOT / ".git"
+    if git_path.is_dir():
+        return git_path
+    common = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "--git-common-dir"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return Path(common).resolve()
 
 REGISTRY_DIR = Path.home() / ".posthog-sandboxes"
 REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 CONFIG_FILE = REGISTRY_DIR / "config.json"
+
+# Checked-in repository catalog of vetted tool recipes (gh, gt, etc.).
+# `sandbox tools add <name>` picks up entries by name.
+CATALOG_FILE = REPO_ROOT / "bin/sandbox-tools.yaml"
 
 PORT_BASE = 48001
 
@@ -669,8 +697,15 @@ def compose(
     check: bool = True,
     capture: bool = False,
     profiles: list[str] | None = None,
+    use_tools: bool = True,
 ) -> subprocess.CompletedProcess:
     """Run `docker compose` with sandbox env vars."""
+    tool_auth_flag: list[str] = []
+    if use_tools and (tools := sandbox_tools.load_user_tools()):
+        dockerfile = sandbox_tools.write_user_dockerfile(tools)
+        override = sandbox_tools.write_user_image_compose(dockerfile=dockerfile)
+        tool_auth_flag = ["-f", str(override)]
+
     profile_flags: list[str] = []
     for p in profiles or []:
         profile_flags.extend(["--profile", p])
@@ -685,6 +720,7 @@ def compose(
             str(COMPOSE_FILE),
             "-f",
             str(PROFILES_FILE),
+            *tool_auth_flag,
             *profile_flags,
             *args,
         ],
@@ -712,6 +748,16 @@ def clear_volume(volume: str) -> None:
     docker_volume_run(volume, "find /data -mindepth 1 -delete")
 
 
+def _is_partial_clone() -> bool:
+    """Check if the host repo is a partial clone (has promisor remote)."""
+    result = run(
+        ["git", "config", "--get", "remote.origin.promisor"],
+        check=False,
+        capture=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
 def _populate_workspace_volume(
     volume_name: str,
     branch: str,
@@ -725,9 +771,18 @@ def _populate_workspace_volume(
 
     Fetches by ref name (not bare SHA) because --depth only works with named
     refs over file:// transport. Runs as sandbox user so files have correct ownership.
+
+    For partial clones (--filter=blob:none), uses filtered fetches from the
+    host .git for commits + trees, and a separate HTTPS promisor remote for
+    blob lazy-fetching so the sandbox can work without SSH auth popups.
     """
     uid = os.getuid()
     gid = os.getgid()
+
+    partial = _is_partial_clone()
+    if partial:
+        # Enable filtered fetches over file:// transport.
+        run(["git", "config", "uploadpack.allowFilter", "true"], capture=True)
 
     run(["docker", "volume", "create", volume_name], capture=True)
 
@@ -748,19 +803,38 @@ def _populate_workspace_volume(
     )
 
     # file:// transport avoids CVE-2022-39253 symlink following.
+    # For partial clones, --filter=blob:none skips blobs that upload-pack
+    # can't serve; a separate HTTPS promisor remote handles blob lazy-fetching.
     script = r"""
         set -e
         git init -q -b "$BRANCH" /workspace
         cd /workspace
         GIT="git -c safe.directory=/host-git -c protocol.file.allow=always"
 
-        $GIT fetch --depth=50 --no-tags file:///host-git "$BRANCH_REF"
+        if [ "$USE_FILTER" = "true" ]; then
+            FILTER="--filter=blob:none"
+        else
+            FILTER=""
+        fi
+
+        $GIT fetch --depth=50 --no-tags $FILTER file:///host-git "$BRANCH_REF"
         git update-ref "refs/heads/$BRANCH" "$BRANCH_SHA"
         git update-ref refs/sandbox/start "$BRANCH_SHA"
+
+        if [ "$USE_FILTER" = "true" ]; then
+            # HTTPS promisor remote for blob lazy-fetching (public, no auth).
+            # Kept separate from origin so blobs don't trigger SSH prompts.
+            git remote add github-https https://github.com/PostHog/posthog
+            git config remote.github-https.promisor true
+            git config remote.github-https.partialclonefilter blob:none
+        fi
+
         git reset --hard
 
+        git remote add origin "$ORIGIN_URL"
+
         if [ -n "$BASE_SHA" ]; then
-            $GIT fetch --depth=1 --no-tags file:///host-git "$BASE_SHA"
+            $GIT fetch --depth=1 --no-tags $FILTER file:///host-git "$BASE_SHA"
             git update-ref "refs/remotes/origin/$BASE_BRANCH" "$BASE_SHA"
         fi
         # Set origin/<branch> so `sandbox destroy` can detect unpushed commits.
@@ -768,11 +842,10 @@ def _populate_workspace_volume(
             # Skip fetch if same as branch tip (already local); a redundant
             # --depth=1 fetch would clobber the depth=50 shallow history.
             if [ "$ORIGIN_BRANCH_SHA" != "$BRANCH_SHA" ]; then
-                $GIT fetch --depth=1 --no-tags file:///host-git "$ORIGIN_BRANCH_SHA"
+                $GIT fetch --depth=1 --no-tags $FILTER file:///host-git "$ORIGIN_BRANCH_SHA"
             fi
             git update-ref "refs/remotes/origin/$BRANCH" "$ORIGIN_BRANCH_SHA"
         fi
-        git remote add origin "$ORIGIN_URL"
     """
 
     run(
@@ -790,7 +863,7 @@ def _populate_workspace_volume(
             "-e",
             "GIT_LFS_SKIP_SMUDGE=1",
             "-v",
-            f"{HOST_GIT_DIR}:/host-git:ro",
+            f"{_host_git_dir()}:/host-git:ro",
             "-v",
             f"{volume_name}:/workspace",
             "-e",
@@ -807,6 +880,8 @@ def _populate_workspace_volume(
             f"ORIGIN_BRANCH_SHA={origin_branch_sha or ''}",
             "-e",
             f"ORIGIN_URL={SANDBOX_ORIGIN_URL}",
+            "-e",
+            f"USE_FILTER={'true' if partial else 'false'}",
             GIT_HELPER_IMAGE,
             "-c",
             script,
@@ -1000,6 +1075,7 @@ def init_cache_from_master() -> None:
             "-e",
             "SANDBOX_MODE=cache-init",
             "app",
+            use_tools=False,
         )
 
         info("Snapshotting databases...")
@@ -1088,7 +1164,7 @@ def check_migration_staleness(branch_sha: str) -> str | None:
             "-v",
             f"{DB_CACHE_VOLUME}:/cache:ro",
             "-v",
-            f"{HOST_GIT_DIR}:/host-git:ro",
+            f"{_host_git_dir()}:/host-git:ro",
             "-e",
             f"BRANCH_SHA={branch_sha}",
             "--entrypoint",
@@ -1318,6 +1394,7 @@ def cmd_create(branch: str, base_branch: str = "master") -> None:
         raise
 
     container = f"{project}-app-1"
+    _seed_tool_auth(container, sandbox_tools.load_user_tools())
     health_url = f"http://localhost:{port}/_health"
     _attach_with_health_poll(container, health_url)
 
@@ -1668,6 +1745,138 @@ def cmd_rebuild_cache() -> None:
     init_cache_from_master()
 
 
+# ---------------------------------------------------------------------------
+# Tools subcommand (manages ~/.posthog-sandboxes/tools.yaml)
+# ---------------------------------------------------------------------------
+
+
+def _prompt_lines(prompt_text: str, prompt_help: str, *, strip: bool = False) -> list[str]:
+    print(prompt_text)
+    print(prompt_help)
+    lines: list[str] = []
+    while True:
+        try:
+            line = input("> ")
+        except EOFError:
+            break
+        if strip:
+            line = line.strip()
+        if not line:
+            break
+        lines.append(line)
+    return lines
+
+
+def _print_tool_summary(tool: Tool, *, indent: str = "  ") -> None:
+    print(f"{indent}{tool.name}")
+    if tool.install and (snippet := tool.install.strip()):
+        print(f"{indent}  install:")
+        for line in snippet.splitlines():
+            print(f"{indent}    {line}")
+    for c in tool.copy:
+        print(f"{indent}  copy: {c.source} -> {c.target}")
+
+
+def _tools_list() -> None:
+    tools = sandbox_tools.load_user_tools()
+    catalog = sandbox_tools.load_catalog(CATALOG_FILE)
+    configured_names = {t.name for t in tools}
+
+    if tools:
+        print(f"Tools defined in {TOOLS_FILE}")
+        print()
+        for t in tools:
+            _print_tool_summary(t)
+            print()
+    else:
+        print(f"No tools configured in {TOOLS_FILE}.")
+        print()
+
+    if catalog:
+        print(f"Available recipes in {CATALOG_FILE.relative_to(REPO_ROOT)}:")
+        print("  (use `sandbox tools add <name>` to pull one into your tools.yaml)")
+        print()
+        for name in sorted(catalog):
+            entry = catalog[name]
+            marker = "  [installed]" if name in configured_names else ""
+            print(f"  {name}{marker}: {entry.description or ''}")
+        print()
+
+
+def _confirm(prompt: str, *, default_yes: bool = True) -> bool:
+    suffix = "[Y/n]" if default_yes else "[y/N]"
+    answer = input(f"{prompt} {suffix} ").strip().lower()
+    if not answer:
+        return default_yes
+    return answer in ("y", "yes")
+
+
+def _tools_add(args) -> None:
+    tools = sandbox_tools.load_user_tools()
+    if any(t.name == args.name for t in tools):
+        fatal(f"Tool '{args.name}' is already defined. Run 'sandbox tools remove {args.name}' first.")
+
+    explicit = args.install is not None or args.copy
+    catalog_hit = None if explicit else sandbox_tools.load_catalog(CATALOG_FILE).get(args.name)
+
+    if catalog_hit:
+        print(f"\n'{catalog_hit.name}' is in the sandbox tool catalog:")
+        if catalog_hit.description:
+            print(f"  {catalog_hit.description}")
+        _print_tool_summary(catalog_hit)
+        if not _confirm("\nAdd this recipe to your tools.yaml?"):
+            info("Aborted.")
+            sys.exit(0)
+        new_tool = Tool(name=catalog_hit.name, install=catalog_hit.install, copy=list(catalog_hit.copy))
+    elif explicit:
+        copy_entries = [sandbox_tools.parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in args.copy or []]
+        new_tool = Tool(name=args.name, install=args.install, copy=copy_entries)
+    else:
+        install_lines = _prompt_lines(
+            f"\nWhat install command(s) does '{args.name}' need?",
+            "  Runs as the sandbox user at image build time. Use `sudo` for apt-get etc.\n"
+            "  Multi-line allowed. Empty line to finish.",
+        )
+        install = "\n".join(install_lines).strip() or None
+        copy_strs = _prompt_lines(
+            f"\nWhere does '{args.name}' store auth/config on your host?",
+            "  Absolute paths, one per line, blank when done. Most tools use ~/.config/<name>.",
+            strip=True,
+        )
+        copy_entries = [sandbox_tools.parse_tool_copy(c, source_label=f"'{args.name}' copy entry") for c in copy_strs]
+        new_tool = Tool(name=args.name, install=install, copy=copy_entries)
+
+    tools.append(new_tool)
+    sandbox_tools.save_user_tools(tools)
+    success(f"Added '{new_tool.name}' to {TOOLS_FILE}.")
+    print("Next `sandbox create` will pick it up (image rebuilds once).")
+
+
+def _tools_remove(name: str) -> None:
+    tools = sandbox_tools.load_user_tools()
+    remaining = [t for t in tools if t.name != name]
+    if len(remaining) == len(tools):
+        warn(f"No tool named '{name}' in {TOOLS_FILE}.")
+        return
+    sandbox_tools.save_user_tools(remaining)
+    success(f"Removed '{name}' from {TOOLS_FILE}.")
+    if remaining:
+        print("Next `sandbox create` will rebuild the personal image without it.")
+    else:
+        print("tools.yaml now empty; future sandboxes will use the base image directly.")
+
+
+def cmd_tools(args) -> None:
+    if args.tools_command == "list":
+        _tools_list()
+    elif args.tools_command == "add":
+        _tools_add(args)
+    elif args.tools_command == "remove":
+        _tools_remove(args.name)
+    else:
+        fatal("Run `sandbox tools --help` for usage.")
+
+
 def cmd_nuke() -> None:
     warn("Destroying all sandboxes and clearing cache...")
     registry = Registry()
@@ -1694,6 +1903,39 @@ def _require_registered(registry: Registry, branch: str) -> SandboxEntry:
     if not entry:
         fatal(f"No sandbox found for branch '{branch}'. Create one with: sandbox create {branch}")
     return entry
+
+
+def _seed_tool_auth(container: str, tools: list[Tool]) -> None:
+    """One-shot `docker cp` of tools.yaml copy entries into the new container.
+
+    Runs at create time only; the container owns the files after that so
+    tokens refreshed inside survive restarts.
+    """
+    for tool in tools:
+        for c in tool.copy:
+            src = Path(c.source).expanduser()
+            tgt = sandbox_tools.expand_sandbox_path(c.target)
+            if not src.exists():
+                continue
+            # mkdir as the sandbox user — docker exec defaults to root, and a
+            # root-owned parent dir would block the sandbox user from writing
+            # into it later (e.g. JetBrains under ~/.config). docker cp still
+            # lands root-owned, hence the chown below.
+            run(
+                [
+                    "docker",
+                    "exec",
+                    "-u",
+                    f"{os.getuid()}:{os.getgid()}",
+                    container,
+                    "mkdir",
+                    "-p",
+                    str(Path(tgt).parent),
+                ],
+                capture=True,
+            )
+            run(["docker", "cp", str(src), f"{container}:{tgt}"], capture=True)
+            run(["docker", "exec", container, "chown", "-R", "sandbox:sandbox", tgt], capture=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1758,6 +2000,35 @@ examples:
     sub.add_parser("rebuild-cache", help="Rebuild the database cache from master")
     sub.add_parser("nuke", help="Destroy all sandboxes and clear the cache")
 
+    tools_parser = sub.add_parser(
+        "tools",
+        help="Manage user-defined CLI tools and host auth paths",
+        description=(
+            "Manage ~/.posthog-sandboxes/tools.yaml. Additional CLIs baked "
+            "into your personal sandbox image and host auth paths copied in "
+            "at sandbox-create time."
+        ),
+    )
+    tools_sub = tools_parser.add_subparsers(dest="tools_command")
+    tools_sub.add_parser("list", help="Show configured tools and image status")
+    tools_add_p = tools_sub.add_parser(
+        "add",
+        help="Add a tool (interactive by default; --install/--copy for scripting)",
+    )
+    tools_add_p.add_argument("name")
+    tools_add_p.add_argument(
+        "--install",
+        help="Non-interactive: install snippet to run at image build time",
+    )
+    tools_add_p.add_argument(
+        "--copy",
+        action="append",
+        default=[],
+        help="Non-interactive: host path to copy into the sandbox $HOME (repeatable)",
+    )
+    tools_remove_p = tools_sub.add_parser("remove", help="Remove a tool")
+    tools_remove_p.add_argument("name")
+
     return parser
 
 
@@ -1788,6 +2059,7 @@ def main() -> None:
         "logs": lambda: cmd_logs(args.branch),
         "rebuild-cache": cmd_rebuild_cache,
         "nuke": cmd_nuke,
+        "tools": lambda: cmd_tools(args),
     }
 
     try:
@@ -1795,6 +2067,8 @@ def main() -> None:
     except (KeyboardInterrupt, EOFError):
         print()
         sys.exit(130)
+    except ToolsError as e:
+        fatal(str(e))
     except subprocess.CalledProcessError as e:
         cmd_str = " ".join(str(a) for a in e.cmd)
         error(f"Command failed (exit {e.returncode}): {cmd_str}")

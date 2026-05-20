@@ -316,10 +316,17 @@ func (m *Model) updateProcKeys() {
 		m.keys.ClearLogs.SetEnabled(false)
 		return
 	}
-	running := p.IsRunning()
+	// Snapshot status once so running/crashed are derived from the same
+	// observation — avoids a second trip through the proc mutex and any
+	// chance of inconsistency between the two reads.
+	st := p.Status()
+	running := st.IsRunning()
+	crashed := st == process.StatusCrashed
 	m.keys.Start.SetEnabled(!running)
 	m.keys.Stop.SetEnabled(running)
-	m.keys.Restart.SetEnabled(running)
+	// `r` doubles as "restart a running proc" and "kick a crashed proc back to
+	// life" — both express the same user intent of "rerun this thing".
+	m.keys.Restart.SetEnabled(running || crashed)
 	m.keys.ClearLogs.SetEnabled(running)
 }
 
@@ -509,10 +516,16 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		}
 
 	case key.Matches(msg, m.keys.Restart):
-		if p := m.activeProc(); p != nil && p.IsRunning() {
-			m.dbg("restart: proc=%s", p.Name)
+		if p := m.activeProc(); p != nil {
 			send := m.mgr.Send()
-			go p.Restart(send)
+			switch {
+			case p.IsRunning():
+				m.dbg("restart: proc=%s", p.Name)
+				go p.Restart(send)
+			case p.Status() == process.StatusCrashed:
+				m.dbg("restart (from crashed): proc=%s", p.Name)
+				go func() { _ = p.Start(send) }()
+			}
 		}
 
 	case key.Matches(msg, m.keys.RestartAllFailed):

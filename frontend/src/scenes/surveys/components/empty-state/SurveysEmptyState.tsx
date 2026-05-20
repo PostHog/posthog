@@ -6,6 +6,7 @@ import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { MicrophoneHog } from 'lib/components/hedgehogs'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -92,6 +93,8 @@ function SurveysEmptyStateContent(): JSX.Element {
                             </p>
                         </div>
 
+                        <MCPUseCaseCard surfaceKey="surveys.create" className="!mt-0 w-full" />
+
                         {featuredTemplate && (
                             <div>
                                 <FeaturedTemplateCard
@@ -174,6 +177,8 @@ function SurveysEmptyStateAIContent(): JSX.Element {
                     Tell AI what you want to learn from your users, or pick a template below.
                 </p>
             </div>
+
+            <MCPUseCaseCard surfaceKey="surveys.create" className="!mt-0 w-full mb-6" />
 
             <div className="rounded-xl border-2 border-[var(--color-ai)] mb-8">
                 <label

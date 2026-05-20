@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconBell, IconClock, IconDownload, IconNotification } from '@posthog/icons'
+import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -10,6 +10,7 @@ import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
+import { matchesFlagDefinition } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,7 +22,7 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import { SettingSectionId } from '~/scenes/settings/types'
+import { Setting, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
@@ -66,6 +67,9 @@ export interface SearchItem {
     category: string
     productCategory?: string | null
     href?: string
+    /** Action invoked when the item is selected. Use for items that trigger something
+     * other than navigation (e.g. logging out). Consumers should prefer `onSelect` over `href`. */
+    onSelect?: () => void
     icon?: React.ReactNode
     lastViewedAt?: string | null
     groupNoun?: string | null
@@ -627,19 +631,26 @@ export const searchLogic = kea<searchLogicType>([
                     lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
                     record: { type: 'subscriptions' },
                 },
+                {
+                    id: 'misc-logout',
+                    name: 'Log out',
+                    displayName: 'Log out',
+                    category: 'misc',
+                    icon: <IconLeave />,
+                    itemType: null,
+                    searchKeywords: ['logout', 'log out', 'sign out', 'signout', 'exit'],
+                    onSelect: () => userLogic.actions.logout(),
+                    record: { type: 'logout' },
+                },
             ],
         ],
         settingsItems: [
             (s) => [s.featureFlags, s.organizationIntegrations],
             (featureFlags, organizationIntegrations): SearchItem[] => {
-                const items: SearchItem[] = []
+                const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>
+                    matchesFlagDefinition(flagKey, featureFlags)
 
-                const checkFlag = (flag: string): boolean => {
-                    const isNegated = flag.startsWith('!')
-                    const flagName = isNegated ? flag.slice(1) : flag
-                    const flagValue = (featureFlags as Record<string, boolean>)[flagName]
-                    return isNegated ? !flagValue : !!flagValue
-                }
+                const items: SearchItem[] = []
 
                 // Skip project-level sections as they are duplicates of environment sections
                 const seenSectionIds = new Set<string>()
@@ -673,15 +684,8 @@ export const searchLogic = kea<searchLogicType>([
 
                     // Filter by feature flag if required
                     if (section.flag) {
-                        if (Array.isArray(section.flag)) {
-                            // All flags in the array must pass
-                            if (!section.flag.every(checkFlag)) {
-                                continue
-                            }
-                        } else {
-                            if (!checkFlag(section.flag)) {
-                                continue
-                            }
+                        if (!checkFlag(section.flag as Pick<Setting, 'flag'>['flag'])) {
+                            continue
                         }
                     }
 

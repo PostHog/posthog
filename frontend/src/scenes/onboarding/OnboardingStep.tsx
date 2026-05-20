@@ -10,7 +10,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingBreadcrumbs } from './OnboardingBreadcrumbs'
-import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { stepKeyToTitle } from './onboardingFlowUtils'
+import { onboardingLogic } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -25,7 +26,6 @@ export const OnboardingStep = ({
     continueText,
     continueDisabledReason,
     hideHeader,
-    breadcrumbHighlightName,
     fullWidth = false,
     actions,
 }: {
@@ -41,11 +41,10 @@ export const OnboardingStep = ({
     continueText?: string
     continueDisabledReason?: string
     hideHeader?: boolean
-    breadcrumbHighlightName?: OnboardingStepKey
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep } = useValues(onboardingLogic)
+    const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
@@ -54,13 +53,13 @@ export const OnboardingStep = ({
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
     const skip = (): void => {
-        reportOnboardingStepSkipped(stepKey)
+        reportOnboardingStepSkipped(stepKey, currentStepProductKey ?? undefined)
         onSkip?.()
         advance()
     }
 
     const next = (): void => {
-        reportOnboardingStepCompleted(stepKey)
+        reportOnboardingStepCompleted(stepKey, currentStepProductKey ?? undefined)
         onContinue?.()
         advance()
     }
@@ -69,7 +68,7 @@ export const OnboardingStep = ({
         <>
             <div className="pb-2">
                 <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
-                    <OnboardingBreadcrumbs stepKey={stepKey} breadcrumbHighlightName={breadcrumbHighlightName} />
+                    <OnboardingBreadcrumbs />
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center items-start gap-2 mt-3 px-4 sm:px-0">
                         <h1 className={clsx('font-bold m-0 px-0 sm:px-2', fullWidth && 'text-center')}>
                             {title || stepKeyToTitle(stepKey)}

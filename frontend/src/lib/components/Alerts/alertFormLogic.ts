@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -58,6 +59,7 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
 
 export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
     switch (interval) {
+        case AlertCalculationInterval.EVERY_15_MINUTES:
         case AlertCalculationInterval.HOURLY:
             return '-48h'
         case AlertCalculationInterval.DAILY:
@@ -242,9 +244,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
-                    // can only skip weekends for hourly/daily alerts
+                    // can only skip weekends for sub-daily alerts
                     skip_weekend:
-                        (alert.calculation_interval === AlertCalculationInterval.DAILY ||
+                        (alert.calculation_interval === AlertCalculationInterval.EVERY_15_MINUTES ||
+                            alert.calculation_interval === AlertCalculationInterval.DAILY ||
                             alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
                         alert.skip_weekend,
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
@@ -320,6 +323,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
 
                 lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
+                if (alert.id === undefined) {
+                    tryShowMCPHint('alerts.create')
+                }
 
                 return updatedAlert
             },

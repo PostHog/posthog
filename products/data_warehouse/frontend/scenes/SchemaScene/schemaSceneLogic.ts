@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import { Scene } from 'scenes/sceneTypes'
@@ -15,7 +15,7 @@ import type { schemaSceneLogicType } from './schemaSceneLogicType'
 export const SCHEMA_SCENE_TABS = ['configuration', 'metrics'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
 
-export const SCHEMA_CONFIGURATION_SECTIONS = ['details', 'sync-method', 'schedule', 'danger-zone'] as const
+export const SCHEMA_CONFIGURATION_SECTIONS = ['details', 'sync-method', 'columns', 'schedule', 'danger-zone'] as const
 export type SchemaConfigurationSection = (typeof SCHEMA_CONFIGURATION_SECTIONS)[number]
 
 export const DEFAULT_SCHEMA_SCENE_TAB: SchemaSceneTab = 'configuration'
@@ -32,6 +32,10 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
     path((key) => ['products', 'dataWarehouse', 'schemaSceneLogic', key]),
     connect((props: SchemaSceneProps) => ({
         values: [sourceSettingsLogic({ id: cleanSourceId(props.sourceId) }), ['source', 'sourceLoading']],
+        actions: [
+            sourceSettingsLogic({ id: cleanSourceId(props.sourceId) }),
+            ['pausePolling', 'resumePolling', 'loadSource'],
+        ],
     })),
     actions({
         setCurrentTab: (tab: SchemaSceneTab) => ({ tab }),
@@ -121,7 +125,15 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => {
+        let initialNavigation = true
+
         const applyTabAndSection = (tab: SchemaSceneTab, section?: SchemaConfigurationSection): void => {
+            if (!initialNavigation) {
+                // User navigated back to this scene — refresh data since polling is paused.
+                actions.loadSource()
+            }
+            initialNavigation = false
+
             if (tab !== values.currentTab) {
                 actions._setCurrentTab(tab)
             }
@@ -149,5 +161,11 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 applyTabAndSection(DEFAULT_SCHEMA_SCENE_TAB, DEFAULT_SCHEMA_CONFIGURATION_SECTION)
             },
         }
+    }),
+    afterMount(({ actions }) => {
+        actions.pausePolling()
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.resumePolling()
     }),
 ])

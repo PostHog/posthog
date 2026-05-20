@@ -378,7 +378,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "PathsQuery":
-        from .insights.paths.paths_query_runner import PathsQueryRunner
+        from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
@@ -399,7 +399,9 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "StickinessQuery":
-        from .insights.stickiness.stickiness_query_runner import StickinessQueryRunner
+        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
+            StickinessQueryRunner,
+        )
 
         return StickinessQueryRunner(
             query=cast(StickinessQuery | dict[str, Any], query),

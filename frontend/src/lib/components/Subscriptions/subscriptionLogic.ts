@@ -192,7 +192,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setSubscriptionValue: ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
             if (key === 'frequency') {
-                if (value === 'daily' || value === 'hourly') {
+                if (value === 'daily') {
                     actions.setSubscriptionValues({
                         bysetpos: null,
                         byweekday: null,

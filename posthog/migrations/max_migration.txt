@@ -1,1 +1,1 @@
-1156_cohort_team_filters_help_text
+1165_user_hide_mcp_hints

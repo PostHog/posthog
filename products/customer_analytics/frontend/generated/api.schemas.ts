@@ -7,6 +7,109 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+ * @nullable
+ */
+export type AccountApiProperties = {
+    /** @nullable */
+    csm?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_executive?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_owner?: {
+        id: number
+        email: string
+    } | null
+} | null
+
+export interface AccountApi {
+    readonly id: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    properties?: AccountApiProperties
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedAccountListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountApi[]
+}
+
+/**
+ * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+ * @nullable
+ */
+export type PatchedAccountApiProperties = {
+    /** @nullable */
+    csm?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_executive?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_owner?: {
+        id: number
+        email: string
+    } | null
+} | null
+
+export interface PatchedAccountApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    properties?: PatchedAccountApiProperties
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 export interface CustomerJourneyApi {
     readonly id: string
     insight: number
@@ -205,6 +308,17 @@ export interface PatchedGroupUsageMetricApi {
      * @nullable
      */
     math_property?: string | null
+}
+
+export type AccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type CustomerJourneysListParams = {

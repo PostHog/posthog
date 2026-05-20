@@ -45,8 +45,23 @@ def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int |
     raise ValueError(f"Unsupported incremental field type: {field_type}")
 
 
+def incremental_type_to_operator(field_type: IncrementalFieldType) -> str:
+    # Date cursors lose all rows that land on the boundary day after the previous sync's
+    # cursor advance, because the cursor only carries day-granularity and `>` skips
+    # everything equal to that day. `>=` re-fetches the boundary day so primary-key dedup
+    # (or append acceptance) can close the gap. Every other field type carries enough
+    # resolution that `>` is safe and avoids re-shipping the boundary row on every sync.
+    if field_type == IncrementalFieldType.Date:
+        return ">="
+    return ">"
+
+
 def build_table_name(source: ExternalDataSource, schema_name: str):
-    return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()
+    # Dots in `schema_name` would parse as `<table>.<column>` in HogQL, so any source that ever
+    # produces a dotted schema name (today: Postgres multi-schema like `public.auth_group`) needs
+    # them rewritten. No-op for pre-existing single-schema sources whose names never contained dots.
+    safe_schema_name = schema_name.replace(".", "__")
+    return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
 def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:

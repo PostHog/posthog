@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use metrics::{counter, histogram};
+use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
 
 use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessage};
@@ -9,24 +12,56 @@ use crate::types::{IngestBatchRequest, IngestBatchResponse, SerializedKafkaMessa
 ///
 /// Uses reqwest with connection pooling (one pool per worker URL).
 /// Retries on 5xx/timeout with exponential backoff.
+///
+/// Per-worker `Semaphore`s cap how many concurrent batches we can have in
+/// flight to each worker URL. The capacity must match the worker's own
+/// `BatchingPipeline.concurrentBatches` setting (controlled by
+/// `INGESTION_WORKER_CONCURRENT_BATCHES` on both sides). When all permits
+/// are held, `send_batch` waits — this is the natural backpressure that
+/// replaces retry-on-503. A 503 escaping to the transport indicates a
+/// contract violation (mis-configured limits or a Rust-side timeout
+/// leaving a worker still processing) and is treated as non-retriable.
 pub struct HttpTransport {
     client: reqwest::Client,
     max_retries: u32,
     api_secret: Option<String>,
+    worker_semaphores: HashMap<String, Arc<Semaphore>>,
 }
 
 impl HttpTransport {
-    pub fn new(timeout: Duration, max_retries: u32, api_secret: Option<String>) -> Self {
+    pub fn new(
+        timeout: Duration,
+        max_retries: u32,
+        api_secret: Option<String>,
+        worker_urls: &[String],
+        worker_concurrent_batches: usize,
+    ) -> Self {
+        assert!(
+            worker_concurrent_batches > 0,
+            "worker_concurrent_batches must be > 0"
+        );
+
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .pool_max_idle_per_host(4)
             .build()
             .expect("failed to create HTTP client");
 
+        let worker_semaphores = worker_urls
+            .iter()
+            .map(|url| {
+                (
+                    url.clone(),
+                    Arc::new(Semaphore::new(worker_concurrent_batches)),
+                )
+            })
+            .collect();
+
         Self {
             client,
             max_retries,
             api_secret,
+            worker_semaphores,
         }
     }
 
@@ -72,6 +107,12 @@ impl HttpTransport {
     }
 
     /// Send a sub-batch to a worker. Returns the number of accepted messages.
+    ///
+    /// Acquires a permit from the worker's `Semaphore` before sending. If
+    /// `worker_concurrent_batches` permits are already held, the call waits
+    /// here — that's the natural backpressure. The permit is released on
+    /// drop, covering all return paths (success, retriable error, retries
+    /// exhausted, non-retriable error).
     pub async fn send_batch(
         &self,
         worker_url: &str,
@@ -85,6 +126,31 @@ impl HttpTransport {
         };
 
         let url = format!("{worker_url}/ingest");
+
+        let semaphore = self
+            .worker_semaphores
+            .get(worker_url)
+            .ok_or_else(|| TransportError::UnknownWorker(worker_url.to_string()))?
+            .clone();
+
+        // Atomic "did we actually have to wait?" check. `available_permits`
+        // followed by `acquire_owned` would race — a permit could be released
+        // between the two (false positive) or stolen (false negative). Using
+        // `try_acquire_owned` first gives an accurate backpressure counter.
+        let _permit = match semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                counter!(
+                    "ingestion_consumer_transport_backpressure_waits_total",
+                    "worker" => worker_url.to_string()
+                )
+                .increment(1);
+                semaphore
+                    .acquire_owned()
+                    .await
+                    .expect("worker semaphore must not be closed")
+            }
+        };
 
         let mut last_err = None;
         for attempt in 0..=self.max_retries {
@@ -122,7 +188,12 @@ impl HttpTransport {
                     let elapsed = start.elapsed();
                     histogram!("ingestion_consumer_transport_duration_seconds", "worker" => worker_url.to_string())
                         .record(elapsed.as_secs_f64());
-                    counter!("ingestion_consumer_transport_requests_total", "worker" => worker_url.to_string(), "status" => "error")
+                    let status_label = if matches!(err, TransportError::WorkerBusy(_)) {
+                        "busy"
+                    } else {
+                        "error"
+                    };
+                    counter!("ingestion_consumer_transport_requests_total", "worker" => worker_url.to_string(), "status" => status_label)
                         .increment(1);
 
                     warn!(
@@ -166,6 +237,15 @@ impl HttpTransport {
         let response = req_builder.send().await?;
         let status = response.status();
 
+        // 503 means the worker is at concurrent batch capacity. The previous
+        // batch is still being processed — surface as a distinct error so the
+        // caller can apply a longer backoff instead of hammering with 100ms
+        // retries (which all bounce off the same in-flight batch).
+        if status == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            let body = response.text().await.unwrap_or_default();
+            return Err(TransportError::WorkerBusy(body));
+        }
+
         if status.is_client_error() || status.is_server_error() {
             let body = response.text().await.unwrap_or_default();
             return Err(TransportError::HttpStatus(status.as_u16(), body));
@@ -181,11 +261,17 @@ pub enum TransportError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 
+    #[error("Worker busy (HTTP 503): {0}")]
+    WorkerBusy(String),
+
     #[error("Worker returned HTTP {0}: {1}")]
     HttpStatus(u16, String),
 
     #[error("Worker returned error: {0}")]
     WorkerError(String),
+
+    #[error("Unknown worker URL: {0}")]
+    UnknownWorker(String),
 
     #[error("All retries exhausted")]
     RetriesExhausted,
@@ -193,11 +279,17 @@ pub enum TransportError {
 
 impl TransportError {
     /// 4xx errors are non-transient and should not be retried.
+    /// `WorkerBusy` (HTTP 503) is also non-retriable: the consumer's per-worker
+    /// semaphore is supposed to prevent it from ever firing, so it indicates a
+    /// contract violation rather than a transient condition — retrying just
+    /// hammers an already-overloaded worker.
     pub fn is_retriable(&self) -> bool {
         match self {
             TransportError::HttpStatus(status, _) => *status >= 500,
             TransportError::Http(_) => true,
+            TransportError::WorkerBusy(_) => false,
             TransportError::WorkerError(_) => true,
+            TransportError::UnknownWorker(_) => false,
             TransportError::RetriesExhausted => false,
         }
     }
