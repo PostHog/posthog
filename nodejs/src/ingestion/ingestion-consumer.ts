@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
+import { PROCESS_HEALTH, setProcessHealth } from '~/common/metrics'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -300,6 +301,8 @@ export class IngestionConsumer {
                 async () => await this.handleKafkaBatch(messages)
             )
         })
+
+        setProcessHealth(this.name, PROCESS_HEALTH.OK)
     }
 
     public async stop(): Promise<void> {
@@ -317,6 +320,12 @@ export class IngestionConsumer {
     }
 
     public async isHealthy(): Promise<HealthCheckResult> {
+        const result = await this.computeHealth()
+        setProcessHealth(this.name, result.status)
+        return result
+    }
+
+    private async computeHealth(): Promise<HealthCheckResult> {
         if (!this.kafkaConsumer) {
             return new HealthCheckResultError('Kafka consumer not initialized', {})
         }

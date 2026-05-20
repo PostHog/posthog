@@ -3,6 +3,7 @@ import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 
+import { PROCESS_HEALTH, setProcessHealth } from '~/common/metrics'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
@@ -239,6 +240,8 @@ export class ErrorTrackingConsumer {
             })
         })
 
+        setProcessHealth(this.name, PROCESS_HEALTH.OK)
+
         logger.info('✅', `${this.name} - started`)
     }
 
@@ -373,7 +376,9 @@ export class ErrorTrackingConsumer {
     }
 
     public isHealthy(): HealthCheckResult {
-        return this.kafkaConsumer.isHealthy()
+        const result = this.kafkaConsumer.isHealthy()
+        setProcessHealth(this.name, result.status)
+        return result
     }
 
     public async handleKafkaBatch(messages: Message[]): Promise<void> {

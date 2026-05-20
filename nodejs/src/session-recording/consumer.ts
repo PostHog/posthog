@@ -1,6 +1,7 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 
+import { PROCESS_HEALTH, setProcessHealth } from '~/common/metrics'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../config/config'
@@ -63,6 +64,8 @@ export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     >
 
 export class SessionRecordingIngester {
+    private readonly name = 'session-recordings-blob-v2-overflow'
+
     kafkaConsumer: KafkaConsumer
     topic: string
     consumerGroupId: string
@@ -222,7 +225,7 @@ export class SessionRecordingIngester {
 
     public get service(): PluginServerService {
         return {
-            id: 'session-recordings-blob-v2-overflow',
+            id: this.name,
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy() ?? false,
         }
@@ -320,6 +323,8 @@ export class SessionRecordingIngester {
 
         // Start periodic flushing of TopHog metrics
         this.topHog.start()
+
+        setProcessHealth(this.name, PROCESS_HEALTH.OK)
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
@@ -347,7 +352,9 @@ export class SessionRecordingIngester {
 
     public isHealthy(): HealthCheckResult {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
-        return this.kafkaConsumer.isHealthy()
+        const result = this.kafkaConsumer.isHealthy()
+        setProcessHealth(this.name, result.status)
+        return result
     }
 
     private get assignedTopicPartitions(): TopicPartition[] {
