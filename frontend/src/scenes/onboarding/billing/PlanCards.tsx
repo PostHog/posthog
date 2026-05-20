@@ -121,7 +121,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
             />
             <div
                 role="button"
-                tabIndex={cardDisabled ? -1 : 0}
+                tabIndex={0}
                 aria-label={`Select ${planData.title} plan`}
                 aria-disabled={cardDisabled || undefined}
                 onClick={activateCard}
