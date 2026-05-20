@@ -7306,6 +7306,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "property-values-aggregator"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "common-alloc",
+ "common-continuous-profiling",
+ "common-kafka",
+ "envconfig",
+ "lifecycle",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "prost"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
