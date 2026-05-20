@@ -2,8 +2,8 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from products.user_interviews.backend.contracts import IntervieweeIdentity
 from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
+from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
 from products.user_interviews.backend.models import UserInterview, UserInterviewTopic
 
 

@@ -17,7 +17,7 @@ Do NOT:
 from uuid import UUID
 
 from products.user_interviews.backend import logic
-from products.user_interviews.backend.contracts import IntervieweeIdentity
+from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:
