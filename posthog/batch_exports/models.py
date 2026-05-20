@@ -17,6 +17,7 @@ import pytz
 from posthog.clickhouse.client import sync_execute  # noqa: F401
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 # this is what is used by the Team model
@@ -578,7 +579,7 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
         return threshold_delta > delta
 
 
-class BatchExportOnDemand(ModelActivityMixin, UUIDTModel):
+class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
     """A model for a PostHog batch export triggered on demand.
 
     Shares a lot of similarities with a `BatchExport`, with the big difference that
