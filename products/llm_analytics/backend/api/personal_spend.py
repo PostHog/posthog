@@ -79,7 +79,7 @@ def _resolve_window(date_from: str, date_to: str | None) -> tuple[datetime.datet
 
     if to_dt <= from_dt:
         raise exceptions.ValidationError({"date_to": "Must be later than `date_from`."})
-    if (to_dt - from_dt).days > MAX_WINDOW_DAYS:
+    if (to_dt - from_dt).total_seconds() > MAX_WINDOW_DAYS * 86400:
         raise exceptions.ValidationError(
             {"date_from": f"Window between `date_from` and `date_to` cannot exceed {MAX_WINDOW_DAYS} days."}
         )
