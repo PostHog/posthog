@@ -43,6 +43,28 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+def _build_create_sql(
+    *,
+    index_name: str,
+    table_name: str,
+    columns: str,
+    unique: bool,
+    using: str,
+    where: str,
+) -> str:
+    unique_kw = "UNIQUE " if unique else ""
+    using_kw = f" USING {using}" if using else ""
+    where_kw = f" {where}" if where else ""
+    return (
+        f'CREATE {unique_kw}INDEX CONCURRENTLY IF NOT EXISTS "{index_name}" '
+        f'ON "{table_name}"{using_kw} {columns}{where_kw}'
+    )
+
+
+def _build_drop_sql(index_name: str) -> str:
+    return f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"'
+
+
 class _ConcurrentIndexOp(migrations.RunSQL):
     """Shared machinery for CREATE/DROP INDEX CONCURRENTLY.
 
@@ -58,8 +80,7 @@ class _ConcurrentIndexOp(migrations.RunSQL):
         schema_editor.execute("SET lock_timeout = 0")
         schema_editor.execute("SET statement_timeout = 0")
 
-    @staticmethod
-    def _drop_if_invalid(schema_editor, index_name: str) -> None:
+    def _drop_if_invalid(self, schema_editor, index_name: str) -> None:
         """If `index_name` exists but is invalid, drop it.
 
         Recovers from a prior CONCURRENTLY build that was cancelled
@@ -69,11 +90,10 @@ class _ConcurrentIndexOp(migrations.RunSQL):
         skip and leave the invalid index in place.
 
         The recovery is intentionally noisy: a log line plus a migration
-        stdout message, both tagged with the index name and the original
-        cause (`indisvalid = false`). Without this, the auto-recovery
-        would mask repeated cancellations of the same index and we would
-        never know a table has chronic lock contention or memory pressure
-        during builds.
+        stdout message, both tagged with the index name. Without this,
+        the auto-recovery would mask repeated cancellations of the same
+        index and we would never know a table has chronic lock contention
+        or memory pressure during builds.
         """
         with schema_editor.connection.cursor() as cursor:
             cursor.execute(
@@ -90,16 +110,17 @@ class _ConcurrentIndexOp(migrations.RunSQL):
         logger.warning(
             "concurrent_index_recovering_from_invalid_leftover",
             index_name=index_name,
+            operation=type(self).__name__,
         )
         # Mirror to migration stdout so it shows up in bin/migrate log,
         # not just the application log stream.
         print(  # noqa: T201
-            f"[CreateIndexConcurrently] index {index_name!r} was left in an "
+            f"[{type(self).__name__}] index {index_name!r} was left in an "
             "invalid state by a prior interrupted build; dropping and "
             "rebuilding it. If this fires repeatedly for the same index, "
             "investigate why the prior build was cancelled."
         )
-        schema_editor.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"')
+        schema_editor.execute(_build_drop_sql(index_name))
 
 
 class CreateIndexConcurrently(_ConcurrentIndexOp):
@@ -127,30 +148,29 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         using: str = "",
         where: str = "",
     ) -> None:
+        # `index_name` and `table_name` survive on the instance — they're
+        # read by `_drop_if_invalid` / `describe`. The rest are only used
+        # to build the SQL strings below and don't need to be kept.
         self.index_name = index_name
         self.table_name = table_name
-        self.columns = columns
-        self.unique = unique
-        self.using = using
-        self.where = where
-
-        unique_kw = "UNIQUE " if unique else ""
-        using_kw = f" USING {using}" if using else ""
-        where_kw = f" {where}" if where else ""
-
-        sql = (
-            f'CREATE {unique_kw}INDEX CONCURRENTLY IF NOT EXISTS "{index_name}" '
-            f'ON "{table_name}"{using_kw} {columns}{where_kw}'
+        super().__init__(
+            sql=_build_create_sql(
+                index_name=index_name,
+                table_name=table_name,
+                columns=columns,
+                unique=unique,
+                using=using,
+                where=where,
+            ),
+            reverse_sql=_build_drop_sql(index_name),
         )
-        reverse_sql = f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"'
-        super().__init__(sql=sql, reverse_sql=reverse_sql)
 
-    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._disable_timeouts(schema_editor)
         self._drop_if_invalid(schema_editor, self.index_name)
         schema_editor.execute(self.sql)
 
-    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._disable_timeouts(schema_editor)
         schema_editor.execute(self.reverse_sql)
 
@@ -164,8 +184,9 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
     The forward direction has no invalid-leftover failure mode to recover
     from (DROP either succeeds or the index is missing). The reverse,
     however, is a CREATE INDEX CONCURRENTLY and needs the full recovery
-    path — passing `recreate_sql` plus the original index attributes
-    enables that.
+    path — the same arguments as `CreateIndexConcurrently` (columns,
+    unique, using, where) are required so the reverse can rebuild the
+    same index shape.
 
     Arguments:
         index_name: name of the index to drop.
@@ -186,29 +207,28 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         using: str = "",
         where: str = "",
     ) -> None:
+        # `index_name` and `table_name` survive on the instance — they're
+        # read by `_drop_if_invalid` (on rollback) and `describe`. The
+        # rest are only used to build the SQL strings.
         self.index_name = index_name
         self.table_name = table_name
-        self.columns = columns
-        self.unique = unique
-        self.using = using
-        self.where = where
-
-        unique_kw = "UNIQUE " if unique else ""
-        using_kw = f" USING {using}" if using else ""
-        where_kw = f" {where}" if where else ""
-
-        sql = f'DROP INDEX CONCURRENTLY IF EXISTS "{index_name}"'
-        reverse_sql = (
-            f'CREATE {unique_kw}INDEX CONCURRENTLY IF NOT EXISTS "{index_name}" '
-            f'ON "{table_name}"{using_kw} {columns}{where_kw}'
+        super().__init__(
+            sql=_build_drop_sql(index_name),
+            reverse_sql=_build_create_sql(
+                index_name=index_name,
+                table_name=table_name,
+                columns=columns,
+                unique=unique,
+                using=using,
+                where=where,
+            ),
         )
-        super().__init__(sql=sql, reverse_sql=reverse_sql)
 
-    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._disable_timeouts(schema_editor)
         schema_editor.execute(self.sql)
 
-    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         self._disable_timeouts(schema_editor)
         self._drop_if_invalid(schema_editor, self.index_name)
         schema_editor.execute(self.reverse_sql)

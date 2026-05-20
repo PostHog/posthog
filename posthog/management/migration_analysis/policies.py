@@ -275,11 +275,8 @@ class ConcurrentIndexIdempotencyPolicy(MigrationPolicy):
 
     # The PostHog helpers in posthog/migration_helpers/concurrent_index.py
     # encode the idempotency guarantees this policy enforces (indisvalid
-    # recovery + IF [NOT] EXISTS + timeout disabling), so they are exempt
-    # from the static SQL check. They inherit from RunSQL but their class
-    # name is not "RunSQL", so they fall through `_check_single_operation`
-    # naturally; the whitelist below is explicit so a future refactor of
-    # the check doesn't accidentally start flagging them.
+    # recovery + IF [NOT] EXISTS + timeout disabling) at the operation
+    # level, so they are explicitly exempt from the static SQL check.
     POSTHOG_SAFE_HELPER_OPS = {"CreateIndexConcurrently", "DropIndexConcurrently"}
 
     GUIDANCE = (
