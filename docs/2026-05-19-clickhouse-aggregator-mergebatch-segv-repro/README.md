@@ -22,16 +22,54 @@ and the same non-pointer fault address (`0x010001000100`) as production.
 
 | File | Maps to | Aggregate the bug hits |
 |---|---|---|
+| [`run_repro.sh`](run_repro.sh) | driver — starts a fresh container and runs the repros | — |
 | [`repro_a_argminmerge.sql`](repro_a_argminmerge.sql) | row 1 (HogQL session_replay_events listing) | `AggregateFunctionMerge` over `AggregateFunction(argMin, Nullable(String), DateTime64)` |
 | [`repro_b_anyif_string.sql`](repro_b_anyif_string.sql) | rows 2–4 (delete-recordings activity) | `AggregateFunctionAny<SingleValueDataString>` over plain `String` |
 
-## How to run (locally, against this repo's docker compose)
+## How to run
 
-The PostHog dev stack already runs `clickhouse/clickhouse-server:26.3.10.60`
-on aarch64 in container `posthog-clickhouse-1` — same build as the crashing
-production node.
+### Recommended: against a fresh standalone container
 
-### Repro B (simplest, ~2s end-to-end)
+[`run_repro.sh`](run_repro.sh) spins up a fresh
+`clickhouse/clickhouse-server:26.3.10.60` container, runs the repro SQL, and
+confirms a new `system.crash_log` row. It needs only `docker` and an aarch64
+host (Apple Silicon) — no PostHog dev stack.
+
+```bash
+cd docs/2026-05-19-clickhouse-aggregator-mergebatch-segv-repro
+./run_repro.sh          # both repros (default)
+./run_repro.sh b        # just repro B (simplest, ~a few seconds)
+./run_repro.sh a --keep # repro A; leave the container up for inspection
+```
+
+Expected tail of the output:
+
+```
+==> Latest system.crash_log entry:
+event_time:    …
+signal:        11
+fault_address: 010001000100
+top_frame:     <addr of IAggregateFunctionHelper<…>::mergeBatch>
+==> PASS (repro B): crash_log grew 0 -> 1
+==> Reproduced. Expected fault_address 010001000100, top frame ...mergeBatch.
+```
+
+Two container flags make a standalone container behave like the dev stack:
+
+- `--add-host clickhouse:127.0.0.1` — resolves the `remote('clickhouse,clickhouse', …)`
+  shard host in the repro SQL to the container's own `:9000`, so the server
+  addresses itself twice as two pseudo-shards (no SQL edit needed).
+- `--restart=always` — the SIGSEGV kills the `clickhouse-server` process, so
+  the container exits; this brings it back up against the same data dir, and
+  `system.crash_log` (persisted on disk) stays queryable.
+
+### Alternative: against the running PostHog dev stack
+
+The dev stack already runs `clickhouse/clickhouse-server:26.3.10.60` on aarch64
+in container `posthog-clickhouse-1` — the same build. If it's already up, you
+can run the SQL directly.
+
+Repro B (single client):
 
 ```bash
 docker exec -i posthog-clickhouse-1 clickhouse-client --multiquery \
@@ -47,21 +85,10 @@ docker exec posthog-clickhouse-1 clickhouse-client -q \
    FROM system.crash_log ORDER BY event_time DESC LIMIT 1 FORMAT Vertical"
 ```
 
-Expected:
-
-```
-event_time:         …
-hex(fault_address): 010001000100
-trace_full[1]:      <addr of IAggregateFunctionHelper<AggregateFunctionAny<SingleValueDataString>>::mergeBatch>
-```
-
-### Repro A (run in two clients)
-
-`repro_a_argminmerge.sql` is split into two sections. The single-session
-`--multiquery` path occasionally trips an *unrelated* `LOGICAL_ERROR`
-("Columns are assumed to be of identical types … in Nullable") on
-`max(UInt8) = 0` over `remote()`, which masks the crash. Run setup and the
-crashing query separately:
+Repro A is split into two sections. The single-session `--multiquery` path
+occasionally trips an *unrelated* `LOGICAL_ERROR` ("Columns are assumed to be
+of identical types … in Nullable") on `max(UInt8) = 0` over `remote()`, which
+masks the crash. Run setup and the crashing query separately:
 
 ```bash
 # section 1: DDL + INSERT (everything before the "CRASHING QUERY" banner)
