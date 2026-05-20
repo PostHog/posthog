@@ -1,89 +1,88 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconCalculator, IconPencil } from '@posthog/icons'
+import { IconCalculator, IconCheck, IconClock, IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { humanFriendlyNumber } from 'lib/utils'
+import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle/LemonProgressCircle'
+import { Label } from 'lib/ui/Label/Label'
 
-import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
+import { Experiment } from '~/types'
 
-export function RunningTime(): JSX.Element {
-    const { experiment, actualRunningTime } = useValues(experimentLogic)
-    const { openCalculateRunningTimeModal } = useActions(modalsLogic)
+import { RunningTimeConfigModal } from '../RunningTimeCalculator/RunningTimeConfigModal'
+import { runningTimeLogic } from '../RunningTimeCalculator/runningTimeLogic'
 
-    const recommendedSampleSize = experiment.parameters.recommended_sample_size
-    const minimumDetectableEffect = experiment.parameters.minimum_detectable_effect
-    const recommendedRunningTime = experiment.parameters.recommended_running_time
+export const RunningTime = ({
+    experiment,
+    tabId,
+    onClick,
+    isExperimentDraft,
+}: {
+    experiment: Experiment
+    tabId: string
+    onClick: () => void
+    isExperimentDraft: boolean
+}): JSX.Element => {
+    const {
+        remainingDays,
+        currentExposures,
+        targetSampleSize,
+        isComplete,
+        isManualMode,
+        primaryMetricsResultsLoading,
+    } = useValues(runningTimeLogic({ experimentId: experiment.id, tabId }))
+
+    const showProgress = currentExposures !== null && targetSampleSize !== null
 
     return (
-        <div>
-            <div className="flex items-center deprecated-space-x-2 mb-2">
-                <h2 className="mb-0 font-semibold text-lg leading-6">Running time</h2>
-                {recommendedRunningTime ? (
+        <>
+            <div className="flex flex-col">
+                <Label intent="menu">{isExperimentDraft ? 'Estimated duration' : 'Remaining time'}</Label>
+                <div className="inline-flex items-center gap-2">
+                    {primaryMetricsResultsLoading && !isManualMode ? (
+                        <span>Loading...</span>
+                    ) : remainingDays === null ? (
+                        <span className="inline-flex items-center gap-1">
+                            {isExperimentDraft ? (
+                                <>
+                                    <IconCalculator />
+                                    Not calculated
+                                </>
+                            ) : (
+                                <>
+                                    <IconClock />
+                                    Pending
+                                </>
+                            )}
+                        </span>
+                    ) : isComplete ? (
+                        <span className="inline-flex items-center gap-1">
+                            <IconCheck className="text-success" />
+                            Complete
+                        </span>
+                    ) : (
+                        <>
+                            <span>
+                                ~{Math.ceil(remainingDays)} day
+                                {Math.ceil(remainingDays) !== 1 ? 's' : ''}
+                            </span>
+                            {showProgress && (
+                                <LemonProgressCircle
+                                    progress={Math.min(currentExposures / targetSampleSize, 1)}
+                                    size={22}
+                                />
+                            )}
+                        </>
+                    )}
                     <LemonButton
-                        icon={<IconPencil fontSize="12" />}
-                        size="xsmall"
-                        className="flex items-center gap-2"
                         type="secondary"
-                        onClick={() => openCalculateRunningTimeModal()}
+                        size="xsmall"
+                        onClick={onClick}
+                        icon={<IconGear />}
+                        tooltip={isExperimentDraft ? 'Calculate estimated duration' : 'Configure'}
                     />
-                ) : null}
+                </div>
             </div>
-            <div className="relative border rounded bg-surface-primary p-4 h-[280px] overflow-y-auto">
-                {!recommendedSampleSize || !recommendedRunningTime ? (
-                    <div className="flex justify-center items-center h-full">
-                        <div className="text-center">
-                            <IconCalculator className="text-3xl mb-2 text-tertiary" />
-                            <div className="text-md font-semibold leading-tight mb-3">No running time yet</div>
-                            <div className="flex justify-center">
-                                <LemonButton
-                                    icon={<IconPencil fontSize="12" />}
-                                    size="xsmall"
-                                    className="flex items-center gap-2"
-                                    type="secondary"
-                                    onClick={() => openCalculateRunningTimeModal()}
-                                >
-                                    Calculate running time
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <>
-                        <LemonProgress
-                            className="w-full border"
-                            bgColor="var(--color-bg-table)"
-                            size="medium"
-                            percent={(actualRunningTime / recommendedRunningTime) * 100}
-                        />
-                        <div className="text-center mt-2 mb-4 text-xs text-muted">
-                            {actualRunningTime} of {humanFriendlyNumber(recommendedRunningTime, 0)} days completed (
-                            {Math.round((actualRunningTime / recommendedRunningTime) * 100)}%)
-                        </div>
-
-                        <div className="space-y-3">
-                            <div>
-                                <div className="card-secondary mb-1">Recommended sample size</div>
-                                <div className="text-sm font-semibold">
-                                    {humanFriendlyNumber(recommendedSampleSize, 0)} users
-                                </div>
-                            </div>
-                            <div>
-                                <div className="card-secondary mb-1">Estimated running time</div>
-                                <div className="text-sm font-semibold">
-                                    {humanFriendlyNumber(recommendedRunningTime, 0)} days
-                                </div>
-                            </div>
-                            <div>
-                                <div className="card-secondary mb-1">Minimum detectable effect</div>
-                                <div className="text-sm font-semibold">{minimumDetectableEffect}%</div>
-                            </div>
-                        </div>
-                    </>
-                )}
-            </div>
-        </div>
+            <RunningTimeConfigModal experimentId={experiment.id} tabId={tabId} />
+        </>
     )
 }

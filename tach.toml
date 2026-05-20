@@ -540,6 +540,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
@@ -583,6 +584,16 @@ depends_on = [
 ]
 layer = "modules"
 
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.access_control",
+]
+
+# Legacy leaks — core (posthog/ee) still imports these internals directly.
 [[interfaces]]
 expose = [
     "backend\\.models.*",

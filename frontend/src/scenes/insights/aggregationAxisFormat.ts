@@ -101,6 +101,29 @@ export const formatPercentStackAxisValue = (
     return formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
+// Formats a value and appends its share of the total, e.g. "1,234 (37.5%)".
+// Skips the share-of-total suffix when the axis is already formatted as a percentage
+// to avoid confusing output like "37% (60%)" (metric value vs share of total).
+export const formatAggregationAxisValueWithShareOfTotal = (
+    trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
+    value: number | string,
+    total: number,
+    currency?: CurrencyCode
+): string => {
+    const formatted = formatAggregationAxisValue(trendsFilter, value, currency)
+    const aggregationAxisFormat =
+        (trendsFilter as TrendsFilter)?.aggregationAxisFormat ??
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
+    if (aggregationAxisFormat === 'percentage' || aggregationAxisFormat === 'percentage_scaled') {
+        return formatted
+    }
+    if (!total) {
+        return formatted
+    }
+    const shareOfTotal = parseFloat(((Number(value) / total) * 100).toFixed(1))
+    return `${formatted} (${shareOfTotal}%)`
+}
+
 export const axisLabel = (chartDisplayType: ChartDisplayType | null | undefined): string => {
     switch (chartDisplayType) {
         case ChartDisplayType.ActionsLineGraph:
