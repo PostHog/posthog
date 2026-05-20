@@ -1076,24 +1076,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             # This is because the saved_query is used by our UI to prevent multiple cancellations
             saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
             saved_query.save()
-
-            log_activity(
-                organization_id=self.team.organization_id,
-                team_id=self.team_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                item_id=saved_query.id,
-                scope="DataWarehouseSavedQuery",
-                activity="sync_cancelled",
-                detail=Detail(name=saved_query.name),
-            )
-
-            return response.Response(status=status.HTTP_200_OK)
         except Exception as e:
             logger.exception("Failed to cancel workflow", workflow_id=workflow_id, error=str(e))
             return response.Response(
                 {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="sync_cancelled",
+            detail=Detail(name=saved_query.name),
+        )
+
+        return response.Response(status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=True)
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:

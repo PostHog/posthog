@@ -7,13 +7,17 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
+// Mirrors backend `sync_frequency_to_sync_frequency_interval` in
+// products/data_warehouse/backend/models/external_data_schema.py — the values arrive
+// as `str(timedelta(...))` ("H:MM:SS" or "X day(s), H:MM:SS"). Falls through to the raw
+// string for any unmapped interval, so the UI degrades gracefully if a new bucket lands
+// on the backend before this map is updated.
 function humanizeInterval(raw: string | null | undefined): string {
     if (!raw) {
         return 'none'
     }
-    // Python's str(timedelta(hours=N)) renders as "H:MM:SS" or "X day(s), H:MM:SS".
-    // Map common buckets to friendlier labels; fall through to the raw value otherwise.
     const buckets: Record<string, string> = {
+        '0:01:00': '1 minute',
         '0:05:00': '5 minutes',
         '0:15:00': '15 minutes',
         '0:30:00': '30 minutes',
@@ -22,6 +26,7 @@ function humanizeInterval(raw: string | null | undefined): string {
         '12:00:00': '12 hours',
         '1 day, 0:00:00': '1 day',
         '7 days, 0:00:00': '7 days',
+        '30 days, 0:00:00': '30 days',
     }
     return buckets[raw] ?? raw
 }
