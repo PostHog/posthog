@@ -53,8 +53,9 @@ export class StreamableMcpHandler {
             return auth.error
         }
 
+        let mcpServer: HonoMcpServer | undefined
         try {
-            const mcpServer = new HonoMcpServer(this.redis, auth.props, {
+            mcpServer = new HonoMcpServer(this.redis, auth.props, {
                 catalog: this.catalog,
                 resourceEntries: this._resourceEntries,
             })
@@ -64,6 +65,8 @@ export class StreamableMcpHandler {
             return passThrough(await transport.handleRequest(c.req.raw))
         } catch (error) {
             return handleCatchError(error, auth.props)
+        } finally {
+            await mcpServer?.server.close().catch(() => {})
         }
     }
 }
