@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import copy
 import json
@@ -3744,7 +3743,7 @@ class FeatureFlagViewSet(
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
 
-            internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
+            internal_token = settings.INTERNAL_REQUEST_TOKEN
             if not internal_token:
                 return Response(
                     {"error": "Internal request token not configured"},
