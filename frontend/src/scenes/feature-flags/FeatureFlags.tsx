@@ -532,6 +532,7 @@ export function OverviewTab({
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
+                mcpSurfaceKey="feature_flags.create"
             />
             {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />

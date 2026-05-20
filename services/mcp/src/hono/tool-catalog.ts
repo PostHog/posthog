@@ -2,7 +2,6 @@ import { hasScopes } from '@/lib/api'
 import {
     type ToolDefinition,
     type ToolFilterOptions,
-    getToolDefinition,
     getToolDefinitions,
     getToolsForFeatures,
 } from '@/tools/toolDefinitions'
@@ -68,9 +67,7 @@ export class ToolCatalog {
 
     getFilteredTools(options: ToolCatalogFilterOptions): Tool<ZodObjectAny>[] {
         const { scopes = [], excludeTools = [], ...filterOptions } = options
-        const allowedToolNames = getToolsForFeatures(filterOptions).filter(
-            (name) => !excludeTools.includes(name)
-        )
+        const allowedToolNames = getToolsForFeatures(filterOptions).filter((name) => !excludeTools.includes(name))
         const effectiveVersion = filterOptions.version ?? 1
 
         const tools: Tool<ZodObjectAny>[] = []
@@ -86,8 +83,7 @@ export class ToolCatalog {
                 continue
             }
 
-            const definition =
-                preBuilt.definitions[effectiveVersion === 2 ? 'v2' : 'v1'] ?? preBuilt.definitions.v1
+            const definition = preBuilt.definitions[effectiveVersion === 2 ? 'v2' : 'v1'] ?? preBuilt.definitions.v1
             if (!definition) {
                 continue
             }
