@@ -809,6 +809,78 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_boolean_dot_chain_is_field_not_array_access(self):
+        # `true.x` / `false.x` is a property chain — cpp treats `true` /
+        # `false` as ordinary identifiers in `columnIdentifier` chain
+        # position and builds `Field(['true', 'x'])`. Rust was committing
+        # the bool as `Constant(true)` first, then wrapping in
+        # `ArrayAccess` via the Pratt `.` postfix.
+        cases = ("true.x", "false.x", "TRUE.x", "true.x.y", "false.foo.bar")
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guards: bare `true` / `false` stay Bool constants; `true(1)` is
+        # a function call (ident path).
+        for src in ("true", "false", "true(1)"):
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_using_empty_parens_rejected(self):
+        # `joinConstraintClause`: `USING LPAREN columnExprList RPAREN`
+        # / `USING columnExprList` — both require a non-empty list. cpp
+        # rejects `USING ()`; rust was producing an empty list.
+        from posthog.hogql.errors import BaseHogQLError
+
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_select("SELECT * FROM a JOIN b USING ()", backend="rust-json")
+        with self.assertRaises((BaseHogQLError, SyntaxError)):
+            parse_select("SELECT * FROM a JOIN b USING ()", backend="cpp-json")
+        # Populated USING still parses.
+        src = "SELECT * FROM a JOIN b USING (x)"
+        oracle = clear_locations(parse_select(src, backend="cpp-json"))
+        for backend in ("rust-json", "python"):
+            got = clear_locations(parse_select(src, backend=backend))
+            self.assertEqual(got, oracle, msg=backend)
+
+    def test_group_by_cube_rollup_empty_is_function_call(self):
+        # Empty `CUBE()` / `ROLLUP()` — cpp parses these as function
+        # calls (the GROUP BY position carries one Call element, no
+        # group_by_mode); rust's dedicated CUBE / ROLLUP handler ate
+        # the empty parens and emitted `group_by=[]` + the mode marker.
+        for src in ("SELECT 1 GROUP BY CUBE()", "SELECT 1 GROUP BY ROLLUP()"):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Populated CUBE / ROLLUP still uses the mode marker.
+        src = "SELECT 1 GROUP BY CUBE(a, b)"
+        oracle = clear_locations(parse_select(src, backend="cpp-json"))
+        for backend in ("rust-json", "python"):
+            got = clear_locations(parse_select(src, backend=backend))
+            self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
+    def test_quoted_identifier_backslash_escapes(self):
+        # `QUOTED_IDENTIFIER` grammar (`HogQLLexer.common.g4:160-163`):
+        #   QUOTE_DOUBLE (~([\\"]) | ESCAPE_CHAR_COMMON | BACKSLASH QUOTE_DOUBLE | QUOTE_DOUBLE QUOTE_DOUBLE)* QUOTE_DOUBLE
+        # — so `\"` inside `"..."` is a valid escape. Rust's lex_quoted_ident
+        # treated `\` as just another body byte, terminating the ident
+        # at the next unescaped `"` and rejecting the trailing `"`.
+        cases = (
+            '"\\""',
+            '"a\\"b"',
+            '"\\\\"',
+            '"a"',
+        )
+        for src in cases:
+            oracle = clear_locations(parse_expr(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_expr(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_reserved_keywords_rejected_as_identifiers(self):
         # Grammar's `identifier` rule (`IDENTIFIER | QUOTED_IDENTIFIER |
         # interval | keyword`) excludes NULL_SQL / INF / NAN_SQL /

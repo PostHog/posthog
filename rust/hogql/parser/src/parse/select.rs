@@ -532,6 +532,7 @@ impl<'a> Parser<'a> {
                 obj.insert("group_by_mode".into(), Value::String("all".into()));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Cube))
                 && self.peek_next() == TokenKind::LParen
+                && !self.peek_lparen_is_empty()
             {
                 self.bump()?;
                 self.expect(TokenKind::LParen, "(")?;
@@ -541,6 +542,7 @@ impl<'a> Parser<'a> {
                 obj.insert("group_by_mode".into(), Value::String("cube".into()));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Rollup))
                 && self.peek_next() == TokenKind::LParen
+                && !self.peek_lparen_is_empty()
             {
                 self.bump()?;
                 self.expect(TokenKind::LParen, "(")?;

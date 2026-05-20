@@ -347,8 +347,15 @@ impl<'a> Parser<'a> {
             ));
         }
         if self.eat_kw(Kw::Using)? {
-            // The grammar allows both parenthesised and bare lists.
+            // The grammar `joinConstraintClause` admits two USING shapes:
+            //   `USING LPAREN columnExprList RPAREN`
+            //   `USING columnExprList`
+            // — both require a non-empty columnExprList. cpp rejects
+            // `USING ()`; rust was silently producing an empty list.
             let exprs = if self.eat(TokenKind::LParen)? {
+                if self.peek() == TokenKind::RParen {
+                    return Err(self.err("USING (…) must have at least one expression"));
+                }
                 let list = self.parse_expr_list_until_paren()?;
                 self.expect(TokenKind::RParen, ")")?;
                 list

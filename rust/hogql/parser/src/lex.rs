@@ -1079,12 +1079,62 @@ impl<'a> Lexer<'a> {
                     ))
                 }
                 Some(b) if b == quote => {
+                    // Doubled-quote inside the ident is an escaped quote
+                    // (grammar: `BACKQUOTE BACKQUOTE` / `QUOTE_DOUBLE
+                    // QUOTE_DOUBLE`).
                     if self.peek_byte(1) == Some(quote) {
                         self.pos += 2;
                         continue;
                     }
                     self.pos += 1;
                     return Ok(TokenKind::QuotedIdent);
+                }
+                Some(b'\\') => {
+                    // The grammar's quoted-identifier rule admits:
+                    //   `ESCAPE_CHAR_COMMON`     — `\b \f \r \n \t \0 \a \v \\ \xHH`
+                    //   `BACKSLASH QUOTE_DOUBLE` — only inside `"..."`
+                    //   `BACKSLASH QUOTE_SINGLE` — only inside `` `...` ``
+                    // Otherwise `\` is a stray char and the grammar
+                    // rejects (`~([\\<quote>])` excludes a bare
+                    // backslash). Mirror the closed set so `"\"abc"`
+                    // is a single quoted ident containing `"abc`.
+                    let escape_pos = self.pos;
+                    self.pos += 1;
+                    match self.peek_byte(0) {
+                        None => {}
+                        Some(c) => match c {
+                            b'b' | b'B' | b'f' | b'F' | b'r' | b'R' | b'n' | b'N'
+                            | b't' | b'T' | b'0' | b'a' | b'A' | b'v' | b'V' | b'\\' => {
+                                self.pos += 1;
+                            }
+                            b'"' if quote == b'"' => self.pos += 1,
+                            b'\'' if quote == b'`' => self.pos += 1,
+                            b'x' | b'X' => {
+                                self.pos += 1;
+                                if self.peek_byte(0).is_some_and(|b| b.is_ascii_hexdigit())
+                                    && self.peek_byte(1).is_some_and(|b| b.is_ascii_hexdigit())
+                                {
+                                    self.pos += 2;
+                                } else {
+                                    return Err(ParseError::syntax(
+                                        r"\x escape in quoted identifier requires two hex digits",
+                                        escape_pos,
+                                        self.pos,
+                                    ));
+                                }
+                            }
+                            _ => {
+                                return Err(ParseError::syntax(
+                                    format!(
+                                        "unrecognised escape '\\{}' in quoted identifier",
+                                        c as char
+                                    ),
+                                    escape_pos,
+                                    self.pos + 1,
+                                ));
+                            }
+                        },
+                    }
                 }
                 Some(_) => self.pos += 1,
             }

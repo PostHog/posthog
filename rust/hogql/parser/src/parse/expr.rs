@@ -439,14 +439,22 @@ impl<'a> Parser<'a> {
                 let body = &raw[2..raw.len() - 1];
                 parse_template_body(body)
             }
-            TokenKind::Keyword(Kw::True | Kw::False) if self.peek_next() == TokenKind::LParen => {
+            TokenKind::Keyword(Kw::True | Kw::False)
+                if self.peek_next() == TokenKind::LParen
+                    || self.peek_next() == TokenKind::Dot =>
+            {
                 // `true`/`false` are not lexer tokens in the grammar —
                 // they are ordinary identifiers, and become Bool
-                // Constants only as a bare `columnIdentifier`. As a
-                // function-call name (`true(…)`) cpp builds
-                // `Call(name='true')`, so route to the identifier path
-                // when a call paren immediately follows. `null` differs
-                // — `NULL` is a real keyword, so `null(…)` stays an
+                // Constants only as a bare `columnIdentifier`. cpp
+                // treats them as identifiers in two columnExpr-leading
+                // postfix positions:
+                //   `true(…)`     → Call(name='true')          (function call)
+                //   `true.x`      → Field(['true', 'x'])       (chain)
+                // The Pratt loop would otherwise wrap a `Constant(true)`
+                // in an `ArrayAccess` for the `.x`, diverging from cpp's
+                // Field shape. Route both shapes through ident-lead so
+                // the chain accumulates correctly. `null` differs —
+                // `NULL` is a real keyword, so `null(…)` stays an
                 // `ExprCall` on the Null constant.
                 self.parse_ident_lead()
             }
@@ -2033,7 +2041,7 @@ impl<'a> Parser<'a> {
     /// Probe: is the LParen at peek1 immediately followed by RParen?
     /// `()` is a function-call form with no args, not a cast/case
     /// special-form opener.
-    fn peek_lparen_is_empty(&self) -> bool {
+    pub(crate) fn peek_lparen_is_empty(&self) -> bool {
         debug_assert_eq!(self.peek_next(), TokenKind::LParen);
         let mut probe = Lexer::with_pos(self.src, self.peek1.end);
         matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen))
