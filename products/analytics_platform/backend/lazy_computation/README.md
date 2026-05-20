@@ -168,6 +168,54 @@ If an executor crashes while a job is PENDING, other waiters detect this via Red
 
 Stale jobs are marked FAILED and the normal replacement flow kicks in. This means we can recover from crashes of the process we were waiting for.
 
+## Observability
+
+Each invocation of the executor emits both a structured log and a Prometheus counter, sharing the same labels so the two views agree.
+
+### Prometheus
+
+`lazy_computation_executions_total` is incremented once per `executor.execute()` call, with labels:
+
+| label         | values                                                              |
+| ------------- | ------------------------------------------------------------------- |
+| `outcome`     | `success`, `timeout`, `non_retryable_error`, `max_retries_exceeded` |
+| `cache_state` | `hit`, `partial_hit`, `miss` — see below                            |
+| `table`       | the lazy table being populated (e.g. `preaggregation_results`)      |
+
+`cache_state` values:
+
+- `hit` — the request did no new work (no jobs created, no waits).
+- `partial_hit` — the request had to do work but found pre-existing READY data.
+- `miss` — the request had to do work and found no pre-existing data.
+
+Full hit ratio across a window:
+
+```promql
+sum(rate(lazy_computation_executions_total{cache_state="hit"}[5m]))
+  /
+sum(rate(lazy_computation_executions_total[5m]))
+```
+
+Any-coverage ratio (`hit` or `partial_hit`):
+
+```promql
+sum(rate(lazy_computation_executions_total{cache_state=~"hit|partial_hit"}[5m]))
+  /
+sum(rate(lazy_computation_executions_total[5m]))
+```
+
+Per-table breakdown of failures:
+
+```promql
+sum by (table, outcome) (
+  rate(lazy_computation_executions_total{outcome!="success"}[5m])
+)
+```
+
+### Structured log
+
+The `lazy_computation.executed` log line carries the same `outcome`, `cache_state`, and `table` fields plus per-call detail (`query_hash`, `jobs_created`, `jobs_waited_for`, `total_duration_ms`, `time_range_days`). Useful when you need to follow a specific request rather than aggregate.
+
 ## Limitations
 
 - Automatic transformation only supports very specific query patterns

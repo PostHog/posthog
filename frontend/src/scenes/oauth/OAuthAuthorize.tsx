@@ -15,6 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
+import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { AvailableFeature } from '~/types'
 
 import { SceneExport } from '../sceneTypes'
@@ -152,6 +153,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         setOauthAuthorizationValue,
     } = useActions(oauthAuthorizeLogic)
 
+    const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
 
@@ -253,6 +255,17 @@ export const OAuthAuthorize = (): JSX.Element => {
                         {oauthApplication.name} is requesting access to your data.
                     </p>
                 </div>
+
+                {isImpersonated && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-danger-highlight border border-danger rounded text-sm">
+                        <IconWarning className="text-warning shrink-0" />
+                        <span>
+                            <strong>You are impersonating someone.</strong> Any OAuth tokens authorized in this session
+                            are short-lived and will be revoked when impersonation ends
+                            {isImpersonationReadOnly ? ', and write scopes will be downgraded to read-only' : ''}.
+                        </span>
+                    </div>
+                )}
 
                 {!oauthApplication.is_verified && (
                     <div className="flex items-center gap-2 p-3 mb-4 bg-warning-highlight border border-warning rounded text-sm">
