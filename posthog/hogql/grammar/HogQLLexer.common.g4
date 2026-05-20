@@ -266,9 +266,14 @@ SLASH: '/';
 SLASH_GT: '/>';
 UNDERSCORE: '_';
 
-// Comments and whitespace
-MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
-SINGLE_LINE_COMMENT: ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
+// Comments and whitespace.
+// Comments are sent to the hidden channel (not `skip`-ed) so that the
+// pretty-printer in common/hogql_parser/parser_format.cpp can attach them to
+// neighbouring default-channel tokens and re-emit them during formatting.
+// The parser only consumes default-channel tokens via lookahead, so this is
+// transparent to every other consumer.
+MULTI_LINE_COMMENT: '/*' .*? '*/' -> channel(HIDDEN);
+SINGLE_LINE_COMMENT: ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> channel(HIDDEN);
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
 // The class is the full Unicode `White_Space` set, not just ASCII: a
 // NO-BREAK SPACE or other Unicode space (often pasted in from rich

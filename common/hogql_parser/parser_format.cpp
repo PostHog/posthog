@@ -16,10 +16,15 @@
 //     code from blowing up to one visitor method per columnExpr alternative.
 //   - Hog program statements and HogQLX tag elements are emitted verbatim
 //     from the source slice — no attempt to format them.
+//   - Comments live on the lexer's hidden channel, invisible to the parser
+//     tree. A single pre-pass (`attachComments`) walks the token stream and
+//     attaches each comment to a default-channel source token as either
+//     leading or trailing; the formatter then drains those during emission.
 
 #include <cctype>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "HogQLLexer.h"
@@ -97,11 +102,94 @@ string toUpperCopy(const string& s) {
     return out;
 }
 
+// Whether `t` is a comment token (either `--` or `/* */`). Comments share the
+// hidden lexer channel with whitespace, so a channel check alone isn't enough.
+bool isCommentToken(Token* t) {
+    int type = t->getType();
+    return type == HogQLLexer::SINGLE_LINE_COMMENT || type == HogQLLexer::MULTI_LINE_COMMENT;
+}
+
+bool isLineComment(Token* t) { return t->getType() == HogQLLexer::SINGLE_LINE_COMMENT; }
+
+// Comments attached to a default-channel token by `attachComments`. Leading
+// comments are emitted just before the token; trailing comments just after.
+struct AttachedComments {
+    vector<Token*> leading;
+    vector<Token*> trailing;
+};
+
+// Walk every token in the stream and decide where each comment should attach.
+// The rule is intentionally simple — Prettier-class heuristics aren't worth
+// it for SQL, where comments mostly sit between clauses, after a clause, or
+// inline mid-expression:
+//
+//   - Comment on the same source line as the previous default-channel token
+//     → trailing of that token. ("SELECT a -- foo")
+//   - Otherwise → leading of the next default-channel token. (The comment
+//     lives on its own line and describes what comes next.)
+//   - If there is no next visible default-channel token (we're past the body
+//     of the SELECT and only `;` / EOF remain — neither of which the formatter
+//     emits) → trailing of the previous default-channel token instead, so the
+//     comment doesn't fall on the floor.
+//
+// SEMICOLON and EOF are deliberately skipped when searching for the "next
+// default-channel token", because the formatter never emits them and so any
+// leading-of-SEMICOLON attachment would never fire.
+unordered_map<size_t, AttachedComments> attachComments(CommonTokenStream* tokens) {
+    unordered_map<size_t, AttachedComments> map;
+    if (!tokens) return map;
+    tokens->fill();
+
+    size_t n = tokens->size();
+    size_t prev_default = SIZE_MAX;
+
+    auto isFormatterVisible = [](Token* t) {
+        if (t->getChannel() != Token::DEFAULT_CHANNEL) return false;
+        int type = t->getType();
+        return type != Token::EOF && type != HogQLLexer::SEMICOLON;
+    };
+
+    for (size_t i = 0; i < n; i++) {
+        Token* t = tokens->get(i);
+        if (t->getChannel() == Token::DEFAULT_CHANNEL) {
+            if (isFormatterVisible(t)) prev_default = i;
+            continue;
+        }
+        if (!isCommentToken(t)) continue;  // whitespace, skip
+
+        Token* prev = (prev_default != SIZE_MAX) ? tokens->get(prev_default) : nullptr;
+        bool sameLineAsPrev = prev && t->getLine() == prev->getLine();
+
+        if (sameLineAsPrev) {
+            map[prev_default].trailing.push_back(t);
+            continue;
+        }
+
+        size_t next_default = SIZE_MAX;
+        for (size_t j = i + 1; j < n; j++) {
+            if (isFormatterVisible(tokens->get(j))) {
+                next_default = j;
+                break;
+            }
+        }
+
+        if (next_default != SIZE_MAX) {
+            map[next_default].leading.push_back(t);
+        } else if (prev_default != SIZE_MAX) {
+            map[prev_default].trailing.push_back(t);
+        }
+        // else: comment with no surrounding default-channel tokens. Should be
+        // impossible for a well-formed select — drop it.
+    }
+    return map;
+}
+
 }  // namespace
 
 class HogQLFormatter {
    public:
-    explicit HogQLFormatter(const string& source) : source_(source) {}
+    HogQLFormatter(const string& source, CommonTokenStream* tokens)
+        : source_(source), comments_(attachComments(tokens)) {}
 
     string formatSelect(HogQLParser::SelectContext* ctx) {
         out_.str("");
@@ -114,26 +202,52 @@ class HogQLFormatter {
 
    private:
     const string& source_;
+    unordered_map<size_t, AttachedComments> comments_;
     ostringstream out_;
     int indent_ = 0;
     int last_emitted_token_ = -1;
+    // True while the cursor is at column 0 with no content yet on the current
+    // line. Multiple consecutive `newline()` calls collapse to one; the indent
+    // for the new line is written lazily by the first real emission via
+    // `flushIndent()`. This is what keeps trailing `--` comments (whose own
+    // text already terminates with `\n`) from producing blank+indented lines.
     bool at_line_start_ = true;
+    bool need_indent_ = true;
 
     // ---- low-level emit primitives --------------------------------------
 
     string indentSpaces() const { return string(static_cast<size_t>(indent_) * INDENT_WIDTH, ' '); }
 
     void newline() {
-        out_ << '\n' << indentSpaces();
+        if (at_line_start_) {
+            // Already on a fresh line — just refresh the pending indent in
+            // case indent_ changed since the previous newline.
+            need_indent_ = true;
+            return;
+        }
+        out_ << '\n';
         at_line_start_ = true;
+        need_indent_ = true;
         last_emitted_token_ = -1;
+    }
+
+    void flushIndent() {
+        if (need_indent_) {
+            out_ << indentSpaces();
+            need_indent_ = false;
+        }
     }
 
     // Emit a single token's text, applying the spacing table against the
     // previously emitted token. Keywords get uppercased; everything else
     // (identifiers, literals, operators, punctuation) is passed through.
+    // Also drains any leading/trailing comments attached to this token by
+    // `attachComments`.
     void emitToken(Token* tok) {
         if (!tok || tok->getType() == Token::EOF) return;
+        size_t idx = tok->getTokenIndex();
+        emitLeadingCommentsFor(idx, tok);
+
         int type = tok->getType();
         string text = tok->getText();
         if (isKeywordToken(type) || type == HogQLLexer::NULL_SQL || type == HogQLLexer::INF ||
@@ -141,7 +255,9 @@ class HogQLFormatter {
             text = toUpperCopy(text);
         }
 
-        if (!at_line_start_ && last_emitted_token_ != -1) {
+        if (at_line_start_) {
+            flushIndent();
+        } else if (last_emitted_token_ != -1) {
             bool needsSpace = !(noSpaceAfter(last_emitted_token_) || noSpaceBefore(type));
             if (needsSpace) out_ << ' ';
         }
@@ -149,20 +265,84 @@ class HogQLFormatter {
         out_ << text;
         at_line_start_ = false;
         last_emitted_token_ = type;
+
+        emitTrailingCommentsFor(idx);
     }
 
-    // Emit a literal keyword (uppercased), as if it were a token of "word"
-    // class. Used when we want to inject e.g. "SELECT" without going through a
-    // TerminalNode — keeps spacing consistent.
-    void emitKeyword(const string& kw) {
-        if (!at_line_start_ && last_emitted_token_ != -1 && !noSpaceAfter(last_emitted_token_)) {
+    // Comment helpers -----------------------------------------------------
+
+    void emitLeadingCommentsFor(size_t idx, Token* anchor) {
+        auto it = comments_.find(idx);
+        if (it == comments_.end()) return;
+        for (Token* c : it->second.leading) {
+            emitLeadingComment(c, anchor);
+        }
+    }
+
+    void emitTrailingCommentsFor(size_t idx) {
+        auto it = comments_.find(idx);
+        if (it == comments_.end()) return;
+        for (Token* c : it->second.trailing) {
+            emitTrailingComment(c);
+        }
+    }
+
+    // A block comment on the same source line as its anchor token stays
+    // inline ahead of it (`/* hint */ id`). Anything else gets its own line
+    // at the current indent. Line comments can never be inline-leading —
+    // `-- foo` runs to end-of-line by definition, so it would push the
+    // anchor down anyway.
+    void emitLeadingComment(Token* c, Token* anchor) {
+        bool inlineBlock = !isLineComment(c) && anchor && c->getLine() == anchor->getLine();
+        if (inlineBlock) {
+            if (at_line_start_) {
+                flushIndent();
+            } else if (last_emitted_token_ != -1 && !noSpaceAfter(last_emitted_token_)) {
+                out_ << ' ';
+            }
+            out_ << c->getText();
+            at_line_start_ = false;
+            // Treat as a generic word so spacing against the anchor works.
+            last_emitted_token_ = HogQLLexer::IDENTIFIER;
+            return;
+        }
+        // Free-standing comment on its own line.
+        if (!at_line_start_) newline();
+        flushIndent();
+        out_ << c->getText();
+        // A line comment's text already terminates with `\n` (the lexer rule
+        // consumes it). A block comment on its own line gets an explicit
+        // newline. Either way, we end on a fresh line; setting at_line_start_
+        // here makes the next `newline()` call collapse to a no-op so we don't
+        // accumulate blank+indented lines.
+        if (isLineComment(c)) {
+            at_line_start_ = true;
+            need_indent_ = true;
+            last_emitted_token_ = -1;
+        } else {
+            newline();
+        }
+    }
+
+    // Trailing comments hug the line of their anchor. A `--` comment runs to
+    // EOL and so forces a line break after itself; a block comment can sit
+    // inline and let the next emission pick up normally.
+    void emitTrailingComment(Token* c) {
+        if (!at_line_start_ && last_emitted_token_ != -1) {
             out_ << ' ';
         }
-        out_ << toUpperCopy(kw);
-        at_line_start_ = false;
-        // Pretend we just emitted a generic word token so the next emitToken
-        // call inserts a space if appropriate.
-        last_emitted_token_ = HogQLLexer::IDENTIFIER;
+        out_ << c->getText();
+        if (isLineComment(c)) {
+            // The comment text already terminated with `\n`; mark line state
+            // accordingly without writing a second newline.
+            at_line_start_ = true;
+            need_indent_ = true;
+            last_emitted_token_ = -1;
+        } else {
+            // Mark as a word-class token so subsequent spacing inserts a space.
+            at_line_start_ = false;
+            last_emitted_token_ = HogQLLexer::IDENTIFIER;
+        }
     }
 
     // Walk every terminal token under `tree` in source order and emit it
@@ -267,18 +447,28 @@ class HogQLFormatter {
         }
         if (auto* set = ctx->selectSetStmt()) {
             if (emittedWith) newline();
-            emitKeyword("(");
-            // "(" tokens are open brackets; ensure no trailing space.
-            last_emitted_token_ = HogQLLexer::LPAREN;
+            if (auto* lp = ctx->LPAREN()) {
+                emitToken(lp->getSymbol());
+            } else {
+                // Should be unreachable given the grammar — defensive fallback.
+                flushIndent();
+                out_ << '(';
+                last_emitted_token_ = HogQLLexer::LPAREN;
+                at_line_start_ = false;
+            }
             indent_++;
             newline();
             formatSelectSetStmt(set);
             indent_--;
             newline();
-            // Close paren as a bare token so spacing rules apply.
-            out_ << ')';
-            at_line_start_ = false;
-            last_emitted_token_ = HogQLLexer::RPAREN;
+            if (auto* rp = ctx->RPAREN()) {
+                emitToken(rp->getSymbol());
+            } else {
+                flushIndent();
+                out_ << ')';
+                last_emitted_token_ = HogQLLexer::RPAREN;
+                at_line_start_ = false;
+            }
         }
     }
 
@@ -288,8 +478,8 @@ class HogQLFormatter {
             newline();
         }
 
-        emitKeyword("SELECT");
-        if (ctx->DISTINCT()) emitKeyword("DISTINCT");
+        emitToken(ctx->SELECT()->getSymbol());
+        if (ctx->DISTINCT()) emitToken(ctx->DISTINCT()->getSymbol());
         if (auto* top = ctx->topClause()) {
             // "TOP n" / "TOP n WITH TIES" — small enough to emit inline.
             for (auto* child : top->children) emitSubtreeTokens(child);
@@ -309,7 +499,7 @@ class HogQLFormatter {
         }
         if (auto* prew = ctx->prewhereClause()) {
             newline();
-            emitKeyword("PREWHERE");
+            emitToken(prew->PREWHERE()->getSymbol());
             indent_++;
             newline();
             emitSubtreeTokens(prew->columnExpr());
@@ -317,7 +507,7 @@ class HogQLFormatter {
         }
         if (auto* where = ctx->whereClause()) {
             newline();
-            emitKeyword("WHERE");
+            emitToken(where->WHERE()->getSymbol());
             indent_++;
             newline();
             emitSubtreeTokens(where->columnExpr());
@@ -340,7 +530,7 @@ class HogQLFormatter {
         // discrimination from the WITH that introduces a CTE.
         if (auto* having = ctx->havingClause()) {
             newline();
-            emitKeyword("HAVING");
+            emitToken(having->HAVING()->getSymbol());
             indent_++;
             newline();
             emitSubtreeTokens(having->columnExpr());
@@ -348,7 +538,7 @@ class HogQLFormatter {
         }
         if (auto* qual = ctx->qualifyClause()) {
             newline();
-            emitKeyword("QUALIFY");
+            emitToken(qual->QUALIFY()->getSymbol());
             indent_++;
             newline();
             emitSubtreeTokens(qual->columnExpr());
@@ -382,58 +572,95 @@ class HogQLFormatter {
 
     // SELECT list — break one column per line if more than COLUMN_BREAK_THRESHOLD
     // top-level columns. Otherwise emit inline.
+    //
+    // Critical detail: emit the *source* COMMA terminals (collected alongside
+    // the column children) rather than synthesizing `out_ << ','`. This routes
+    // each comma through `emitToken`, so any leading/trailing comments
+    // attached to it by `attachComments` fire naturally — covering the common
+    // `a, /* note */ b` and `a, -- note\n b` patterns.
     void formatSelectColumnList(HogQLParser::SelectColumnExprListBeforeFromContext* ctx) {
         if (!ctx) return;
 
         vector<HogQLParser::SelectColumnExprContext*> cols;
-        // Both alternatives (TrailingComma / Plain) wrap a selectColumnExprList
-        // or a sequence of selectColumnExpr children — collect them.
-        for (auto* child : ctx->children) {
-            if (auto* col = dynamic_cast<HogQLParser::SelectColumnExprContext*>(child)) {
-                cols.push_back(col);
-            } else if (auto* list = dynamic_cast<HogQLParser::SelectColumnExprListContext*>(child)) {
-                for (auto* sub : list->selectColumnExpr()) cols.push_back(sub);
-            }
-        }
+        vector<tree::TerminalNode*> commas;
+        collectColumnsAndCommas(ctx, cols, commas);
 
         bool breakLines = cols.size() > COLUMN_BREAK_THRESHOLD;
         indent_++;
         for (size_t i = 0; i < cols.size(); i++) {
             if (i == 0) {
-                if (breakLines) {
-                    newline();
-                } else {
-                    // single space after SELECT
-                }
+                if (breakLines) newline();
             } else {
-                if (breakLines) {
-                    out_ << ',';
-                    last_emitted_token_ = HogQLLexer::COMMA;
-                    newline();
+                if (i - 1 < commas.size()) {
+                    emitToken(commas[i - 1]->getSymbol());
                 } else {
                     out_ << ',';
                     last_emitted_token_ = HogQLLexer::COMMA;
+                    at_line_start_ = false;
                 }
+                if (breakLines) newline();
             }
             emitSubtreeTokens(cols[i]);
         }
         indent_--;
     }
 
+    // Walk the SELECT-list wrapper context and collect every direct
+    // selectColumnExpr child plus every inter-column COMMA terminal, in
+    // source order. The two grammar alternatives differ in whether the cols
+    // are direct children or wrapped one level deeper in a selectColumnExprList.
+    void collectColumnsAndCommas(HogQLParser::SelectColumnExprListBeforeFromContext* ctx,
+                                 vector<HogQLParser::SelectColumnExprContext*>& cols,
+                                 vector<tree::TerminalNode*>& commas) {
+        auto visit = [&](tree::ParseTree* node) {
+            for (auto* child : node->children) {
+                if (auto* col = dynamic_cast<HogQLParser::SelectColumnExprContext*>(child)) {
+                    cols.push_back(col);
+                } else if (auto* term = dynamic_cast<tree::TerminalNode*>(child)) {
+                    if (term->getSymbol()->getType() == HogQLLexer::COMMA) commas.push_back(term);
+                }
+            }
+        };
+        // Top-level children — could be direct cols/commas (TrailingComma
+        // variant) or a single selectColumnExprList wrapper (Plain variant).
+        for (auto* child : ctx->children) {
+            if (auto* col = dynamic_cast<HogQLParser::SelectColumnExprContext*>(child)) {
+                cols.push_back(col);
+            } else if (auto* term = dynamic_cast<tree::TerminalNode*>(child)) {
+                if (term->getSymbol()->getType() == HogQLLexer::COMMA) commas.push_back(term);
+            } else if (auto* list = dynamic_cast<HogQLParser::SelectColumnExprListContext*>(child)) {
+                visit(list);
+            }
+        }
+    }
+
     void formatWithClause(HogQLParser::WithClauseContext* ctx) {
-        emitKeyword("WITH");
-        if (ctx->RECURSIVE()) emitKeyword("RECURSIVE");
+        emitToken(ctx->WITH()->getSymbol());
+        if (ctx->RECURSIVE()) emitToken(ctx->RECURSIVE()->getSymbol());
         auto* list = ctx->withExprList();
         if (!list) return;
         auto exprs = list->withExpr();
+        // Collect inter-expr COMMA terminals so trailing comments on them
+        // (`a AS (...), -- note\n b AS (...)`) come through.
+        vector<tree::TerminalNode*> commas;
+        for (auto* child : list->children) {
+            if (auto* term = dynamic_cast<tree::TerminalNode*>(child)) {
+                if (term->getSymbol()->getType() == HogQLLexer::COMMA) commas.push_back(term);
+            }
+        }
         bool breakLines = exprs.size() > 1;
         indent_++;
         for (size_t i = 0; i < exprs.size(); i++) {
             if (i == 0) {
                 if (breakLines) newline();
             } else {
-                out_ << ',';
-                last_emitted_token_ = HogQLLexer::COMMA;
+                if (i - 1 < commas.size()) {
+                    emitToken(commas[i - 1]->getSymbol());
+                } else {
+                    out_ << ',';
+                    last_emitted_token_ = HogQLLexer::COMMA;
+                    at_line_start_ = false;
+                }
                 newline();
             }
             formatWithExpr(exprs[i]);
@@ -476,7 +703,7 @@ class HogQLFormatter {
     }
 
     void formatFromClause(HogQLParser::FromClauseContext* ctx) {
-        emitKeyword("FROM");
+        emitToken(ctx->FROM()->getSymbol());
         indent_++;
         newline();
         formatJoinExpr(ctx->joinExpr());
@@ -489,16 +716,13 @@ class HogQLFormatter {
         if (!ctx) return;
 
         if (auto* parens = dynamic_cast<HogQLParser::JoinExprParensContext*>(ctx)) {
-            out_ << '(';
-            last_emitted_token_ = HogQLLexer::LPAREN;
-            at_line_start_ = false;
+            emitToken(parens->LPAREN()->getSymbol());
             indent_++;
             newline();
             formatJoinExpr(parens->joinExpr());
             indent_--;
             newline();
-            out_ << ')';
-            last_emitted_token_ = HogQLLexer::RPAREN;
+            emitToken(parens->RPAREN()->getSymbol());
             return;
         }
 
@@ -547,8 +771,8 @@ class HogQLFormatter {
             auto joins = pos->joinExpr();
             formatJoinExpr(joins[0]);
             newline();
-            emitKeyword("POSITIONAL");
-            emitKeyword("JOIN");
+            emitToken(pos->POSITIONAL()->getSymbol());
+            emitToken(pos->JOIN()->getSymbol());
             indent_++;
             newline();
             formatJoinExpr(joins[1]);
@@ -577,7 +801,7 @@ class HogQLFormatter {
         if (auto* table = dynamic_cast<HogQLParser::JoinExprTableContext*>(ctx)) {
             // tableExpr FINAL? sampleClause?
             formatTableExpr(table->tableExpr());
-            if (table->FINAL()) emitKeyword("FINAL");
+            if (table->FINAL()) emitToken(table->FINAL()->getSymbol());
             if (auto* sc = table->sampleClause()) emitSubtreeTokens(sc);
             return;
         }
@@ -596,16 +820,13 @@ class HogQLFormatter {
     void formatTableExpr(HogQLParser::TableExprContext* ctx) {
         if (!ctx) return;
         if (auto* sub = dynamic_cast<HogQLParser::TableExprSubqueryContext*>(ctx)) {
-            out_ << '(';
-            last_emitted_token_ = HogQLLexer::LPAREN;
-            at_line_start_ = false;
+            emitToken(sub->LPAREN()->getSymbol());
             indent_++;
             newline();
             formatSelectSetStmt(sub->selectSetStmt());
             indent_--;
             newline();
-            out_ << ')';
-            last_emitted_token_ = HogQLLexer::RPAREN;
+            emitToken(sub->RPAREN()->getSymbol());
             return;
         }
         if (auto* alias = dynamic_cast<HogQLParser::TableExprAliasContext*>(ctx)) {
@@ -621,22 +842,20 @@ class HogQLFormatter {
     }
 
     void formatGroupByClause(HogQLParser::GroupByClauseContext* ctx) {
-        emitKeyword("GROUP");
-        emitKeyword("BY");
-        // The grammar has many shapes here (ALL, CUBE/ROLLUP(list), GROUPING SETS,
-        // or a plain columnExprList). Emit the non-GROUP/non-BY children inline
-        // with a one-level indent.
+        // Header (`GROUP BY`) emitted via real tokens so leading comments fire.
+        emitToken(ctx->GROUP()->getSymbol());
+        emitToken(ctx->BY()->getSymbol());
         indent_++;
         newline();
-        bool sawHead = false;
+        // The body alternative varies (ALL, CUBE/ROLLUP(list), GROUPING SETS,
+        // plain columnExprList). Emit the remaining children inline; the
+        // leading GROUP/BY terminals are the only ones we skip.
         for (auto* child : ctx->children) {
             if (auto* term = dynamic_cast<tree::TerminalNode*>(child)) {
                 int t = term->getSymbol()->getType();
-                if ((t == HogQLLexer::GROUP || t == HogQLLexer::BY) && !sawHead) continue;
-                sawHead = true;
+                if (t == HogQLLexer::GROUP || t == HogQLLexer::BY) continue;
                 emitToken(term->getSymbol());
             } else {
-                sawHead = true;
                 emitSubtreeTokens(child);
             }
         }
@@ -644,19 +863,30 @@ class HogQLFormatter {
     }
 
     void formatOrderByClause(HogQLParser::OrderByClauseContext* ctx) {
-        emitKeyword("ORDER");
-        emitKeyword("BY");
+        emitToken(ctx->ORDER()->getSymbol());
+        emitToken(ctx->BY()->getSymbol());
         auto* list = ctx->orderExprList();
         if (!list) return;
         auto exprs = list->orderExpr();
+        vector<tree::TerminalNode*> commas;
+        for (auto* child : list->children) {
+            if (auto* term = dynamic_cast<tree::TerminalNode*>(child)) {
+                if (term->getSymbol()->getType() == HogQLLexer::COMMA) commas.push_back(term);
+            }
+        }
         bool breakLines = exprs.size() > COLUMN_BREAK_THRESHOLD;
         indent_++;
         for (size_t i = 0; i < exprs.size(); i++) {
             if (i == 0) {
                 if (breakLines) newline();
             } else {
-                out_ << ',';
-                last_emitted_token_ = HogQLLexer::COMMA;
+                if (i - 1 < commas.size()) {
+                    emitToken(commas[i - 1]->getSymbol());
+                } else {
+                    out_ << ',';
+                    last_emitted_token_ = HogQLLexer::COMMA;
+                    at_line_start_ = false;
+                }
                 if (breakLines) newline();
             }
             emitSubtreeTokens(exprs[i]);
@@ -704,7 +934,7 @@ string format_hogql_select(const string& input) {
             return err.dump();
         }
 
-        HogQLFormatter formatter(input);
+        HogQLFormatter formatter(input, &tokens);
         string formatted = formatter.formatSelect(tree);
 
         Json ok = Json::object();

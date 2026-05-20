@@ -147,9 +147,13 @@ Phase-1 scope:
 - Subqueries indented inside their parentheses.
 - Hog program statements and HogQLX tag elements are emitted verbatim from
   the source slice — no structural reformatting in v1.
-- Comments are not preserved (the JSON AST path drops them, and the
-  formatter does not yet read the hidden token channel). Adding comment
-  preservation is a future iteration.
+- Comments are preserved via a comment-attachment pre-pass (`attachComments`).
+  Each `--` or `/* */` from the lexer's hidden channel is attached to a
+  default-channel source token using a simple rule: same source line as the
+  previous default token → trailing of that token, otherwise → leading of the
+  next default token. The formatter then drains these in `emitToken`. Inline
+  block comments (`SELECT /* hint */ id`) stay inline; free-standing comments
+  get their own line at the surrounding indent.
 
 The entry point is non-throwing: any parser error or internal exception is
 returned as `{ "ok": false, "error": "..." }`. Callers should leave the
