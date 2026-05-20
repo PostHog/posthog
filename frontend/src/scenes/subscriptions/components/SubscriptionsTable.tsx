@@ -117,13 +117,12 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             key: 'type',
             width: '7rem',
             render: (_value: unknown, sub: SubscriptionApi) => {
-                // All three kinds render as LemonTags for a consistent categorical column.
-                // AI keeps the `completion` (purple) colour as the novel LLM type; Insight and
-                // Dashboard stay neutral and are differentiated by icon rather than colour —
-                // status/accent colours (red, green) would read as error/success here.
+                // All three kinds render as neutral grey LemonTags differentiated by icon, not
+                // colour — status/accent colours (red, green, purple) would read as
+                // error/success/special and add noise to a column that's purely categorical.
                 if (sub.content_type === 'ai_prompt') {
                     return (
-                        <LemonTag type="completion" size="small" icon={<IconAI />}>
+                        <LemonTag type="default" size="small" icon={<IconAI />}>
                             AI report
                         </LemonTag>
                     )
