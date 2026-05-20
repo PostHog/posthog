@@ -7,13 +7,16 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class TestClickHouseProfileDefaults:
-    def test_docker_profiles_enable_analyzer(self):
+    def test_docker_profiles_do_not_explicitly_override_analyzer(self):
         for config_path in (
             REPO_ROOT / "docker/clickhouse/users.xml",
             REPO_ROOT / "docker/clickhouse/users-dev.xml",
         ):
             root = ET.parse(config_path).getroot()
-            assert root.findtext("./profiles/default/enable_analyzer") == "1"
+            # ClickHouse 26.3 enables the analyzer by default, but explicitly setting it in the
+            # profile is propagated to remote sessions and breaks distributed system.clusters reads.
+            assert root.findtext("./profiles/default/enable_analyzer") is None
+            assert root.findtext("./profiles/default/allow_experimental_analyzer") is None
 
 
 class TestGetDefaultHogQLGlobalSettings:
