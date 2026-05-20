@@ -839,7 +839,9 @@ export const LLMMessageDisplay = React.memo(
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
                                 <MessageActionsMenu
-                                    content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                                    content={
+                                        typeof content === 'string' ? content : (JSON.stringify(content, null, 2) ?? '')
+                                    }
                                     traceId={traceId}
                                 />
                             </>
