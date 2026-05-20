@@ -25,6 +25,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.scoping import team_scope
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
@@ -265,8 +266,14 @@ def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str) 
     Emits the current latest session (if any) first, then forwards Redis
     pub/sub messages. Yields heartbeat comments roughly every
     SSE_HEARTBEAT_INTERVAL_SECONDS so proxies don't time the connection out.
+
+    Note: streaming generators run after the view returns, on a sync worker
+    thread that no longer has the request's team-scope thread-local set.
+    The fail-closed manager on `WizardSession` would refuse any DB query
+    here, so we re-establish team_scope explicitly for any DB access.
     """
-    latest = wizard_facade.get_latest(team_id, workflow_id, skill_id)
+    with team_scope(team_id):
+        latest = wizard_facade.get_latest(team_id, workflow_id, skill_id)
     if latest is not None:
         yield _format_event(latest)
 
