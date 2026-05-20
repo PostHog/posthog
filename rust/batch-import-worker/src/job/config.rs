@@ -309,16 +309,20 @@ impl S3SourceConfig {
             return Ok(());
         }
 
-        // Parse the URL to extract the host
         let parsed = url::Url::parse(url)
             .map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
 
         let host = parsed
-            .host_str()
+            .host()
             .ok_or_else(|| Error::msg(format!("Endpoint URL '{}' has no host", url)))?;
 
-        // If the host is a literal IP address, validate it's public
-        if let Ok(ip) = host.parse::<IpAddr>() {
+        let ip = match host {
+            url::Host::Ipv4(v4) => Some(IpAddr::V4(v4)),
+            url::Host::Ipv6(v6) => Some(IpAddr::V6(v6)),
+            url::Host::Domain(_) => None,
+        };
+
+        if let Some(ip) = ip {
             if !common_dns::is_global_ip(&ip) {
                 return Err(Error::msg(format!(
                     "Endpoint URL '{}' resolves to non-public IP address",
@@ -326,9 +330,6 @@ impl S3SourceConfig {
                 )));
             }
         }
-
-        // IPv6 bracket syntax: url crate strips brackets, so `[::1]` becomes `::1` above.
-        // If it parsed as IPv6 and wasn't global, it was already rejected.
 
         Ok(())
     }
