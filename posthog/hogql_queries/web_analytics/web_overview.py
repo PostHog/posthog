@@ -16,6 +16,12 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import (
+    can_use_eager_precompute,
+    can_use_lazy_precompute,
+    execute_eager_precomputed_read,
+    execute_lazy_precomputed_read,
+)
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -75,7 +81,56 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
+    def _get_precomputed_row(self) -> Optional[list]:
+        """Try precomputed paths in order: eager read-only → lazy INSERT → None.
+
+        Returns a 10-element row [cur, prev, cur, prev, ...] for the five metrics,
+        or None to fall through to the v2/raw path.
+        """
+        if can_use_eager_precompute(self):
+            row = execute_eager_precomputed_read(self)
+            if row is not None:
+                return row
+            # Miss — fall through to lazy INSERT if also enabled
+            if can_use_lazy_precompute(self):
+                return execute_lazy_precomputed_read(self)
+            return None
+
+        if can_use_lazy_precompute(self):
+            return execute_lazy_precomputed_read(self)
+
+        return None
+
+    def _build_response_from_precomputed_row(self, row: list) -> WebOverviewQueryResponse:
+        include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
+
+        def get_prev_val(idx: int, use_unsample: bool = True) -> Optional[float]:
+            if not include_previous:
+                return None
+            return self._unsample(row[idx]) if use_unsample else row[idx]
+
+        results = [
+            to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+            to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
+            to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
+            to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
+            to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+        ]
+
+        return WebOverviewQueryResponse(
+            results=results,
+            samplingRate=self._sample_rate,
+            modifiers=self.modifiers,
+            dateFrom=self.query_date_range.date_from_str,
+            dateTo=self.query_date_range.date_to_str,
+            usedPreAggregatedTables=True,
+        )
+
     def _calculate(self) -> WebOverviewQueryResponse:
+        precomputed_row = self._get_precomputed_row()
+        if precomputed_row is not None:
+            return self._build_response_from_precomputed_row(precomputed_row)
+
         pre_aggregated_response = self.get_pre_aggregated_response()
 
         response = (

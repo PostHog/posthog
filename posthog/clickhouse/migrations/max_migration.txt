@@ -1,1 +1,1 @@
-0253_drop_dead_msk_kafka_tables
+0254_web_overview_preaggregated
