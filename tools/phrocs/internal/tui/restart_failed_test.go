@@ -221,3 +221,118 @@ func TestUpdateProcKeys_RestartAllFailedEnabledOnceOneCrashes(t *testing.T) {
 		t.Error("RestartAllFailed should be enabled when at least one proc has crashed")
 	}
 }
+
+// ── updateProcKeys: Restart binding gating ──────────────────────────────────────
+
+func TestUpdateProcKeys_RestartDisabledOnFreshProc(t *testing.T) {
+	// Never-started procs sit at StatusStopped — `r` has nothing to do.
+	m := readyModel(t, "backend")
+	m.updateProcKeys()
+	if m.keys.Restart.Enabled() {
+		t.Error("Restart should be disabled for a never-started proc")
+	}
+}
+
+func TestUpdateProcKeys_RestartEnabledWhileRunning(t *testing.T) {
+	m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
+	p := findProc(t, m, "sleeper")
+	if err := p.Start(m.mgr.Send()); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	t.Cleanup(func() { p.Stop() })
+
+	deadline := time.After(2 * time.Second)
+	for !p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("sleeper never reached running state")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	m.updateProcKeys()
+	if !m.keys.Restart.Enabled() {
+		t.Error("Restart should be enabled while the active proc is running")
+	}
+}
+
+func TestUpdateProcKeys_RestartEnabledAfterCrash(t *testing.T) {
+	// A crashed proc should accept `r` to start it back up — same intent
+	// as restarting a running one, just with no live process to stop first.
+	m := modelWithProcs(t, map[string]string{"flaky": "exit 1"})
+	runUntilStatus(t, findProc(t, m, "flaky"), m.mgr.Send(), process.StatusCrashed)
+
+	m.updateProcKeys()
+	if !m.keys.Restart.Enabled() {
+		t.Error("Restart should be enabled when the active proc is crashed")
+	}
+}
+
+func TestUpdateProcKeys_RestartDisabledAfterCleanExit(t *testing.T) {
+	// A clean exit (StatusDone) is the user's chosen end-state for a one-shot
+	// — `r` shouldn't silently rerun it; `s` is the explicit start affordance.
+	m := modelWithProcs(t, map[string]string{"oneshot": "true"})
+	runUntilStatus(t, findProc(t, m, "oneshot"), m.mgr.Send(), process.StatusDone)
+
+	m.updateProcKeys()
+	if m.keys.Restart.Enabled() {
+		t.Error("Restart should be disabled after a clean exit (StatusDone)")
+	}
+}
+
+// ── `r` keypress on a crashed proc actually restarts it ─────────────────────────
+
+func TestHandleNormalKey_RestartKeyRevivesCrashedProc(t *testing.T) {
+	// End-to-end check that pressing `r` on a crashed proc kicks off Start
+	// (not just that the binding is enabled). We use `sleep 30` as the shell
+	// — once the second start fires, the proc should be running again.
+	m := modelWithProcs(t, map[string]string{"flaky": "exit 1"})
+	runUntilStatus(t, findProc(t, m, "flaky"), m.mgr.Send(), process.StatusCrashed)
+
+	// Swap the shell to a long-running command so the post-`r` start lands on
+	// a process that won't immediately crash again — lets us observe the
+	// running state without races.
+	p := findProc(t, m, "flaky")
+	p.Cfg.Shell = "sleep 30"
+	t.Cleanup(func() { p.Stop() })
+
+	m.updateProcKeys()
+	if !m.keys.Restart.Enabled() {
+		t.Fatal("precondition: Restart binding should be enabled on a crashed proc")
+	}
+
+	next, _ := m.Update(keypress('r'))
+	_ = next
+
+	deadline := time.After(2 * time.Second)
+	for !p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatalf("crashed proc never restarted (status: %s)", p.Status())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func TestUpdateProcKeys_RestartDisabledAfterManualStop(t *testing.T) {
+	// Manually stopped means the user said stop — `r` must not undo that.
+	m := modelWithProcs(t, map[string]string{"sleeper": "sleep 30"})
+	p := findProc(t, m, "sleeper")
+	if err := p.Start(m.mgr.Send()); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	deadline := time.After(2 * time.Second)
+	for !p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("sleeper never started")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	p.Stop()
+
+	m.updateProcKeys()
+	if m.keys.Restart.Enabled() {
+		t.Error("Restart should be disabled after a manual stop")
+	}
+}
