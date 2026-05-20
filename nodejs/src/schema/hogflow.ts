@@ -118,6 +118,17 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
                 filters: z.any(), // type this stronger
                 name: z.string().optional(), // Custom name for the condition
             }),
+            // Event-based wait: list of event subscriptions the subscription matcher
+            // evaluates against incoming events. Each one independently can wake the
+            // parked job. Coexists with `condition` (property-based fallback path).
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),
@@ -222,6 +233,17 @@ export const HogFlowSchema = z.object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
+            // Event-based conversion: array of event subscriptions evaluated against
+            // incoming events by the subscription matcher. Any one firing marks the
+            // workflow run as converted.
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
         })
         .optional(),
     exit_condition: z.enum([
