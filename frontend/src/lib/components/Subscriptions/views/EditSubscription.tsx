@@ -116,6 +116,10 @@ export function EditSubscription({
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.content_type === 'ai_prompt'
+    // Parent-less = reached from the top-level /subscriptions page, not the kebab
+    // modal on an insight/dashboard. There's nothing to snapshot here, so AI report
+    // is the only valid content type — hide the snapshot/AI toggle entirely.
+    const isParentless = !insightShortId && !dashboardId
     const aiAllowed =
         Boolean(currentOrganization?.is_ai_data_processing_approved) &&
         (Boolean(preflight?.cloud) || Boolean(preflight?.is_debug)) &&
@@ -257,33 +261,35 @@ export function EditSubscription({
                             </LemonField>
                         )}
 
-                        <LemonField name="content_type" label="What to send">
-                            {({ value, onChange }) => (
-                                <LemonSegmentedButton
-                                    value={value}
-                                    onChange={onChange}
-                                    fullWidth
-                                    options={[
-                                        {
-                                            value: 'insight',
-                                            label: 'Insight or dashboard snapshot',
-                                            disabledReason: isEditing
-                                                ? 'Content type cannot be changed after a subscription is created.'
-                                                : undefined,
-                                        },
-                                        {
-                                            value: 'ai_prompt',
-                                            label: 'AI report (beta)',
-                                            disabledReason: isEditing
-                                                ? 'Content type cannot be changed after a subscription is created.'
-                                                : !aiAllowed
-                                                  ? 'Enable AI data processing in your Organization settings to use AI subscriptions.'
-                                                  : undefined,
-                                        },
-                                    ]}
-                                />
-                            )}
-                        </LemonField>
+                        {!isParentless && (
+                            <LemonField name="content_type" label="What to send">
+                                {({ value, onChange }) => (
+                                    <LemonSegmentedButton
+                                        value={value}
+                                        onChange={onChange}
+                                        fullWidth
+                                        options={[
+                                            {
+                                                value: 'insight',
+                                                label: 'Insight or dashboard snapshot',
+                                                disabledReason: isEditing
+                                                    ? 'Content type cannot be changed after a subscription is created.'
+                                                    : undefined,
+                                            },
+                                            {
+                                                value: 'ai_prompt',
+                                                label: 'AI report (beta)',
+                                                disabledReason: isEditing
+                                                    ? 'Content type cannot be changed after a subscription is created.'
+                                                    : !aiAllowed
+                                                      ? 'Enable AI data processing in your Organization settings to use AI subscriptions.'
+                                                      : undefined,
+                                            },
+                                        ]}
+                                    />
+                                )}
+                            </LemonField>
+                        )}
 
                         {isAiPrompt ? (
                             <>

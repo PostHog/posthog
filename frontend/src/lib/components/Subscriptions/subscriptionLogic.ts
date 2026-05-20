@@ -345,8 +345,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         // path is `/subscriptions/...`, which has fewer segments than the nested
         // patterns above match. Without these entries, loadSubscription never
         // fires and the form shows the NEW_SUBSCRIPTION defaults.
+        //
+        // The top-level page has no insight/dashboard to snapshot, so a new
+        // subscription here is always an AI report — default content_type
+        // accordingly (the form hides the snapshot option in this context).
         '/subscriptions/new': (_, searchParams) => {
-            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, content_type: 'ai_prompt' })
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }
