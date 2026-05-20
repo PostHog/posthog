@@ -24,6 +24,7 @@ from temporalio.common import RetryPolicy
 from posthog.models import Team, User
 from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+from posthog.utils import absolute_uri
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
@@ -270,7 +271,8 @@ def _build_breach_descriptions(
     if summary:
         lines.append(summary)
     if notebook_short_id:
-        lines.append(f"See /notebooks/{notebook_short_id} for the full investigation.")
+        notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}")
+        lines.append(f"See {notebook_url} for the full investigation.")
     return lines
 
 
