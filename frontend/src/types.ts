@@ -6388,7 +6388,6 @@ export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
     Support = 'support',
-    Settings = 'settings',
     Activity = 'activity',
     Discussion = 'discussion',
     Exports = 'exports',

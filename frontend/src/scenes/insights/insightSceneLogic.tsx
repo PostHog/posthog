@@ -344,9 +344,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
-                          settings_section: 'project-product-analytics',
                       }
-                    : { settings_section: 'project-product-analytics' }
+                    : null
             },
         ],
         maxContext: [
