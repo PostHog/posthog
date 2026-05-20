@@ -501,6 +501,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: web
+        build:
+            context: .
+            dockerfile: Dockerfile
         environment:
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
 
