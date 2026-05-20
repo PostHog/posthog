@@ -467,8 +467,15 @@ impl<'a> Parser<'a> {
     /// share the expression prefix and disambiguate by the trailing
     /// `:=` token after the expression.
     fn parse_for_clause(&mut self) -> Result<Value, ParseError> {
+        // cpp positions the for-clause initializer / increment in the
+        // outer `ForStmt` ctx, so each shape needs a `start` / `end`
+        // matching cpp's per-node visit. Capture the slot's start and
+        // wrap the emitted VariableDeclaration / VariableAssignment /
+        // expression node before returning.
+        let clause_start = self.peek0.start;
         if self.peek() == TokenKind::Keyword(Kw::Let) {
-            return self.parse_var_decl_no_semicolon();
+            let decl = self.parse_var_decl_no_semicolon()?;
+            return Ok(self.wrap_pos(decl, clause_start));
         }
         // Bare `IDENT := …` — same special-case as
         // `parse_expr_or_assignment_stmt`: a leading identifier
@@ -484,11 +491,14 @@ impl<'a> Parser<'a> {
             let right = self.parse_stmt_rhs_expr()?;
             let left =
                 self.wrap_pos_to(json!({"node": "Field", "chain": [name]}), id_start, id_end);
-            return Ok(json!({
-                "node": "VariableAssignment",
-                "left": left,
-                "right": right,
-            }));
+            return Ok(self.wrap_pos(
+                json!({
+                    "node": "VariableAssignment",
+                    "left": left,
+                    "right": right,
+                }),
+                clause_start,
+            ));
         }
         // Leading expression — parsed without the
         // `stop_postfix_call_before_colon_equals` guard (see
@@ -497,11 +507,14 @@ impl<'a> Parser<'a> {
         let expr = self.parse_expr_bp(0)?;
         if self.eat(TokenKind::ColonEquals)? {
             let right = self.parse_stmt_rhs_expr()?;
-            return Ok(json!({
-                "node": "VariableAssignment",
-                "left": expr,
-                "right": right,
-            }));
+            return Ok(self.wrap_pos(
+                json!({
+                    "node": "VariableAssignment",
+                    "left": expr,
+                    "right": right,
+                }),
+                clause_start,
+            ));
         }
         Ok(expr)
     }
