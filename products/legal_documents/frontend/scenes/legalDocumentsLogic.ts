@@ -147,7 +147,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
             actions.setLegalDocumentValue('dpa_mode', dpaMode)
         },
         loadCurrentOrganizationSuccess: () => {
-            if (values.legalDocuments.length === 0 && values.isAdminOrOwner) {
+            if (values.legalDocuments.length === 0 && values.isAdminOrOwner && !values.legalDocumentsLoading) {
                 actions.loadLegalDocuments()
             }
         },
