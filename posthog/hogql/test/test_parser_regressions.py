@@ -809,6 +809,38 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_join_op_modifier_arity_validation(self):
+        # Per `HogQLParser.g4:127-134`, each joinOp alt restricts
+        # ALL/ANY/ASOF to at most one occurrence; ANTI/SEMI combine
+        # only with ASOF in inner-style and only as `ASOF (ANTI|SEMI)`
+        # (the reverse order is invalid).
+        from posthog.hogql.errors import BaseHogQLError
+
+        invalid = (
+            "SELECT 1 FROM a ANTI ASOF JOIN b ON 1",
+            "SELECT 1 FROM a SEMI ASOF JOIN b ON 1",
+            "SELECT 1 FROM a SEMI ANTI JOIN b ON 1",
+            "SELECT 1 FROM a ALL ANTI JOIN b ON 1",
+            "SELECT 1 FROM a ALL ASOF JOIN b ON 1",
+            "SELECT 1 FROM a ALL ANY JOIN b ON 1",
+        )
+        for src in invalid:
+            for backend in ("cpp-json", "rust-json", "python"):
+                with self.assertRaises((BaseHogQLError, SyntaxError), msg=f"{backend}: {src!r}"):
+                    parse_select(src, backend=backend)
+        # Valid combinations still parse.
+        for src in (
+            "SELECT 1 FROM a ASOF JOIN b ON 1",
+            "SELECT 1 FROM a ASOF ANTI JOIN b ON 1",
+            "SELECT 1 FROM a ASOF SEMI JOIN b ON 1",
+            "SELECT 1 FROM a ASOF LEFT JOIN b ON 1",
+            "SELECT 1 FROM a SEMI LEFT JOIN b ON 1",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_group_by_all_falls_back_to_columns_on_postfix(self):
         # `groupByClause: GROUP BY (ALL | (CUBE|ROLLUP) LPAREN … |
         # GROUPING SETS LPAREN … | columnExprList)`. `ALL` is also a

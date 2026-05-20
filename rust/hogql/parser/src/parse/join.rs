@@ -212,6 +212,10 @@ impl<'a> Parser<'a> {
         let mut semi = false;
         let mut anti = false;
         let mut seen_any_kw = false;
+        // Track source order of relevant keywords for ordering-sensitive
+        // grammar checks below (e.g. `ASOF (ANTI|SEMI)` must come in
+        // that order, never `ANTI ASOF`).
+        let mut order: Vec<Kw> = Vec::new();
         loop {
             let TokenKind::Keyword(kw) = self.peek() else {
                 break;
@@ -255,6 +259,7 @@ impl<'a> Parser<'a> {
                 Kw::Anti => anti = true,
                 _ => {}
             }
+            order.push(kw);
         }
         if !seen_any_kw {
             return Ok(None);
@@ -286,6 +291,43 @@ impl<'a> Parser<'a> {
         }
         if outer && !(left || right || full) {
             return Err(self.err("OUTER requires LEFT/RIGHT/FULL"));
+        }
+        // Within-category arity per `HogQLParser.g4:127–134`:
+        //   - At most one of ALL/ANY/ASOF in any alt (the grammar
+        //     references the group as `(ALL|ANY|ASOF)?`, never twice).
+        //   - ANTI and SEMI never together — inner-style admits `ANTI`,
+        //     `SEMI`, or `ASOF (ANTI|SEMI)` (one or the other, not both).
+        //   - For the inner-style alt, ANTI / SEMI only combine with
+        //     ASOF (never ALL or ANY).
+        let modifier_count = (all as u8) + (any as u8) + (asof as u8);
+        if modifier_count > 1 {
+            return Err(self.err(
+                "JOIN op accepts at most one of ALL / ANY / ASOF",
+            ));
+        }
+        if anti && semi {
+            return Err(self.err("ANTI and SEMI cannot both appear in a JOIN op"));
+        }
+        if !full && !left && !right {
+            // Inner-style. ANTI / SEMI combine only with ASOF (never
+            // ALL / ANY): `ASOF (ANTI | SEMI)`. And in that order —
+            // `ANTI ASOF` / `SEMI ASOF` is the reverse and invalid.
+            if (anti || semi) && (all || any) {
+                return Err(self.err(
+                    "inner-style JOIN op: ANTI / SEMI cannot combine with ALL / ANY",
+                ));
+            }
+            if asof && (anti || semi) {
+                let asof_pos = order.iter().position(|&k| k == Kw::Asof);
+                let antisemi_pos = order
+                    .iter()
+                    .position(|&k| matches!(k, Kw::Anti | Kw::Semi));
+                if matches!((asof_pos, antisemi_pos), (Some(a), Some(b)) if a > b) {
+                    return Err(self.err(
+                        "JOIN op: ANTI / SEMI must follow ASOF, not precede it",
+                    ));
+                }
+            }
         }
 
         let mut tokens: Vec<&str> = Vec::new();
