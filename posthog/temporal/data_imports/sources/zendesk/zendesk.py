@@ -248,17 +248,24 @@ class ZendeskTicketsCursorIncrementalPaginator(BasePaginator):
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         res = response.json()
 
-        if not res or res.get("end_of_stream", True):
+        if not res:
             self._has_next_page = False
             return
 
+        if "end_of_stream" not in res:
+            raise ValueError("Zendesk cursor export response is missing 'end_of_stream'")
+
+        if res["end_of_stream"]:
+            self._has_next_page = False
+            return
+
+        # `end_of_stream` is False, so the stream continues and a valid, advancing
+        # `after_cursor` must be present. A missing or non-advancing cursor is an
+        # invalid/partial response — raise so the activity retries instead of
+        # committing truncated data as a successful sync.
         after_cursor = res.get("after_cursor")
-
-        # No cursor advance means there's nothing further to fetch. Stop rather
-        # than re-request the same page — defends against a stuck cursor.
         if not after_cursor or after_cursor == self._after_cursor:
-            self._has_next_page = False
-            return
+            raise ValueError("Zendesk cursor export returned end_of_stream=False without an advancing after_cursor")
 
         self._after_cursor = after_cursor
         self._has_next_page = True

@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+import pytest
+
 from requests import Request, Response
 
 from posthog.temporal.data_imports.sources.zendesk.zendesk import ZendeskTicketsCursorIncrementalPaginator
@@ -9,6 +11,7 @@ from posthog.temporal.data_imports.sources.zendesk.zendesk import ZendeskTickets
 def _make_response(json_body: dict[str, Any] | None = None) -> Response:
     resp = Response()
     resp.status_code = 200
+    resp.headers["Content-Type"] = "application/json"
     resp._content = json.dumps(json_body or {}).encode()
     return resp
 
@@ -45,32 +48,37 @@ class TestZendeskTicketsCursorIncrementalPaginator:
         assert req.params["start_time"] == 1591394586
         assert "cursor" not in req.params
 
-    def test_stops_on_end_of_stream(self) -> None:
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"tickets": [], "after_cursor": "abc123", "end_of_stream": True}, id="end_of_stream"),
+            pytest.param({}, id="empty_response"),
+        ],
+    )
+    def test_stops_pagination(self, body: dict[str, Any]) -> None:
         p = ZendeskTicketsCursorIncrementalPaginator()
-        resp = _make_response({"tickets": [], "after_cursor": "abc123", "end_of_stream": True})
 
-        p.update_state(resp)
+        p.update_state(_make_response(body))
 
         assert p.has_next_page is False
 
-    def test_stops_when_after_cursor_missing(self) -> None:
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param({"tickets": [{"id": 1}], "after_cursor": None, "end_of_stream": False}, id="missing_cursor"),
+            pytest.param({"tickets": [{"id": 1}], "after_cursor": "abc123"}, id="missing_end_of_stream"),
+        ],
+    )
+    def test_raises_on_invalid_response(self, body: dict[str, Any]) -> None:
         p = ZendeskTicketsCursorIncrementalPaginator()
-        resp = _make_response({"tickets": [{"id": 1}], "after_cursor": None, "end_of_stream": False})
 
-        p.update_state(resp)
+        with pytest.raises(ValueError):
+            p.update_state(_make_response(body))
 
-        assert p.has_next_page is False
-
-    def test_stops_when_response_empty(self) -> None:
-        p = ZendeskTicketsCursorIncrementalPaginator()
-
-        p.update_state(_make_response({}))
-
-        assert p.has_next_page is False
-
-    def test_stops_when_cursor_does_not_advance(self) -> None:
-        """The time-based export's failure mode (a cursor that never moves) must
-        terminate rather than loop forever re-fetching the same page."""
+    def test_raises_when_cursor_does_not_advance(self) -> None:
+        """A cursor that never moves while end_of_stream is False is the time-based
+        export's failure mode; fail loud so the activity retries instead of
+        silently truncating data."""
         p = ZendeskTicketsCursorIncrementalPaginator()
 
         first = _make_response({"tickets": [{"id": 1}], "after_cursor": "abc123", "end_of_stream": False})
@@ -78,8 +86,8 @@ class TestZendeskTicketsCursorIncrementalPaginator:
         assert p.has_next_page is True
 
         repeated = _make_response({"tickets": [{"id": 1}], "after_cursor": "abc123", "end_of_stream": False})
-        p.update_state(repeated)
-        assert p.has_next_page is False
+        with pytest.raises(ValueError):
+            p.update_state(repeated)
 
     def test_paginates_across_multiple_pages(self) -> None:
         p = ZendeskTicketsCursorIncrementalPaginator()
