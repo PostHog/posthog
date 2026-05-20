@@ -384,9 +384,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         check_can_edit_sharing_configuration(self, request, instance)
 
         if request.data.get("password_required", False):
-            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 return response.Response(
-                    {"error": "Sharing with password requires the Advanced Permissions feature"}, status=403
+                    {"error": "Sharing with password requires the Access Control feature"}, status=403
                 )
 
         if context.get("recording"):
@@ -419,6 +419,28 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                         )
                     ],
                     short_id=str(instance.insight.short_id),
+                ),
+            )
+
+        if context.get("dashboard") and "enabled" in request.data:
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=instance.dashboard.pk,
+                scope="Dashboard",
+                activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
+                detail=Detail(
+                    name=instance.dashboard.name,
+                    changes=[
+                        Change(
+                            type="Dashboard",
+                            action="changed",
+                            field="sharing",
+                            after=serializer.data.get("enabled"),
+                        )
+                    ],
                 ),
             )
 
@@ -482,6 +504,18 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 ),
             )
 
+        if context.get("dashboard"):
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=new_instance.dashboard.pk,
+                scope="Dashboard",
+                activity="access token refreshed",
+                detail=Detail(name=new_instance.dashboard.name),
+            )
+
         if context.get("notebook"):
             log_activity(
                 organization_id=None,
@@ -514,9 +548,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
-                {"error": "Password management requires the Advanced Permissions feature"},
+                {"error": "Password management requires the Access Control feature"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -554,9 +588,9 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         check_can_edit_sharing_configuration(self, request, sharing_config)
 
-        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return response.Response(
-                {"error": "Password management requires the Advanced Permissions feature"},
+                {"error": "Password management requires the Access Control feature"},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -695,7 +729,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if access_token:
             try:
                 sharing_configuration = (
-                    SharingConfiguration.objects.select_related("dashboard", "insight", "recording", "notebook")
+                    SharingConfiguration.objects.select_related(
+                        "dashboard",
+                        "insight",
+                        "recording",
+                        "notebook",
+                        "interviewee_context",
+                        "interviewee_context__topic",
+                    )
                     .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
                     .get(access_token=access_token)
                 )
@@ -1006,6 +1047,28 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
+        elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
+            from products.user_interviews.backend.facade.api import parse_interviewee_identifier
+
+            ic = resource.interviewee_context
+            topic = ic.topic
+            asset_title = topic.topic or "User interview"
+            asset_description = "PostHog AI user interview"
+            user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
+            # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
+            # the recipient would otherwise see their own internal-notes context in view-source.
+            # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
+            exported_data.update(
+                {
+                    "type": "interview",
+                    "interview": {
+                        "topic_id": str(topic.id),
+                        "interviewee_identifier": ic.interviewee_identifier,
+                        "user_name": user_name,
+                        "topic": topic.topic,
+                    },
+                }
+            )
         elif isinstance(resource, SharingConfiguration) and resource.recording:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data

@@ -3,9 +3,12 @@ import './Navigation.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
+import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -33,6 +36,8 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(maxGlobalLogic)
+    useMountedLogic(mcpHintLogic)
+
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
@@ -46,7 +51,10 @@ export function Navigation({
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+
+    // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
+    // context above scene content, so we hide the notice for users on the new menu bar.
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const inlinePanelRef = useRef<HTMLDivElement | null>(null)
     const inlinePanelCallbackRef = useCallback(
         (node: HTMLDivElement | null) => {
@@ -83,6 +91,18 @@ export function Navigation({
             setMainContentRect(mainRef.current.getBoundingClientRect())
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
+
+    // Register `create_user_interview_topic` globally so Max can create user interview
+    // topics from any page (including the homepage), not only from the user-interviews
+    // scene. The scene wires its own richer `useMaxTool` for the "New topic" button.
+    const userInterviewsEnabled = useFeatureFlag('USER_INTERVIEWS')
+    useMaxTool({
+        identifier: 'create_user_interview_topic',
+        active: userInterviewsEnabled,
+        context: {},
+    })
+
+    const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
 
     if (mode !== 'full') {
         return (
@@ -163,7 +183,7 @@ export function Navigation({
                             }}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
-                                {!sceneConfig?.hideProjectNotice && (
+                                {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',

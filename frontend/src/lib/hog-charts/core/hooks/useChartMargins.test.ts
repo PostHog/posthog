@@ -3,7 +3,7 @@ import { renderHook } from '@testing-library/react'
 import type { Series } from '../types'
 import { DEFAULT_MARGINS, useChartMargins } from './useChartMargins'
 
-jest.mock('../../overlays/AxisLabels', () => ({
+jest.mock('../../utils/text-measure', () => ({
     measureLabelWidth: (text: string) => text.length * 10,
 }))
 

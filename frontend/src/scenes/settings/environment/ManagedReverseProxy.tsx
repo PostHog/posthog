@@ -39,7 +39,7 @@ const statusText = {
 
 export function ManagedReverseProxy(): JSX.Element {
     const {
-        cloudflareOptInAcknowledged,
+        shouldShowCloudflareOptIn,
         formState,
         proxyRecords,
         proxyRecordsLoading,
@@ -183,7 +183,7 @@ export function ManagedReverseProxy(): JSX.Element {
     ]
 
     // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
-    if (cloudflareProxyEnabled && !cloudflareOptInAcknowledged) {
+    if (cloudflareProxyEnabled && shouldShowCloudflareOptIn) {
         return (
             <CloudflareOptInBanner onAcknowledge={acknowledgeCloudflareOptIn} restrictionReason={restrictionReason} />
         )

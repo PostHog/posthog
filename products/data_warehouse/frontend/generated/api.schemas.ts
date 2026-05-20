@@ -237,6 +237,12 @@ export const CdcTableModeEnumApi = {
  */
 export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
+export type ExternalDataSchemaApiAvailableColumnsItem = {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+}
+
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
@@ -309,6 +315,13 @@ export interface ExternalDataSchemaApi {
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -324,6 +337,12 @@ export interface PaginatedExternalDataSchemaListApi {
  * @nullable
  */
 export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
+
+export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+}
 
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
@@ -397,6 +416,13 @@ export interface PatchedExternalDataSchemaApi {
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
 }
 
 /**
@@ -557,6 +583,7 @@ export const CreatedViaEnumApi = {
  * `ClickHouse` - ClickHouse
  * `Plain` - Plain
  * `Resend` - Resend
+ * `PgAnalyze` - PgAnalyze
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -706,6 +733,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ClickHouse: 'ClickHouse',
     Plain: 'Plain',
     Resend: 'Resend',
+    PgAnalyze: 'PgAnalyze',
 } as const
 
 /**
@@ -750,7 +778,7 @@ export interface ExternalDataSourceSerializersApi {
   * `web` - web
   * `api` - api
   * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: CreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -946,7 +974,8 @@ export interface ExternalDataSourceCreateApi {
   * `Convex` - Convex
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
-  * `Resend` - Resend */
+  * `Resend` - Resend
+  * `PgAnalyze` - PgAnalyze */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -990,7 +1019,7 @@ export interface PatchedExternalDataSourceSerializersApi {
   * `web` - web
   * `api` - api
   * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: CreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -1065,6 +1094,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Columns to sync. Null means sync all columns.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -1245,7 +1279,8 @@ export interface DatabaseSchemaRequestApi {
   * `Convex` - Convex
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
-  * `Resend` - Resend */
+  * `Resend` - Resend
+  * `PgAnalyze` - PgAnalyze */
     source_type: ExternalDataSourceTypeEnumApi
 }
 

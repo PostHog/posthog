@@ -33,7 +33,7 @@ class PluginAttachmentInline(admin.StackedInline):
                     f"file size {attachment.file_size} is larger than {ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES} bytes"
                 )
 
-            response = json.dumps(json.loads(attachment.contents), sort_keys=True, indent=4)
+            response = json.dumps(json.loads(bytes(attachment.contents)), sort_keys=True, indent=4)
             return format_html("<pre>{}</pre>", response)
         except Exception as err:
             return format_html("cannot preview: {}", err)

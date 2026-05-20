@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -57,7 +58,13 @@ function defaultsFor(documentType: LegalDocumentType): LegalDocumentFormValues {
 export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
     path(['products', 'legal_documents', 'legalDocumentsLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization', 'currentOrganizationId'], billingLogic, ['billing']],
+        values: [
+            organizationLogic,
+            ['currentOrganization', 'currentOrganizationId', 'isAdminOrOwner'],
+            billingLogic,
+            ['billing'],
+        ],
+        actions: [organizationLogic, ['loadCurrentOrganizationSuccess']],
     })),
     actions({
         setDocumentType: (documentType: LegalDocumentType) => ({ documentType }),
@@ -71,8 +78,18 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                     if (!values.currentOrganizationId) {
                         return []
                     }
-                    const response = await api.legalDocumentsList(values.currentOrganizationId)
-                    return (response.results ?? []) as LegalDocument[]
+                    if (values.isAdminOrOwner === false && values.currentOrganization) {
+                        return []
+                    }
+                    try {
+                        const response = await api.legalDocumentsList(values.currentOrganizationId)
+                        return (response.results ?? []) as LegalDocument[]
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 403) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -128,6 +145,11 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
         },
         setDpaMode: ({ dpaMode }) => {
             actions.setLegalDocumentValue('dpa_mode', dpaMode)
+        },
+        loadCurrentOrganizationSuccess: () => {
+            if (values.legalDocuments.length === 0 && values.isAdminOrOwner && !values.legalDocumentsLoading) {
+                actions.loadLegalDocuments()
+            }
         },
     })),
     selectors({

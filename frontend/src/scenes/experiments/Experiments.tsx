@@ -499,6 +499,7 @@ const ExperimentsTable = ({
                         isEmpty={shouldShowEmptyState}
                         customHog={ExperimentsHog}
                         className="my-0"
+                        mcpSurfaceKey="experiments.create"
                     />
                 </AccessControlAction>
             )}

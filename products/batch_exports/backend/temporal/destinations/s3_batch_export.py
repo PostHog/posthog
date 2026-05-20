@@ -789,6 +789,11 @@ class ConcurrentS3Consumer(Consumer):
         # Remove from pending uploads immediately
         self.pending_uploads.pop(part_number, None)
 
+        # Ignore cancellations product of an aborted multi part upload
+        if task.cancelled():
+            self.logger.warning("Upload cancelled for file number %s part %s", self.current_file_index, part_number)
+            return
+
         # Handle any exceptions
         if task.exception() is not None:
             # Log the error - the exception will be re-raised when the task is awaited
@@ -904,12 +909,19 @@ class ConcurrentS3Consumer(Consumer):
         )
 
     async def _abort(self):
-        """Abort this S3 multi-part upload."""
+        """Abort this S3 multi-part upload and cancel any in-flight part uploads."""
+        if self.pending_uploads:
+            for task in self.pending_uploads.values():
+                task.cancel()
+            await asyncio.gather(*self.pending_uploads.values(), return_exceptions=True)
+            self.pending_uploads.clear()
+
         if self.upload_id:
+            upload_id = self.upload_id
             try:
                 client = await self._get_s3_client()
-                await client.abort_multipart_upload(
-                    Bucket=self.bucket, Key=self._get_current_key(), UploadId=self.upload_id
-                )
+                await client.abort_multipart_upload(Bucket=self.bucket, Key=self._get_current_key(), UploadId=upload_id)
             except Exception:
-                pass  # Best effort cleanup
+                self.logger.exception("Best-effort abort of multipart upload %s failed", upload_id)
+            finally:
+                self.upload_id = None

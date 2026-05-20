@@ -17,11 +17,13 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
@@ -127,10 +129,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="public",
-                        caption=(
-                            "Required for warehouse imports. Leave blank only for direct Postgres queries "
-                            "to browse tables across all non-system schemas."
-                        ),
                         secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
@@ -211,7 +209,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             )
 
     def get_schemas(
-        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -362,8 +365,10 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     source_catalog=discovered_schema.source_catalog,
                     source_schema=discovered_schema.source_schema,
                     source_table_name=discovered_schema.source_table_name,
-                    detected_primary_keys=pk_columns_by_table.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in discovered_schema.columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(
+                        pk_columns_by_table.get(table_name),
+                        discovered_schema.columns,
+                    ),
                 )
             )
 
@@ -413,11 +418,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         access_method: str,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        if access_method != "direct":
-            schema = config.schema.strip() if isinstance(config.schema, str) else ""
-            if not schema and not schema_name:
-                return False, "Schema is required for warehouse imports."
-
         return self.validate_credentials(config, team_id, schema_name=schema_name)
 
     def get_connection_metadata(
@@ -490,6 +490,13 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else None
         )
 
+        # Self-heal qualified rows that don't have schema_metadata yet by splitting the dotted name,
+        # so we don't fall through to `config.schema or "public"` + the literal dotted table name.
+        if (not source_schema or not source_table_name) and "." in inputs.schema_name:
+            inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
+            source_schema = source_schema or inferred_schema
+            source_table_name = source_table_name or inferred_table
+
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
         if schema.is_cdc and schema.cdc_mode == "streaming":
             raise CDCHandledExternally(
@@ -499,15 +506,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
 
-        return postgres_source(
+        # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
+        # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
+        # legacy single-schema warehouse sources whose rows haven't been reconciled yet.
+        response = postgres_source(
             tunnel=ssh_tunnel,
             user=config.user,
             password=config.password,
             database=config.database,
             sslmode="prefer",
-            # config.schema wins so warehouse-mode renames flow through without rewriting
-            # schema_metadata. Falls back to source_schema for direct mode (browse-all).
-            schema=config.schema or source_schema or "public",
+            schema=source_schema or config.schema or "public",
             table_names=[source_table_name or inputs.schema_name],
             should_use_incremental_field=inputs.should_use_incremental_field,
             logger=inputs.logger,
@@ -518,4 +526,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
+            enabled_columns=schema.enabled_columns,
         )
+        # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
+        # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
+        storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
+        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
+        response.name = NamingConvention.normalize_identifier(storage_schema_name)
+        return response

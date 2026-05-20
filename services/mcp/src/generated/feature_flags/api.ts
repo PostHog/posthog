@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -768,6 +768,40 @@ export const FeatureFlagsStatusRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Test feature flag evaluation against a specific user at an optional point in time.
+
+This endpoint allows testing how a feature flag would evaluate for a specific user,
+optionally at a historical timestamp. When a timestamp is provided, both the flag
+conditions and person properties are evaluated as they existed at that time.
+ */
+export const FeatureFlagsTestEvaluationCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const FeatureFlagsTestEvaluationCreateBody = /* @__PURE__ */ zod.object({
+    distinct_id: zod
+        .string()
+        .optional()
+        .describe('User distinct ID to test against (mutually exclusive with person_id)'),
+    person_id: zod.string().optional().describe('Person ID to test against (mutually exclusive with distinct_id)'),
+    timestamp: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'Optional point-in-time to evaluate the flag against — both flag conditions and person properties are reconstructed as they existed at that timestamp. ISO 8601 with timezone, e.g. ``2026-04-29T15:30:00Z`` or ``2026-04-29T15:30:00+00:00``. Naive timestamps (no timezone) are interpreted as UTC.'
+        ),
+    groups: zod
+        .unknown()
+        .optional()
+        .describe('Groups for feature flag evaluation (JSON object, defaults to empty dict)'),
+})
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -787,6 +821,28 @@ export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ 
     groups: zod
         .string()
         .default(featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault)
+        .describe('Groups for feature flag evaluation (JSON object string)'),
+})
+
+/**
+ * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
+
+If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
+ */
+export const FeatureFlagsMyFlagsRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const featureFlagsMyFlagsRetrieveQueryGroupsDefault = `{}`
+
+export const FeatureFlagsMyFlagsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    groups: zod
+        .string()
+        .default(featureFlagsMyFlagsRetrieveQueryGroupsDefault)
         .describe('Groups for feature flag evaluation (JSON object string)'),
 })
 

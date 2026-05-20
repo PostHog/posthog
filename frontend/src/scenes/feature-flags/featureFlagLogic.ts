@@ -21,6 +21,7 @@ import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -628,6 +629,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             isBeingDisabled?: boolean
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
+        saveTagsInline: (tags: string[]) => ({ tags }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
@@ -1824,6 +1826,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
+            tryShowMCPHint(props.id === 'new' ? 'feature_flags.create' : 'feature_flags.update')
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
@@ -2137,6 +2140,52 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 lemonToast.success('Description saved')
             } catch {
                 lemonToast.error('Failed to save description')
+            }
+        },
+        saveTagsInline: async ({ tags }, breakpoint) => {
+            const flag = values.featureFlag
+            if (!flag.id) {
+                return
+            }
+            // Optimistic update applies immediately on every call so the chips reflect the
+            // user's intent without waiting for the API.
+            const previousTags = flag.tags
+            actions.setFeatureFlag({ ...flag, tags })
+            actions.updateFlag({ ...flag, tags })
+
+            // Debounce — rapid changes (e.g. quickly removing several chips) collapse into a
+            // single API call with the final tag set. Without this, overlapping requests
+            // can land out-of-order and stomp the latest local state when their responses
+            // resolve.
+            await breakpoint(250)
+
+            try {
+                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                    tags,
+                })
+                // If the listener has been invoked again since this await started, bail out
+                // — the newer call owns reconciliation.
+                breakpoint()
+
+                // Reconcile with server only if the *set* of tags differs (e.g. server-side
+                // normalization added/removed a tag). Avoid blindly overwriting — the
+                // server may return tags in a different order which would re-shuffle chips.
+                const localSet = new Set(tags)
+                const serverTags = savedFlag.tags ?? []
+                const serverSet = new Set(serverTags)
+                const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
+                if (!setsEqual) {
+                    actions.setFeatureFlag({ ...flag, tags: serverTags })
+                    actions.updateFlag({ ...flag, tags: serverTags })
+                }
+            } catch (error: any) {
+                // Re-throw breakpoint cancellation so kea swallows it silently.
+                if (error?.isBreakpoint) {
+                    throw error
+                }
+                actions.setFeatureFlag({ ...flag, tags: previousTags })
+                actions.updateFlag({ ...flag, tags: previousTags })
+                lemonToast.error('Failed to save tags')
             }
         },
         editFeatureFlag: async ({ editing }) => {
