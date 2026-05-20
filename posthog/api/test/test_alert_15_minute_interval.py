@@ -19,7 +19,7 @@ from posthog.tasks.alerts.utils import (
 )
 
 
-@patch("posthog.api.alert.posthoganalytics.feature_enabled", return_value=True)
+@patch("posthog.models.alert.posthoganalytics.feature_enabled", return_value=True)
 class TestAlert15MinuteInterval(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -62,7 +62,7 @@ class TestAlert15MinuteInterval(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Boost, Scale, or Enterprise" in str(response.json())
 
-    @patch("posthog.api.alert.posthoganalytics.feature_enabled", return_value=False)
+    @patch("posthog.models.alert.posthoganalytics.feature_enabled", return_value=False)
     def test_create_every_15_minutes_rejected_when_feature_flag_disabled(
         self, _mock_feature_disabled, _mock_feature_enabled
     ) -> None:
