@@ -1,3 +1,4 @@
+import { IconAI, IconDashboard, IconGraph } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import type { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
@@ -116,26 +117,27 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             key: 'type',
             width: '7rem',
             render: (_value: unknown, sub: SubscriptionApi) => {
-                // Render all three types as LemonTags so the column reads as one categorical
-                // dimension, each with a distinct colour: AI = completion (purple, the novel
-                // LLM type), Insight = primary (accent), Dashboard = default (neutral).
+                // All three kinds render as LemonTags for a consistent categorical column.
+                // AI keeps the `completion` (purple) colour as the novel LLM type; Insight and
+                // Dashboard stay neutral and are differentiated by icon rather than colour —
+                // status/accent colours (red, green) would read as error/success here.
                 if (sub.content_type === 'ai_prompt') {
                     return (
-                        <LemonTag type="completion" size="small">
+                        <LemonTag type="completion" size="small" icon={<IconAI />}>
                             AI report
                         </LemonTag>
                     )
                 }
                 if (sub.insight) {
                     return (
-                        <LemonTag type="primary" size="small">
+                        <LemonTag type="default" size="small" icon={<IconGraph />}>
                             Insight
                         </LemonTag>
                     )
                 }
                 if (sub.dashboard) {
                     return (
-                        <LemonTag type="default" size="small">
+                        <LemonTag type="default" size="small" icon={<IconDashboard />}>
                             Dashboard
                         </LemonTag>
                     )
