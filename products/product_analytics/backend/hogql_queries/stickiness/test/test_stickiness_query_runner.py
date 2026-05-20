@@ -48,7 +48,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
@@ -57,6 +56,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.stickinessquery"
 
@@ -158,7 +158,14 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _setup_data_warehouse(self) -> str:
         table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
-            csv_path=Path(__file__).parent.parent.parent / "trends" / "test" / "data" / "trends_data.csv",
+            csv_path=Path(__file__).resolve().parents[6]
+            / "posthog"
+            / "hogql_queries"
+            / "insights"
+            / "trends"
+            / "test"
+            / "data"
+            / "trends_data.csv",
             table_name="test_table_stickiness",
             table_columns={
                 "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},

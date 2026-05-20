@@ -909,7 +909,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 actions.setMessages([], promptId)
                 actions.setActivePromptId(promptId)
                 const cleanParams = cleanSourceSearchParams(router.values.searchParams)
-                router.actions.push(combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, ...sourceParam }).url)
+                // Use `replace` (not `push`) so we don't add a history entry — and a $pageview — on every
+                // setup. If the URL-driven path ever re-enters this listener, `push` turns a single
+                // missed dedup into a runaway pageview loop. See `urlToAction` for the dedup guard.
+                router.actions.replace(
+                    combineUrl(urls.llmAnalyticsPlayground(), { ...cleanParams, ...sourceParam }).url
+                )
             }
 
             try {
@@ -1265,9 +1270,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                 }
             }
 
-            // urlToAction fires on ALL mounted instances for the matching URL.
-            // Only process URL params for the active tab to avoid cross-tab interference.
-            if (props.tabId && sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
+            // urlToAction fires on ALL mounted instances for the matching URL — including the
+            // unkeyed `'default'` instance kept alive for backwards compatibility. Only the active
+            // tab instance should run the URL-driven setup; otherwise multiple instances each
+            // dispatch `setupPlaygroundFromEvent`, and any subsequent URL update (e.g. from
+            // `finishSourceSetup`) re-enters this handler on every instance, producing a pageview
+            // and API-fetch loop.
+            if (!props.tabId || sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
                 return
             }
 

@@ -225,7 +225,7 @@ class TestKernelRuntimeService(BaseTest):
             )
 
         assert result == "ok"  # type: ignore
-        assert mocked_execute.call_args.kwargs["variable_names"] == ["valid", "_also_valid"]
+        assert mocked_execute.call_args.kwargs["variable_names"] == ["valid", "_also_valid"]  # type: ignore[unreachable]
 
     def test_execute_in_sandbox_parses_output(self) -> None:
         service = KernelRuntimeService(execution_timeout=5)

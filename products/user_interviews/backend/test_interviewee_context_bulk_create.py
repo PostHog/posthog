@@ -7,8 +7,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from products.user_interviews.backend.api import BULK_INTERVIEWEE_CONTEXT_MAX_ITEMS
 from products.user_interviews.backend.models import IntervieweeContext, UserInterviewTopic
+from products.user_interviews.backend.presentation.views import BULK_INTERVIEWEE_CONTEXT_MAX_ITEMS
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):

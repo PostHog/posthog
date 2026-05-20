@@ -5,6 +5,7 @@ import { urlToAction } from 'kea-router'
 import '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -177,6 +178,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         dashboard_id: dashboardId,
                     })
                     actions.appendAnnotations([createdAnnotation])
+                    tryShowMCPHint('annotations.create')
                 }
                 actions.closeModal()
             },
