@@ -26,6 +26,7 @@ import {
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
 import { confirmAction } from '@/lib/confirm-action'
+import { buildEnforce2faConfirmation } from '@/lib/confirmation-builders'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -343,11 +344,7 @@ const organizationEnforce2faUpdate = (): ToolBase<typeof OrganizationEnforce2faU
     name: 'organization-enforce-2fa-update',
     schema: OrganizationEnforce2faUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof OrganizationEnforce2faUpdateSchema>) => {
-        await confirmAction(context, {
-            title: 'Enforce 2FA for organization',
-            description:
-                'Toggle 2FA enforcement for an organization. The MCP client will show a confirmation modal; the change is only applied if the user accepts.',
-        })
+        await confirmAction(context, await buildEnforce2faConfirmation(context, params))
         const body: Record<string, unknown> = {}
         if (params.enforce_2fa !== undefined) {
             body['enforce_2fa'] = params.enforce_2fa

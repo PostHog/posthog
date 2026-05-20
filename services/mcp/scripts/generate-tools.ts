@@ -744,6 +744,38 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     return `        return ${resultVar}\n`
 }
 
+/**
+ * Emit the `await confirmAction(...)` block for a tool that opted in via
+ * `confirmation_required: true`. When `confirmation_builder` is also set, the
+ * block invokes the named builder at runtime to produce a dynamic `{ title,
+ * description }`. Otherwise the static title/description from the YAML (with
+ * fall-backs to the OpenAPI operation) are inlined as JSON literals.
+ *
+ * Returns `null` when the tool didn't opt in.
+ */
+function emitConfirmActionBlock(
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    toolName: string
+): { code: string; builderImport: string | null } | null {
+    if (config.confirmation_required !== true) {
+        return null
+    }
+    const builder = config.confirmation_builder
+    if (builder) {
+        const code = `        await confirmAction(context, await ${builder}(context, params))\n`
+        return { code, builderImport: builder }
+    }
+    const confirmTitle = config.title ?? toolName
+    const confirmDescription =
+        config.description ?? resolved.operation.description ?? resolved.operation.summary ?? toolName
+    let code = `        await confirmAction(context, {\n`
+    code += `            title: ${JSON.stringify(confirmTitle)},\n`
+    code += `            description: ${JSON.stringify(confirmDescription.trim())},\n`
+    code += `        })\n`
+    return { code, builderImport: null }
+}
+
 // ------------------------------------------------------------------
 // Code generation for a single tool
 // ------------------------------------------------------------------
@@ -767,6 +799,7 @@ function generateToolCode(
     hasEnrichment: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
     needsConfirmAction: boolean
+    confirmationBuilderImport: string | null
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
     const factoryName = toCamelCase(toolName)
@@ -812,15 +845,10 @@ function generateToolCode(
 
     // Build handler body
     let handlerBody = ''
-    const needsConfirmAction = config.confirmation_required === true
-    if (needsConfirmAction) {
-        const confirmTitle = config.title ?? toolName
-        const confirmDescription =
-            config.description ?? resolved.operation.description ?? resolved.operation.summary ?? toolName
-        handlerBody += `        await confirmAction(context, {\n`
-        handlerBody += `            title: ${JSON.stringify(confirmTitle)},\n`
-        handlerBody += `            description: ${JSON.stringify(confirmDescription.trim())},\n`
-        handlerBody += `        })\n`
+    const confirmBlock = emitConfirmActionBlock(config, resolved, toolName)
+    const needsConfirmAction = confirmBlock !== null
+    if (confirmBlock) {
+        handlerBody += confirmBlock.code
     }
     if (needsOrgId) {
         handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
@@ -960,6 +988,7 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         hasEnrichment,
         responseFilterImport: responseFilter.helperImport,
         needsConfirmAction,
+        confirmationBuilderImport: confirmBlock?.builderImport ?? null,
     }
 }
 
@@ -982,6 +1011,7 @@ function generateCustomSchemaToolCode(
     hasEnrichment: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
     needsConfirmAction: boolean
+    confirmationBuilderImport: string | null
 } {
     const pathParamNames = extractPathParams(resolved.path)
 
@@ -994,15 +1024,10 @@ function generateCustomSchemaToolCode(
     const needsOrgId = resolved.path.includes('{organization_id}')
 
     let handlerBody = ''
-    const needsConfirmAction = config.confirmation_required === true
-    if (needsConfirmAction) {
-        const confirmTitle = config.title ?? toolName
-        const confirmDescription =
-            config.description ?? resolved.operation.description ?? resolved.operation.summary ?? toolName
-        handlerBody += `        await confirmAction(context, {\n`
-        handlerBody += `            title: ${JSON.stringify(confirmTitle)},\n`
-        handlerBody += `            description: ${JSON.stringify(confirmDescription.trim())},\n`
-        handlerBody += `        })\n`
+    const confirmBlock = emitConfirmActionBlock(config, resolved, toolName)
+    const needsConfirmAction = confirmBlock !== null
+    if (confirmBlock) {
+        handlerBody += confirmBlock.code
     }
     if (needsOrgId) {
         handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
@@ -1078,6 +1103,7 @@ ${handlerBody}    },
         hasEnrichment: false,
         responseFilterImport: responseFilter.helperImport,
         needsConfirmAction,
+        confirmationBuilderImport: confirmBlock?.builderImport ?? null,
     }
 }
 
@@ -1158,6 +1184,7 @@ function generateCategoryFile(
 
     let hasEnrichment = false
     let hasConfirmAction = false
+    const confirmationBuilderImports = new Set<string>()
 
     const responseFilterImports = new Set<string>()
 
@@ -1198,6 +1225,9 @@ function generateCategoryFile(
         }
         if (result.needsConfirmAction) {
             hasConfirmAction = true
+        }
+        if (result.confirmationBuilderImport) {
+            confirmationBuilderImports.add(result.confirmationBuilderImport)
         }
     }
 
@@ -1338,13 +1368,18 @@ function generateCategoryFile(
 
     const confirmActionImportLine = hasConfirmAction ? `import { confirmAction } from '@/lib/confirm-action'\n` : ''
 
+    const confirmationBuilderImportLine =
+        confirmationBuilderImports.size > 0
+            ? `import { ${[...confirmationBuilderImports].sort().join(', ')} } from '@/lib/confirmation-builders'\n`
+            : ''
+
     const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
 
     const code = `// AUTO-GENERATED from ${fileName} + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${confirmActionImportLine}${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${confirmActionImportLine}${confirmationBuilderImportLine}${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

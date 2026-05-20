@@ -125,11 +125,20 @@ export const ToolConfigSchema = z
         /**
          * When true, the tool's handler will request a manual user confirmation via the MCP
          * client (using the `elicitation/create` protocol primitive) before performing the
-         * action. The user is shown the tool's title, description, and the resolved parameters.
-         * If the client does not support elicitation, the action is refused — sensitive
-         * actions fail closed. Use for destructive or hard-to-reverse operations.
+         * action. The user is shown the tool's title and description (or the output of
+         * `confirmation_builder`, when set). If the client does not support elicitation, the
+         * action is refused — sensitive actions fail closed. Use for destructive or
+         * hard-to-reverse operations.
          */
         confirmation_required: z.boolean().optional(),
+        /**
+         * Name of a function exported from `services/mcp/src/lib/confirmation-builders.ts`
+         * that produces a `{ title, description }` for the elicitation modal at runtime.
+         * The builder receives `(context, params)` so it can look up entity names, format
+         * dynamic verbs from boolean params, etc. — anything the static YAML message can't
+         * express. Only meaningful when `confirmation_required: true`.
+         */
+        confirmation_builder: z.string().optional(),
         /**
          * Maps original OpenAPI field names to MCP-safe aliases. The generated tool
          * schema uses the alias (which must match ^[a-zA-Z0-9_.-]{1,64}$), while

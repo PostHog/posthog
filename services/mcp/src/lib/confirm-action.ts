@@ -8,9 +8,14 @@ export class ConfirmationDeclinedError extends Error {
 }
 
 export class ConfirmationUnsupportedError extends Error {
-    constructor(message: string) {
+    constructor(message: string, options?: { cause?: unknown }) {
         super(message)
         this.name = 'ConfirmationUnsupportedError'
+        if (options?.cause !== undefined) {
+            // Assigned manually to stay compatible with TS libs that don't surface the
+            // ES2022 `Error(message, { cause })` constructor signature.
+            ;(this as Error & { cause?: unknown }).cause = options.cause
+        }
     }
 }
 
@@ -43,7 +48,8 @@ export async function confirmAction(context: Context, input: ConfirmActionInput)
     } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
         throw new ConfirmationUnsupportedError(
-            `This action requires manual user confirmation via the MCP client, but the client did not respond to an elicitation request (${reason}). Use the PostHog web UI to make this change instead.`
+            `This action requires manual user confirmation via the MCP client, but the elicitation request failed (${reason}). The client may not implement elicitation, or the request failed transiently. Use the PostHog web UI to make this change instead.`,
+            { cause: error }
         )
     }
 
