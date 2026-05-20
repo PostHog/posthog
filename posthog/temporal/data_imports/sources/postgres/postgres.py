@@ -803,9 +803,7 @@ def _build_query(
     # previous window's hi as the next window's lo — `>=` would re-fetch every row at the
     # boundary value, duplicating each window's hi inside a single run.
     operator = (
-        sql.SQL(incremental_type_to_operator(incremental_field_type))
-        if upper_bound_inclusive is None
-        else sql.SQL(">")
+        sql.SQL(incremental_type_to_operator(incremental_field_type)) if upper_bound_inclusive is None else sql.SQL(">")
     )
 
     if add_sampling:
