@@ -255,7 +255,12 @@ def concepts() -> None:
 
 
 def _load_env_file(path: os.PathLike[str], only_if_unset: bool = True) -> None:
-    """Load environment variables from a file (KEY=VALUE per line, # comments)."""
+    """Load environment variables from a file (KEY=VALUE per line, # comments).
+
+    op:// refs are always skipped — they only get resolved by `op run`, never by
+    sourcing the file directly. Setting them as literal strings would break
+    downstream services with cryptic API errors.
+    """
     from pathlib import Path
 
     env_file = Path(path)
@@ -267,6 +272,8 @@ def _load_env_file(path: os.PathLike[str], only_if_unset: bool = True) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         name, _, value = line.partition("=")
+        if value.startswith("op://"):
+            continue
         if only_if_unset and name in os.environ:
             continue
         os.environ[name] = value
@@ -293,21 +300,27 @@ def run_with_env(command: tuple[str, ...]) -> None:
 
     has_op_refs = env_local.exists() and "op://" in env_local.read_text()
 
-    if has_op_refs:
-        if not shutil.which("op"):
-            click.echo("⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found", err=True)
-            click.echo("   Install: brew install 1password-cli", err=True)
-            raise SystemExit(1)
+    if has_op_refs and shutil.which("op"):
         # Load .env.development and .env.services first (only if not already set in shell).
         # op run then layers .env.local on top — overriding our files but not shell.
         _load_env_file(env_dev, only_if_unset=True)
         _load_env_file(env_services, only_if_unset=True)
         os.execvp("op", ["op", "run", f"--env-file={env_local}", "--", *command])
-    else:
-        _load_env_file(env_local, only_if_unset=True)
-        _load_env_file(env_dev, only_if_unset=True)
-        _load_env_file(env_services, only_if_unset=True)
-        os.execvp(command[0], list(command))
+        return
+
+    # No op refs OR op CLI not installed — source files directly. _load_env_file
+    # skips op:// lines, so missing op CLI degrades gracefully: vars that needed
+    # 1Password are simply unset, and the downstream command fails with its own
+    # "missing key" error rather than swallowing a literal "op://..." string.
+    if has_op_refs:
+        click.echo("⚠️  .env.local contains 1Password refs (op://) but 'op' CLI is not installed.", err=True)
+        click.echo("   These refs will be skipped. Install: brew install 1password-cli", err=True)
+        click.echo("   Or replace op:// refs with literal values in .env.local.", err=True)
+
+    _load_env_file(env_local, only_if_unset=True)
+    _load_env_file(env_dev, only_if_unset=True)
+    _load_env_file(env_services, only_if_unset=True)
+    os.execvp(command[0], list(command))
 
 
 def _register_script_commands() -> None:
