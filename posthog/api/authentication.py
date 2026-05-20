@@ -495,11 +495,11 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: Request) -> Response:
         if not settings.DEBUG:
             raise Http404()
-        users = list(
-            User.objects.filter(is_active=True).order_by("email").values("email", "first_name", "is_staff")[:50]
-        )
+
+        users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
+
         return Response({"users": users})
 
 

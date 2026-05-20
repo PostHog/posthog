@@ -32,7 +32,6 @@ export interface PrecheckResponseType {
 
 export interface DevUser {
     email: string
-    first_name: string
     is_staff: boolean
     label: string | null
 }
