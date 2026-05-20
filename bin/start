@@ -5,6 +5,23 @@ set -e
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
 
+# 1Password: auto-resolve op:// references in .env.local.
+# Must run before lock acquisition: `exec op run ...` keeps the bash fds open
+# in the op-run process, so if we held fd 9's flock here the re-exec'd child
+# bin/start would fail to acquire it.
+if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
+    if [ -z "$_POSTHOG_OP_RESOLVED" ]; then
+        if command -v op &>/dev/null; then
+            echo "🔐 Resolving secrets from .env.local via 1Password"
+            export _POSTHOG_OP_RESOLVED=1
+            exec op run --env-file="$REPOSITORY_ROOT/.env.local" -- "$0" "$@"
+        else
+            echo "⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found"
+            echo "   Install: brew install 1password-cli"
+        fi
+    fi
+fi
+
 cleanup_lock() {
     rm -f "$LOCK_FILE"
 }
@@ -18,20 +35,6 @@ if ! flock -n 9; then
 fi
 
 trap cleanup_lock EXIT INT TERM
-
-# 1Password: auto-resolve op:// references in .env.local
-if [ -f "$REPOSITORY_ROOT/.env.local" ] && grep -q "op://" "$REPOSITORY_ROOT/.env.local" 2>/dev/null; then
-    if [ -z "$_POSTHOG_OP_RESOLVED" ]; then
-        if command -v op &>/dev/null; then
-            echo "🔐 Resolving secrets from .env.local via 1Password"
-            export _POSTHOG_OP_RESOLVED=1
-            exec op run --env-file="$REPOSITORY_ROOT/.env.local" -- "$0" "$@"
-        else
-            echo "⚠️  .env.local contains 1Password refs (op://) but 'op' CLI not found"
-            echo "   Install: brew install 1password-cli"
-        fi
-    fi
-fi
 
 # Environment variables are defined in:
 #   .env.services     - service connection defaults (shared with containers
