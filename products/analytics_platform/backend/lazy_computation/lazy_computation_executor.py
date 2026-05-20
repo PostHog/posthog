@@ -83,9 +83,7 @@ PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
 #   - `miss` → at least one new job was created or at least one pending job
 #              was waited on.
 #
-# Hit ratio across a window:
-#   sum(rate(lazy_computation_executions_total{cache_state="hit"}[5m]))
-#     / sum(rate(lazy_computation_executions_total[5m]))
+# See README.md § Observability for example PromQL queries.
 LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
     "lazy_computation_executions_total",
     "Lazy computation executor invocations, labeled by outcome / cache_state / table.",
