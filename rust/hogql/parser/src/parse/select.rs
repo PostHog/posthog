@@ -341,9 +341,13 @@ impl<'a> Parser<'a> {
         // `selectStmtWithParens` grammar admits a bare `placeholder` as
         // its fourth alternative — `{name}` standing in for a whole
         // select. Defer to the expression parser, which already knows
-        // how to emit a Placeholder node for `{…}`.
+        // how to emit a Placeholder node for `{…}`. cpp's
+        // `VISIT(Placeholder)` covers the whole `{ … }` span — wrap so
+        // the bare-placeholder select body carries that position.
         if self.peek() == TokenKind::LBrace {
-            return self.parse_brace_dict_or_placeholder();
+            let placeholder_start = self.peek0.start;
+            let placeholder = self.parse_brace_dict_or_placeholder()?;
+            return Ok(self.wrap_pos(placeholder, placeholder_start));
         }
         self.parse_select_stmt()
     }
@@ -1414,11 +1418,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_window_frame_bound(&mut self) -> Result<Value, ParseError> {
+        let bound_start = self.peek0.start;
         if self.eat_kw(Kw::Current)? {
             self.expect_kw(Kw::Row, "ROW")?;
-            return Ok(
+            return Ok(self.wrap_pos(
                 json!({"node": "WindowFrameExpr", "frame_type": "CURRENT ROW", "frame_value": Value::Null}),
-            );
+                bound_start,
+            ));
         }
         if self.eat_kw(Kw::Unbounded)? {
             let ty = if self.eat_kw(Kw::Preceding)? {
@@ -1428,9 +1434,10 @@ impl<'a> Parser<'a> {
             } else {
                 return Err(self.err("expected PRECEDING or FOLLOWING after UNBOUNDED"));
             };
-            return Ok(
+            return Ok(self.wrap_pos(
                 json!({"node": "WindowFrameExpr", "frame_type": ty, "frame_value": Value::Null}),
-            );
+                bound_start,
+            ));
         }
         // `winFrameBound: columnExpr PRECEDING | columnExpr FOLLOWING`
         // — the value is a full `columnExpr`, so parse it at binding
@@ -1459,7 +1466,10 @@ impl<'a> Parser<'a> {
             }
             _ => val,
         };
-        Ok(json!({"node": "WindowFrameExpr", "frame_type": ty, "frame_value": frame_value}))
+        Ok(self.wrap_pos(
+            json!({"node": "WindowFrameExpr", "frame_type": ty, "frame_value": frame_value}),
+            bound_start,
+        ))
     }
 
     fn parse_select_columns(&mut self) -> Result<Vec<Value>, ParseError> {
@@ -1501,6 +1511,7 @@ impl<'a> Parser<'a> {
             {
                 break;
             }
+            let col_start = self.peek0.start;
             // Alias-before: `IDENT : expr` or `"IDENT" : expr` or
             // `<keyword> : expr`. The grammar's `identifier` rule admits
             // any keyword (per the `keyword` production), so e.g.
@@ -1517,7 +1528,11 @@ impl<'a> Parser<'a> {
                 }
                 self.bump()?; // consume `:`
                 let expr = self.parse_expr_bp(0)?;
-                cols.push(emit::alias(expr, &name));
+                // cpp's `ColumnExprAlias` ctx for the alias-before form
+                // (`IDENT COLON columnExpr`) spans from the alias ident
+                // through the value expression. Wrap so the column's
+                // `start` / `end` match cpp's `addPositionInfo`.
+                cols.push(self.wrap_pos(emit::alias(expr, &name), col_start));
             } else {
                 let expr = self.parse_expr_bp(0)?;
                 // Implicit alias: a trailing identifier (or one of the
@@ -1534,7 +1549,12 @@ impl<'a> Parser<'a> {
                     if is_bare_from_field(&expr) {
                         return Err(self.err("Cannot use \"from\" before an implicit alias"));
                     }
-                    emit::alias(expr, &name)
+                    // cpp's `ColumnExprAlias` ctx for the implicit-alias
+                    // form (`columnExpr IDENT`) spans from the value
+                    // expression through the alias identifier — wrap
+                    // with the column's running start so the Alias
+                    // carries the cpp span.
+                    self.wrap_pos(emit::alias(expr, &name), col_start)
                 } else {
                     expr
                 };

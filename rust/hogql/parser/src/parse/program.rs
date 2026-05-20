@@ -46,12 +46,20 @@ impl<'a> Parser<'a> {
             }
             declarations.push(self.parse_declaration()?);
         }
-        Ok(self.wrap_pos(
+        // cpp's `VISIT(Program)` calls `addPositionInfo(json, ctx)`, and
+        // ANTLR's Program ctx ends at the EOF token — i.e. the source
+        // length, NOT the end of the last meaningful token. Any trailing
+        // whitespace / `;` / newline is included in the span. Use the
+        // source length explicitly rather than `last_consumed_end` so
+        // `let x := 1\n` ends at 11 (matching cpp) not 10 (the `1`).
+        let prog_end = self.src.len();
+        Ok(self.wrap_pos_to(
             json!({
                 "node": "Program",
                 "declarations": declarations,
             }),
             prog_start,
+            prog_end,
         ))
     }
 

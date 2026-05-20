@@ -504,9 +504,10 @@ impl<'a> Parser<'a> {
                 if raw.starts_with("F'") {
                     return Err(self.err("mismatched input 'F''"));
                 }
+                let body_offset = tok.start + 2; // past `f'`
+                let body_end = tok.end - 1; // before closing `'`
                 self.bump()?;
-                let body = &raw[2..raw.len() - 1];
-                parse_template_body(body)
+                parse_template_body(self.src, body_offset, body_end)
             }
             TokenKind::Keyword(Kw::True | Kw::False)
                 if self.peek_next() == TokenKind::LParen || self.peek_next() == TokenKind::Dot =>
@@ -1216,6 +1217,7 @@ impl<'a> Parser<'a> {
                     TokenKind::Keyword(Kw::Exclude) | TokenKind::Keyword(Kw::Replace)
                 )
             {
+                let asterisk_pos = self.peek0.start;
                 self.bump()?;
                 let (exclude, replace) = self.parse_columns_decorators()?;
                 // ANTLR resolves `COLUMNS(* …)` against five alternatives in
@@ -1239,7 +1241,15 @@ impl<'a> Parser<'a> {
                 if replace.is_some() {
                     emit::columns_expr(None, None, true, exclude, replace)
                 } else {
-                    let inner = emit::columns_expr(None, None, true, exclude, None);
+                    // cpp's `ColumnExprAsterisk` ctx covers `*` plus the
+                    // optional `EXCLUDE(...)` trailer. Wrap the inner
+                    // ColumnsExpr from the `*` position so it carries the
+                    // span before the outer columns_list_from_first picks
+                    // it up as `columns[0]`.
+                    let inner = self.wrap_pos(
+                        emit::columns_expr(None, None, true, exclude, None),
+                        asterisk_pos,
+                    );
                     self.columns_list_from_first(inner)?
                 }
             } else {
@@ -1304,10 +1314,27 @@ impl<'a> Parser<'a> {
                         match (exclude, replace) {
                             (None, None) => self.columns_list_from_first(qualified_field)?,
                             (Some(ex), None) => {
-                                let inner = emit::columns_expr(None, None, true, Some(ex), None);
+                                // cpp's `ColumnExprColumnsQualifiedExclude`
+                                // ctx covers `IDENT.* EXCLUDE(...)`; the
+                                // inner ColumnsExpr inherits that span.
+                                // Wrap before passing to the outer list.
+                                let inner = self.wrap_pos(
+                                    emit::columns_expr(None, None, true, Some(ex), None),
+                                    saved_pos,
+                                );
                                 self.columns_list_from_first(inner)?
                             }
-                            (ex, repl @ Some(_)) => emit::columns_expr(None, None, true, ex, repl),
+                            (ex, repl @ Some(_)) => {
+                                // cpp's `ColumnExprColumnsQualifiedReplace` /
+                                // `…QualifiedExcludeReplace` ctx covers the
+                                // full `COLUMNS LPAREN IDENT.* [EXCLUDE(...)]
+                                // REPLACE(...) RPAREN`. The outer
+                                // `parse_expr_bp` wrap captures positions
+                                // from the COLUMNS keyword, so emit the
+                                // ColumnsExpr without a local wrap and let
+                                // that outer wrap stamp the span.
+                                emit::columns_expr(None, None, true, ex, repl)
+                            }
                         }
                     } else {
                         let list = self.parse_arg_list(TokenKind::RParen)?;

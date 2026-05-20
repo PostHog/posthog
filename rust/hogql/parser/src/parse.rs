@@ -108,11 +108,16 @@ pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
     // that prefix here so the body splitter operates on the real
     // template contents; if it's absent we fall back to treating the
     // whole input as the body.
-    let body = src
-        .strip_prefix("F'")
-        .or_else(|| src.strip_prefix("f'"))
-        .unwrap_or(src);
-    parse_template_body(body)
+    let body_offset = if src.starts_with("F'") || src.starts_with("f'") {
+        2
+    } else {
+        0
+    };
+    // `parse_template_body` walks the body inside `full_src` between
+    // `body_offset` and `body_end`. For the standalone entry point the
+    // body extends to the end of `src` — there is no trailing `'`.
+    let body_end = src.len();
+    parse_template_body(src, body_offset, body_end)
 }
 
 // ============================================================================
@@ -223,6 +228,13 @@ pub(crate) struct Parser<'a> {
     /// `pos(offset)` binary-searches for line / column. Used to emit cpp's
     /// per-node `{line, column, offset}` position objects.
     pub(crate) line_starts: Vec<usize>,
+    /// Sorted byte offsets of each character start in `src`. Lazily built
+    /// on first conversion when the source contains any non-ASCII bytes;
+    /// stays `None` for pure-ASCII sources where byte offset == char index.
+    /// `byte_to_char(byte_offset)` returns the character index by binary
+    /// searching this vector — matches cpp's ANTLR `getStartIndex()`
+    /// semantics (character-based, not byte-based).
+    pub(crate) char_offsets: std::cell::OnceCell<Option<Vec<usize>>>,
 }
 
 impl<'a> Parser<'a> {
@@ -254,6 +266,7 @@ impl<'a> Parser<'a> {
             pivot_in_stop: None,
             hogqlx_text_lookahead_depth: 0,
             line_starts,
+            char_offsets: std::cell::OnceCell::new(),
         })
     }
 
@@ -356,10 +369,47 @@ impl<'a> Parser<'a> {
 
     /// Resolve a byte offset to a cpp-shape `{line, column, offset}` object.
     /// Lines are 1-based, columns are 0-based — matches the C++ visitor's
-    /// `start` / `end` emission.
-    pub(crate) fn pos_obj(&self, offset: usize) -> Value {
-        let (line, column) = offset_to_line_col(&self.line_starts, offset);
-        emit::position(line, column, offset)
+    /// `start` / `end` emission. The `offset` and `column` fields are
+    /// CHARACTER indices (Unicode code points), not byte indices — cpp's
+    /// ANTLR `getStartIndex()` / `getCharPositionInLine()` are
+    /// character-based, so byte offsets need converting through `src`
+    /// slicing for any source containing non-ASCII bytes.
+    pub(crate) fn pos_obj(&self, byte_offset: usize) -> Value {
+        let (line, byte_col, line_start_byte) = offset_to_line_col(&self.line_starts, byte_offset);
+        let char_offset = self.byte_to_char_index(byte_offset);
+        // Column needs to be characters-in-line, not bytes-in-line. For
+        // ASCII lines this is identical; for lines with multi-byte chars
+        // we count chars between the line start and the offset.
+        let column = if byte_col == 0 || self.src.is_ascii() {
+            byte_col
+        } else {
+            self.src[line_start_byte..byte_offset].chars().count() as u32
+        };
+        emit::position(line, column, char_offset)
+    }
+
+    /// Convert a byte offset into the source into a character (Unicode
+    /// code point) index. Pure-ASCII sources short-circuit (byte index
+    /// == char index). Mixed sources lazily build a sorted `char_offsets`
+    /// vector on first call and binary-search subsequent lookups.
+    fn byte_to_char_index(&self, byte_offset: usize) -> usize {
+        let char_offsets = self.char_offsets.get_or_init(|| {
+            // Pure-ASCII fast path: skip the vector allocation entirely.
+            if self.src.is_ascii() {
+                None
+            } else {
+                Some(build_char_offsets(self.src))
+            }
+        });
+        match char_offsets {
+            None => byte_offset,
+            Some(offsets) => match offsets.binary_search(&byte_offset) {
+                Ok(idx) => idx,
+                // `byte_offset` lands inside a multi-byte char — return the
+                // index of the character starting at or before it.
+                Err(idx) => idx.saturating_sub(1),
+            },
+        }
     }
 
     /// Inject `start` / `end` position objects on `value` using `start`
@@ -1105,16 +1155,35 @@ fn build_line_starts(src: &str) -> Vec<usize> {
     starts
 }
 
-/// Resolve a byte offset to `(line, column)` using a sorted line-starts
-/// table. cpp's visitor uses 1-based lines and 0-based columns; mirror that.
-fn offset_to_line_col(line_starts: &[usize], offset: usize) -> (u32, u32) {
+/// Resolve a byte offset to `(line, byte_column, line_start_byte)` using
+/// a sorted line-starts table. cpp's visitor uses 1-based lines and
+/// 0-based columns. The caller converts `byte_column` to character
+/// column via `src[line_start_byte..byte_offset].chars().count()` when
+/// the source contains non-ASCII bytes.
+fn offset_to_line_col(line_starts: &[usize], offset: usize) -> (u32, u32, usize) {
     let line_idx = match line_starts.binary_search(&offset) {
         Ok(i) => i,
         Err(i) => i.saturating_sub(1),
     };
     let line = (line_idx + 1) as u32;
-    let column = (offset - line_starts[line_idx]) as u32;
-    (line, column)
+    let line_start_byte = line_starts[line_idx];
+    let byte_column = (offset - line_start_byte) as u32;
+    (line, byte_column, line_start_byte)
+}
+
+/// Collect the byte offset of each character start in `src`. The i-th
+/// entry is the byte index where character i begins. `byte_to_char_index`
+/// binary-searches this to convert from byte offsets (our lexer's
+/// position units) to character indices (cpp's ANTLR `getStartIndex()`
+/// semantics). Only called for non-ASCII sources — pure-ASCII parses
+/// short-circuit to `byte_offset == char_index`.
+fn build_char_offsets(src: &str) -> Vec<usize> {
+    let mut offsets: Vec<usize> = Vec::with_capacity(src.len());
+    for (i, _) in src.char_indices() {
+        offsets.push(i);
+    }
+    offsets.push(src.len()); // sentinel for end-of-source
+    offsets
 }
 
 #[cfg(test)]
