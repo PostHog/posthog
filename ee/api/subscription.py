@@ -530,6 +530,35 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "Disable an existing summary or upgrade your plan to add more."
             )
 
+    def _caller_distinct_id(self) -> str:
+        request = self.context.get("request")
+        if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None):
+            return str(request.user.distinct_id)
+        return f"team_{self.context.get('team_id')}"
+
+    def _capture_subscription_created(self, instance: Subscription) -> None:
+        # Adoption telemetry: fires on every create (enabled or not) so we can see what
+        # kind of subscription users build. Distinct from the slo_operation block below,
+        # which only tracks the delivery-workflow trigger for enabled subscriptions.
+        try:
+            posthoganalytics.capture(
+                distinct_id=self._caller_distinct_id(),
+                event="subscription_created",
+                properties={
+                    "subscription_id": instance.id,
+                    "team_id": instance.team_id,
+                    "content_type": instance.content_type,
+                    "target_type": instance.target_type,
+                    "frequency": instance.frequency,
+                    "enabled": instance.enabled,
+                    "summary_enabled": instance.summary_enabled,
+                },
+                groups=groups(None, instance.team),
+            )
+        except Exception:
+            # Telemetry must never poison the create path.
+            pass
+
     def _capture_summary_cap_hit(self, organization, active_count: int, limit: int) -> None:
         # Rate-limited to one event per org per 10 minutes so a misbehaving
         # client retrying in a loop doesn't spam the analytics stream. Within
@@ -539,15 +568,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return
         cache.set(dedupe_key, True, SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS)
 
-        request = self.context.get("request")
-        distinct_id = (
-            str(request.user.distinct_id)
-            if request and getattr(request, "user", None) and getattr(request.user, "distinct_id", None)
-            else f"team_{self.context.get('team_id')}"
-        )
         try:
             posthoganalytics.capture(
-                distinct_id=distinct_id,
+                distinct_id=self._caller_distinct_id(),
                 event="subscription_ai_summary_cap_hit",
                 properties={
                     "team_id": self.context.get("team_id"),
@@ -664,6 +687,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        self._capture_subscription_created(instance)
 
         # Skip the workflow trigger when the new subscription is created in a disabled
         # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery

@@ -1703,6 +1703,24 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert data["insight"] is None
         assert data["dashboard"] is None
 
+    def test_create_emits_subscription_created_event_with_content_type(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        with patch("ee.api.subscription.posthoganalytics.capture") as mock_capture:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions",
+                self._make_ai_payload(),
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        created_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "subscription_created"]
+        assert len(created_events) == 1
+        properties = created_events[0].kwargs["properties"]
+        assert properties["content_type"] == "ai_prompt"
+        assert properties["target_type"] == "email"
+        assert properties["enabled"] is True
+        assert properties["subscription_id"] == response.json()["id"]
+
     def test_rejects_without_ai_consent(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
         response = self.client.post(
