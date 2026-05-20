@@ -564,9 +564,10 @@ export class MCP extends McpAgent<Env> {
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
 
-        // Start feature flag resolution in parallel with cache seeding
+        // Start user-level feature flag resolution in parallel with cache seeding.
+        // Tool-level flags are deferred until orgId is known so per-organization
+        // gating can evaluate against the right group context.
         const flagPromise = this.resolveVersionFlag()
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
@@ -595,6 +596,14 @@ export class MCP extends McpAgent<Env> {
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
+
+        // Resolve the active organization id (header → cache → default resolution
+        // above) and use it as the `organization` group when evaluating
+        // tool-gating feature flags. This makes per-organization rollouts
+        // (e.g. `notebooks-collaboration`) consistent across every user in
+        // that org instead of being keyed off the individual distinct_id.
+        const resolvedOrgId = organizationId || (await this.cache.get('orgId')) || undefined
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, resolvedOrgId)
 
         const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             flagPromise,
@@ -912,7 +921,10 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+    private async resolveToolFeatureFlags(
+        version?: number,
+        orgId?: string
+    ): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
             const flagKeys = getRequiredFeatureFlags(version)
@@ -920,7 +932,11 @@ export class MCP extends McpAgent<Env> {
                 return undefined
             }
             const distinctId = await this.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId)
+            // Tool-gating flags are sometimes scoped to an organization (e.g.
+            // `notebooks-collaboration`). Forward the `organization` group so
+            // posthog-node matches the rollout against the right entity.
+            const groups = orgId ? { organization: orgId } : undefined
+            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
             return undefined
         }
