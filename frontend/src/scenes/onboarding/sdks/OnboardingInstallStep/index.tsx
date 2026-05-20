@@ -11,6 +11,7 @@ import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from
 
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
+import { INSTALL_DEDUP_KEYS } from '../../types'
 import { availableOnboardingProducts } from '../../utils'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
@@ -77,11 +78,18 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
-    const { productKey } = useValues(onboardingLogic)
-    const productName = productKey
-        ? availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name
+    const { currentStepProductKey, currentFlowStep } = useValues(onboardingLogic)
+    const productName = currentStepProductKey
+        ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
-    const installTitle = productName ? `Install ${productName}` : 'Install your SDK'
+    // The posthog-js install step is shared across many products via dedup, so it
+    // gets a generic "Install" title rather than tying it to whichever product
+    // happens to be the dedup survivor (which would mislead users picking PA + WA +
+    // SR into thinking the step only installs Product Analytics, etc.).
+    // Product-specific install steps (LLM Analytics, Workflows, Logs) keep their
+    // product-titled label since they really are product-specific.
+    const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
+    const installTitle = isSdkInstallStep ? 'Install' : productName ? `Install ${productName}` : 'Install your SDK'
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -93,9 +101,9 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const isWizardOnly = useFeatureFlag('ONBOARDING_WIZARD_PROMINENCE', 'wizard-only')
 
     // Logs uses OpenTelemetry, not the PostHog JS wizard. When the Logs install step is
-    // shown (either directly or after diversion from another product's wizard step),
-    // skip all wizard variants and fall through to the control SDK-grid layout.
-    const isLogsProduct = productKey === ProductKey.LOGS
+    // shown (either directly or as a secondary product within another flow), skip all
+    // wizard variants and fall through to the control SDK-grid layout.
+    const isLogsProduct = currentStepProductKey === ProductKey.LOGS
 
     // Double-gated: both the feature flag AND the client-side mobile check must
     // be true. The flag controls experiment enrollment (targeted to mobile
