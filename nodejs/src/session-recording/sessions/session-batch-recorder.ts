@@ -203,7 +203,14 @@ export class SessionBatchRecorder {
         try {
             featureRecorder.recordMessage(message.message)
         } catch (e) {
-            captureException(e, { tags: { sessionId: message.message.metadata.sessionId } })
+            logger.warn('🔁', 'session_feature_recorder_error', {
+                error: String(e),
+                sessionId,
+                teamId,
+                partition,
+                batchId: this.batchId,
+            })
+            captureException(e, { tags: { sessionId, teamId: String(teamId), partition: String(partition) } })
         }
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
