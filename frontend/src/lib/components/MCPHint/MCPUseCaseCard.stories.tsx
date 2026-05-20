@@ -1,40 +1,19 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useEffect, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 import { MCPUseCaseCard } from './MCPUseCaseCard'
 
-function MCPFlagEnabled({ children }: { children: React.ReactNode }): JSX.Element | null {
-    const [ready, setReady] = useState(false)
-    useEffect(() => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_HINTS], { [FEATURE_FLAGS.MCP_HINTS]: true })
-        setReady(true)
-    }, [])
-    if (!ready) {
-        return null
-    }
-    return <>{children}</>
-}
-
 const meta: Meta<typeof MCPUseCaseCard> = {
     title: 'Components/MCP Use Case Card',
     component: MCPUseCaseCard,
     parameters: {
         layout: 'centered',
+        featureFlags: [FEATURE_FLAGS.MCP_HINTS],
     },
-    decorators: [
-        (Story) => (
-            <MCPFlagEnabled>
-                <Story />
-            </MCPFlagEnabled>
-        ),
-    ],
 }
 export default meta
 
