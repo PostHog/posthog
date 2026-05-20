@@ -227,6 +227,22 @@
             "readOnlyHint": true
         }
     },
+    "notebook-edit": {
+        "description": "Edit a notebook by replacing an exact substring of its serialized content. Same shape as `str_replace_editor` for code files: provide `old_string` (must match exactly, including whitespace and indentation) and `new_string` (must differ). The notebook content is serialized as `JSON.stringify(notebook.content, null, 2)` (2-space indent) — call `notebooks-retrieve` first to see what to match against. `old_string` must be unique in the serialization unless `replace_all: true`. Edits stream live to other connected clients via the collab/save endpoint. On a concurrent conflict the tool rebases and retries up to 3 times; on a stale buffer or unresolvable rebase it returns a structured error explaining what to do (typically: refetch and retry).",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "String replacement against a notebook's serialized content, with live streaming.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-collab-edit": {
         "description": "Apply a patch to a notebook using collaborative editing. Unlike `notebooks-partial-update` (which uses a legacy PATCH that doesn't notify other clients), this tool routes through the collab/save endpoint so each edit is streamed live to anyone else viewing or editing the notebook over SSE. The patch format is apply_patch-style: each rendered line of the notebook is one top-level block (paragraph, heading, list item, atomic widget). Hunks start with `@@`; lines inside a hunk start with ` ` (context, unchanged), `-` (remove the block) or `+` (add a new paragraph block). Always call `notebooks-retrieve` first to see the current content — context lines must match exactly. Atomic widgets (rendered as `<atom:type>`) can be kept as context or removed but cannot be added via `+`. On 409 (concurrent edits) the tool transparently rebases and retries up to 3 times. On 410 or rebase failure, returns a structured error explaining what to do.",
         "category": "Notebooks",
