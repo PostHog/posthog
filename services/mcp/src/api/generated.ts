@@ -6422,6 +6422,33 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkIntervieweeContextItem {
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface BulkIntervieweeContextRequest {
+      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+      items: BulkIntervieweeContextItem[];
+    }
+
+    export interface BulkIntervieweeContextResponse {
+      /** Number of rows inserted by this request. */
+      inserted_count: number;
+      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_count: number;
+      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_identifiers: string[];
+    }
+
     export interface BulkNotificationIdsRequest {
       /**
          * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
@@ -16948,6 +16975,22 @@ export namespace Schemas {
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
+    }
+
+    export interface GitHubTeam {
+      /** GitHub team numeric identifier. */
+      id: number;
+      /** GitHub team slug. */
+      slug: string;
+      /** GitHub team display name. */
+      name: string;
+    }
+
+    export interface GitHubTeamsResponse {
+      /** List of GitHub teams available to the installation organization. */
+      teams: GitHubTeam[];
+      /** Whether more teams are available beyond this page. */
       has_more: boolean;
     }
 
@@ -38555,6 +38598,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsIntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -43673,6 +43734,24 @@ export namespace Schemas {
     offset?: number;
     /**
      * Optional case-insensitive repository name search query.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string;
     };
