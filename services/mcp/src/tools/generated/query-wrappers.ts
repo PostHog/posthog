@@ -464,6 +464,24 @@ const AggregationAxisFormat = z.enum([
     'short',
 ])
 
+const ChartDisplayType = z.enum([
+    'Auto',
+    'ActionsLineGraph',
+    'ActionsBar',
+    'ActionsUnstackedBar',
+    'ActionsStackedBar',
+    'ActionsAreaGraph',
+    'ActionsLineGraphCumulative',
+    'BoldNumber',
+    'ActionsPie',
+    'ActionsBarValue',
+    'ActionsTable',
+    'WorldMap',
+    'CalendarHeatmap',
+    'TwoDimensionalHeatmap',
+    'BoxPlot',
+])
+
 const TrendsFormulaNode = z.object({
     custom_name: z.string().describe('Optional user-defined name for the formula').optional(),
     formula: z.string(),
@@ -493,27 +511,9 @@ const AssistantTrendsFilter = z.object({
             'Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point.'
         )
         .optional(),
-    display: z
-        .enum([
-            'Auto',
-            'ActionsLineGraph',
-            'ActionsBar',
-            'ActionsUnstackedBar',
-            'ActionsStackedBar',
-            'ActionsAreaGraph',
-            'ActionsLineGraphCumulative',
-            'BoldNumber',
-            'ActionsPie',
-            'ActionsBarValue',
-            'ActionsTable',
-            'WorldMap',
-            'CalendarHeatmap',
-            'TwoDimensionalHeatmap',
-            'BoxPlot',
-        ])
-        .describe(
-            'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsStackedBar` - time-series bar chart stacked by breakdown values or by series. Use this when the user explicitly asks for a "stacked bar" chart, or when comparing how multiple categories sum to a total over time. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.'
-        )
+    display: ChartDisplayType.describe(
+        'Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsStackedBar` - time-series bar chart stacked by breakdown values or by series. Use this when the user explicitly asks for a "stacked bar" chart, or when comparing how multiple categories sum to a total over time. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.'
+    )
         .default('ActionsLineGraph')
         .optional(),
     formulaNodes: z
