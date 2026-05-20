@@ -524,6 +524,7 @@ export default function SchemaForm(): JSX.Element {
                             pagination={{ pageSize: 100, hideOnSinglePage: true }}
                             columns={[
                                 {
+                                    ...warehouseColumns[0],
                                     title: (
                                         <LemonCheckbox
                                             checked={tablesAllToggledOn}
@@ -539,16 +540,6 @@ export default function SchemaForm(): JSX.Element {
                                             }
                                         />
                                     ),
-                                    width: 0,
-                                    key: 'enabled',
-                                    render: function RenderEnabled(_, schema) {
-                                        return (
-                                            <LemonCheckbox
-                                                checked={schema.should_sync}
-                                                onChange={(checked) => onClickCheckbox(schema, checked)}
-                                            />
-                                        )
-                                    },
                                 },
                                 ...warehouseColumns.slice(1),
                             ]}
