@@ -322,12 +322,14 @@ export const BillingPlans: Story = {
             },
         })
 
-        const { setProduct } = useActions(onboardingLogic)
-
         useDelayedOnMountEffect(() => {
-            setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
             router.actions.push(
-                urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.PLANS })
+                urls.onboarding({
+                    productKey: ProductKey.PRODUCT_ANALYTICS,
+                    // Use the namespaced id so currentFlowStep resolves via exact match
+                    // (loose-match by bare stepKey races with the billing-gated flow rebuild).
+                    step: `${OnboardingStepKey.PLANS}:${ProductKey.PRODUCT_ANALYTICS}`,
+                })
             )
         })
 

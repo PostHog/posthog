@@ -93,19 +93,21 @@ GROUP BY metric_name, metric_type
 ORDER BY n DESC
 ```
 
-**Per-minute mean value of a metric, broken down by service (projection-friendly):**
+**Per-minute mean value of a non-histogram metric, broken down by service (projection-friendly — `count = 1` per row, so `count()` maps to the projection's `event_count`):**
 
 ```sql
 SELECT
     toStartOfMinute(timestamp) AS minute,
     service_name,
-    sum(value) / sum(count) AS mean_value
+    sum(value) / count() AS mean_value
 FROM posthog.metrics
 WHERE metric_name = 'http.server.duration'
   AND timestamp >= now() - INTERVAL 1 HOUR
 GROUP BY minute, service_name
 ORDER BY minute, mean_value DESC
 ```
+
+The `projection_aggregate_counts` projection stores `count() AS event_count` and `sum(value) AS total_value`. `sum(count_column)` (the per-row UInt64) is **not** in the projection — using it forces a base-table scan. For histograms (where `count` per row is the bucket observation count), compute the mean separately and don't expect projection acceleration.
 
 **Top services by counter rate in the last hour:**
 

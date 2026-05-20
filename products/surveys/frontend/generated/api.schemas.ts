@@ -1971,6 +1971,24 @@ export interface SurveyStatsResponseApi {
     rates: SurveyStatsResponseApiRates
 }
 
+export interface SurveyQuestionLabelApi {
+    /** UUID assigned to the survey question. */
+    question_id: string
+    /** Untranslated question text as configured by the survey author. */
+    question_text: string
+    /** Zero-based index of the question within the survey. */
+    question_index: number
+    /** UUID of the survey this question belongs to. */
+    survey_id: string
+    /** Display name of the survey. */
+    survey_name: string
+}
+
+export interface SurveyQuestionLabelsResponseApi {
+    /** One entry per question that has an ID assigned, across all the team's surveys. */
+    labels: SurveyQuestionLabelApi[]
+}
+
 /**
  * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
  */

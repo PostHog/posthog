@@ -305,7 +305,7 @@ export function TaxonomicPropertyFilter({
     // legacy path gets a thin positioned wrapper to host the floating toggle.
     const editablePicker = !menuRebuildEnabled ? (
         legacyDropdown
-    ) : useNewMenu && !selectingKeyOnly ? (
+    ) : useNewMenu && !isKeyOnlyRow ? (
         <TaxonomicPopoverMenu
             groupType={filterTaxonomicGroupType ?? groupTypes[0]}
             value={cohortOrOtherValue}

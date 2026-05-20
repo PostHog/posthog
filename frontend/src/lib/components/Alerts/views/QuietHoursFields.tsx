@@ -86,13 +86,14 @@ export function QuietHoursFields({
     )
 
     const nonHourlyInterval =
-        calculationInterval !== AlertCalculationInterval.HOURLY
-            ? calculationInterval === AlertCalculationInterval.DAILY
-                ? 'day'
-                : calculationInterval === AlertCalculationInterval.WEEKLY
-                  ? 'week'
-                  : 'month'
-            : null
+        calculationInterval === AlertCalculationInterval.EVERY_15_MINUTES ||
+        calculationInterval === AlertCalculationInterval.HOURLY
+            ? null
+            : calculationInterval === AlertCalculationInterval.DAILY
+              ? 'day'
+              : calculationInterval === AlertCalculationInterval.WEEKLY
+                ? 'week'
+                : 'month'
 
     const atWindowLimit = windows.length >= MAX_BLOCKED_WINDOWS
     const addWindowButtonLabel = atWindowLimit ? `Maximum of ${MAX_BLOCKED_WINDOWS} time windows` : 'Add time window'
@@ -120,7 +121,8 @@ export function QuietHoursFields({
                             Preset: overnight (10pm–7am)
                         </LemonButton>
                     </div>
-                    {calculationInterval === AlertCalculationInterval.HOURLY &&
+                    {(calculationInterval === AlertCalculationInterval.EVERY_15_MINUTES ||
+                        calculationInterval === AlertCalculationInterval.HOURLY) &&
                     hourlyApprox != null &&
                     hourlyApprox < 24 ? (
                         <div className="text-muted text-sm">

@@ -1539,7 +1539,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  # Bumped from 600 → 1500: shards 1/4 consistently exceed 600s in the
+                  # Bumped from 900 → 1500: shards 1/4 consistently exceed 900s in the
                   # package-scoped django_db_setup → migrate → create_clickhouse_tables
                   # chain (the first package on those shards is heavier). 1500s gives
                   # ample headroom while still catching genuine hangs before the
