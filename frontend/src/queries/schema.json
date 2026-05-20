@@ -1090,13 +1090,13 @@
                     "type": "string"
                 },
                 "operator": {
-                    "const": "in",
                     "default": "in",
+                    "enum": ["in", "not_in"],
                     "type": "string"
                 },
                 "type": {
                     "const": "cohort",
-                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
                     "type": "string"
                 },
                 "value": {
@@ -3557,6 +3557,7 @@
                 "search_llm_traces",
                 "run_hog_eval_test",
                 "diagnose_proxy",
+                "web_analytics_doctor",
                 "marketing_diagnose_setup",
                 "marketing_explain_conversion_goal",
                 "marketing_list_conversion_goals",
@@ -10493,6 +10494,13 @@
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "resultCustomizations": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ResultCustomizationByValue"
+                    },
+                    "description": "Per-breakdown-value color customizations. Keyed by the raw breakdown column value.",
+                    "type": "object"
+                },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
@@ -11339,6 +11347,16 @@
         "CustomerAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "account_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "activity_event": {
                     "anyOf": [
                         {
@@ -23217,6 +23235,28 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "LogsAlertFilters": {
+            "additionalProperties": false,
+            "description": "Filter criteria for a logs alert configuration. Subset of LogsViewerFilters (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or `filterGroup` must be set on a live (enabled=true) alert.",
+            "properties": {
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "LogsOrderBy": {

@@ -74,6 +74,19 @@ When users ask about SQL variables or query variables, use SQL mode and query `s
 </basic_functionality>
 """.strip()
 
+SLASH_COMMANDS_PROMPT = """
+<slash_commands>
+PostHog AI supports slash commands. They are real app features handled by PostHog when users send a message starting with one of these commands:
+- `/init` - Set up knowledge about the user's product and business.
+- `/remember [information]` - Append information verbatim to project-level core memory.
+- `/usage` - Show PostHog AI credit usage for the current conversation and billing period. Do not claim this command is fabricated, unavailable, or made up.
+- `/feedback [feedback]` - Send feedback about the PostHog AI experience.
+- `/ticket` - Create a support ticket from the current conversation when enough context is available.
+
+If a user asks about one of these commands, explain what the command does. If they report a command result looks wrong, treat the command as real and help debug the result.
+</slash_commands>
+""".strip()
+
 SWITCHING_MODES_PROMPT = """
 <switching_modes>
 You can switch between specialized modes that provide different tools and capabilities for specific task types. All modes share access to common tools (memory, todo management), but each mode has unique specialized instructions and tools.
@@ -240,6 +253,8 @@ AGENT_PROMPT = """
 
 {{{basic_functionality}}}
 
+{{{slash_commands}}}
+
 {{{switching_modes}}}
 
 {{{task_management}}}
@@ -260,11 +275,6 @@ AGENT_PROMPT = """
 AGENT_CORE_MEMORY_PROMPT = """
 {{{core_memory}}}
 New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
-
-Available slash commands:
-- '/init' - Set up knowledge about the user's product and business
-- '/remember [information]' - Adds information to the project-level core memory
-- '/usage' - Shows PostHog AI credit usage for the current conversation and billing period
 """.strip()
 
 CONTEXTUAL_TOOLS_REMINDER_PROMPT = """

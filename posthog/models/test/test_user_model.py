@@ -91,11 +91,9 @@ class TestUser(BaseTest):
             )
 
     def test_join_with_new_access_control_sets_allowed_team(self):
-        # Org WITH ADVANCED_PERMISSIONS
+        # Org WITH ACCESS_CONTROL
         org = Organization.objects.create(name="RBAC Org")
-        org.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
-        ]
+        org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
         org.save()
 
         t1 = Team.objects.create(organization=org, name="T1")
@@ -114,9 +112,7 @@ class TestUser(BaseTest):
     def test_join_admin_prefers_first_project_even_with_rbac(self):
         # Admins bypass RBAC filtering
         org = Organization.objects.create(name="Admin Org")
-        org.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"}
-        ]
+        org.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"}]
         org.save()
 
         t1 = Team.objects.create(organization=org, name="T1")

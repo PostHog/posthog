@@ -728,6 +728,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering web analytics...'
         },
     },
+    web_analytics_doctor: {
+        name: 'Diagnose web analytics',
+        description: 'Diagnose web analytics setup issues like missing pageviews or partial proxy coverage',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
+        },
+    },
     marketing_diagnose_setup: {
         name: 'Diagnose marketing analytics',
         description: 'Health check across data sources, attribution, and conversion goals',

@@ -6,6 +6,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_person,
     get_index_from_explain,
+    get_inner_person_subquery_clickhouse_sql,
     materialized,
     snapshot_clickhouse_queries,
 )
@@ -19,15 +20,18 @@ from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
-from products.conversations.backend.api.tickets import _get_persons_by_email
+from products.conversations.backend.api.tickets import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
-from ee.clickhouse.materialized_columns.columns import get_ngram_lower_index_name
+from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.role import Role
 
 
@@ -1329,7 +1333,7 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["results"][0]["person"] is None
 
     @snapshot_clickhouse_queries
-    def test_email_fallback_uses_ngram_skip_index(self, mock_on_commit):
+    def test_email_fallback_uses_bloom_filter_lower_skip_index(self, mock_on_commit):
         _create_person(
             team=self.team,
             distinct_ids=["idx-test-id"],
@@ -1337,17 +1341,139 @@ class TestTicketEmailFallbackPersonLookup(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        with materialized("person", "email", create_ngram_lower_index=True) as mat_col:
-            index_name = get_ngram_lower_index_name(mat_col.name)
+        with materialized("person", "email", create_bloom_filter_lower_index=True) as mat_col:
+            index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO)
 
-            result = _get_persons_by_email(
-                self.team,
-                ["indexed@example.com"],
-                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            assert "indexed@example.com" in _get_persons_by_email(
+                self.team, ["indexed@example.com"], modifiers=modifiers
             )
-            assert len(result) == 1
-            assert "indexed@example.com" in result
 
-            raw_query = f"SELECT id FROM person WHERE lower({mat_col.name}) IN ('indexed@example.com')"
-            index_info = get_index_from_explain(raw_query, index_name)
-            assert index_info is not None, f"Expected skip index {index_name} to be used"
+            # EXPLAIN the person-filter subquery of the exact query that ran, not a hand-written approximation
+            result = execute_hogql_query(
+                PERSON_EMAIL_LOOKUP_QUERY,
+                placeholders={"emails": ast.Constant(value=["indexed@example.com"])},
+                team=self.team,
+                modifiers=modifiers,
+            )
+            assert result.clickhouse
+            subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
+            index_info = get_index_from_explain(subquery, index_name)
+            assert index_info is not None, f"Expected skip index {index_name} to be used:\n{subquery}"
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestComposeTicketAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        from products.conversations.backend.models import EmailChannel
+
+        self.email_config = EmailChannel.objects.create(
+            team=self.team,
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            inbound_token="test-token-compose",
+        )
+
+    def _compose(self, data):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/compose/",
+            data,
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "matching_email",
+                ["user-abc"],
+                {"email": "customer@test.com"},
+                "customer@test.com",
+                "user-abc",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "mismatched_email_rejected",
+                ["user-abc"],
+                {"email": "real@test.com"},
+                "fake@other.com",
+                "user-abc",
+                status.HTTP_400_BAD_REQUEST,
+                "does not match",
+            ),
+            (
+                "person_has_no_email_allows_any",
+                ["user-no-email"],
+                {"name": "No Email User"},
+                "anything@test.com",
+                "user-no-email",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "person_not_found_allows_any",
+                None,
+                None,
+                "someone@test.com",
+                "nonexistent-user",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "no_distinct_id_no_validation",
+                ["someone@test.com"],
+                {"email": "someone@test.com"},
+                "someone@test.com",
+                None,
+                status.HTTP_201_CREATED,
+                None,
+            ),
+            (
+                "case_insensitive_email_match",
+                ["user-case"],
+                {"email": "Customer@Test.COM"},
+                "customer@test.com",
+                "user-case",
+                status.HTTP_201_CREATED,
+                None,
+            ),
+        ]
+    )
+    def test_compose_email_validation(
+        self,
+        mock_on_commit,
+        _name,
+        distinct_ids,
+        person_props,
+        recipient_email,
+        recipient_distinct_id,
+        expected_status,
+        expected_detail,
+    ):
+        if distinct_ids is not None:
+            _create_person(
+                team=self.team,
+                distinct_ids=distinct_ids,
+                properties=person_props or {},
+                immediate=True,
+            )
+
+        data = {
+            "recipient_email": recipient_email,
+            "email_config_id": str(self.email_config.id),
+            "message": "Hello!",
+        }
+        if recipient_distinct_id:
+            data["recipient_distinct_id"] = recipient_distinct_id
+
+        response = self._compose(data)
+
+        assert response.status_code == expected_status
+        if expected_detail:
+            assert expected_detail in response.json()["detail"]

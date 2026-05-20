@@ -15,6 +15,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'action:write',
     'access_control:read',
     'access_control:write',
+    'account:read',
+    'account:write',
     'activity_log:read',
     'activity_log:write',
     'alert:read',
