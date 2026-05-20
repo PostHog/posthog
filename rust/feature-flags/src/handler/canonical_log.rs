@@ -308,14 +308,13 @@ pub struct FlagsCanonicalLogLine {
     /// Error code from FlagError::error_code(). Uses &'static str to avoid allocation.
     pub error_code: Option<&'static str>,
 
-    /// True when the request was short-circuited by the User-Agent bot filter
-    /// in `endpoint::flags` (see `crate::utils::bot_detection`). The rest of
-    /// the request lifecycle (rate-limit, auth, evaluate, billing) is skipped
-    /// in that case.
+    /// True when the request was short-circuited by the bot filter and
+    /// skipped rate-limit, auth, billing, and evaluation.
     pub is_bot: bool,
-    /// Low-cardinality category label for the matched bot pattern when
-    /// `is_bot` is true. `None` for non-bot requests.
+    /// Matched bot category, set iff `is_bot` is true.
     pub bot_category: Option<&'static str>,
+    /// Which signal fired (`user_agent` or `ip`), set iff `is_bot` is true.
+    pub bot_source: Option<&'static str>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -366,6 +365,7 @@ impl Default for FlagsCanonicalLogLine {
             error_code: None,
             is_bot: false,
             bot_category: None,
+            bot_source: None,
         }
     }
 }
@@ -437,6 +437,7 @@ impl FlagsCanonicalLogLine {
             error_code = self.error_code,
             is_bot = self.is_bot,
             bot_category = self.bot_category,
+            bot_source = self.bot_source,
             "canonical_log_line"
         );
     }

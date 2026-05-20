@@ -546,12 +546,8 @@ pub struct Config {
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
 
-    // Kill switch for the User-Agent-based bot filter applied at the top of
-    // the /flags handler. When true, bot-shaped User-Agents flow through the
-    // full pipeline (existing behavior). When false (default), known bots are
-    // short-circuited with the minimal config-only response — same shape that
-    // GET /flags already returns. Provides a no-redeploy rollback if a false
-    // positive surfaces in production.
+    // Kill switch for the /flags User-Agent bot filter. Set true to let bot
+    // UAs flow through the full pipeline if a false positive surfaces.
     #[envconfig(from = "FLAGS_DISABLE_BOT_FILTERING", default = "false")]
     pub disable_bot_filtering: FlexBool,
 

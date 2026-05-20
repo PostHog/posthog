@@ -323,29 +323,28 @@ pub async fn flags(
         ..Default::default()
     };
 
-    // Bot User-Agent short-circuit. Runs before rate-limiting, auth,
-    // billing, and evaluation so a known crawler costs us a single lowercase
-    // + substring scan and a counter increment, nothing else. Mirrors the
-    // posthog-js `isBlockedUA` list (see `crate::utils::bot_detection`).
-    // Skipped when the kill switch is on, so we can disable filtering
-    // without a redeploy if a false positive surfaces.
+    // Bot short-circuit: runs before rate-limit, auth, billing, and
+    // evaluation so a known crawler costs only a substring scan + a binary
+    // search over published bot IP ranges, plus one counter increment.
     if !*state.config.disable_bot_filtering {
-        if let Some(ua) = user_agent {
-            if let Some(category) = bot_detection::classify(ua) {
-                common_metrics::inc(
-                    FLAG_BOT_REJECTED_COUNTER,
-                    &[("bot_category".to_string(), category.as_str().to_string())],
-                    1,
-                );
-                let mut bot_log = canonical_log;
-                bot_log.is_bot = true;
-                bot_log.bot_category = Some(category.as_str());
-                bot_log.emit();
-                return Ok(
-                    get_minimal_flags_response(&headers, query_params.version.as_deref())?
-                        .into_response(),
-                );
-            }
+        if let Some((category, source)) = bot_detection::classify_request(user_agent, ip) {
+            common_metrics::inc(
+                FLAG_BOT_REJECTED_COUNTER,
+                &[
+                    ("bot_category".to_string(), category.as_str().to_string()),
+                    ("bot_source".to_string(), source.as_str().to_string()),
+                ],
+                1,
+            );
+            let mut bot_log = canonical_log;
+            bot_log.is_bot = true;
+            bot_log.bot_category = Some(category.as_str());
+            bot_log.bot_source = Some(source.as_str());
+            bot_log.emit();
+            return Ok(
+                get_minimal_flags_response(&headers, query_params.version.as_deref())?
+                    .into_response(),
+            );
         }
     }
 
