@@ -48,20 +48,32 @@ node .claude/skills/run-posthog/driver.mjs
 
 What the driver does:
 
-| step                              | what it checks                                                             |
-| --------------------------------- | -------------------------------------------------------------------------- |
-| `GET :8010/_health`               | Envoy-style proxy in front of Django + Vite is alive                       |
-| `GET :8010/`                      | redirects to `/preflight` or `/login` (200/302)                            |
-| `GET :8010/api/projects/@current` | returns a structured 401 — proves Django + DB are reachable                |
-| Playwright nav to `:8010/`        | renders the preflight/login page in headless Chromium                      |
-| screenshot                        | written to `/tmp/posthog-shots/<timestamp>.png`, symlinked to `latest.png` |
+| step                              | what it checks                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------ |
+| `GET :8010/_health`               | Envoy-style proxy in front of Django + Vite is alive                                 |
+| `GET :8010/`                      | redirects to `/preflight` or `/login` (200/302)                                      |
+| `GET :8010/api/projects/@current` | returns a structured 401 — proves Django + DB are reachable                          |
+| Playwright nav to `:8010/`        | renders the preflight/login page in headless Chromium                                |
+| screenshot                        | written to `/tmp/posthog-shots/<timestamp>.png`, symlinked to `latest.png`           |
+| (with `--login`) signup or reuse  | persists creds + storageState to `/tmp/posthog-shots/{auth.json,storage-state.json}` |
+| (with `--login --path=`)          | navigates the authenticated session to `/project/{team_id}{path}`                    |
 
 Flags:
 
 - `--no-browser` — HTTP smoke only, skip Playwright (useful in CI / no chromium).
+- `--login` — bootstrap a workspace and screenshot the authenticated home (`/project/{team_id}/home`).
+- `--path=/insights` — used with `--login`, screenshot a specific scene. Bare paths (`/insights`, `/dashboard`) are prefixed with `/project/{team_id}`; absolute `/project/...` paths are used verbatim.
 - `BASE_URL=...` — override the proxy URL (default `http://localhost:8010`).
+- `POSTHOG_DEV_EMAIL=...`, `POSTHOG_DEV_PASSWORD=...` — override the bootstrap credentials. Default email is `test@posthog.com` (the codebase convention); default password is a 3-word phrase that passes Django's password validator on `/api/signup/`.
 
-The driver only proves the stack boots and renders the unauthenticated entry page (preflight/login). To verify an authenticated scene or a specific UI change, point `chrome-devtools-mcp` or `playwright` MCP at `http://localhost:8010` and drive it from there — the stack is already up, the screenshot in `/tmp/posthog-shots/latest.png` confirms it.
+How `--login` works (mirrors `playwright/utils/playwright-setup.ts:282-291`):
+
+1. Tries cached creds at `/tmp/posthog-shots/auth.json` first. If the cached `storage-state.json` still authenticates against `/api/users/@me/`, the driver skips straight to navigation.
+2. Otherwise POSTs to `/api/signup/`. If the user already exists (`code: "unique"`), assumes the configured password matches and continues.
+3. Performs the actual login via `page.evaluate(fetch('/api/login/', ...))` — in-page so cookies + CSRF flow automatically. Direct `curl -X POST /api/login/` doesn't work (CSRF middleware rejects it).
+4. Persists the session as Playwright `storageState` for the next run.
+
+Why not `/api/setup_test/organization_with_team/` (what the e2e suite uses)? It's gated on `DEBUG=True` (fine in dev), but its implementation calls into ClickHouse-backed code paths that fail on dev stacks where the ClickHouse schema hasn't been fully migrated. Signup is the lower-friction path that exercises the real auth flow.
 
 Stop the stack when done:
 
@@ -104,6 +116,8 @@ hogli test path/to/test_module.py::TestClass::test_method
 - **Worktrees share Docker containers but compete for ports.** All worktrees on the same machine resolve to the same `posthog-clickhouse-1` / `posthog-db-1` containers (compose project name is the same), so DB state is global. But port 8000/8010/8234 can only be held by one worktree at a time — kill the granian/vite/phrocs of the other worktree before `hogli up -d` here.
 - **CSP warnings and 401s in the browser console are normal pre-auth.** The preflight page tries to fetch `/api/projects/@current`, `/api/users/@me`, and the PostHog.js remote config — all 401 until you sign up. WASM/CSP "Report Only" warnings come from the dev CSP. Don't treat them as failures.
 - **`.env.local` is gitignored and may use 1Password refs.** Without `op` installed, those refs become literal strings (e.g. `OPENAI_API_KEY=op://...`) and downstream services fail with cryptic auth errors. Install `op` or replace with literals.
+- **`12345678` is the codebase's canonical test password but `--login` can't use it.** `posthog/management/commands/{setup_dev,generate_demo_data,setup_local_api_key}.py` and the Playwright suite (`playwright/utils/playwright-test-core.ts:7-8`) all assume `test@posthog.com` / `12345678`. The signup API rejects it because Django's password validator runs there but is bypassed in management commands. `--login` uses a stronger phrase by default — see `POSTHOG_DEV_PASSWORD` above.
+- **HogQL "Unknown table expression identifier 'events'" errors on insight/dashboard scenes.** Symptom of incomplete ClickHouse migrations, not a driver bug. The driver still screenshots fine; the page just renders empty data panels. Fix with `hogli migrations:run` (and untangle any async-migration failures it reports). The fully-canonical bootstrap is `hogli dev:reset`, but it wipes Docker volumes — only run when you don't mind losing local data.
 
 ## Troubleshooting
 
@@ -112,3 +126,5 @@ hogli test path/to/test_module.py::TestClass::test_method
 - **Driver fails on `Cannot find module 'playwright'`** — Playwright is a frontend dep. Run from the repo root after `pnpm install`, or invoke with `pnpm exec node .claude/skills/run-posthog/driver.mjs`.
 - **First navigation in the driver times out (`page.goto` > 60s)** — Vite is compiling routes on demand. Re-run; the second pass uses the warm cache and completes in <5s.
 - **`/api/projects/@current` returns 500 instead of 401** — Postgres or ClickHouse isn't reachable. `docker ps | grep posthog-` and look for non-healthy containers; `hogli services:ready` waits for all of them.
+- **`--login` fails with `/api/login/ in-page POST returned 403` after a fresh checkout against an existing stack** — there's already a user in the DB with a different password. Either `rm /tmp/posthog-shots/{auth,storage-state}.json` AND export `POSTHOG_DEV_PASSWORD=<the existing one>`, or wipe the user via the Django admin / a separate `psql -c "DELETE FROM posthog_user WHERE email='test@posthog.com'"`.
+- **`--login` fails with `signup succeeded but couldn't resolve team_id`** — signup returned 201 but `/api/users/@me/` rejected the session cookie. Almost always means the proxy stripped Set-Cookie (running through an external proxy?) or the session backend is misconfigured. Run `--no-browser` first; if that's clean, restart `hogli up -d` to reset session state.
