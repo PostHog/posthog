@@ -21,6 +21,7 @@ class Migration(migrations.Migration):
                     ("customerio-track", "Customerio Track"),
                     ("customerio-webhook", "Customerio Webhook"),
                     ("databricks", "Databricks"),
+                    ("discord-posthog-code", "Discord Posthog Code"),
                     ("email", "Email"),
                     ("firebase", "Firebase"),
                     ("github", "Github"),
