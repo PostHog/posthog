@@ -380,20 +380,23 @@ class TestExecuteSummarizeSessionVideoStream:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "terminal_status,expected_message",
+        "terminal_status,expected_message,expected_retryable",
         [
             (
                 WorkflowExecutionStatus.FAILED,
                 "Something went wrong while generating the summary. Please try again.",
+                True,
             ),
-            (WorkflowExecutionStatus.CANCELED, "The summary generation was canceled."),
+            (WorkflowExecutionStatus.CANCELED, "The summary generation was canceled.", True),
             (
                 WorkflowExecutionStatus.TERMINATED,
                 "The summary generation was terminated unexpectedly. Please try again.",
+                True,
             ),
             (
                 WorkflowExecutionStatus.TIMED_OUT,
                 "The summary generation timed out. The recording may be too long or complex. Please try again.",
+                True,
             ),
         ],
     )
@@ -401,11 +404,16 @@ class TestExecuteSummarizeSessionVideoStream:
         self,
         terminal_status: WorkflowExecutionStatus,
         expected_message: str,
+        expected_retryable: bool,
         mock_session_id: str,
         mock_user: MagicMock,
         mock_team: MagicMock,
     ):
         handle = self._make_handle([(terminal_status, None)])
+        # For FAILED, the polling loop calls `handle.result()` to extract the
+        # underlying cause. Make it raise a generic exception so the cause stays
+        # unclassified — the test then asserts the generic fallback message.
+        handle.result = AsyncMock(side_effect=RuntimeError("no cause available"))
 
         with (
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
@@ -435,10 +443,10 @@ class TestExecuteSummarizeSessionVideoStream:
             )
 
         assert len(events) == 1
-        assert events[0] == serialize_to_sse_event(
-            event_label="session-summary-error",
-            event_data=expected_message,
-        )
+        assert events[0].startswith("event: session-summary-error\ndata: ")
+        payload = json.loads(events[0].split("data: ", 1)[1].strip())
+        assert payload["message"] == expected_message
+        assert payload["retryable"] is expected_retryable
         handle.query.assert_not_called()
 
     @pytest.mark.asyncio
@@ -478,10 +486,11 @@ class TestExecuteSummarizeSessionVideoStream:
             )
 
         assert len(events) == 1
-        assert events[0] == serialize_to_sse_event(
-            event_label="session-summary-error",
-            event_data="Something went wrong while generating the summary. Please try again.",
-        )
+        assert events[0].startswith("event: session-summary-error\ndata: ")
+        payload = json.loads(events[0].split("data: ", 1)[1].strip())
+        assert payload["message"] == "Something went wrong while generating the summary. Please try again."
+        assert payload["retryable"] is True
+        assert payload["error_class"] == "MissingSummaryRow"
 
     @pytest.mark.asyncio
     async def test_get_progress_query_failure_retries_next_iteration(

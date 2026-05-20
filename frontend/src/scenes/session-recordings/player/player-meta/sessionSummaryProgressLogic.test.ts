@@ -1,12 +1,18 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { sessionSummaryProgressLogic } from 'scenes/session-recordings/player/player-meta/sessionSummaryProgressLogic'
 
 import { initKeaTests } from '~/test/init'
 
 jest.mock('lib/api')
 jest.mock('posthog-js')
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: {
+        error: jest.fn(),
+    },
+}))
 
 const SESSION_ID = 'test-session-1'
 
@@ -17,6 +23,26 @@ function makeNoopStreamResponse(): Response {
         body: {
             getReader: () => ({
                 read: async () => ({ done: true, value: undefined }),
+            }),
+        },
+    } as unknown as Response
+}
+
+// Build a fake Response that yields a single SSE chunk and then closes,
+// enough to exercise the SSE parser's onEvent path inside the listener.
+function makeStreamResponseWithChunks(chunks: string[]): Response {
+    const encoder = new TextEncoder()
+    const queue = chunks.map((c) => encoder.encode(c))
+    return {
+        body: {
+            getReader: () => ({
+                read: async () => {
+                    const value = queue.shift()
+                    if (!value) {
+                        return { done: true, value: undefined }
+                    }
+                    return { done: false, value }
+                },
             }),
         },
     } as unknown as Response
@@ -131,6 +157,83 @@ describe('sessionSummaryProgressLogic', () => {
             }).toFinishAllListeners()
 
             expect((api as any).recordings.cancelSummarize).toHaveBeenCalledWith(SESSION_ID)
+        })
+    })
+
+    describe('error event parsing', () => {
+        // Use fresh session ids — the module-level in-flight set shouldn't leak
+        // between tests, but a unique id guarantees `startSummarization` actually
+        // dispatches the listener body that opens the stream.
+        let testCounter = 0
+        const freshId = (label = 'err'): string => `${label}-${++testCounter}-${Date.now()}`
+
+        it('parses JSON {message, retryable} and wires Try again button when retryable', async () => {
+            const sessionId = freshId()
+            const payload = JSON.stringify({
+                message: 'PostHog is a little busy right now. Please try again in a few moments.',
+                retryable: true,
+                error_class: 'ClickHouseAtCapacity',
+            })
+            ;(api as any).recordings.summarizeStream = jest
+                .fn()
+                .mockResolvedValue(
+                    makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${payload}\n\n`])
+                )
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(sessionId)
+            }).toFinishAllListeners()
+
+            expect((lemonToast.error as jest.Mock).mock.calls.length).toBeGreaterThan(0)
+            const [message, options] = (lemonToast.error as jest.Mock).mock.calls[0]
+            expect(message).toBe('PostHog is a little busy right now. Please try again in a few moments.')
+            expect(options?.button?.label).toBe('Try again')
+
+            expect(logic.values.errorBySessionId[sessionId]).toBe(
+                'PostHog is a little busy right now. Please try again in a few moments.'
+            )
+        })
+
+        it('hides retry button when retryable=false', async () => {
+            const sessionId = freshId()
+            const payload = JSON.stringify({
+                message: "This recording can't be summarized. It may be too short or missing events.",
+                retryable: false,
+                error_class: 'ValidationError',
+            })
+            ;(api as any).recordings.summarizeStream = jest
+                .fn()
+                .mockResolvedValue(
+                    makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${payload}\n\n`])
+                )
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(sessionId)
+            }).toFinishAllListeners()
+
+            const [, options] = (lemonToast.error as jest.Mock).mock.calls.at(-1) ?? []
+            // Default lemonToast behavior (Get help button) — no custom Try again wired up
+            expect(options?.button).toBeUndefined()
+        })
+
+        it('falls back to plain-string data when payload is not JSON', async () => {
+            const sessionId = freshId()
+            const legacy = 'Something went wrong while generating the summary. Please try again.'
+            ;(api as any).recordings.summarizeStream = jest
+                .fn()
+                .mockResolvedValue(
+                    makeStreamResponseWithChunks([`event: session-summary-error\ndata: ${legacy}\n\n`])
+                )
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(sessionId)
+            }).toFinishAllListeners()
+
+            const [message, options] = (lemonToast.error as jest.Mock).mock.calls.at(-1) ?? []
+            expect(message).toBe(legacy)
+            // Legacy plain-string defaults to retryable, so a Try again button is wired up.
+            expect(options?.button?.label).toBe('Try again')
+            expect(logic.values.errorBySessionId[sessionId]).toBe(legacy)
         })
     })
 

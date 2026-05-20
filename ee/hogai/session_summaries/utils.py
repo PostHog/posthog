@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -11,6 +12,26 @@ from tiktoken.model import MODEL_TO_ENCODING
 from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
 
 logger = structlog.get_logger(__name__)
+
+# Generic fallback shown for unclassified failures. Kept identical to the
+# pre-classification message so existing frontend installations that have not
+# been upgraded to parse the new JSON payload still render a sensible string.
+GENERIC_SESSION_SUMMARY_ERROR_MESSAGE = "Something went wrong while generating the summary. Please try again."
+
+
+def build_session_summary_error_payload(
+    *, message: str, retryable: bool, error_class: str | None = None
+) -> str:
+    """Build the JSON ``data`` field for a ``session-summary-error`` SSE event.
+
+    The frontend accepts both the legacy plain-string payload and this JSON
+    shape — older clients still receive a readable ``message`` even if they
+    don't parse the structured fields.
+    """
+    payload: dict[str, str | bool] = {"message": message, "retryable": retryable}
+    if error_class is not None:
+        payload["error_class"] = error_class
+    return json.dumps(payload)
 
 
 def get_column_index(columns: list[str], column_name: str) -> int:

@@ -10,7 +10,7 @@ import structlog
 import temporalio
 import posthoganalytics
 from redis import Redis
-from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError, WorkflowHandle
 from temporalio.common import (
     RetryPolicy,
     SearchAttributePair,
@@ -71,7 +71,11 @@ from posthog.temporal.session_replay.session_summary.types.video import (
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
-from ee.hogai.session_summaries.utils import serialize_to_sse_event
+from ee.hogai.session_summaries.utils import (
+    GENERIC_SESSION_SUMMARY_ERROR_MESSAGE,
+    build_session_summary_error_payload,
+    serialize_to_sse_event,
+)
 from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
@@ -806,6 +810,106 @@ async def _fetch_summary_progress(client: Any, handle: WorkflowHandle) -> dict[s
     return payload
 
 
+async def _extract_workflow_failure_cause(
+    handle: WorkflowHandle,
+) -> tuple[str | None, str | None]:
+    """Best-effort extraction of the root failure cause for a FAILED workflow.
+
+    Returns ``(error_class, message)`` where ``error_class`` matches the
+    ``error_type`` recorded in the ``session summary generated`` analytics event
+    (``ApplicationError``, ``RPCError``, ``ValidationError``, …) so the
+    frontend can render a cause-specific message instead of the legacy generic
+    string.
+
+    Falls back to ``(None, None)`` if the failure cannot be resolved — callers
+    must keep their existing generic-string fallback.
+    """
+    try:
+        await handle.result()
+    except WorkflowFailureError as exc:
+        cause: BaseException | None = exc.cause
+        # Walk down to the leaf cause — typically Workflow → Activity → Application.
+        while cause is not None and getattr(cause, "cause", None) is not None:
+            cause = cause.cause
+        if cause is None:
+            return None, None
+        if isinstance(cause, ApplicationError):
+            return (cause.type or type(cause).__name__), (cause.message or str(cause))
+        return type(cause).__name__, str(cause)
+    except Exception as exc:
+        # Any non-WorkflowFailureError here (e.g., RPC blip while fetching the
+        # result) is itself a useful signal, but we don't want it to mask the
+        # actual workflow failure. Log and fall through.
+        logger.info(
+            "Failed to read workflow failure cause",
+            workflow_id=handle.id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+            signals_type="session-summaries",
+        )
+    return None, None
+
+
+# Known activity / workflow failure classes that we surface specifically to the
+# user. Anything not listed here falls back to the generic message — but the
+# `error_class` field is still propagated so the frontend can decide.
+def _terminal_status_error_payload(
+    status: WorkflowExecutionStatus,
+    error_class: str | None,
+) -> str:
+    """Build the ``session-summary-error`` JSON payload for a terminal workflow status.
+
+    The mapping is intentionally conservative — only mention concrete causes
+    when we recognize the underlying error class. Otherwise we keep the
+    pre-classification messages (which are at least keyed on terminal state).
+    """
+    if status == WorkflowExecutionStatus.CANCELED:
+        return build_session_summary_error_payload(
+            message="The summary generation was canceled.",
+            retryable=True,
+            error_class=error_class,
+        )
+    if status == WorkflowExecutionStatus.TERMINATED:
+        return build_session_summary_error_payload(
+            message="The summary generation was terminated unexpectedly. Please try again.",
+            retryable=True,
+            error_class=error_class,
+        )
+    if status == WorkflowExecutionStatus.TIMED_OUT:
+        return build_session_summary_error_payload(
+            message="The summary generation timed out. The recording may be too long or complex. Please try again.",
+            retryable=True,
+            error_class=error_class,
+        )
+
+    # WorkflowExecutionStatus.FAILED: branch on the underlying activity failure
+    # class so users can tell transient infra issues apart from problems with
+    # the recording itself.
+    if error_class in {"ClickHouseAtCapacity", "OperationalError"}:
+        return build_session_summary_error_payload(
+            message="PostHog is a little busy right now. Please try again in a few moments.",
+            retryable=True,
+            error_class=error_class,
+        )
+    if error_class in {"RPCError", "WorkflowQueryFailedError"}:
+        return build_session_summary_error_payload(
+            message="We hit a transient problem talking to the summary workflow. Please try again.",
+            retryable=True,
+            error_class=error_class,
+        )
+    if error_class == "ValidationError":
+        return build_session_summary_error_payload(
+            message="This recording can't be summarized. It may be too short or missing events.",
+            retryable=False,
+            error_class=error_class,
+        )
+    return build_session_summary_error_payload(
+        message=GENERIC_SESSION_SUMMARY_ERROR_MESSAGE,
+        retryable=True,
+        error_class=error_class,
+    )
+
+
 async def execute_summarize_session_video_stream(
     session_id: str,
     user: User,
@@ -894,9 +998,13 @@ async def execute_summarize_session_video_stream(
             )
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
-                event_data=(
-                    "You've reached this team's monthly limit for AI session summaries "
-                    f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
+                event_data=build_session_summary_error_payload(
+                    message=(
+                        "You've reached this team's monthly limit for AI session summaries "
+                        f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
+                    ),
+                    retryable=False,
+                    error_class="QuotaExceeded",
                 ),
             )
             return
@@ -942,7 +1050,11 @@ async def execute_summarize_session_video_stream(
                 if not summary_row:
                     yield serialize_to_sse_event(
                         event_label="session-summary-error",
-                        event_data="Something went wrong while generating the summary. Please try again.",
+                        event_data=build_session_summary_error_payload(
+                            message=GENERIC_SESSION_SUMMARY_ERROR_MESSAGE,
+                            retryable=True,
+                            error_class="MissingSummaryRow",
+                        ),
                     )
                     return
                 yield serialize_to_sse_event(
@@ -957,15 +1069,15 @@ async def execute_summarize_session_video_stream(
                 WorkflowExecutionStatus.TERMINATED,
                 WorkflowExecutionStatus.TIMED_OUT,
             ):
-                status_messages = {
-                    WorkflowExecutionStatus.FAILED: "Something went wrong while generating the summary. Please try again.",
-                    WorkflowExecutionStatus.CANCELED: "The summary generation was canceled.",
-                    WorkflowExecutionStatus.TERMINATED: "The summary generation was terminated unexpectedly. Please try again.",
-                    WorkflowExecutionStatus.TIMED_OUT: "The summary generation timed out. The recording may be too long or complex. Please try again.",
-                }
+                error_class: str | None = None
+                if status == WorkflowExecutionStatus.FAILED:
+                    # The failure cause lives in the workflow history; fetch it
+                    # so users learn whether it was a transient infra problem
+                    # (retry) vs. a recording-shape problem (don't retry).
+                    error_class, _ = await _extract_workflow_failure_cause(handle)
                 yield serialize_to_sse_event(
                     event_label="session-summary-error",
-                    event_data=status_messages[status],
+                    event_data=_terminal_status_error_payload(status, error_class),
                 )
                 return
 
@@ -989,8 +1101,25 @@ async def execute_summarize_session_video_stream(
             await asyncio.sleep(VIDEO_PROGRESS_POLL_INTERVAL_S)
         except Exception as e:
             capture_exception(e)
+            error_class = type(e).__name__
+            if isinstance(e, RPCError):
+                message = "We hit a transient problem talking to the summary workflow. Please try again."
+                retryable = True
+            elif isinstance(e, ApplicationError):
+                # `ApplicationError.type` carries the original exception class name
+                # raised inside the activity — surface it as the error_class.
+                error_class = e.type or error_class
+                message = GENERIC_SESSION_SUMMARY_ERROR_MESSAGE
+                retryable = not e.non_retryable
+            else:
+                message = GENERIC_SESSION_SUMMARY_ERROR_MESSAGE
+                retryable = True
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
-                event_data="Something went wrong while generating the summary. Please try again.",
+                event_data=build_session_summary_error_payload(
+                    message=message,
+                    retryable=retryable,
+                    error_class=error_class,
+                ),
             )
             return

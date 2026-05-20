@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import OperationalError
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -72,6 +74,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -118,7 +121,11 @@ from ee.hogai.session_summaries.tracking import (
     capture_session_summary_started,
     generate_tracking_id,
 )
-from ee.hogai.session_summaries.utils import serialize_to_sse_event
+from ee.hogai.session_summaries.utils import (
+    GENERIC_SESSION_SUMMARY_ERROR_MESSAGE,
+    build_session_summary_error_payload,
+    serialize_to_sse_event,
+)
 from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
 from ..models.product_intent.product_intent import ProductIntent
@@ -1480,6 +1487,33 @@ class SessionRecordingViewSet(
         except:
             return "unknown"
 
+    @staticmethod
+    def _classify_summary_stream_exception(e: Exception) -> tuple[str, bool]:
+        """Map a streaming-side exception to a (user_message, retryable) pair.
+
+        Anything not explicitly classified falls through to the generic message
+        so users with truly unexpected failures still see the legacy text rather
+        than something misleadingly specific.
+        """
+        if isinstance(e, (ClickHouseAtCapacity, OperationalError)):
+            return (
+                "PostHog is a little busy right now. Please try again in a few moments.",
+                True,
+            )
+        if isinstance(e, ClickHouseQueryTimeOut):
+            return (
+                "Summarizing this recording is taking too long right now. Please try again in a few moments.",
+                True,
+            )
+        if isinstance(e, (exceptions.ValidationError, DjangoValidationError)):
+            # Validation errors here typically mean the recording can't be summarized
+            # (too short, no events, feature disabled, etc.) — a retry won't help.
+            return (
+                "This recording can't be summarized. It may be too short or missing events.",
+                False,
+            )
+        return (GENERIC_SESSION_SUMMARY_ERROR_MESSAGE, True)
+
     async def _generate_video_based_summary(
         self,
         session_id: str,
@@ -1523,9 +1557,14 @@ class SessionRecordingViewSet(
             error_type = type(e).__name__
             error_message = str(e)
             capture_exception(e)
+            user_message, retryable = self._classify_summary_stream_exception(e)
             yield serialize_to_sse_event(
                 event_label="session-summary-error",
-                event_data="Something went wrong while generating the summary. Please try again.",
+                event_data=build_session_summary_error_payload(
+                    message=user_message,
+                    retryable=retryable,
+                    error_class=error_type,
+                ),
             )
         finally:
             if success is not None:

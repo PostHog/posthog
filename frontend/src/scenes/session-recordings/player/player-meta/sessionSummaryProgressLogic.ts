@@ -31,6 +31,35 @@ const abortControllersBySessionId = new Map<string, AbortController>()
 // cancel falls back to the default attach-to-existing behavior.
 const cancelledSessionIds = new Set<string>()
 
+interface ParsedSummaryError {
+    message: string
+    retryable: boolean
+    errorClass?: string
+}
+
+/**
+ * Backend may emit either a JSON-encoded `{message, retryable, error_class}` payload
+ * (current format — see `build_session_summary_error_payload` in Python) or a plain
+ * string (legacy fallback). Parse defensively so an older backend keeps rendering.
+ */
+function parseSessionSummaryError(raw: string): ParsedSummaryError {
+    if (raw.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(raw) as { message?: unknown; retryable?: unknown; error_class?: unknown }
+            if (typeof parsed.message === 'string') {
+                return {
+                    message: parsed.message,
+                    retryable: typeof parsed.retryable === 'boolean' ? parsed.retryable : true,
+                    errorClass: typeof parsed.error_class === 'string' ? parsed.error_class : undefined,
+                }
+            }
+        } catch {
+            // Fall through to the plain-string path.
+        }
+    }
+    return { message: raw, retryable: true }
+}
+
 /**
  * Singleton store for in-flight session summarization state, keyed by session id.
  *
@@ -169,8 +198,19 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                     onEvent: ({ event, data }) => {
                         try {
                             if (event === 'session-summary-error') {
-                                lemonToast.error(data)
-                                actions.setError(sessionId, data)
+                                const { message, retryable } = parseSessionSummaryError(data)
+                                lemonToast.error(
+                                    message,
+                                    retryable
+                                        ? {
+                                              button: {
+                                                  label: 'Try again',
+                                                  action: () => actions.startSummarization(sessionId),
+                                              },
+                                          }
+                                        : undefined
+                                )
+                                actions.setError(sessionId, message)
                                 return
                             }
                             if (event === 'session-summary-progress') {
