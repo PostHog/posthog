@@ -7023,6 +7023,10 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
             if (typeof data.detail === 'string') {
                 throw new ApiError(data.detail, response.status, response.headers, data)
             }
+
+            if (typeof data.message === 'string') {
+                throw new ApiError(data.message, response.status, response.headers, data)
+            }
         }
 
         throw new ApiError(
