@@ -16,13 +16,6 @@ import {
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
-// Surfaced on every truncated/summarized schema view to push the model to
-// keep drilling instead of guessing the shape from sibling fields or
-// pre-training. Phrased as an instruction, not a description, because models
-// observably treat declarative notes as advisory.
-const SCHEMA_DRILLDOWN_DIRECTIVE =
-    'SUMMARIZED - DO NOT GUESS. For any field you plan to populate that has a `hint`, you must run the exact `schema` command in that hint. Keep drilling until the needed path has neither a `note` nor a `hint`. Do not infer shape from names, sibling tools, or prior knowledge.'
-
 export interface ExecInnerCallProperties {
     duration_ms: number
     success: boolean
@@ -36,10 +29,6 @@ function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodS
     return z.object({
         command: z.string().describe(commandReference),
     })
-}
-
-function summaryHasHints(summary: ReturnType<typeof summarizeSchema>): boolean {
-    return Object.values(summary.properties).some((p) => p.hint !== undefined)
 }
 
 function parseCommand(input: string): { verb: string; rest: string } {
@@ -214,12 +203,10 @@ export function createExecTool(
                     }
 
                     // Schema too large — return summary with drill-down hints.
-                    // Attach the same directive used by `schema` so agents don't
-                    // treat `info` summaries as enough to construct nested fields.
+                    // Each complex field's `hint` carries the imperative to run
+                    // `schema` before populating it, so no separate directive is
+                    // needed here.
                     const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
-                    if (summaryHasHints(summary)) {
-                        return serialize({ ...topShape, note: SCHEMA_DRILLDOWN_DIRECTIVE }, summary)
-                    }
                     return serialize(topShape, summary)
                 }
 
@@ -232,18 +219,10 @@ export function createExecTool(
                     const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
 
                     if (!fieldPath) {
-                        const summary = summarizeSchema(fullJsonSchema, schemaToolName)
-                        // The bare `schema <tool>` view is always a summary. Attach the
-                        // drill-down directive whenever any property still carries a
-                        // `hint` — that's the only case where the model has more work
-                        // to do than what it sees.
-                        if (summaryHasHints(summary)) {
-                            return JSON.stringify({
-                                note: SCHEMA_DRILLDOWN_DIRECTIVE,
-                                schema: summary,
-                            })
-                        }
-                        return JSON.stringify(summary)
+                        // The bare `schema <tool>` view is always a summary. Any
+                        // field that still needs drilling carries the imperative
+                        // in its own `hint`, so the summary stands on its own.
+                        return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
                     const resolved = resolveSchemaPath(fullJsonSchema, fieldPath)
@@ -260,13 +239,12 @@ export function createExecTool(
                         return serialized
                     }
 
-                    // Field schema too large — return summary with sub-path hints.
-                    // Lead with the size so the model knows why this is summarized,
-                    // then the directive so it knows what to do about it.
-                    const sizeK = Math.ceil(serialized.length / 6000)
+                    // Field schema too large — return a summary instead. The
+                    // summary's complex sub-fields carry the drill-down `hint`,
+                    // so the response shape stays the same as the inline case
+                    // (`{ field, schema }`) — no separate top-level note.
                     return JSON.stringify({
                         field: fieldPath,
-                        note: `Full schema for this field is ~${sizeK}k tokens — too large to inline. ${SCHEMA_DRILLDOWN_DIRECTIVE}`,
                         schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
                     })
                 }

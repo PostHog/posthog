@@ -303,7 +303,7 @@ describe('exec tool', () => {
             expect(typeof parsed.inputSchema).toBe('object')
         })
 
-        it('attaches the drill-down directive when info returns a summarized schema with hints', async () => {
+        it('bakes the drill-down imperative into each complex field hint when info is summarized', async () => {
             const wideShape: Record<string, z.ZodType> = {}
             for (let i = 0; i < 1500; i++) {
                 wideShape[`field_${i}`] = z.string().describe(`Description for field ${i} with extra padding text`)
@@ -318,12 +318,16 @@ describe('exec tool', () => {
             const exec = createExec([tool])
             const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
             const envelope = parseYaml(result) as { note?: string; inputSchema: string }
-            expect(envelope.note).toContain('SUMMARIZED')
-            expect(envelope.note).toContain('DO NOT GUESS')
-            expect(envelope.note).toContain('exact `schema` command in that hint')
+            // The directive lives on the field the model is about to populate,
+            // not as a separate top-level note it can skim past.
+            expect(envelope.note).toBeUndefined()
             const parsedSchema = JSON.parse(envelope.inputSchema)
+            expect(parsedSchema.properties.filter.hint).toContain('DO NOT GUESS')
             expect(parsedSchema.properties.filter.hint).toContain('schema mock-tool filter')
+            expect(parsedSchema.properties.filter.hint).toContain('before populating this field')
             expect(parsedSchema.properties.wide.hint).toContain('schema mock-tool wide')
+            // Scalar fields carry no hint — nothing to drill into.
+            expect(parsedSchema.properties.name.hint).toBeUndefined()
         })
 
         it('throws usage error for bare info', async () => {
@@ -372,13 +376,13 @@ describe('exec tool', () => {
             expect(parsed.note).toBeUndefined()
         })
 
-        // Eval case for the no-path schema command returning a summary with hints —
-        // this is the recursive step where models historically guessed the deeper
-        // shape of complex fields (like `series` or `retentionFilter`) rather than
-        // running another `schema` for the highlighted sub-path. The directive
-        // `note` is the runtime nudge that pairs with the prompt-side guidance in
+        // The bare `schema <tool>` view is the recursive step where models
+        // historically guessed the deeper shape of complex fields (like `series`
+        // or `retentionFilter`) rather than running another `schema` for the
+        // sub-path. The imperative now rides on each complex field's `hint` —
+        // the runtime nudge that pairs with the prompt-side guidance in
         // `cli-schema-drilldown.md`.
-        it('attaches the drill-down directive when the bare schema view contains hints', async () => {
+        it('bakes the drill-down imperative into each complex field hint of the bare schema view', async () => {
             const tool = makeMockTool({
                 schema: z.object({
                     name: z.string(),
@@ -388,12 +392,14 @@ describe('exec tool', () => {
             const exec = createExec([tool])
             const result = (await exec.handler(mockContext, { command: 'schema mock-tool' })) as string
             const parsed = JSON.parse(result)
-            expect(parsed.note).toContain('SUMMARIZED')
-            expect(parsed.note).toContain('DO NOT GUESS')
-            expect(parsed.note).toContain('schema')
-            expect(parsed.schema.properties.filter.hint).toContain('schema mock-tool filter')
+            // Flat summary, no separate note wrapper.
+            expect(parsed.note).toBeUndefined()
+            expect(parsed.schema).toBeUndefined()
+            expect(parsed.properties.filter.hint).toContain('DO NOT GUESS')
+            expect(parsed.properties.filter.hint).toContain('schema mock-tool filter')
+            expect(parsed.properties.filter.hint).toContain('before populating this field')
             // Scalar fields do not earn a hint
-            expect(parsed.schema.properties.name.hint).toBeUndefined()
+            expect(parsed.properties.name.hint).toBeUndefined()
         })
 
         it('does not attach a drill-down directive when no field carries a hint', async () => {
@@ -411,7 +417,7 @@ describe('exec tool', () => {
             expect(parsed.properties.name.type).toBe('string')
         })
 
-        it('attaches the truncation note when a sub-field schema overflows the budget', async () => {
+        it('returns a summary in the same { field, schema } shape when a sub-field overflows the budget', async () => {
             // Build a sub-field large enough to exceed TOKEN_CHAR_LIMIT (~48k chars)
             // once serialized. Each property entry is ~70 chars, so 1500 of them
             // comfortably crosses the threshold.
@@ -426,9 +432,8 @@ describe('exec tool', () => {
             const result = (await exec.handler(mockContext, { command: 'schema mock-tool wide' })) as string
             const parsed = JSON.parse(result)
             expect(parsed.field).toBe('wide')
-            expect(parsed.note).toMatch(/Full schema for this field is ~\d+k tokens/)
-            expect(parsed.note).toContain('SUMMARIZED')
-            expect(parsed.note).toContain('DO NOT GUESS')
+            // No top-level note — `hint` is the only drill-down signal in the response.
+            expect(parsed.note).toBeUndefined()
             // Summary still preserves field names so the model can pick where to drill
             expect(Object.keys(parsed.schema.properties).length).toBeGreaterThan(0)
         })
@@ -445,10 +450,10 @@ describe('exec tool', () => {
 
         // Eval case for `query-retention`, the canonical large-schema query tool
         // (>200k chars when fully serialized). Validates the end-to-end drill-down
-        // flow against the real tool: bare schema → directive note + hints → drill
-        // → resolved sub-schema. If the prompt-side directive ever loosens or the
+        // flow against the real tool: bare schema → imperative hints → drill
+        // → resolved sub-schema. If the hint imperative ever loosens or the
         // schema-summary pipeline regresses, this test catches it.
-        it('eval: query-retention bare schema view produces a directive + hints, and a drilled sub-field resolves', async () => {
+        it('eval: query-retention bare schema view produces imperative hints, and a drilled sub-field resolves', async () => {
             const context: Context = {
                 api: {} as any,
                 cache: {} as any,
@@ -473,28 +478,29 @@ describe('exec tool', () => {
             expect(queryRetention).not.toBeUndefined()
             const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
 
-            // 1. Bare `schema query-retention` returns a summary with the drill-down directive.
+            // 1. Bare `schema query-retention` returns a flat summary whose
+            // complex fields carry the drill-down imperative in their hints.
             const bare = JSON.parse((await exec.handler(context, { command: 'schema query-retention' })) as string) as {
                 note?: string
-                schema: { properties: Record<string, { hint?: string; type?: string }> }
+                properties: Record<string, { hint?: string; type?: string }>
             }
-            expect(bare.note).not.toBeUndefined()
-            expect(bare.note).toContain('SUMMARIZED')
-            expect(bare.note).toContain('DO NOT GUESS')
+            expect(bare.note).toBeUndefined()
             // At least one of retention's complex fields must surface a hint —
             // the exact set varies with schema generation, so we assert by shape
             // (presence of any hint) rather than naming a specific field.
-            const hintedFields = Object.entries(bare.schema.properties).filter(([, v]) => v.hint !== undefined)
+            const hintedFields = Object.entries(bare.properties).filter(([, v]) => v.hint !== undefined)
             expect(hintedFields.length).toBeGreaterThan(0)
             for (const [, v] of hintedFields) {
-                expect(v.hint).toMatch(/^Run `schema query-retention [\w.]+` for full structure$/)
+                expect(v.hint).toMatch(
+                    /^DO NOT GUESS — you MUST run `schema query-retention [\w.]+` before populating this field$/
+                )
             }
 
-            // 2. Drill into the first hinted sub-field. The follow-up either
-            // resolves inline (small enough — `field` + `schema` shape) or
-            // returns another summary with the directive (still too large).
-            // Both shapes are valid drill-down outcomes; either way the model
-            // must not be left guessing.
+            // 2. Drill into the first hinted sub-field. The follow-up always
+            // returns the same `{ field, schema }` shape — either with the full
+            // resolved JSON Schema (small enough to inline) or with a summary
+            // whose complex sub-fields carry their own hints. No top-level note
+            // distinguishes the two; the model reads the hints either way.
             const [firstHintedField] = hintedFields[0]!
             const drilled = JSON.parse(
                 (await exec.handler(context, {
@@ -502,14 +508,8 @@ describe('exec tool', () => {
                 })) as string
             ) as { field?: string; note?: string; schema?: unknown }
             expect(drilled.field).toBe(firstHintedField)
-            if (drilled.note !== undefined) {
-                // Still summarized — the directive must repeat so the model keeps drilling.
-                expect(drilled.note).toContain('SUMMARIZED')
-                expect(drilled.note).toContain('DO NOT GUESS')
-            } else {
-                // Resolved inline — no further drill required.
-                expect(drilled.schema).not.toBeUndefined()
-            }
+            expect(drilled.note).toBeUndefined()
+            expect(drilled.schema).not.toBeUndefined()
         })
     })
 
