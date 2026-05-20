@@ -182,13 +182,11 @@ Each invocation of the executor emits both a structured log and a Prometheus cou
 | `cache_state` | `hit`, `partial_hit`, `miss` — see below                            |
 | `table`       | the lazy table being populated (e.g. `preaggregation_results`)      |
 
-`cache_state` reflects the state at executor entry (before this call creates anything):
+`cache_state` values:
 
-- `hit` — every daily window in the requested range had a READY job.
-- `partial_hit` — some daily windows were already covered, some weren't.
-- `miss` — nothing was covered; every window needed computation.
-
-For the continuous view of "how much data was already there", use the companion histogram `lazy_computation_initial_coverage_ratio` (labels: `table`). It records the fraction of daily windows already ready on entry, so you can chart average coverage, p50/p95, or the share of requests with ≥90% coverage.
+- `hit` — the request did no new work (no jobs created, no waits).
+- `partial_hit` — the request had to do work but found pre-existing READY data.
+- `miss` — the request had to do work and found no pre-existing data.
 
 Full hit ratio across a window:
 
@@ -216,7 +214,7 @@ sum by (table, outcome) (
 
 ### Structured log
 
-The `lazy_computation.executed` log line carries the same `outcome`, `cache_state`, and `table` fields plus the coverage snapshot (`initial_coverage_ratio`, `initial_ready_windows`, `initial_total_windows`) and per-call detail (`query_hash`, `jobs_created`, `jobs_waited_for`, `total_duration_ms`, `time_range_days`). Useful when you need to follow a specific request rather than aggregate.
+The `lazy_computation.executed` log line carries the same `outcome`, `cache_state`, and `table` fields plus per-call detail (`query_hash`, `jobs_created`, `jobs_waited_for`, `total_duration_ms`, `time_range_days`). Useful when you need to follow a specific request rather than aggregate.
 
 ## Limitations
 
