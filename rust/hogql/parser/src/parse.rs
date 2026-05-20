@@ -809,6 +809,7 @@ pub(crate) fn kw_allowed_as_implicit_alias(kw: Kw) -> bool {
 ///     / CATCH / FINALLY — these head a `statement` and are NOT in the
 ///     `keyword` rule, so they are not valid identifiers / Field names
 ///     (cpp rejects `fn`, `let`, … in expression position).
+///
 /// `interval` adds the unit keywords, which are never in the omitted
 /// set anyway.
 ///

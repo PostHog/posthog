@@ -110,31 +110,29 @@ impl<'a> Parser<'a> {
             joined_any = true;
         }
 
-        // cpp's `joinExpr` is left-recursive (`joinExpr JOIN joinExpr
-        // joinConstraintClause?`), so a stacked `ON` / `USING` chain
-        // (`a JOIN b JOIN c ON1 ON2 ON3`) is parsed right-associatively:
-        // ON1 attaches to the innermost JOIN (`c`), ON2 to the next
-        // outer (`b`), ON3 to the outermost. Rust's loop is
-        // left-to-right and only consumes the first constraint per
-        // JOIN, leaving subsequent ON / USING constraints stranded.
-        // After the loop, peel off any extra constraints and attach
-        // them inward-to-outward along the chain.
-        loop {
-            if !matches!(
-                self.peek(),
-                TokenKind::Keyword(Kw::On) | TokenKind::Keyword(Kw::Using)
-            ) {
-                break;
-            }
+        // cpp's left-recursive `joinExpr JOIN joinExpr joinConstraintClause?`
+        // attaches a stacked `ON1 ON2 ON3` run right-associatively (ON1 → innermost
+        // JOIN, ON3 → outermost). Our loop above is left-to-right and grabs only
+        // one constraint per JOIN; peel the rest off here, inward-to-outward. If
+        // no attachment site exists — bare FROM, all-CROSS chain, or every slot
+        // already filled — raise a syntax error at the stray keyword.
+        while matches!(
+            self.peek(),
+            TokenKind::Keyword(Kw::On) | TokenKind::Keyword(Kw::Using)
+        ) {
+            let kw_kind = self.peek();
             let Some(constraint) = self.parse_join_constraint_opt()? else {
                 break;
             };
             if !attach_constraint_to_outermost_unconstrained_join(&mut left, constraint) {
-                // No unconstrained JoinExpr in the chain — every level
-                // already has a constraint. Treat the extra ON / USING
-                // as trailing tokens; the outer SELECT parser will
-                // report the syntax error at the expected position.
-                break;
+                let kw = if matches!(kw_kind, TokenKind::Keyword(Kw::On)) {
+                    "ON"
+                } else {
+                    "USING"
+                };
+                return Err(self.err(format!(
+                    "stray {kw} — no preceding JOIN can take a constraint clause"
+                )));
             }
         }
 
@@ -329,9 +327,7 @@ impl<'a> Parser<'a> {
         //     ASOF (never ALL or ANY).
         let modifier_count = (all as u8) + (any as u8) + (asof as u8);
         if modifier_count > 1 {
-            return Err(self.err(
-                "JOIN op accepts at most one of ALL / ANY / ASOF",
-            ));
+            return Err(self.err("JOIN op accepts at most one of ALL / ANY / ASOF"));
         }
         if anti && semi {
             return Err(self.err("ANTI and SEMI cannot both appear in a JOIN op"));
@@ -341,19 +337,15 @@ impl<'a> Parser<'a> {
             // ALL / ANY): `ASOF (ANTI | SEMI)`. And in that order —
             // `ANTI ASOF` / `SEMI ASOF` is the reverse and invalid.
             if (anti || semi) && (all || any) {
-                return Err(self.err(
-                    "inner-style JOIN op: ANTI / SEMI cannot combine with ALL / ANY",
-                ));
+                return Err(
+                    self.err("inner-style JOIN op: ANTI / SEMI cannot combine with ALL / ANY")
+                );
             }
             if asof && (anti || semi) {
                 let asof_pos = order.iter().position(|&k| k == Kw::Asof);
-                let antisemi_pos = order
-                    .iter()
-                    .position(|&k| matches!(k, Kw::Anti | Kw::Semi));
+                let antisemi_pos = order.iter().position(|&k| matches!(k, Kw::Anti | Kw::Semi));
                 if matches!((asof_pos, antisemi_pos), (Some(a), Some(b)) if a > b) {
-                    return Err(self.err(
-                        "JOIN op: ANTI / SEMI must follow ASOF, not precede it",
-                    ));
+                    return Err(self.err("JOIN op: ANTI / SEMI must follow ASOF, not precede it"));
                 }
             }
         }
@@ -613,9 +605,7 @@ impl<'a> Parser<'a> {
             // (`IDENTIFIER | QUOTED_IDENTIFIER | interval | keyword`);
             // exclude the same reserved keywords as elsewhere.
             let name = match t.kind {
-                TokenKind::Ident | TokenKind::QuotedIdent => {
-                    identifier_text(self.text(t), t.kind)
-                }
+                TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(t), t.kind),
                 TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                     identifier_text(self.text(t), t.kind)
                 }
@@ -985,9 +975,9 @@ impl<'a> Parser<'a> {
         let mut val = self.parse_prefix()?;
         // Reject non-numeric prefixes (a placeholder masquerading as
         // a `{x}` ratio side, a sign followed by a non-number, etc.).
-        let is_numeric_constant = val.as_object().is_some_and(|o| {
-            o.get("node").and_then(Value::as_str) == Some("Constant")
-        });
+        let is_numeric_constant = val
+            .as_object()
+            .is_some_and(|o| o.get("node").and_then(Value::as_str) == Some("Constant"));
         if !is_numeric_constant {
             return Err(self.err("SAMPLE ratio value must be a number literal"));
         }
@@ -1104,9 +1094,7 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     self.bump()?;
                     if self.peek() == TokenKind::RParen {
-                        return Err(self.err(
-                            "PIVOT GROUP BY must have at least one expression",
-                        ));
+                        return Err(self.err("PIVOT GROUP BY must have at least one expression"));
                     }
                     group_by = Some(self.parse_expr_list_until_paren()?);
                 }
@@ -1304,11 +1292,7 @@ impl<'a> Parser<'a> {
         // and decide whether it's a postfix `(` (extends LHS) or
         // anything else (commits the IN as structural).
         let mut candidate_after_close: Option<usize> = None;
-        loop {
-            let tok = match probe.next_token() {
-                Ok(t) => t,
-                Err(_) => break,
-            };
+        while let Ok(tok) = probe.next_token() {
             if let Some(in_pos) = candidate_after_close.take() {
                 if !token_extends_pivot_column_lhs(tok.kind) {
                     return Some(in_pos);
@@ -1455,14 +1439,7 @@ fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
             | TokenKind::NotRegex
             | TokenKind::NotIRegex
             | TokenKind::Keyword(
-                Kw::And
-                    | Kw::Or
-                    | Kw::In
-                    | Kw::Is
-                    | Kw::Like
-                    | Kw::Ilike
-                    | Kw::Between
-                    | Kw::As,
+                Kw::And | Kw::Or | Kw::In | Kw::Is | Kw::Like | Kw::Ilike | Kw::Between | Kw::As,
             )
     )
 }
@@ -1478,19 +1455,14 @@ fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
 /// on the next outer (`b`). The first stranded ON attaches inward
 /// (after the loop's left-to-right pass already placed one on the
 /// deepest JoinExpr); the second moves outward; etc.
-fn attach_constraint_to_outermost_unconstrained_join(
-    node: &mut Value,
-    constraint: Value,
-) -> bool {
+fn attach_constraint_to_outermost_unconstrained_join(node: &mut Value, constraint: Value) -> bool {
     let Some(obj) = node.as_object_mut() else {
         return false;
     };
     if obj.get("node").and_then(Value::as_str) != Some("JoinExpr") {
         return false;
     }
-    // Recurse into next_join first — cpp's right-associative parse
-    // attaches the FIRST stranded constraint to the inner-most
-    // unconstrained JoinExpr.
+    // Recurse into next_join first for right-associative attachment.
     if let Some(nj) = obj.get_mut("next_join") {
         if nj.is_object()
             && attach_constraint_to_outermost_unconstrained_join(nj, constraint.clone())
@@ -1498,12 +1470,17 @@ fn attach_constraint_to_outermost_unconstrained_join(
             return true;
         }
     }
-    // No deeper attachment site — try this level.
-    let needs_constraint = match obj.get("constraint") {
-        None | Some(Value::Null) => true,
-        _ => false,
-    };
-    if needs_constraint {
+    // Per the grammar, only `JoinExprOp` and `JoinExprPositional` take a
+    // `joinConstraintClause`. The lead `JoinExprTable` carries no `join_type`,
+    // and `JoinExprCrossOp` is explicitly CROSS — refuse both.
+    let accepts_constraint = matches!(
+        obj.get("join_type").and_then(Value::as_str),
+        Some(jt) if jt != "CROSS JOIN"
+    );
+    if !accepts_constraint {
+        return false;
+    }
+    if matches!(obj.get("constraint"), None | Some(Value::Null)) {
         obj.insert("constraint".into(), constraint);
         return true;
     }
