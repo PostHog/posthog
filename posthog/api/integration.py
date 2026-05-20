@@ -50,6 +50,7 @@ from posthog.models.integration import (
     FirebaseIntegration,
     GitHubInstallationAccess,
     GitHubIntegration,
+    GitHubIntegrationError,
     GitLabIntegration,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
@@ -205,6 +206,41 @@ class GitHubReposResponseSerializer(serializers.Serializer):
 
 class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+
+
+class GitHubTeamSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="GitHub team numeric identifier.")
+    slug = serializers.CharField(help_text="GitHub team slug.")
+    name = serializers.CharField(help_text="GitHub team display name.")
+
+
+class GitHubTeamsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive team name or slug search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of teams to return per request (max 500).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of teams to skip before returning results.",
+    )
+
+
+class GitHubTeamsResponseSerializer(serializers.Serializer):
+    teams = GitHubTeamSerializer(
+        many=True, help_text="List of GitHub teams available to the installation organization."
+    )
+    has_more = serializers.BooleanField(help_text="Whether more teams are available beyond this page.")
 
 
 class GitHubBranchesQuerySerializer(serializers.Serializer):
@@ -611,6 +647,7 @@ class IntegrationViewSet(
         "channels",
         "github_repos",
         "github_branches",
+        "github_teams",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -1216,6 +1253,29 @@ class IntegrationViewSet(
         )
 
         return Response({"repositories": repositories})
+
+    @extend_schema(
+        parameters=[GitHubTeamsQuerySerializer],
+        responses={200: GitHubTeamsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_teams")
+    def github_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubTeamsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
+        github = GitHubIntegration(self.get_object())
+        try:
+            teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
+        except GitHubIntegrationError as err:
+            capture_exception(err)
+            raise ValidationError(
+                "Unable to fetch GitHub teams. Please check integration settings and try again."
+            ) from err
+
+        return Response({"teams": teams, "has_more": has_more})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],

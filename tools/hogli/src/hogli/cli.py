@@ -22,7 +22,7 @@ from hogli.command_types import BinScriptCommand, CompositeCommand, DirectComman
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
 from hogli.lazy_commands import add_commands_dir_to_path, add_repo_root_to_path, resolve_click_command
 from hogli.manifest import REPO_ROOT, get_category_for_command, get_manifest, get_services_for_command, load_manifest
-from hogli.validate import auto_update_manifest, find_missing_manifest_entries
+from hogli.validate import auto_update_manifest, find_missing_manifest_entries, find_orphan_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
 
@@ -171,6 +171,7 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - YAML-driven developer CLI."""
+    _load_default_env_files()
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
@@ -189,16 +190,22 @@ def cli(ctx: click.Context) -> None:
 
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
-    """Validate that all bin scripts are in the manifest."""
+    """Validate that bin scripts and manifest entries stay in sync."""
     missing = find_missing_manifest_entries()
+    orphans = find_orphan_manifest_entries()
 
-    if not missing:
-        click.echo("✓ All bin scripts are in the manifest")
+    if not missing and not orphans:
+        click.echo("✓ All bin scripts are in the manifest and all manifest entries resolve")
         return
 
-    click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
-    for script in sorted(missing):
-        click.echo(f"  - {script}")
+    if missing:
+        click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
+        for script in sorted(missing):
+            click.echo(f"  - {script}")
+    if orphans:
+        click.echo(f"✗ Found {len(orphans)} manifest entr(ies) with no matching bin script:")
+        for cmd in sorted(orphans):
+            click.echo(f"  - {cmd}")
 
     raise SystemExit(1)
 
@@ -246,6 +253,96 @@ def concepts() -> None:
         if commands:
             click.echo(f"    Commands: {', '.join(sorted(commands))}")
         click.echo()
+
+
+def _load_env_file(path: os.PathLike[str], only_if_unset: bool = True) -> None:
+    """Load environment variables from a file (KEY=VALUE per line, # comments).
+
+    op:// refs are always skipped — they only get resolved by `op run`, never by
+    sourcing the file directly. Setting them as literal strings would break
+    downstream services with cryptic API errors.
+    """
+    from pathlib import Path
+
+    env_file = Path(path)
+    if not env_file.exists():
+        return
+
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        # Substring match so quoted (`KEY="op://..."`) and space-padded
+        # (`KEY= op://...`) forms are also skipped — matches what op run itself
+        # accepts. Leaking these as literals would break downstream services
+        # with cryptic API errors.
+        if "op://" in value:
+            continue
+        if only_if_unset and name in os.environ:
+            continue
+        os.environ[name] = value
+
+
+def _load_default_env_files() -> None:
+    """Load .env.development and .env.services for every hogli subcommand.
+
+    Mirrors bin/start so commands that shell out to manage.py / bin scripts
+    (dev:reset, migrations:run, etc.) see the same service connection defaults
+    the dev stack uses. Shell vars win; we never overwrite.
+
+    .env.local is intentionally NOT loaded here — it can contain 1Password
+    op:// refs that only `hogli run` knows how to resolve via `op run`.
+    """
+    _load_env_file(REPO_ROOT / ".env.development", only_if_unset=True)
+    _load_env_file(REPO_ROOT / ".env.services", only_if_unset=True)
+
+
+@cli.command(name="run", help="Run a command with resolved environment (1Password + defaults)")
+@click.argument("command", nargs=-1, required=True)
+def run_with_env(command: tuple[str, ...]) -> None:
+    """Run a command with PostHog environment variables.
+
+    Loads .env.development defaults and .env.local overrides.
+    If .env.local contains 1Password references (op://), resolves them via `op run`.
+
+    Note: When using 1Password, op run's .env.local takes precedence over shell env.
+    This is op's design — secrets from 1Password are meant to win.
+
+    Examples:
+        hogli run ./manage.py shell
+        hogli run pytest posthog/api/
+    """
+    env_dev = REPO_ROOT / ".env.development"
+    env_services = REPO_ROOT / ".env.services"
+    env_local = REPO_ROOT / ".env.local"
+
+    has_op_refs = env_local.exists() and "op://" in env_local.read_text()
+
+    if has_op_refs and shutil.which("op"):
+        # Pre-load .env.development and .env.services (only if not already set in shell)
+        # so op run's child inherits them. op run then layers .env.local on top,
+        # overriding any variable it defines — including ones from shell. That's
+        # the precedence the docstring above promises: shell env > .env.local
+        # only applies to vars NOT defined in .env.local.
+        _load_env_file(env_dev, only_if_unset=True)
+        _load_env_file(env_services, only_if_unset=True)
+        os.execvp("op", ["op", "run", f"--env-file={env_local}", "--", *command])
+        return
+
+    # No op refs OR op CLI not installed — source files directly. _load_env_file
+    # skips op:// lines, so missing op CLI degrades gracefully: vars that needed
+    # 1Password are simply unset, and the downstream command fails with its own
+    # "missing key" error rather than swallowing a literal "op://..." string.
+    if has_op_refs:
+        click.echo("⚠️  .env.local contains 1Password refs (op://) but 'op' CLI is not installed.", err=True)
+        click.echo("   These refs will be skipped. Install: brew install 1password-cli", err=True)
+        click.echo("   Or replace op:// refs with literal values in .env.local.", err=True)
+
+    _load_env_file(env_local, only_if_unset=True)
+    _load_env_file(env_dev, only_if_unset=True)
+    _load_env_file(env_services, only_if_unset=True)
+    os.execvp(command[0], list(command))
 
 
 def _register_script_commands() -> None:

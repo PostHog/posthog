@@ -145,7 +145,8 @@ export function HogFunctionList({
             {
                 title: 'Name',
                 sticky: true,
-                sorter: true,
+                sorter: (a, b) =>
+                    (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base', numeric: true }),
                 key: 'name',
                 dataIndex: 'name',
                 render: (_, hogFunction) => {

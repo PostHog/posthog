@@ -46,7 +46,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo, FieldType, WebhookSource
+from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
@@ -93,6 +93,53 @@ from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKin
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
 
 logger = structlog.get_logger(__name__)
+
+REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
+
+REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
+    "timeout": "Connection timed out while fetching schemas from the source.",
+    "timed out": "Connection timed out while fetching schemas from the source.",
+    "connection refused": "Could not connect to the source. Check the host, port, and network access.",
+    "could not connect": "Could not connect to the source. Check the host, port, and network access.",
+    "could not translate host name": "Could not resolve the source host.",
+    "name or service not known": "Could not resolve the source host.",
+    "network is unreachable": "Could not reach the source network.",
+    "no route to host": "Could not reach the source host.",
+    "access denied": "Could not authenticate with the source. Check the connection credentials.",
+    "authentication failed": "Could not authenticate with the source. Check the connection credentials.",
+    "password authentication failed": "Could not authenticate with the source. Check the connection credentials.",
+    "unauthorized": "Could not authenticate with the source. Check the connection credentials.",
+    "forbidden": "The source credentials do not have permission to fetch schemas.",
+    "ssl/tls connection is required": "SSL/TLS is required to connect to the source.",
+    "could not establish session to ssh gateway": "Could not establish an SSH tunnel to the source.",
+}
+
+
+def _exception_text(error: Exception) -> str:
+    message = " ".join(str(arg) for arg in error.args if arg is not None) or str(error)
+    return f"{type(error).__name__}: {message}"
+
+
+def _classify_refresh_schemas_error(source: AnySource | None, error: Exception) -> tuple[str, bool]:
+    error_text = _exception_text(error)
+    normalized_error_text = error_text.lower()
+    matched_source_error = False
+
+    if source is not None:
+        for pattern, friendly_message in source.get_non_retryable_errors().items():
+            if pattern and pattern.lower() in normalized_error_text:
+                if friendly_message:
+                    return friendly_message, True
+                matched_source_error = True
+
+    for pattern, friendly_message in REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES.items():
+        if pattern in normalized_error_text:
+            return friendly_message, True
+
+    if matched_source_error:
+        return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, True
+
+    return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, False
 
 
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
@@ -402,9 +449,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     # in the viewset to preserve backward compatibility with direct API callers that
     # predate this field; the in-app UI and MCP tool always send it explicitly.
     # `update` strips it to make the field write-once.
+    # `allow_null=True` because historical rows (created before migration 0049) have
+    # `created_via=NULL`, and the settings page spreads the GET payload back into PATCH.
     created_via = serializers.ChoiceField(
         choices=ExternalDataSource.CreatedVia.choices,
         required=False,
+        allow_null=True,
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "
@@ -1437,6 +1487,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Source has no configuration."},
             )
+        source: AnySource | None = None
         try:
             source_type = ExternalDataSourceType(instance.source_type)
             source = SourceRegistry.get_source(source_type)
@@ -1463,10 +1514,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema_names=schema_names,
             )
         except Exception as e:
-            logger.exception("Could not fetch schemas from source", exc_info=e)
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            logger.exception(
+                "Could not fetch schemas from source",
+                exc_info=e,
+                source_id=str(instance.id),
+                team_id=self.team_id,
+                source_type=instance.source_type,
+                error_type=type(e).__name__,
+                is_expected_source_error=is_expected_source_error,
+            )
+            if not is_expected_source_error:
+                capture_exception(
+                    e,
+                    {
+                        "source_id": str(instance.id),
+                        "source_type": instance.source_type,
+                        "team_id": self.team_id,
+                        "refresh_schemas": True,
+                    },
+                )
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Could not fetch schemas from source."},
+                data={"message": error_message},
             )
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():

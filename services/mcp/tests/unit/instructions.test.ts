@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
 import {
+    buildActiveEnvironmentContextPrompt,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildQueryToolsCompact,
@@ -10,6 +11,7 @@ import {
     QueryToolCatalog,
     type QueryToolInfo,
 } from '@/lib/instructions'
+import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 describe('buildDefinedGroupsBlock', () => {
     it('should format group types as a comma-separated list of group_type names', () => {
@@ -217,5 +219,52 @@ describe('QueryToolCatalog', () => {
             const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends' }]
             expect(buildQueryToolsCompact(tools)).toBe('trends')
         })
+    })
+})
+
+describe('buildActiveEnvironmentContextPrompt', () => {
+    const project = {
+        id: 1,
+        name: 'My App',
+        timezone: 'America/New_York',
+        person_on_events_querying_enabled: false,
+    } as unknown as CachedProject
+    const org = { id: 'org_1', name: 'Acme' } as unknown as CachedOrg
+    const user = { first_name: 'Jane', last_name: 'Doe', email: 'jane@acme.com' } as unknown as CachedUser
+
+    it('renders the full project + org line when both are present', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project)
+        expect(result).toContain(
+            'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).'
+        )
+    })
+
+    it('omits the organization clause when org is undefined (scope-gated path)', () => {
+        // Project-scoped personal API keys lack `organization:read`, so the org
+        // fetch is skipped. The line drops the "within organization …" tail
+        // rather than rendering a fabricated "Unknown" placeholder.
+        const result = buildActiveEnvironmentContextPrompt(user, undefined, project)
+        expect(result).toContain('You are currently in project "My App" (id: 1).')
+        expect(result).not.toContain('within organization')
+        expect(result).not.toContain('Unknown')
+        expect(result).not.toContain('unknown')
+    })
+
+    it('keeps the timezone and user lines when org is omitted', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, undefined, project)
+        expect(result).toContain('Project timezone: America/New_York.')
+        expect(result).toContain("The user's name is Jane Doe (jane@acme.com).")
+    })
+
+    it('returns undefined when no context is available at all', () => {
+        expect(buildActiveEnvironmentContextPrompt(undefined, undefined, undefined)).toBeUndefined()
+    })
+
+    it('still renders an "Unknown" project when org is present but project is missing', () => {
+        // The org branch is unchanged — only the no-org branch was added.
+        const result = buildActiveEnvironmentContextPrompt(user, org, undefined)
+        expect(result).toContain(
+            'You are currently in project "Unknown" (id: unknown) within organization "Acme" (id: org_1).'
+        )
     })
 })

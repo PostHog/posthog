@@ -348,6 +348,23 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.created_via == ExternalDataSource.CreatedVia.WEB
 
+    def test_patch_external_data_source_accepts_null_created_via(self):
+        # Historical rows created before migration 0049 have created_via=NULL. The
+        # settings page spreads the GET payload back into PATCH, so null round-trips
+        # through the serializer. allow_null=True keeps that path working.
+        source = self._create_external_data_source()
+        ExternalDataSource.objects.filter(pk=source.pk).update(created_via=None)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"created_via": None, "description": "edited"},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.created_via is None
+        assert source.description == "edited"
+
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
@@ -1503,6 +1520,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {"Connection failed": None}
         mock_get_source.return_value.get_schemas.side_effect = Exception("Connection failed")
         source = self._create_external_data_source()
 
@@ -1512,6 +1530,52 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_specific_message_without_capture_for_expected_source_error(
+        self, mock_get_source, mock_capture_exception
+    ):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {"timeout": None}
+        mock_get_source.return_value.get_schemas.side_effect = TimeoutError("connection timed out")
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json().get("message"),
+            "Connection timed out while fetching schemas from the source.",
+        )
+        mock_capture_exception.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_captures_unexpected_source_error(self, mock_get_source, mock_capture_exception):
+        error = RuntimeError("schema parser exploded")
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {}
+        mock_get_source.return_value.get_schemas.side_effect = error
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json().get("message"), "Could not fetch schemas from source.")
+        mock_capture_exception.assert_called_once_with(
+            error,
+            {
+                "source_id": str(source.id),
+                "source_type": source.source_type,
+                "team_id": self.team.pk,
+                "refresh_schemas": True,
+            },
+        )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")

@@ -319,6 +319,7 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                     limit: params.limit,
                     offset: params.offset,
                     order: params.order,
+                    prompt_name: params.prompt_name,
                     search: params.search,
                     status: params.status,
                 },
@@ -561,6 +562,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key
+            }
+            if (params.release_to_everyone !== undefined) {
+                body['release_to_everyone'] = params.release_to_everyone
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
