@@ -226,6 +226,39 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         }
     }
 
+    if (logItem.activity === 'sharing enabled') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> shared{' '}
+                    {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'sharing disabled') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
+                    {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'access token refreshed') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> refreshed the shared link
+                    for {asNotification ? 'your' : 'the'} dashboard {nameAndLink(logItem)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity === 'share_login_success') {
         const afterData = logItem.detail.changes?.[0]?.after as any
         const clientIp = afterData?.client_ip || 'unknown IP'

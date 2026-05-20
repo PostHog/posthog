@@ -874,9 +874,6 @@ importers:
       '@xyflow/react':
         specifier: ^12.6.0
         version: 12.6.0(@types/react@18.3.27)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      bintrees:
-        specifier: ^1.0.2
-        version: 1.0.2
       bloommx:
         specifier: ^1.0.3
         version: 1.0.3
@@ -1012,9 +1009,6 @@ importers:
       liquidjs:
         specifier: ^10.25.2
         version: 10.25.2
-      lodash.debounce:
-        specifier: ^4.0.8
-        version: 4.0.8
       lodash.difference:
         specifier: ^4.5.0
         version: 4.5.0
@@ -1126,9 +1120,6 @@ importers:
       remark-gfm:
         specifier: ^4.0.0
         version: 4.0.1
-      resize-observer-polyfill:
-        specifier: ^1.5.1
-        version: 1.5.1
       rrule:
         specifier: ^2.8.1
         version: 2.8.1
@@ -1196,9 +1187,6 @@ importers:
       '@testing-library/user-event':
         specifier: ^14.6.1
         version: 14.6.1(@testing-library/dom@9.3.4)
-      '@types/bintrees':
-        specifier: ^1.0.6
-        version: 1.0.6
       '@types/chartjs-plugin-crosshair':
         specifier: ^1.1.1
         version: 1.1.4
@@ -1229,9 +1217,6 @@ importers:
       '@types/jest-image-snapshot':
         specifier: ^6.1.0
         version: 6.1.0
-      '@types/lodash.debounce':
-        specifier: ^4.0.9
-        version: 4.0.9
       '@types/lodash.difference':
         specifier: ^4.5.9
         version: 4.5.9
@@ -11895,9 +11880,6 @@ packages:
   '@types/babel__traverse@7.28.0':
     resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
 
-  '@types/bintrees@1.0.6':
-    resolution: {integrity: sha512-pZWT4Bz+tWwxlDspSjdoIza4PE5lbGI4Xvs3FZV/2v5m5SDA8LwNpU8AXxlndmARO7OaQ1Vf3zFenOsNMzaRkQ==}
-
   '@types/bluebird@3.5.38':
     resolution: {integrity: sha512-yR/Kxc0dd4FfwtEoLZMoqJbM/VE/W7hXn/MIjb+axcwag0iFmSPK7OBUZq1YWLynJUoWQkfUrI7T0HDqGApNSg==}
 
@@ -12221,9 +12203,6 @@ packages:
 
   '@types/linkify-it@5.0.0':
     resolution: {integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==}
-
-  '@types/lodash.debounce@4.0.9':
-    resolution: {integrity: sha512-Ma5JcgTREwpLRwMM+XwBR7DaWe96nC38uCBDFKZWbNKD+osjVzdpnUSwBcqCptrp16sSOLBAUb50Car5I0TCsQ==}
 
   '@types/lodash.difference@4.5.9':
     resolution: {integrity: sha512-MNlajcjtwzLpXk+cw38UkBvEXJNEPhULgS8A4EHwtUwT7f7yFH/SFKD0iw5Rfilwh60yJIgFo0vsMr7xsa5+aw==}
@@ -35781,8 +35760,6 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.0
 
-  '@types/bintrees@1.0.6': {}
-
   '@types/bluebird@3.5.38': {}
 
   '@types/body-parser@1.19.5':
@@ -36159,10 +36136,6 @@ snapshots:
   '@types/libsodium-wrappers@0.7.14': {}
 
   '@types/linkify-it@5.0.0': {}
-
-  '@types/lodash.debounce@4.0.9':
-    dependencies:
-      '@types/lodash': 4.17.13
 
   '@types/lodash.difference@4.5.9':
     dependencies:

@@ -2626,6 +2626,7 @@ const api = {
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
+                    ActivityScope.COHORT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -5037,6 +5038,17 @@ const api = {
                 .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
                 .get()
         },
+        async questionLabels(): Promise<{
+            labels: {
+                question_id: string
+                question_text: string
+                question_index: number
+                survey_id: string
+                survey_name: string
+            }[]
+        }> {
+            return await new ApiRequest().surveys().withAction('question_labels').get()
+        },
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
@@ -7014,6 +7026,10 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
             if (typeof data.detail === 'string') {
                 throw new ApiError(data.detail, response.status, response.headers, data)
+            }
+
+            if (typeof data.message === 'string') {
+                throw new ApiError(data.message, response.status, response.headers, data)
             }
         }
 

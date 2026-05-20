@@ -1521,6 +1521,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {"Connection failed": None}
         mock_get_source.return_value.get_schemas.side_effect = Exception("Connection failed")
         source = self._create_external_data_source()
 
@@ -1529,11 +1530,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        message = response.json().get("message", "")
-        self.assertIn("Could not fetch schemas from source", message)
-        # The underlying exception message must reach the caller so the UI can show
-        # something more useful than the generic "couldn't refresh" toast.
-        self.assertIn("Connection failed", message)
+        self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(self, mock_get_source):
@@ -1550,6 +1547,52 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(data["added"], 0)
         self.assertEqual(data["deleted"], 0)
         self.assertEqual(data["total_tables_seen"], 0)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_specific_message_without_capture_for_expected_source_error(
+        self, mock_get_source, mock_capture_exception
+    ):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {"timeout": None}
+        mock_get_source.return_value.get_schemas.side_effect = TimeoutError("connection timed out")
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json().get("message"),
+            "Connection timed out while fetching schemas from the source.",
+        )
+        mock_capture_exception.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_captures_unexpected_source_error(self, mock_get_source, mock_capture_exception):
+        error = RuntimeError("schema parser exploded")
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {}
+        mock_get_source.return_value.get_schemas.side_effect = error
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json().get("message"), "Could not fetch schemas from source.")
+        mock_capture_exception.assert_called_once_with(
+            error,
+            {
+                "source_id": str(source.id),
+                "source_type": source.source_type,
+                "team_id": self.team.pk,
+                "refresh_schemas": True,
+            },
+        )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")

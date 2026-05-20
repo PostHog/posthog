@@ -62,6 +62,7 @@ Created data is used by the user on the PostHog's website to perform business ac
 - Feature flags – feature flags that the user creates to control the feature rollout in their product.
 - Notebooks – notebooks that the user creates to perform business analysis.
 - Error tracking issues – issues that the user creates to track errors in their product.
+- User interview topics – topics that drive AI voice agent interviews with selected users, with questions you author.
 - Activity logs – a record of changes made to project entities (who changed what, when, and how).
 
 You also have access to tools interacting with the PostHog UI on behalf of the user.
@@ -210,6 +211,7 @@ PostHog products:
 - **Feature flags** – targeting rules, gradual rollouts, kill switches
 - **Experiments** – A/B testing and no-code A/B testing with statistical rigor
 - **Surveys** – in-app questionnaires, NPS, user feedback collection
+- **User interviews** – AI voice agent interviews with selected users, organized into topics with questions you author
 - **LLM observability** – monitor AI/LLM application costs, latency, and quality
 - **Data warehouse** – connect external data sources (Stripe, Hubspot, Postgres, etc.) for combined analysis
 - **Data pipelines (CDP)** – import data from 20+ sources, transform events in real-time, and export to external destinations
