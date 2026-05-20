@@ -54,18 +54,21 @@ class TestParserCppBugXfails(BaseTest):
     @unittest.expectedFailure
     def test_hog_compound_assignment_op_garbage_recovery(self):
         """`let x := 1; x *= 2;` — C++ silently splits `x *= 2` into
-        three nonsensical ExprStatements (`x`, then `* == 2`).
+        three nonsensical ExprStatements (`x`, then `Compare(Field("*"),
+        op="==", right=2)`). The other compound-assignment operators
+        (`+=` / `-=` / `/=` / `%=`) all reject in cpp; only `*=` is
+        recovered via ANTLR's automatic single-token-insertion
+        (`*=` is read as `*` then `=`, then ANTLR inserts a missing
+        second `=` to make the comparison operator `==`).
 
-        C++'s ALL(*) error-recovery accepts the broken-token sequence
-        as long as the surrounding declarations are parseable. The
-        emitted AST is nonsense (`* == 2` has no semantic meaning),
-        but the *parse* succeeds. Rust hard-errors with
-        `unexpected token in expression: EqDouble` — the correct
-        behaviour for a syntax error.
-
-        Either both should reject (rust's current behaviour, ideal),
-        or both should implement real compound-assignment desugaring
-        (`x *= 2` → `x := x * 2`). Today neither side does the latter.
+        Rust correctly rejects (`unexpected token in expression:
+        EqDouble`). To resolve, cpp would need to disable ANTLR's
+        token-insertion error recovery for this slot or add an
+        explicit `*=` reject token — both are involved. The cleaner
+        long-term fix is to implement compound assignment in both
+        parsers (`x *= 2` → desugar to `x := x * 2`); meanwhile both
+        rejecting is acceptable since no production query relies on
+        the recovered AST.
         """
         src = "let x := 1; x *= 2;"
         # Both should accept-and-desugar OR both should reject. Today
