@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "application_id": {
+            "type": "string"
+        },
+        "deployment_status": {
+            "description": "* `live` - live\n* `preview` - preview\n* `disabled` - disabled",
+            "enum": ["disabled", "live", "preview"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "state": {
+            "description": "* `pending_upload` - pending_upload\n* `uploaded` - uploaded\n* `validating` - validating\n* `ready` - ready\n* `failed` - failed",
+            "enum": ["failed", "pending_upload", "ready", "uploaded", "validating"],
+            "type": "string"
+        }
+    },
+    "required": ["application_id"],
+    "type": "object"
+}

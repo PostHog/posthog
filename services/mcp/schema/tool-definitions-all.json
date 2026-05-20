@@ -119,6 +119,186 @@
             "readOnlyHint": true
         }
     },
+    "agent-applications-disable-revision-create": {
+        "description": "Pull a revision out of traffic by setting its deployment_status to `disabled`. Use this to roll back a broken live or preview revision. Idempotent — disabling an already-disabled revision is a no-op. Allowed from any state (does not require state=ready).",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Disable revision",
+        "title": "Disable revision",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-env-partial-update": {
+        "description": "Set or remove individual environment variables on an application. Body shape: `{ keys: { FOO: \"bar\", OLD: null } }` — `null` removes the key. Returns the application with `env_redacted` updated. Required for promoting a revision when the manifest declares new secrets that aren't yet set.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Patch secrets",
+        "title": "Patch secrets",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-list": {
+        "description": "List every agent application in the current project. Use this to discover available agent slugs, see who created what, and inspect basic metadata (name, description, has_env). The returned `slug` field is the canonical identifier — pass it as `id` to the per-application tools (revisions, sessions, env).",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "List agent applications",
+        "title": "List agent applications",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-preview-create": {
+        "description": "Mark a ready revision as `deployment_status: preview` for testing without affecting live traffic. Same readiness + secret requirements as promote.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Mark revision as preview",
+        "title": "Mark revision as preview",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-promote-create": {
+        "description": "Promote a ready revision to `deployment_status: live`. Replaces the previous live revision. The revision must be in `state: ready` and the application's env must contain every required secret declared by the bundle manifest — otherwise returns 409 with a `missing_secrets` list.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Promote revision to live",
+        "title": "Promote revision to live",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-retrieve": {
+        "description": "Get a single agent application by slug. Returns name, description, env_redacted (redacted env preview), created/updated timestamps. For prompt/tools/triggers, fetch the live revision via `agent-applications-revisions-list?deployment_status=live`.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Get agent application",
+        "title": "Get agent application",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-revisions-list": {
+        "description": "List all deployment revisions for an application, newest first. Supports filtering by `deployment_status` (live | preview | disabled) and `state` (pending_upload | uploaded | validating | ready | failed). Use this to find a specific revision id for show / promote / disable, or to see which one is currently serving traffic (`deployment_status: live`).",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "List revisions",
+        "title": "List revisions",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-revisions-retrieve": {
+        "description": "Get a single revision by id. Returns the parsed manifest (prompt, tools, triggers), bundle metadata (size, sha256), validation_report (when state=failed), and timestamps.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Get revision",
+        "title": "Get revision",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-sessions-cancel": {
+        "description": "Cancel a running session. Sets the session's status to `canceled` so the runner workers stop processing it. Use this to kill stuck or runaway agents. Idempotent: cancelling an already-terminal session is a no-op.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Cancel session",
+        "title": "Cancel session",
+        "required_scopes": ["agent_application:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "agent-applications-sessions-list": {
+        "description": "List recent agent runtime sessions for an application. Each entry includes id, status (available | running | completed | failed | canceled), scheduled / created / last_heartbeat timestamps, transition_count. Supports filters: status, limit, created_before.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "List sessions",
+        "title": "List sessions",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-sessions-logs": {
+        "description": "Fetch per-session log entries from ClickHouse. Each entry has timestamp, level (DEBUG | INFO | WARNING | ERROR) and a human-readable message. Pass `after=<iso-timestamp>` to paginate forward (use the response's `next_after` cursor). Default limit 200, max 500.",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Read session logs",
+        "title": "Read session logs",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "agent-applications-sessions-retrieve": {
+        "description": "Get a single session by id. Returns the same shape as the list endpoint but with full state metadata including state_byte_size (a hint that very large state may need offloading).",
+        "category": "Agent stack",
+        "feature": "agent_stack",
+        "summary": "Get session",
+        "title": "Get session",
+        "required_scopes": ["agent_application:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "agent-feedback": {
         "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
         "category": "Feedback",

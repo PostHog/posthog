@@ -12,8 +12,13 @@ from django.utils.dateparse import parse_datetime
 
 import requests as http_requests
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import status, viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
+from rest_framework import (
+    serializers as drf_serializers,
+    status,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -284,7 +289,35 @@ def _resolve_application_id(lookup_value: str, team_id: int) -> str | None:
         return str(app.id) if app else None
 
 
+class AgentApplicationSessionProxyPlaceholderSerializer(drf_serializers.Serializer):
+    """Placeholder so drf-spectacular has a named serializer for the proxy
+    viewset; actual response shapes are declared per-action via @extend_schema.
+    """
+
+
 @extend_schema(tags=["agent_stack"])
+@extend_schema_view(
+    list=extend_schema(
+        operation_id="agent_applications_sessions_list",
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="List of sessions")},
+        description="List sessions for an agent application (proxied from agent-janitor).",
+    ),
+    retrieve=extend_schema(
+        operation_id="agent_applications_sessions_retrieve",
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Single session detail")},
+        description="Fetch a single session by id (proxied from agent-janitor).",
+    ),
+    cancel=extend_schema(
+        operation_id="agent_applications_sessions_cancel",
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Updated session")},
+        description="Cancel a running session (proxied from agent-janitor).",
+    ),
+    logs=extend_schema(
+        operation_id="agent_applications_sessions_logs",
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Log entries page")},
+        description="Read per-session log entries from ClickHouse.",
+    ),
+)
 class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Proxy to the agent-janitor service for session list/detail/cancel.
 
@@ -295,6 +328,11 @@ class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     scope_object = "agent_application"
     scope_object_read_actions = ["list", "retrieve", "logs"]
     scope_object_write_actions = ["cancel"]
+    # Opaque-JSON proxy responses: give drf-spectacular a *named* placeholder
+    # serializer (the bare `Serializer` base has no name and trips schema
+    # generation). Per-action @extend_schema decorators above declare the
+    # actual response shapes.
+    serializer_class = AgentApplicationSessionProxyPlaceholderSerializer
 
     def _janitor_url(self, path: str) -> str:
         base = getattr(settings, "AGENT_JANITOR_BASE_URL", "http://localhost:3031")

@@ -3618,49 +3618,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `available` - available
-    * `running` - running
-    * `completed` - completed
-    * `failed` - failed
-    * `canceled` - canceled
-     */
-    export type AgentApplicationSessionStateEnum = typeof AgentApplicationSessionStateEnum[keyof typeof AgentApplicationSessionStateEnum];
-
-
-    export const AgentApplicationSessionStateEnum = {
-      Available: 'available',
-      Running: 'running',
-      Completed: 'completed',
-      Failed: 'failed',
-      Canceled: 'canceled',
-    } as const;
-
-    export interface AgentApplicationSession {
-      readonly id: string;
-      readonly team: number;
-      readonly application: string;
-      readonly revision: string;
-      readonly state: AgentApplicationSessionStateEnum;
-      /** @nullable */
-      readonly queue_job_id: string | null;
-      /** @nullable */
-      readonly parent_run_id: string | null;
-      readonly trigger_type: string;
-      readonly trigger_payload: unknown;
-      readonly input: unknown;
-      readonly output: unknown;
-      readonly error: unknown;
-      readonly runtime_instance: string;
-      readonly created_at: string;
-      /** @nullable */
-      readonly started_at: string | null;
-      /** @nullable */
-      readonly last_heartbeat_at: string | null;
-      /** @nullable */
-      readonly completed_at: string | null;
-    }
-
-    /**
      * * `product_analytics` - product_analytics
     * `sql` - sql
     * `session_replay` - session_replay
@@ -20899,15 +20856,6 @@ export namespace Schemas {
       results: AgentApplicationRevision[];
     }
 
-    export interface PaginatedAgentApplicationSessionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: AgentApplicationSession[];
-    }
-
     export interface PaginatedAlertList {
       count: number;
       /** @nullable */
@@ -34996,11 +34944,6 @@ export namespace Schemas {
       target_language?: string;
     }
 
-    export interface UpdateEnvRequest {
-      /** Raw `.env` contents to encrypt and store. Replaces the entire existing env. Plaintext never leaves the server after creation — the agent-runner decrypts in-process. */
-      env: string;
-    }
-
     /**
      * The release condition to evaluate
      */
@@ -40223,45 +40166,13 @@ export namespace Schemas {
       Validating: 'validating',
     } as const;
 
-    export type AgentApplicationsSessionsListParams = {
-    /**
-     * Inclusive lower bound on created_at (ISO-8601). Used by `ass logs --follow` polling.
-     */
-    created_after?: string;
-    /**
-     * Exclusive upper bound on created_at (ISO-8601).
-     */
-    created_before?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    parent_run_id?: string;
-    revision?: string;
-    /**
-     * * `available` - available
-    * `running` - running
-    * `completed` - completed
-    * `failed` - failed
-    * `canceled` - canceled
-     */
-    state?: AgentApplicationsSessionsListState;
-    };
+    export type AgentApplicationsSessionsList200 = { [key: string]: unknown };
 
-    export type AgentApplicationsSessionsListState = typeof AgentApplicationsSessionsListState[keyof typeof AgentApplicationsSessionsListState];
+    export type AgentApplicationsSessionsRetrieve200 = { [key: string]: unknown };
 
+    export type AgentApplicationsSessionsCancel200 = { [key: string]: unknown };
 
-    export const AgentApplicationsSessionsListState = {
-      Available: 'available',
-      Canceled: 'canceled',
-      Completed: 'completed',
-      Failed: 'failed',
-      Running: 'running',
-    } as const;
+    export type AgentApplicationsSessionsLogs200 = { [key: string]: unknown };
 
     export type AlertsListParams = {
     /**
