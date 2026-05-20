@@ -79,6 +79,18 @@ Run `hogli devbox` to see all available commands, and `hogli <command> --help` f
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 
+### Workspace presets
+
+When creating a workspace with `hogli devbox:start`, you can specify a template preset with `-p/--preset`:
+
+```bash
+hogli devbox:start                       # uses "Default (warm)" preset
+hogli devbox:start -p "Default (warm)"   # explicitly set preset
+hogli devbox:start --preset none         # skip preset selection
+```
+
+If the requested preset isn't available on the template, the command falls back to `--preset none` and prints a warning listing the available presets.
+
 ## Managing Coder user secrets
 
 hogli provides commands to manage Coder user secrets (requires Coder 2.33+):
