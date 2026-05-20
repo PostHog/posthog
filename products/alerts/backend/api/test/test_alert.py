@@ -305,7 +305,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert 4.0 not in values
 
     def test_alert_limit(self) -> None:
-        with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER") as alert_limit:
+        with mock.patch(
+            "products.alerts.backend.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER"
+        ) as alert_limit:
             alert_limit.__get__ = mock.Mock(return_value=1)
 
             creation_request = {

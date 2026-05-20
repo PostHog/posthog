@@ -41,7 +41,6 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -74,6 +73,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses

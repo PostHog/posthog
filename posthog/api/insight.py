@@ -905,7 +905,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
-        from posthog.api.alert import AlertSerializer
+        from products.alerts.backend.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
 
