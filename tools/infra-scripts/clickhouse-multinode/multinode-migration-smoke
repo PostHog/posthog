@@ -157,12 +157,30 @@ export DATABASE_URL="${DATABASE_URL:-postgres://posthog:posthog@localhost:5432/p
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export SECRET_KEY="${SECRET_KEY:-multinode-smoke-not-a-real-secret}"
 
-if [ "${KEEP_POSTGRES:-0}" = "1" ]; then
+if [ -n "${PRIME_POSTGRES_FROM:-}" ] && [ -f "${PRIME_POSTGRES_FROM}" ]; then
+    # CI primes Postgres from a cached schema dump produced by the
+    # "Validate migrations" job in ci-backend.yml. Loading via psql is much
+    # faster than running every Django migration from scratch. Pair this with
+    # SKIP_ASYNC_MIGRATIONS_SETUP=1 because PostHogConfig.ready() otherwise
+    # calls setup_async_migrations() and reads posthog_asyncmigration /
+    # posthog_instancesetting on every Django management command.
+    #
+    # The dump is created with `pg_dump --schema-only --clean --if-exists`
+    # plus a data-only dump of django_migrations, so it's idempotent against
+    # an existing fresh database (drops then recreates each object).
+    SMOKE_STAGE="prime_postgres"
+    echo "==> Priming Postgres from ${PRIME_POSTGRES_FROM}..."
+    gunzip -c "${PRIME_POSTGRES_FROM}" | psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 >/dev/null
+elif [ "${KEEP_POSTGRES:-0}" = "1" ]; then
     echo "==> KEEP_POSTGRES=1: skipping Django (Postgres) migrations"
 else
     SMOKE_STAGE="migrate_postgres"
-    # migrate_clickhouse reads `posthog_instancesetting` from Postgres, so the
-    # Django schema must exist before the ClickHouse step runs.
+    # migrate_clickhouse itself doesn't query Postgres, but every Django
+    # management command runs PostHogConfig.ready(), which calls
+    # setup_async_migrations() and reads posthog_asyncmigration /
+    # posthog_instancesetting. Set SKIP_ASYNC_MIGRATIONS_SETUP=1 to skip that
+    # read path; CI does that and points PRIME_POSTGRES_FROM at a cached
+    # schema dump so this branch is only taken on cache miss.
     echo "==> Running Django (Postgres) migrations..."
     python manage.py migrate --noinput
 fi
