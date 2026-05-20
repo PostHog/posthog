@@ -5,6 +5,15 @@ import { forwardRef, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import {
+    Button as QuillButton,
+    CUSTOM_RANGE,
+    DateTimePicker,
+    type DateTimeValue,
+    Popover as QuillPopover,
+    PopoverContent as QuillPopoverContent,
+    PopoverTrigger as QuillPopoverTrigger,
+} from '@posthog/quill'
 
 import {
     CUSTOM_OPTION_DESCRIPTION,
@@ -14,6 +23,7 @@ import {
     NO_OVERRIDE_RANGE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -26,6 +36,8 @@ import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
 import { dateFilterLogic } from './dateFilterLogic'
+import { dateTimePickerPreferenceLogic } from './dateTimePickerPreferenceLogic'
+import { DateTimePickerToggle } from './DateTimePickerToggle'
 import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
 import { JumpToTimestampPicker } from './JumpToTimestampPicker'
 import { RelativeDateRangeSelector } from './RelativeDateRangeSelector'
@@ -166,9 +178,33 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         forceGranularity ?? (dateFromHasTimePrecision ? 'minute' : 'day')
     )
 
+    const rebuildEnabled = useFeatureFlag('DATETIME_PICKER_REBUILD')
+    const { useNewPicker } = useValues(dateTimePickerPreferenceLogic)
+    const useQuillPicker = rebuildEnabled && useNewPicker
+
     const showFixedRangeTimeToggle = allowTimePrecision || allowFixedRangeWithTime
 
-    const popoverOverlay =
+    const [quillValue, setQuillValue] = useState<DateTimeValue>(() => ({
+        start: (rangeDateFrom ?? dayjs()).toDate(),
+        end: (rangeDateTo ?? dayjs()).toDate(),
+        range: CUSTOM_RANGE,
+    }))
+
+    const handleQuillApply = (val: DateTimeValue): void => {
+        setQuillValue(val)
+        setRangeDateFrom(dayjs(val.start))
+        setRangeDateTo(dayjs(val.end))
+        setExplicitDate(false)
+        applyRange()
+        close()
+    }
+
+    // When a Quill quick range is applied we know its name directly. Otherwise
+    // fall back to the legacy `label` which formats dateFrom/dateTo (and
+    // resolves preset strings like "-7d" → "Last 7 days").
+    const quillTriggerLabel = quillValue.range.id !== CUSTOM_RANGE.id ? quillValue.range.name : label
+
+    const legacyPopoverOverlay =
         view === DateFilterView.FixedRange ? (
             showFixedRangeTimeToggle && fixedRangeGranularity === 'minute' ? (
                 <FixedRangeWithTimePicker
@@ -382,30 +418,63 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             </div>
         )
 
+    if (useQuillPicker) {
+        return (
+            <div className={clsx('relative inline-flex', fullWidth && 'w-full')}>
+                <QuillPopover open={isVisible} onOpenChange={(o) => (o ? open() : close())}>
+                    <QuillPopoverTrigger
+                        render={
+                            <QuillButton
+                                ref={ref}
+                                variant="outline"
+                                size="lg"
+                                id="daterange_selector"
+                                data-attr="date-filter"
+                                disabled={!!disabledReason}
+                                title={disabledReason ?? formatResolvedDateRange(resolvedDateRange) ?? undefined}
+                                className={clsx('gap-1.5', fullWidth && 'w-full justify-start', className)}
+                            >
+                                <IconCalendar />
+                                <span className="text-nowrap">{quillTriggerLabel}</span>
+                            </QuillButton>
+                        }
+                    />
+                    <QuillPopoverContent align="start" sideOffset={4} className="p-0 w-auto">
+                        <DateTimePicker value={quillValue} onApply={handleQuillApply} onCancel={close} />
+                    </QuillPopoverContent>
+                </QuillPopover>
+                <DateTimePickerToggle />
+            </div>
+        )
+    }
+
     return (
         <Popover
             visible={isVisible}
-            overlay={popoverOverlay}
+            overlay={legacyPopoverOverlay}
             placement={dropdownPlacement}
             actionable
             additionalRefs={[rollingDateRangeRef]}
             onClickOutside={close}
             closeParentPopoverOnClickInside={false}
         >
-            <LemonButton
-                ref={ref}
-                id="daterange_selector"
-                size={size ?? 'small'}
-                type={type ?? 'secondary'}
-                disabledReason={disabledReason}
-                data-attr="date-filter"
-                icon={<IconCalendar />}
-                onClick={isVisible ? close : open}
-                fullWidth={fullWidth}
-                tooltip={formatResolvedDateRange(resolvedDateRange)}
-            >
-                <span className={clsx('text-nowrap', className)}>{label}</span>
-            </LemonButton>
+            <div className={clsx('relative', fullWidth && 'w-full')}>
+                <LemonButton
+                    ref={ref}
+                    id="daterange_selector"
+                    size={size ?? 'small'}
+                    type={type ?? 'secondary'}
+                    disabledReason={disabledReason}
+                    data-attr="date-filter"
+                    icon={<IconCalendar />}
+                    onClick={isVisible ? close : open}
+                    fullWidth={fullWidth}
+                    tooltip={formatResolvedDateRange(resolvedDateRange)}
+                >
+                    <span className={clsx('text-nowrap', className)}>{label}</span>
+                </LemonButton>
+                {rebuildEnabled && <DateTimePickerToggle />}
+            </div>
         </Popover>
     )
 })
