@@ -63,10 +63,19 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout"
-    queryset = SignalScoutRun.objects.all()
+    # `.unscoped()` bypasses the fail-closed TeamScopedManager; this class-attribute queryset
+    # evaluates at module-load time (before any request → no team context). All read paths
+    # in this viewset filter by `team_id` explicitly via the harness helpers, so leaving
+    # this unscoped is safe. Same shape `customer_analytics.AccountViewSet` uses.
+    queryset = SignalScoutRun.objects.unscoped()
     # Lookup is the run's UUID PK; DRF parses with the default `pk` URL kwarg.
     lookup_field = "id"
     lookup_value_regex = "[0-9a-f-]+"
+    # `list` returns a raw newest-first array (capped at limit=100 by the query serializer),
+    # not a paginated wrapper. Generated TS clients infer pagination from the global default
+    # otherwise, and the runtime shape diverges from the OpenAPI schema. Per-action overrides
+    # on POSTs (findings, delete) already disable pagination at the @action level.
+    pagination_class = None
 
     @validated_request(
         query_serializer=SearchRecentRunsQuerySerializer,
@@ -220,6 +229,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "signal_scout"
+    # `list` returns a raw newest-first array (capped at limit=100 by the query serializer),
+    # not a paginated wrapper. See SignalScoutRunViewSet for the same rationale.
+    pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         # `create` is a default DRF action so it has no `@action` decorator to set

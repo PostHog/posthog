@@ -119,21 +119,75 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
-    signals-agent-memory-create:
-        operation: signals_agent_memory_create
-        enabled: false
-    signals-agent-memory-list:
-        operation: signals_agent_memory_list
-        enabled: false
-    signals-agent-runs-findings-create:
-        operation: signals_agent_runs_findings_create
-        enabled: false
-    signals-agent-runs-list:
-        operation: signals_agent_runs_list
-        enabled: false
-    signals-agent-runs-retrieve:
-        operation: signals_agent_runs_retrieve
-        enabled: false
+    signals-scout-runs-list:
+        operation: signals_scout_runs_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List recent scout runs
+        description: >
+            Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless
+            scout to dedupe against work other runs already covered. ILIKE matches on `summary`; results capped at
+            100.
+    signals-scout-runs-retrieve:
+        operation: signals_scout_runs_retrieve
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scout run by ID
+        description: >
+            Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`,
+            `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
+    signals-scout-runs-findings-create:
+        operation: signals_scout_runs_findings_create
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Emit a finding for a run
+        description: >
+            Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with
+            `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same
+            `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag.
+    signals-scout-scratchpad-list:
+        operation: signals_scout_scratchpad_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Search durable scout memories
+        description: >
+            Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags filter via
+            Postgres array overlap. Expired `scout_inference` entries are hidden by default.
+    signals-scout-scratchpad-create:
+        operation: signals_scout_scratchpad_create
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Write or refresh a scout memory
+        description: >
+            Upsert a `scout_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in
+            place and resets its TTL. Cannot overwrite `human_confirmed` entries.
     signals-scout-scratchpad-delete:
         operation: signals_scout_scratchpad_delete
         enabled: true
@@ -143,10 +197,10 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        title: Forget an agent memory by key
+        title: Forget a scout memory by key
         description: >
-            Delete an `agent_inference` memory entry by key. Returns `deleted=false` if no row matched — the call is
-            idempotent. Cannot delete `human_confirmed` entries.
+            Delete a `scout_inference` memory entry by key. Returns `deleted=false` if no row matched — the call
+            is idempotent. Cannot delete `human_confirmed` entries.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false

@@ -12,6 +12,7 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
@@ -50,7 +51,11 @@ async def ateam(aorganization):
         organization=aorganization,
         name=f"SignalsScoutTestTeam-{random.randint(1, 99999)}",
     )
-    yield team
+    # Yield inside team_scope so dependent fixtures and test bodies have a team
+    # context for the TeamScopedRootMixin-backed scout models.
+    # `canonical=True` skips the sync DB resolution lookup (illegal from async).
+    with team_scope(team.id, canonical=True):
+        yield team
     await sync_to_async(team.delete)()
 
 
@@ -363,31 +368,36 @@ def test_record_task_linkage_persists_both_ids_into_metadata():
         ),
         name=f"link-test-team-{random.randint(1, 99999)}",
     )
-    config = SignalScoutConfig.objects.create(team=team)
-    run = SignalScoutRun.objects.create(
-        team=team,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
-        metadata={"limits": {"max_runtime_s": 1800}, "skill_id": "skill-uuid", "allowed_tools": {"declared": False}},
-    )
+    with team_scope(team.id, canonical=True):
+        config = SignalScoutConfig.objects.create(team=team)
+        run = SignalScoutRun.objects.create(
+            team=team,
+            scout_config=config,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+            status=SignalScoutRun.Status.RUNNING,
+            metadata={
+                "limits": {"max_runtime_s": 1800},
+                "skill_id": "skill-uuid",
+                "allowed_tools": {"declared": False},
+            },
+        )
 
-    _record_task_linkage(
-        run_id=str(run.id),
-        task_id="11111111-1111-1111-1111-111111111111",
-        task_run_id="22222222-2222-2222-2222-222222222222",
-    )
+        _record_task_linkage(
+            run_id=str(run.id),
+            task_id="11111111-1111-1111-1111-111111111111",
+            task_run_id="22222222-2222-2222-2222-222222222222",
+        )
 
-    run.refresh_from_db()
-    assert run.metadata["task_id"] == "11111111-1111-1111-1111-111111111111"
-    assert run.metadata["task_run_id"] == "22222222-2222-2222-2222-222222222222"
-    # Pre-existing keys must survive the merge — the run row is created with
-    # limits / skill_id / allowed_tools and clobbering them would lose the
-    # snapshot the rest of the harness reads back.
-    assert run.metadata["limits"] == {"max_runtime_s": 1800}
-    assert run.metadata["skill_id"] == "skill-uuid"
-    assert run.metadata["allowed_tools"] == {"declared": False}
+        run.refresh_from_db()
+        assert run.metadata["task_id"] == "11111111-1111-1111-1111-111111111111"
+        assert run.metadata["task_run_id"] == "22222222-2222-2222-2222-222222222222"
+        # Pre-existing keys must survive the merge — the run row is created with
+        # limits / skill_id / allowed_tools and clobbering them would lose the
+        # snapshot the rest of the harness reads back.
+        assert run.metadata["limits"] == {"max_runtime_s": 1800}
+        assert run.metadata["skill_id"] == "skill-uuid"
+        assert run.metadata["allowed_tools"] == {"declared": False}
 
 
 @pytest.mark.django_db
@@ -399,41 +409,46 @@ def test_finalize_failed_preserves_task_linkage():
         ),
         name=f"fail-link-team-{random.randint(1, 99999)}",
     )
-    skill = LLMSkill.objects.create(team=team, name="signals-scout-errors", description="x", body="x")
-    config = SignalScoutConfig.objects.create(team=team)
-    run = SignalScoutRun.objects.create(
-        team=team,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
-        metadata={"limits": {"max_runtime_s": 1800}, "skill_id": str(skill.id), "allowed_tools": {"declared": False}},
-    )
-    # Linkage was recorded mid-run (between session start and the failure).
-    _record_task_linkage(
-        run_id=str(run.id),
-        task_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-        task_run_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-    )
+    with team_scope(team.id, canonical=True):
+        skill = LLMSkill.objects.create(team=team, name="signals-scout-errors", description="x", body="x")
+        config = SignalScoutConfig.objects.create(team=team)
+        run = SignalScoutRun.objects.create(
+            team=team,
+            scout_config=config,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+            status=SignalScoutRun.Status.RUNNING,
+            metadata={
+                "limits": {"max_runtime_s": 1800},
+                "skill_id": str(skill.id),
+                "allowed_tools": {"declared": False},
+            },
+        )
+        # Linkage was recorded mid-run (between session start and the failure).
+        _record_task_linkage(
+            run_id=str(run.id),
+            task_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            task_run_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        )
 
-    loaded = load_skill_for_run(team_id=team.id, skill_name="signals-scout-errors", version=None)
-    _finalize_failed(
-        run_id=str(run.id),
-        exc=RuntimeError("sandbox died"),
-        runtime_s=12.5,
-        limits=DEFAULT_LIMITS,
-        skill=loaded,
-    )
+        loaded = load_skill_for_run(team=team, skill_name="signals-scout-errors", version=None)
+        _finalize_failed(
+            run_id=str(run.id),
+            exc=RuntimeError("sandbox died"),
+            runtime_s=12.5,
+            limits=DEFAULT_LIMITS,
+            skill=loaded,
+        )
 
-    run.refresh_from_db()
-    assert run.status == SignalScoutRun.Status.FAILED
-    # Failure annotation lands.
-    assert run.metadata["error_type"] == "RuntimeError"
-    # Task linkage survives — without the merge in `_finalize_failed`, the
-    # deep-link to the sandbox that actually died would be lost on the row a
-    # debugger needs to land on.
-    assert run.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    assert run.metadata["task_run_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        run.refresh_from_db()
+        assert run.status == SignalScoutRun.Status.FAILED
+        # Failure annotation lands.
+        assert run.metadata["error_type"] == "RuntimeError"
+        # Task linkage survives — without the merge in `_finalize_failed`, the
+        # deep-link to the sandbox that actually died would be lost on the row a
+        # debugger needs to land on.
+        assert run.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        assert run.metadata["task_run_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 
 def test_build_task_url_renders_relative_path_when_both_ids_present():
@@ -469,38 +484,39 @@ def test_to_summary_and_detail_surface_task_url_when_linkage_present():
         ),
         name=f"surface-team-{random.randint(1, 99999)}",
     )
-    config = SignalScoutConfig.objects.create(team=team)
-    run = SignalScoutRun.objects.create(
-        team=team,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.COMPLETED,
-        summary="ok",
-        metadata={
-            "limits": {"max_runtime_s": 1800},
-            "skill_id": "skill-uuid",
-            "allowed_tools": {"declared": False},
-            "task_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-            "task_run_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-        },
-    )
+    with team_scope(team.id, canonical=True):
+        config = SignalScoutConfig.objects.create(team=team)
+        run = SignalScoutRun.objects.create(
+            team=team,
+            scout_config=config,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+            status=SignalScoutRun.Status.COMPLETED,
+            summary="ok",
+            metadata={
+                "limits": {"max_runtime_s": 1800},
+                "skill_id": "skill-uuid",
+                "allowed_tools": {"declared": False},
+                "task_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "task_run_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            },
+        )
 
-    summary = _to_summary(run, team_id=team.id)
-    assert summary.task_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-    assert summary.task_run_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-    assert (
-        summary.task_url
-        == f"/project/{team.id}/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?runId=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-    )
+        summary = _to_summary(run, team_id=team.id)
+        assert summary.task_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        assert summary.task_run_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        assert (
+            summary.task_url
+            == f"/project/{team.id}/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?runId=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        )
 
-    detail = _to_detail(run, team_id=team.id)
-    assert detail.task_id == summary.task_id
-    assert detail.task_run_id == summary.task_run_id
-    assert detail.task_url == summary.task_url
-    # Detail still carries the raw metadata blob (the IDs are duplicated as
-    # top-level fields for callers that want them without dict access).
-    assert detail.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        detail = _to_detail(run, team_id=team.id)
+        assert detail.task_id == summary.task_id
+        assert detail.task_run_id == summary.task_run_id
+        assert detail.task_url == summary.task_url
+        # Detail still carries the raw metadata blob (the IDs are duplicated as
+        # top-level fields for callers that want them without dict access).
+        assert detail.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 
 @pytest.mark.django_db
@@ -512,19 +528,20 @@ def test_to_summary_and_detail_emit_null_task_url_when_linkage_missing():
         ),
         name=f"missing-team-{random.randint(1, 99999)}",
     )
-    config = SignalScoutConfig.objects.create(team=team)
-    run = SignalScoutRun.objects.create(
-        team=team,
-        scout_config=config,
-        skill_name="signals-scout-errors",
-        skill_version=1,
-        status=SignalScoutRun.Status.COMPLETED,
-        summary="ok",
-        # No task_id / task_run_id — represents either a row predating the
-        # linkage capture or a run that aborted before `MultiTurnSession.start()`
-        # returned (e.g. sandbox provisioning failure).
-        metadata={"limits": {"max_runtime_s": 1800}, "skill_id": "skill-uuid"},
-    )
+    with team_scope(team.id, canonical=True):
+        config = SignalScoutConfig.objects.create(team=team)
+        run = SignalScoutRun.objects.create(
+            team=team,
+            scout_config=config,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+            status=SignalScoutRun.Status.COMPLETED,
+            summary="ok",
+            # No task_id / task_run_id — represents either a row predating the
+            # linkage capture or a run that aborted before `MultiTurnSession.start()`
+            # returned (e.g. sandbox provisioning failure).
+            metadata={"limits": {"max_runtime_s": 1800}, "skill_id": "skill-uuid"},
+        )
 
-    assert _to_summary(run, team_id=team.id).task_url is None
-    assert _to_detail(run, team_id=team.id).task_url is None
+        assert _to_summary(run, team_id=team.id).task_url is None
+        assert _to_detail(run, team_id=team.id).task_url is None

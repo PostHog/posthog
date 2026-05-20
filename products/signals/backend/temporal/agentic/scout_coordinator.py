@@ -86,7 +86,13 @@ def _collect_planned_runs() -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt."""
     # TODO(phase 4): gate behind the `signals-scout-dogfood` feature flag once it
     # exists. For now the `enabled=False` default on `SignalScoutConfig` is the gate.
-    configs = list(SignalScoutConfig.objects.filter(enabled=True).select_related("team").order_by("team__id"))
+    # `.unscoped()` is intentional: the coordinator scans every team's config to plan
+    # cross-team runs. The default `.objects` manager is fail-closed (TeamScopedRootMixin)
+    # and would raise without an active team_scope — but this is the one caller for
+    # which "every team" is the correct answer, not a footgun.
+    configs = list(
+        SignalScoutConfig.objects.unscoped().filter(enabled=True).select_related("team").order_by("team__id")
+    )
     planned: list[PlannedRun] = []
     for config in configs:
         team = config.team

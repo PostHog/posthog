@@ -29,10 +29,10 @@ def _make_run(team, **overrides) -> SignalScoutRun:
 
 class TestAgentHarnessRunsAPI(APIBaseTest):
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/runs/"
+        return f"/api/projects/{self.team.id}/signals/scout/runs/"
 
     def _detail_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/"
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/"
 
     def test_list_returns_runs_for_team_newest_first(self) -> None:
         older = _make_run(self.team, summary="old work")
@@ -110,7 +110,7 @@ class TestAgentHarnessEmitFindingAPI(APIBaseTest):
         )
 
     def _findings_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/runs/{run_id}/findings/"
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/findings/"
 
     def _payload(self, **overrides) -> dict:
         body: dict = {
@@ -193,10 +193,10 @@ class TestAgentHarnessEmitFindingAPI(APIBaseTest):
 
 class TestAgentHarnessMemoryAPI(APIBaseTest):
     def _list_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/memory/"
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
 
     def _delete_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/agent/memory/delete/"
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/"
 
     def test_remember_creates_agent_inference_entry(self) -> None:
         body = {"key": "k1", "content": "checkout regression noise — already tracked", "tags": ["checkout"]}
@@ -204,7 +204,7 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["key"] == "k1"
-        assert data["authority"] == SignalScratchpad.Authority.AGENT_INFERENCE
+        assert data["authority"] == SignalScratchpad.Authority.SCOUT_INFERENCE
         assert data["tags"] == ["checkout"]
         # Default 7-day TTL applied — exact value not asserted, but expires_at must be set.
         assert data["expires_at"] is not None
@@ -234,14 +234,14 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
             team=self.team,
             key="active",
             content="still relevant",
-            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
             expires_at=timezone.now() + timedelta(days=1),
         )
         SignalScratchpad.objects.create(
             team=self.team,
             key="stale",
             content="aged out",
-            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
             expires_at=timezone.now() - timedelta(days=1),
         )
         response = self.client.get(self._list_url())
@@ -254,7 +254,7 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
             team=self.team,
             key="stale",
             content="aged out",
-            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
             expires_at=timezone.now() - timedelta(days=1),
         )
         response = self.client.get(f"{self._list_url()}?include_expired=true")

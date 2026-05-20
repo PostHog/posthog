@@ -1207,13 +1207,13 @@ projects_router.register(
 from products.signals.backend.scout_harness.views import SignalScoutRunViewSet, SignalScratchpadViewSet  # noqa: E402
 
 projects_router.register(
-    r"signals/agent/runs",
+    r"signals/scout/runs",
     SignalScoutRunViewSet,
     "environment_signals_scout_runs",
     ["team_id"],
 )
 projects_router.register(
-    r"signals/agent/memory",
+    r"signals/scout/scratchpad",
     SignalScratchpadViewSet,
     "environment_signals_scout_scratchpad",
     ["team_id"],

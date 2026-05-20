@@ -623,6 +623,36 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
+    def test_forbids_wildcard_scope_for_internal_required_scope_on_public_viewset(self):
+        """Regression: when a viewset's `scope_object` is public (e.g. `signal_scout`) but a
+        specific action's `required_scopes` targets an INTERNAL_API_SCOPE_OBJECTS object
+        (e.g. `signal_scout_internal:write`), `*` must NOT satisfy that action. Otherwise
+        a user-consented `*` token could write durable scout memory or emit findings —
+        bypassing the threat model that those scopes are sandbox-only.
+        """
+        self.access_token.scope = "*"
+        self.access_token.save()
+        response = self._do_request(
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/",
+            method="POST",
+            data={"key": "noop"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("signal_scout_internal:write", response.json()["detail"])
+
+    def test_allows_explicit_internal_write_scope_on_public_viewset(self):
+        """Sibling to the above: a token with explicit `signal_scout_internal:write` reaches
+        the same endpoint (validated_data parses, the forget tool reports deleted=false)."""
+        self.access_token.scope = "signal_scout_internal:write"
+        self.access_token.save()
+        response = self._do_request(
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/",
+            method="POST",
+            data={"key": "noop"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"deleted": False})
+
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")

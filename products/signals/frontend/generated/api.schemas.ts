@@ -7,89 +7,105 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * `SignalScratchpad` projection used by `search-memory` and `remember`.
- */
-export interface ScratchpadEntryApi {
-    /** Agent-chosen semantic key, unique per team. */
-    key: string
-    /** Prose content for prompt injection. */
-    content: string
-    /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
-    authority: string
-    /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
-    tags: string[]
+export interface PauseStateResponseApi {
     /**
-     * ISO-8601 creation timestamp.
+     * The timestamp the pipeline is paused until, or null if not paused/not running.
      * @nullable
      */
-    created_at: string | null
-    /**
-     * ISO-8601 last-write timestamp.
-     * @nullable
-     */
-    updated_at: string | null
-    /**
-     * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
-     * @nullable
-     */
-    expires_at: string | null
-    /**
-     * Run that wrote this entry, or null if human-authored.
-     * @nullable
-     */
-    created_by_run_id: string | null
+    paused_until: string | null
 }
 
-export interface PaginatedScratchpadEntryListApi {
+export interface PaginatedPauseStateResponseListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ScratchpadEntryApi[]
+    results: PauseStateResponseApi[]
+}
+
+export interface PauseUntilRequestApi {
+    /** Pause the grouping pipeline until this timestamp (ISO 8601). */
+    timestamp: string
+}
+
+export interface PauseResponseApi {
+    /** Always 'paused'. */
+    status: string
+    /** The timestamp the pipeline is paused until. */
+    paused_until: string
 }
 
 /**
- * Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.
+ * * `potential` - Potential
+ * `candidate` - Candidate
+ * `in_progress` - In Progress
+ * `pending_input` - Pending Input
+ * `ready` - Ready
+ * `resolved` - Resolved
+ * `failed` - Failed
+ * `deleted` - Deleted
+ * `suppressed` - Suppressed
  */
-export interface RememberRequestApi {
+export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
+
+export const SignalReportStatusEnumApi = {
+    Potential: 'potential',
+    Candidate: 'candidate',
+    InProgress: 'in_progress',
+    PendingInput: 'pending_input',
+    Ready: 'ready',
+    Resolved: 'resolved',
+    Failed: 'failed',
+    Deleted: 'deleted',
+    Suppressed: 'suppressed',
+} as const
+
+export interface SignalReportApi {
+    readonly id: string
+    /** @nullable */
+    readonly title: string | null
+    /** @nullable */
+    readonly summary: string | null
+    readonly status: SignalReportStatusEnumApi
+    readonly total_weight: number
+    readonly signal_count: number
+    readonly signals_at_run: number
+    readonly created_at: string
+    readonly updated_at: string
+    readonly artefact_count: number
     /**
-     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
-     * @maxLength 300
-     */
-    key: string
-    /** Prose to write. Read verbatim into future prompts. */
-    content: string
-    /** Tags for later search. Empty/whitespace tags are dropped. */
-    tags?: string[]
-    /**
-     * Days until expiry (default 7, hard cap 90).
-     * @minimum 1
-     * @maximum 90
-     */
-    ttl_days?: number
-    /**
-     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+     * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable
      */
-    run_id?: string | null
-}
-
-/**
- * Request body for `forget`. Only `agent_inference` keys can be deleted.
- */
-export interface ForgetRequestApi {
+    readonly priority: string | null
     /**
-     * Memory key to delete.
-     * @maxLength 300
+     * Actionability choice from the latest actionability judgment artefact (when present).
+     * @nullable
      */
-    key: string
+    readonly actionability: string | null
+    /**
+     * Whether the issue appears already fixed, from the actionability judgment artefact.
+     * @nullable
+     */
+    readonly already_addressed: boolean | null
+    readonly is_suggested_reviewer: boolean
+    /** Distinct source products contributing signals to this report (from ClickHouse). */
+    readonly source_products: readonly string[]
+    /**
+     * PR URL from the latest implementation task run, if available.
+     * @nullable
+     */
+    readonly implementation_pr_url: string | null
 }
 
-export interface ForgetResponseApi {
-    /** Whether a row was actually removed (false if the key didn't exist). */
-    deleted: boolean
+export interface PaginatedSignalReportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalReportApi[]
 }
 
 /**
@@ -130,15 +146,6 @@ export interface SignalScoutRunSummaryApi {
      * @nullable
      */
     task_url?: string | null
-}
-
-export interface PaginatedSignalScoutRunSummaryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SignalScoutRunSummaryApi[]
 }
 
 export type SignalScoutRunDetailApiFindingsItem = { [key: string]: unknown }
@@ -284,105 +291,80 @@ export interface EmitFindingResponseApi {
     skipped_reason: string | null
 }
 
-export interface PauseStateResponseApi {
+/**
+ * `SignalScratchpad` projection used by `search-memory` and `remember`.
+ */
+export interface ScratchpadEntryApi {
+    /** Agent-chosen semantic key, unique per team. */
+    key: string
+    /** Prose content for prompt injection. */
+    content: string
+    /** Always `agent_inference` in v1; reserved for future human-confirmed entries. */
+    authority: string
+    /** Free-form tags the agent uses to scope search; matched via Postgres array overlap. */
+    tags: string[]
     /**
-     * The timestamp the pipeline is paused until, or null if not paused/not running.
+     * ISO-8601 creation timestamp.
      * @nullable
      */
-    paused_until: string | null
-}
-
-export interface PaginatedPauseStateResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PauseStateResponseApi[]
-}
-
-export interface PauseUntilRequestApi {
-    /** Pause the grouping pipeline until this timestamp (ISO 8601). */
-    timestamp: string
-}
-
-export interface PauseResponseApi {
-    /** Always 'paused'. */
-    status: string
-    /** The timestamp the pipeline is paused until. */
-    paused_until: string
+    created_at: string | null
+    /**
+     * ISO-8601 last-write timestamp.
+     * @nullable
+     */
+    updated_at: string | null
+    /**
+     * ISO-8601 expiry timestamp (null = no expiry, reserved for future use).
+     * @nullable
+     */
+    expires_at: string | null
+    /**
+     * Run that wrote this entry, or null if human-authored.
+     * @nullable
+     */
+    created_by_run_id: string | null
 }
 
 /**
- * * `potential` - Potential
- * `candidate` - Candidate
- * `in_progress` - In Progress
- * `pending_input` - Pending Input
- * `ready` - Ready
- * `resolved` - Resolved
- * `failed` - Failed
- * `deleted` - Deleted
- * `suppressed` - Suppressed
+ * Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.
  */
-export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
-
-export const SignalReportStatusEnumApi = {
-    Potential: 'potential',
-    Candidate: 'candidate',
-    InProgress: 'in_progress',
-    PendingInput: 'pending_input',
-    Ready: 'ready',
-    Resolved: 'resolved',
-    Failed: 'failed',
-    Deleted: 'deleted',
-    Suppressed: 'suppressed',
-} as const
-
-export interface SignalReportApi {
-    readonly id: string
-    /** @nullable */
-    readonly title: string | null
-    /** @nullable */
-    readonly summary: string | null
-    readonly status: SignalReportStatusEnumApi
-    readonly total_weight: number
-    readonly signal_count: number
-    readonly signals_at_run: number
-    readonly created_at: string
-    readonly updated_at: string
-    readonly artefact_count: number
+export interface RememberRequestApi {
     /**
-     * P0–P4 from the latest priority judgment artefact (when present).
+     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+     * @maxLength 300
+     */
+    key: string
+    /** Prose to write. Read verbatim into future prompts. */
+    content: string
+    /** Tags for later search. Empty/whitespace tags are dropped. */
+    tags?: string[]
+    /**
+     * Days until expiry (default 7, hard cap 90).
+     * @minimum 1
+     * @maximum 90
+     */
+    ttl_days?: number
+    /**
+     * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
      * @nullable
      */
-    readonly priority: string | null
-    /**
-     * Actionability choice from the latest actionability judgment artefact (when present).
-     * @nullable
-     */
-    readonly actionability: string | null
-    /**
-     * Whether the issue appears already fixed, from the actionability judgment artefact.
-     * @nullable
-     */
-    readonly already_addressed: boolean | null
-    readonly is_suggested_reviewer: boolean
-    /** Distinct source products contributing signals to this report (from ClickHouse). */
-    readonly source_products: readonly string[]
-    /**
-     * PR URL from the latest implementation task run, if available.
-     * @nullable
-     */
-    readonly implementation_pr_url: string | null
+    run_id?: string | null
 }
 
-export interface PaginatedSignalReportListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SignalReportApi[]
+/**
+ * Request body for `forget`. Only `agent_inference` keys can be deleted.
+ */
+export interface ForgetRequestApi {
+    /**
+     * Memory key to delete.
+     * @maxLength 300
+     */
+    key: string
+}
+
+export interface ForgetResponseApi {
+    /** Whether a row was actually removed (false if the key didn't exist). */
+    deleted: boolean
 }
 
 /**
@@ -525,52 +507,6 @@ export interface SignalUserAutonomyConfigApi {
     readonly updated_at: string
 }
 
-export type SignalsAgentMemoryListParams = {
-    /**
-     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
-     */
-    include_expired?: boolean
-    /**
-     * Max rows to return (default 20, hard cap 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
-     */
-    tags?: string[]
-    /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
-     */
-    text?: string
-}
-
-export type SignalsAgentRunsListParams = {
-    /**
-     * Max rows to return (default 20, hard cap 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * ISO-8601 lower bound on `started_at`. Use to scope to a recent window.
-     */
-    since?: string
-    /**
-     * ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.
-     */
-    text?: string
-}
-
 export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -611,6 +547,44 @@ export type SignalsReportsListParams = {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string
+}
+
+export type SignalsScoutRunsListParams = {
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * ISO-8601 lower bound on `started_at`. Use to scope to a recent window.
+     */
+    since?: string
+    /**
+     * ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.
+     */
+    text?: string
+}
+
+export type SignalsScoutScratchpadListParams = {
+    /**
+     * Include expired `agent_inference` entries (default false). Use for audit/debug only.
+     */
+    include_expired?: boolean
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.
+     */
+    tags?: string[]
+    /**
+     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     */
+    text?: string
 }
 
 export type SignalsSourceConfigsListParams = {

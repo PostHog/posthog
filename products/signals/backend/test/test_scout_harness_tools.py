@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import pytest_asyncio
 
+from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutRun, SignalScratchpad
@@ -151,14 +152,14 @@ class TestRemember(BaseTest):
         entry = remember(team_id=self.team.id, key="known-noise", content="ignore /favicon 404s")
 
         row = SignalScratchpad.objects.get(team_id=self.team.id, key="known-noise")
-        assert row.authority == SignalScratchpad.Authority.AGENT_INFERENCE
+        assert row.authority == SignalScratchpad.Authority.SCOUT_INFERENCE
         assert row.content == "ignore /favicon 404s"
         assert row.expires_at is not None
         elapsed = (row.expires_at - before).total_seconds()
         # Default 7-day TTL: allow ±10s of slack for query execution.
         assert abs(elapsed - timedelta(days=DEFAULT_SCRATCHPAD_TTL_DAYS).total_seconds()) < 10
         assert entry.key == "known-noise"
-        assert entry.authority == SignalScratchpad.Authority.AGENT_INFERENCE
+        assert entry.authority == SignalScratchpad.Authority.SCOUT_INFERENCE
 
     def test_idempotent_upsert_on_team_key(self) -> None:
         first = remember(team_id=self.team.id, key="k", content="v1")
@@ -245,14 +246,14 @@ class TestSearchMemory(BaseTest):
             team=self.team,
             key="active",
             content="active",
-            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
             expires_at=timezone.now() + timedelta(days=1),
         )
         SignalScratchpad.objects.create(
             team=self.team,
             key="expired",
             content="expired",
-            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
             expires_at=timezone.now() - timedelta(days=1),
         )
 
@@ -267,7 +268,7 @@ class TestSearchMemory(BaseTest):
             team=self.team,
             key="expired",
             content="expired",
-            authority=SignalScratchpad.Authority.AGENT_INFERENCE,
+            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
             expires_at=timezone.now() - timedelta(days=1),
         )
 
@@ -599,13 +600,19 @@ async def ateam_emit(aorganization_emit):
     # Default to enabled in tests so the existing happy-path / failure-path emit
     # tests stay focused on what they actually exercise. Tests that exercise the
     # gates themselves create their own SignalSourceConfig overrides.
-    await database_sync_to_async(SignalSourceConfig.objects.create)(
-        team=team,
-        source_product="signals_scout",
-        source_type="cross_source_issue",
-        enabled=True,
-    )
-    return team
+    # `yield` inside `team_scope` so dependent fixtures (arun_emit) and the test
+    # body run with team context — scout models use TeamScopedRootMixin and
+    # `Model.objects.X()` raises TeamScopeError without it. `canonical=True`
+    # skips the sync DB resolution lookup (illegal from async fixtures); the
+    # freshly-created team has no parent so the id is already canonical.
+    with team_scope(team.id, canonical=True):
+        await database_sync_to_async(SignalSourceConfig.objects.create)(
+            team=team,
+            source_product="signals_scout",
+            source_type="cross_source_issue",
+            enabled=True,
+        )
+        yield team
 
 
 @pytest_asyncio.fixture

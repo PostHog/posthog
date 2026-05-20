@@ -11,6 +11,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.models.skills import LLMSkill
@@ -42,12 +43,19 @@ async def ateam(aorganization):
         organization=aorganization,
         name=f"SignalsCoordinatorTestTeam-{random.randint(1, 99999)}",
     )
-    yield team
+    # Scout models use TeamScopedRootMixin (fail-closed); yield inside team_scope
+    # so test bodies that touch `Model.objects.X()` find a context.
+    # `canonical=True` skips the sync DB resolution lookup (illegal from async).
+    with team_scope(team.id, canonical=True):
+        yield team
     await sync_to_async(team.delete)()
 
 
 @pytest_asyncio.fixture
 async def aother_team(aorganization):
+    # Sibling team used by cross-team tests; do NOT enter `team_scope` for it
+    # (only one scope can be active at a time, and `ateam` is the primary one).
+    # Cross-team writes should use `team_scope(aother_team.id, canonical=True)` explicitly.
     team = await sync_to_async(Team.objects.create)(
         organization=aorganization,
         name=f"SignalsCoordinatorOtherTeam-{random.randint(1, 99999)}",

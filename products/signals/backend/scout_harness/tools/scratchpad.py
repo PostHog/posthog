@@ -114,7 +114,7 @@ def remember(
                 team_id=team_id,
                 key=key,
                 content=content,
-                authority=SignalScratchpad.Authority.AGENT_INFERENCE,
+                authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
                 tags=normalized_tags,
                 expires_at=expires_at,
                 created_by_run_id=run_id,
@@ -123,7 +123,7 @@ def remember(
             existing.content = content
             existing.tags = normalized_tags
             existing.expires_at = expires_at
-            # Authority stays `agent_inference` — we already rejected human-confirmed above.
+            # Authority stays `scout_inference` — we already rejected human-confirmed above.
             # Don't overwrite `created_by_run` so we keep the original creator's lineage.
             existing.save(update_fields=["content", "tags", "expires_at", "updated_at"])
             row = existing

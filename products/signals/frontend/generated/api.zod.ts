@@ -10,72 +10,38 @@
 import * as zod from 'zod'
 
 /**
- * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
- * @summary Write or refresh an agent memory
+ * View and control signal processing pipeline state for a team.
  */
-export const signalsAgentMemoryCreateBodyKeyMax = 300
-
-export const signalsAgentMemoryCreateBodyTtlDaysMax = 90
-
-export const SignalsAgentMemoryCreateBody = /* @__PURE__ */ zod
-    .object({
-        key: zod
-            .string()
-            .max(signalsAgentMemoryCreateBodyKeyMax)
-            .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
-        content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
-        tags: zod.array(zod.string()).optional().describe('Tags for later search. Empty\/whitespace tags are dropped.'),
-        ttl_days: zod
-            .number()
-            .min(1)
-            .max(signalsAgentMemoryCreateBodyTtlDaysMax)
-            .optional()
-            .describe('Days until expiry (default 7, hard cap 90).'),
-        run_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
-            ),
-    })
-    .describe('Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.')
-
-/**
- * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
- * @summary Delete an agent memory by key
- */
-export const signalsScoutScratchpadDeleteBodyKeyMax = 300
-
-export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
-    .object({
-        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
-    })
-    .describe('Request body for `forget`. Only `agent_inference` keys can be deleted.')
+export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
+    timestamp: zod.iso
+        .datetime({ offset: true })
+        .describe('Pause the grouping pipeline until this timestamp (ISO 8601).'),
+})
 
 /**
  * Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external emit is a no-op.
  * @summary Emit a finding for a run
  */
-export const signalsAgentRunsFindingsCreateBodyWeightMin = 0
-export const signalsAgentRunsFindingsCreateBodyWeightMax = 1
+export const signalsScoutRunsFindingsCreateBodyWeightMin = 0
+export const signalsScoutRunsFindingsCreateBodyWeightMax = 1
 
-export const signalsAgentRunsFindingsCreateBodyConfidenceMin = 0
-export const signalsAgentRunsFindingsCreateBodyConfidenceMax = 1
+export const signalsScoutRunsFindingsCreateBodyConfidenceMin = 0
+export const signalsScoutRunsFindingsCreateBodyConfidenceMax = 1
 
-export const signalsAgentRunsFindingsCreateBodyEvidenceMax = 20
+export const signalsScoutRunsFindingsCreateBodyEvidenceMax = 20
 
-export const SignalsAgentRunsFindingsCreateBody = /* @__PURE__ */ zod
+export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().describe("Canonical evidence-bundle prose. Becomes the signal's `description`."),
         weight: zod
             .number()
-            .min(signalsAgentRunsFindingsCreateBodyWeightMin)
-            .max(signalsAgentRunsFindingsCreateBodyWeightMax)
+            .min(signalsScoutRunsFindingsCreateBodyWeightMin)
+            .max(signalsScoutRunsFindingsCreateBodyWeightMax)
             .describe("Agent's weight for the signal in [0, 1]. Drives ranking in the inbox."),
         confidence: zod
             .number()
-            .min(signalsAgentRunsFindingsCreateBodyConfidenceMin)
-            .max(signalsAgentRunsFindingsCreateBodyConfidenceMax)
+            .min(signalsScoutRunsFindingsCreateBodyConfidenceMin)
+            .max(signalsScoutRunsFindingsCreateBodyConfidenceMax)
             .describe("Agent's confidence the finding is real in [0, 1]. Persisted in `extra`."),
         evidence: zod
             .array(
@@ -96,7 +62,7 @@ export const SignalsAgentRunsFindingsCreateBody = /* @__PURE__ */ zod
                     })
                     .describe('One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.')
             )
-            .max(signalsAgentRunsFindingsCreateBodyEvidenceMax)
+            .max(signalsScoutRunsFindingsCreateBodyEvidenceMax)
             .describe('Citations supporting the finding. Capped at 20 entries.'),
         hypothesis: zod.string().nullish().describe('Optional one-line hypothesis the finding tests.'),
         severity: zod.string().nullish().describe('Optional severity tag (`P0`-`P4`) — informational only.'),
@@ -123,13 +89,47 @@ export const SignalsAgentRunsFindingsCreateBody = /* @__PURE__ */ zod
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
 /**
- * View and control signal processing pipeline state for a team.
+ * Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries.
+ * @summary Write or refresh an agent memory
  */
-export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
-    timestamp: zod.iso
-        .datetime({ offset: true })
-        .describe('Pause the grouping pipeline until this timestamp (ISO 8601).'),
-})
+export const signalsScoutScratchpadCreateBodyKeyMax = 300
+
+export const signalsScoutScratchpadCreateBodyTtlDaysMax = 90
+
+export const SignalsScoutScratchpadCreateBody = /* @__PURE__ */ zod
+    .object({
+        key: zod
+            .string()
+            .max(signalsScoutScratchpadCreateBodyKeyMax)
+            .describe('Agent-chosen semantic key. Re-using a key updates the existing entry in place.'),
+        content: zod.string().describe('Prose to write. Read verbatim into future prompts.'),
+        tags: zod.array(zod.string()).optional().describe('Tags for later search. Empty\/whitespace tags are dropped.'),
+        ttl_days: zod
+            .number()
+            .min(1)
+            .max(signalsScoutScratchpadCreateBodyTtlDaysMax)
+            .optional()
+            .describe('Days until expiry (default 7, hard cap 90).'),
+        run_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.'
+            ),
+    })
+    .describe('Request body for `remember`. Authority is always `agent_inference` — humans use Django admin.')
+
+/**
+ * Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. Cannot delete `human_confirmed` entries — those are human-managed only.
+ * @summary Delete an agent memory by key
+ */
+export const signalsScoutScratchpadDeleteBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDeleteBody = /* @__PURE__ */ zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDeleteBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`. Only `agent_inference` keys can be deleted.')
 
 export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
