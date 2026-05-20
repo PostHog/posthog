@@ -20,6 +20,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -39,6 +40,24 @@ from products.wizard.backend.presentation.serializers import (
 from products.wizard.backend.presentation.utils import pagination_window
 
 logger = structlog.get_logger(__name__)
+
+
+class EventStreamRenderer(BaseRenderer):
+    """SSE pass-through renderer.
+
+    DRF's content negotiation 406s any request whose Accept header doesn't match
+    a registered renderer. EventSource sends `Accept: text/event-stream`, which
+    nothing else in PostHog handles, so we register a minimal renderer that
+    advertises the media type. The actual response body comes from
+    StreamingHttpResponse — this renderer is never invoked to render.
+    """
+
+    media_type = "text/event-stream"
+    format = "event-stream"
+    charset = "utf-8"
+
+    def render(self, data: Any, accepted_media_type: str | None = None, renderer_context: Any = None) -> bytes:
+        return data if isinstance(data, bytes) else b""
 
 
 def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> None:
@@ -217,7 +236,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             }
         },
     )
-    @action(detail=False, methods=["get"], url_path="stream")
+    @action(detail=False, methods=["get"], url_path="stream", renderer_classes=[EventStreamRenderer])
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         workflow_id = request.query_params.get("workflow_id")
         skill_id = request.query_params.get("skill_id")
