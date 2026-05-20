@@ -1,9 +1,9 @@
 import { Node as PMNode } from 'prosemirror-model'
 import { describe, expect, it, vi } from 'vitest'
 
-import { diffDocsToSteps } from '@/tools/notebooks/diffSteps'
+import { diffDocsToSteps } from '@/lib/prosemirror/diff'
 import { editHandler, JSON_INDENT, NotebookEditSchema } from '@/tools/notebooks/edit'
-import { buildSchemaForDoc, packDocAttrs } from '@/tools/notebooks/schema'
+import { buildSchemaForDoc, packDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context } from '@/tools/types'
 
 const sampleDoc = {

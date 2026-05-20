@@ -81,8 +81,7 @@ export function rebaseSteps(
                 message:
                     `Could not parse missed step #${i} returned by the server: ${
                         e instanceof Error ? e.message : String(e)
-                    }. ` +
-                    'This is usually a transient schema mismatch — re-fetch the notebook with `notebooks-retrieve` and retry.',
+                    }. ` + 'This is usually a transient schema mismatch — refetch the source document and retry.',
                 details: { missed_index: i },
             }
         }
@@ -93,7 +92,7 @@ export function rebaseSteps(
                 code: 'invalid_missed_step',
                 message:
                     `Missed step #${i} returned by the server failed to apply locally: ${applied.reason}. ` +
-                    'Re-fetch the notebook with `notebooks-retrieve` and retry.',
+                    'Refetch the source document and retry.',
                 details: { missed_index: i, reason: applied.reason },
             }
         }
@@ -111,7 +110,7 @@ export function rebaseSteps(
                 code: 'step_dropped',
                 message:
                     `Pending step #${i} was dropped during rebase — the range it targeted was deleted by a concurrent edit. ` +
-                    'Re-fetch the notebook with `notebooks-retrieve` so you can see the new state, then re-issue your patch with adjusted context.',
+                    'Refetch the source document so you can see the new state, then re-issue your edit against it.',
                 details: { dropped_index: i },
             }
         }
@@ -123,7 +122,7 @@ export function rebaseSteps(
                 message:
                     `Pending step #${i} failed to apply after rebase: ${applied.reason}. ` +
                     'A concurrent edit changed the structure in a way that makes your edit incompatible. ' +
-                    'Re-fetch the notebook with `notebooks-retrieve` and re-issue the patch against the new state.',
+                    'Refetch the source document and re-issue the edit against the new state.',
                 details: { failed_index: i, reason: applied.reason },
             }
         }

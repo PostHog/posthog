@@ -1,14 +1,14 @@
 /**
- * Builds a permissive ProseMirror schema dynamically from a notebook
- * document so we can parse it without maintaining a hand-rolled list of
- * supported node/mark types.
+ * Builds a permissive ProseMirror schema dynamically from a document so we
+ * can parse it without maintaining a hand-rolled list of supported node and
+ * mark types.
  *
- * The notebook's canonical schema lives in the frontend TipTap config (heading,
- * paragraph, ph-* nodes, custom marks). Reproducing that schema in the MCP
- * worker would couple us to every frontend addition; instead we walk the doc
- * JSON, collect every node and mark type we encounter, and register a generic
- * spec for each. The result accepts `Node.fromJSON` for any well-formed
- * notebook content the agent might have just fetched.
+ * The canonical schema for any product using TipTap/ProseMirror lives in
+ * the frontend's extension config. Reproducing that schema in the MCP
+ * worker would couple us to every frontend addition; instead we walk the
+ * doc JSON, collect every node and mark type we encounter, and register a
+ * generic spec for each. The result accepts `Node.fromJSON` for any
+ * well-formed document the agent might have just fetched.
  *
  * What this schema is good for:
  *   - `Node.fromJSON(schema, content)` round-tripping the agent's input.
@@ -16,10 +16,10 @@
  *
  * What it deliberately doesn't model:
  *   - Validation of content rules (e.g. `<table><row><cell>` ordering). The
- *     server doesn't validate steps either — peers apply them via
- *     `receiveTransaction`, and the canonical schema is what gets enforced
- *     there. If our generated step JSON applies cleanly against the same
- *     `version` on a peer, we're good.
+ *     server side typically doesn't validate steps either — peers apply them
+ *     via `receiveTransaction`, and the canonical schema is what gets
+ *     enforced there. If our generated step JSON applies cleanly against
+ *     the same `version` on a peer, we're good.
  */
 import { type MarkSpec, type NodeSpec, Schema } from 'prosemirror-model'
 
@@ -149,18 +149,18 @@ export function buildSchemaForDoc(doc: ProseMirrorNodeJSON | ProseMirrorNodeJSON
 }
 
 /**
- * Pre-process a notebook JSON doc so it can be parsed by a schema that
- * declares a single `attrs` passthrough attribute. The wire format from the
- * PostHog API spreads attributes at the top level of each node (e.g.
- * `{ type: 'heading', attrs: { level: 1 } }`) — our schema accepts an `attrs`
- * attr of any shape, so we just leave the original `attrs` object in place
- * but pack it under our wrapper key. We also collapse marks the same way.
+ * Pre-process a document JSON so it can be parsed by a schema that declares
+ * a single `attrs` passthrough attribute. The wire format spreads node
+ * attributes at the top level (`{ type: 'heading', attrs: { level: 1 } }`)
+ * — our schema accepts an `attrs` attr of any shape, so we just leave the
+ * original `attrs` object in place but pack it under our wrapper key. Marks
+ * get the same treatment.
  */
 export function packDocAttrs(json: ProseMirrorNodeJSON): ProseMirrorNodeJSON {
     const out: ProseMirrorNodeJSON = { type: json.type }
     if (json.type !== TEXT_NODE) {
         // Carry the original attrs object verbatim under our single passthrough key
-        // so we never have to enumerate notebook-specific attribute names.
+        // so we never have to enumerate product-specific attribute names.
         if (json.attrs !== undefined) {
             out.attrs = { attrs: json.attrs as unknown as Record<string, unknown> }
         } else {

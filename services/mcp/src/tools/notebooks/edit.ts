@@ -29,9 +29,9 @@ import type { Schemas } from '@/api/generated'
 import { AnalyticsEvent } from '@/lib/analytics'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { type DiffErr, diffDocsToSteps } from './diffSteps'
+import { type DiffErr, diffDocsToSteps } from '@/lib/prosemirror/diff'
 import { saveStepsWithRebase, type SaveErr } from './saveLoop'
-import { buildSchemaForDoc, packDocAttrs } from './schema'
+import { buildSchemaForDoc, packDocAttrs } from '@/lib/prosemirror/schema'
 
 /** Indentation used when serializing the notebook content for str_replace. */
 export const JSON_INDENT = 2

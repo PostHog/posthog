@@ -16,8 +16,8 @@ import type { Step } from 'prosemirror-transform'
 import type { Schemas } from '@/api/generated'
 import type { Context } from '@/tools/types'
 
-import { type RebaseErr, rebaseSteps } from './rebase'
-import { unpackDocAttrs } from './schema'
+import { type RebaseErr, rebaseSteps } from '@/lib/prosemirror/rebase'
+import { unpackDocAttrs } from '@/lib/prosemirror/schema'
 
 export const MAX_REBASE_ATTEMPTS = 3
 

@@ -8,9 +8,9 @@
 import { Node as PMNode } from 'prosemirror-model'
 import { describe, expect, it } from 'vitest'
 
-import { diffDocsToSteps } from '@/tools/notebooks/diffSteps'
-import { rebaseSteps } from '@/tools/notebooks/rebase'
-import { buildSchemaForDoc, packDocAttrs, unpackDocAttrs } from '@/tools/notebooks/schema'
+import { diffDocsToSteps } from '@/lib/prosemirror/diff'
+import { rebaseSteps } from '@/lib/prosemirror/rebase'
+import { buildSchemaForDoc, packDocAttrs, unpackDocAttrs } from '@/lib/prosemirror/schema'
 
 const sampleDoc = {
     type: 'doc',

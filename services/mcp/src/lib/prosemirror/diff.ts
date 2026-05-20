@@ -125,7 +125,7 @@ export function diffDocsToSteps(oldDoc: PMNode, newDoc: PMNode): DiffOk | DiffEr
             message:
                 `Computed ReplaceStep failed to apply: ${applied.failed ?? 'unknown'}. ` +
                 'This usually means the edit produced an invalid block structure. ' +
-                'Re-check that the resulting notebook still has at least one block.',
+                'Re-check that the resulting document still has at least one block.',
         }
     }
     return { ok: true, steps: [step] }
