@@ -74,6 +74,7 @@ struct RawProxyInner {
     replica: Arc<ReplicaBackend>,
     leader: Option<Arc<LeaderBackend>>,
     retry_config: RetryConfig,
+    max_recv_message_size: usize,
 }
 
 impl RawProxyService {
@@ -81,12 +82,14 @@ impl RawProxyService {
         replica: Arc<ReplicaBackend>,
         leader: Option<Arc<LeaderBackend>>,
         retry_config: RetryConfig,
+        max_recv_message_size: usize,
     ) -> Self {
         Self {
             inner: Arc::new(RawProxyInner {
                 replica,
                 leader,
                 retry_config,
+                max_recv_message_size,
             }),
         }
     }
@@ -196,14 +199,9 @@ impl RawProxyInner {
     ) -> http::Response<BoxBody> {
         let (parts, body) = req.into_parts();
 
-        let body_bytes = match body.collect().await {
-            Ok(collected) => collected.to_bytes(),
-            Err(e) => {
-                return grpc_error_response(
-                    Code::Internal,
-                    &format!("failed to read request body: {e}"),
-                );
-            }
+        let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
+            Ok(b) => b,
+            Err(resp) => return resp,
         };
 
         let new_path = format!("{REPLICA_PREFIX}{method}");
@@ -281,7 +279,7 @@ impl RawProxyInner {
             }
         };
 
-        let body_bytes = match collect_request_body(req).await {
+        let body_bytes = match collect_request_body(req, self.max_recv_message_size).await {
             Ok(b) => b,
             Err(resp) => return resp,
         };
@@ -310,7 +308,7 @@ impl RawProxyInner {
             }
         };
 
-        let body_bytes = match collect_request_body(req).await {
+        let body_bytes = match collect_request_body(req, self.max_recv_message_size).await {
             Ok(b) => b,
             Err(resp) => return resp,
         };
@@ -330,12 +328,34 @@ impl RawProxyInner {
 
 async fn collect_request_body(
     req: http::Request<BoxBody>,
+    max_bytes: usize,
 ) -> Result<Bytes, http::Response<BoxBody>> {
     let (_, body) = req.into_parts();
-    body.collect()
-        .await
-        .map(|collected| collected.to_bytes())
-        .map_err(|e| grpc_error_response(Code::Internal, &format!("failed to read body: {e}")))
+    collect_body_limited(body, max_bytes).await
+}
+
+async fn collect_body_limited(
+    mut body: BoxBody,
+    max_bytes: usize,
+) -> Result<Bytes, http::Response<BoxBody>> {
+    let mut buf = Vec::new();
+
+    while let Some(frame_result) = body.frame().await {
+        let frame = frame_result.map_err(|e| {
+            grpc_error_response(Code::Internal, &format!("failed to read body: {e}"))
+        })?;
+        if let Ok(data) = frame.into_data() {
+            if buf.len() + data.len() > max_bytes {
+                return Err(grpc_error_response(
+                    Code::ResourceExhausted,
+                    &format!("received message larger than max ({max_bytes} bytes)"),
+                ));
+            }
+            buf.extend_from_slice(&data);
+        }
+    }
+
+    Ok(Bytes::from(buf))
 }
 
 #[allow(clippy::result_large_err)]
@@ -595,5 +615,35 @@ mod tests {
         assert_eq!(percent_encode_grpc("hello world"), "hello%20world");
         assert_eq!(percent_encode_grpc("a/b"), "a%2Fb");
         assert_eq!(percent_encode_grpc("a:b"), "a%3Ab");
+    }
+
+    #[tokio::test]
+    async fn collect_body_limited_accepts_within_limit() {
+        let data = Bytes::from(vec![0u8; 100]);
+        let body = BoxBody::new(Full::new(data.clone()).map_err(|never| match never {}));
+        let result = collect_body_limited(body, 100).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 100);
+    }
+
+    #[tokio::test]
+    async fn collect_body_limited_rejects_over_limit() {
+        let data = Bytes::from(vec![0u8; 101]);
+        let body = BoxBody::new(Full::new(data).map_err(|never| match never {}));
+        let result = collect_body_limited(body, 100).await;
+        assert!(result.is_err());
+        let resp = result.unwrap_err();
+        assert_eq!(
+            resp.headers().get("grpc-status").unwrap(),
+            &format!("{}", Code::ResourceExhausted as i32),
+        );
+    }
+
+    #[tokio::test]
+    async fn collect_body_limited_accepts_empty() {
+        let body = BoxBody::new(Empty::<Bytes>::new().map_err(|never| match never {}));
+        let result = collect_body_limited(body, 100).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 }

@@ -762,7 +762,7 @@ pub async fn start_test_router_raw(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, None, retry_config);
+    let proxy = RawProxyService::new(replica, None, retry_config, 4 * 1024 * 1024);
 
     tokio::spawn(async move {
         Server::builder()
@@ -792,7 +792,7 @@ pub async fn start_test_router_raw_with_leader(
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let proxy = RawProxyService::new(replica, Some(leader), retry_config);
+    let proxy = RawProxyService::new(replica, Some(leader), retry_config, 4 * 1024 * 1024);
 
     tokio::spawn(async move {
         Server::builder()
