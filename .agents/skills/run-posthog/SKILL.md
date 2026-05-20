@@ -42,37 +42,44 @@ For richer detail, use the `phrocs` MCP server — it reports per-process status
 
 A healthy stack reports `status:"running"` and `ready:true` for `backend`, `frontend`, `capture`, `celery-worker`, `ingestion`, `nodejs`. `migrate-*` units should be `done` with `exit_code:0`.
 
-## Get a real test user
-
-The codebase convention everywhere — Playwright suite, management commands, e2e fixtures — is `test@posthog.com` / `12345678`. The user is created by `hogli dev:demo-data` (= `python manage.py generate_demo_data`); `hogli dev:reset` creates it as part of the full bootstrap.
-
-```bash
-hogli dev:demo-data   # creates test@posthog.com:12345678 + demo events. Slow (~5 min on first run).
-hogli dev:api-key     # creates the stable personal API key phx_dev_local_test_api_key_1234567890abcdef tied to that user
-```
-
-If `hogli up -d` is the first thing you've run after a fresh checkout, the test user does NOT exist yet — `POST /api/login/` will return `invalid_credentials` until `dev:demo-data` has run.
-
 ## Drive the UI for /verify
 
-The recipe a browser MCP follows to take an authenticated screenshot of a scene:
+Every empty PostHog scene looks broken because no events exist. To verify a UI change, you need a workspace with realistic data. The canonical path is the same one the Playwright suite uses: `POST /api/setup_test/organization_with_team/`. Gated on `DEBUG=True | E2E_TESTING | CI | TEST`, all of which local dev satisfies via `DEBUG=True`. Implementation: `posthog/api/playwright_setup.py` + `posthog/test/playwright_setup_functions.py:create_organization_with_team` — 3 clusters via `HedgeboxMatrix`, ~5-10s end to end. Reference call site: `playwright/utils/playwright-setup.ts:251`.
 
-1. `navigate` to `http://localhost:8010/login`.
-2. `evaluate` the in-page login fetch. This is the codebase-canonical pattern from `playwright/utils/playwright-setup.ts:282-291` — running the POST in the page context means Django's CSRF middleware sees the right cookies.
+Avoid `hogli dev:demo-data` for /run and /verify — it calls `generate_demo_data` with `n_clusters=500` (default at `posthog/management/commands/generate_demo_data.py:59`) and takes 5-30 minutes. It exists for humans who want a big realistic dataset to play with; it's the wrong tool for automated launch-and-screenshot.
+
+The full browser-MCP recipe:
+
+1. `new_page` `http://localhost:8010/login`.
+2. `evaluate_script` the workspace bootstrap. Per-call email so reruns don't collide; password fixed at `12345678`; response gives back the team_id and a personal API key.
+
+   ```js
+   const r = await fetch('/api/setup_test/organization_with_team/', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ data: { skip_onboarding: true } }),
+   })
+   const { result } = await r.json()
+   // result: { user_email, team_id, personal_api_key, organization_id, ... }
+   return result
+   ```
+
+3. `evaluate_script` the in-page login. Runs in the page context so Django's CSRF middleware sees the right cookies (`playwright/utils/playwright-setup.ts:282-291`).
 
    ```js
    const r = await fetch('/api/login/', {
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({ email: 'test@posthog.com', password: '12345678' }),
+     body: JSON.stringify({ email: workspace.user_email, password: '12345678' }),
    })
-   return r.status // 200 = logged in; 400 = bad creds; 403 = CSRF (you're not in-page)
+   return r.status // 200 = logged in; 403 = you're not in-page; 400 = workspace setup didn't actually create the user
    ```
 
-3. `evaluate` `(await fetch('/api/users/@me/').then(r => r.json())).team.id` to discover the team_id (`1` on a single-user dev stack).
-4. `navigate` to `http://localhost:8010/project/{team_id}{scene-path}`.
-5. Wait for a `[data-attr]` element — PostHog's test-id convention, attached to virtually every rendered element. Use this as your "page hydrated" signal; `networkidle` and `load` never settle because PostHog.js and Vite HMR keep polling.
-6. `screenshot`.
+4. `navigate_page` to `http://localhost:8010/project/{team_id}{scene-path}`.
+5. `wait_for` text or a `[data-attr]` element. PostHog attaches `data-attr` to virtually every rendered element; use it as the "page hydrated" signal. `networkidle` and `load` never settle because PostHog.js and Vite HMR keep polling.
+6. `take_screenshot`. The accessibility snapshot from `wait_for` is also enough on its own for most "is this element present?" verifications — no pixel comparison needed.
+
+For API-only calls (creating fixtures, hitting endpoints without a browser), use the `personal_api_key` from the setup_test response as `Authorization: Bearer <key>` — no login dance.
 
 For deeper interaction (clicking, filling forms, inspecting console), the same MCP toolkit (`chrome-devtools-mcp:*` / `playwright:*`) covers it. No project-specific wrapper needed.
 
@@ -99,12 +106,12 @@ Canonical sources to grep when the path isn't obvious:
 
 ## Gotchas
 
-- **`migrate-clickhouse` often crashes on first launch.** `mcp__phrocs__get_process_status process="migrate-clickhouse"` may show `status:"crashed" exit_code:1` — if so, ClickHouse migrations didn't fully run, the `posthog.events` table doesn't exist, and `/api/setup_test/...` plus HogQL-backed scenes (insights, dashboards, web analytics) fail with "Unknown table expression identifier 'events'". Fix: `hogli migrations:run`. If that itself fails on async-migration `is_required()`, you need `hogli dev:reset` (which wipes Docker volumes). UI scenes that don't query CH (login, home, settings, feature flags) still render fine.
+- **`migrate-clickhouse` often crashes on first launch — this is the prereq for `setup_test`.** `mcp__phrocs__get_process_status process="migrate-clickhouse"` may show `status:"crashed" exit_code:1` — if so, ClickHouse migrations didn't fully run, the `posthog.events` table doesn't exist, and `/api/setup_test/organization_with_team/` returns 500 `Table posthog.person does not exist` (the Hedgebox demo-data generation hits CH on user creation). HogQL-backed scenes (insights, dashboards, web analytics) also break with "Unknown table expression identifier 'events'". Fix: `hogli migrations:run`. If that fails on async-migration `is_required()`, you need `hogli dev:reset` (wipes Docker volumes). Workaround for one-off verification when CH is broken: pass `{ data: { no_demo_data: true, skip_onboarding: true } }` to `setup_test` — creates org/team/user without touching CH. UI scenes that don't query CH (login, home, settings, feature flags) still render fine with that.
 - **`hogli wait` exits 0 even when phrocs is unreachable.** Don't trust its return code as ground truth — confirm with `mcp__phrocs__get_process_status` or the `curl` probes.
 - **Vite serves on `:8234`, not the URL you browse.** You browse `http://localhost:8010` (the Envoy-style proxy). The proxy reverse-proxies Vite for `/static/*` and Django for everything else. Hitting `:8234/` directly returns 404 because Vite has no index route at the dev-server root.
 - **Worktrees share Docker containers but compete for ports.** All worktrees on the same machine resolve to the same `posthog-clickhouse-1` / `posthog-db-1` containers, so DB state is global. But ports 8000/8010/8234 can only be held by one worktree at a time — kill the granian/vite/phrocs of the other worktree before `hogli up -d` here.
 - **CSP warnings and 401s in the browser console are normal pre-auth.** The preflight/login page tries to fetch `/api/projects/@current`, `/api/users/@me/`, and PostHog.js remote config — all 401 until you sign up. WASM/CSP "Report Only" warnings come from the dev CSP.
-- **Direct `curl -X POST /api/login/` returns 403 (CSRF).** Login must run in-page via `browser_evaluate` so cookies and CSRF tokens flow. The in-page recipe above is the only path that works from an agent context. The standard API auth path for non-browser calls is the personal API key from `hogli dev:api-key` as `Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef`.
+- **Direct `curl -X POST /api/login/` returns 403 (CSRF).** Session login must run in-page via `browser_evaluate` so cookies and CSRF tokens flow. For non-browser API calls, use the `personal_api_key` from the `setup_test` response as `Authorization: Bearer <key>` — no CSRF on token auth.
 - **`.env.local` may use 1Password refs.** Without `op` installed, refs become literal strings (e.g. `OPENAI_API_KEY=op://...`) and downstream services fail with cryptic auth errors. Install `op` or replace with literals.
 
 ## Troubleshooting
@@ -112,5 +119,7 @@ Canonical sources to grep when the path isn't obvious:
 - **`hogli up -d` exits with `Another instance of bin/start is already running`** — previous run still active or crashed without cleanup. `mcp__phrocs__get_process_status` shows what's there; if nothing's running, `rm bin/start.lock` and retry.
 - **`docker info` fails with `dial unix /Users/<you>/.orbstack/run/docker.sock: ... no such file`** — OrbStack is stopped. `open -a OrbStack`.
 - **`/api/projects/@current` returns 500 instead of 401** — Postgres or ClickHouse unreachable. `docker ps | grep posthog-` and look for unhealthy containers; `hogli services:ready` waits for all of them.
-- **`POST /api/login/` returns 400 `invalid_credentials`** — the test user hasn't been created. Run `hogli dev:demo-data`.
+- **`POST /api/login/` returns 400 `invalid_credentials`** — you're logging in as a user the `setup_test` workspace didn't actually create (CH crash usually). Check the response of the setup_test call; if it 500'd, fix CH first (see the `migrate-clickhouse` gotcha).
+- **`POST /api/setup_test/organization_with_team/` returns 404** — `DEBUG`, `E2E_TESTING`, `CI`, and `TEST` are all false. Local dev has `DEBUG=True` by default; if it's not set, `.env.local` is missing or `DJANGO_SETTINGS_MODULE` points at a prod-like settings module.
+- **`POST /api/setup_test/organization_with_team/` returns 500 `Table posthog.person does not exist`** — `migrate-clickhouse` crashed during boot. See the gotcha above.
 - **In-page `fetch('/api/login/')` returns 403** — you're calling it from outside the page context (e.g. `page.request.post` rather than `page.evaluate`). Use `evaluate_script` / `browser_evaluate` so the call originates in-page.
