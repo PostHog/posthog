@@ -7,6 +7,8 @@ from enum import StrEnum
 from types import FrameType
 from typing import Any, Literal, cast
 
+from django.conf import settings
+
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 from cachetools import LRUCache
@@ -150,8 +152,16 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
 }
 
 # Fraction of `*_shadow` parses that also run the secondary backend. Kept
-# low — the shadow parse is pure overhead on the request's hot path.
+# low in production — the shadow parse is pure overhead on the request's
+# hot path. Tests run every parse through the shadow (see
+# `_shadow_sample_rate`).
 _SHADOW_SAMPLE_RATE = 0.01
+
+
+def _shadow_sample_rate() -> float:
+    """Tests force 100% shadow sampling to catch any divergence; production
+    keeps the 1% sample to bound per-request overhead."""
+    return 1.0 if settings.TEST else _SHADOW_SAMPLE_RATE
 
 
 def _resolve_parser_mode(
@@ -159,13 +169,19 @@ def _resolve_parser_mode(
 ) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
     """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
 
-    An absent modifier (`None`) is treated as `cpp_only` — but resolved
-    here at the call site, never written back onto the modifier, so the
-    query hash is unaffected. With no modifier the explicitly-passed
-    `backend` is honoured instead (default `cpp-json`), which keeps the
-    test / diagnostic `backend=` override working.
+    In TEST: an absent modifier defaults to `CPP_WITH_RUST_SHADOW` so the
+    test suite exercises both backends on every parse and raises on AST
+    divergence (see `_run_shadow_comparison`). Honour an explicit
+    `backend=` override (test factories / parity scripts) untouched.
+
+    In prod: an absent modifier is treated as `cpp_only` — resolved here at
+    the call site, never written back onto the modifier, so the query
+    hash is unaffected. The explicitly-passed `backend` is honoured
+    (default `cpp-json`).
     """
     if parser_mode is None:
+        if settings.TEST and backend == DEFAULT_BACKEND:
+            return _PARSER_MODE_BACKENDS[ParserMode.CPP_WITH_RUST_SHADOW]
         return backend, None
     return _PARSER_MODE_BACKENDS[parser_mode]
 
@@ -184,27 +200,23 @@ def _run_shadow_comparison(
     primary_node: Any,
     start: int | None,
 ) -> None:
-    """On a `_SHADOW_SAMPLE_RATE` sample of parses, also parse `statement`
-    with `shadow_backend` and compare ASTs with locations cleared (spans
-    differ trivially between backends). A divergence — or a shadow-backend
-    crash — is sent to error tracking. Never raises: the caller already
-    holds the primary result, and a shadow failure must not fail a
-    request."""
-    if random.random() >= _SHADOW_SAMPLE_RATE:
+    """Sample-rate-gated cross-backend parity check.
+
+    In prod: a `_SHADOW_SAMPLE_RATE` (1%) sample of parses also runs the
+    shadow backend; a divergence or shadow-backend crash is captured to
+    error tracking and the primary result is returned untouched.
+
+    In TEST: every parse runs through the shadow AND any divergence is
+    raised so a unit test that hits a divergence fails loudly.
+    """
+    if random.random() >= _shadow_sample_rate():
         return
+    test_mode = settings.TEST
     try:
         shadow_node = _invoke_parser(shadow_backend, rule, statement, start)
-        if clear_locations(primary_node) != clear_locations(shadow_node):
-            capture_exception(
-                HogQLParserShadowMismatch(f"{rule} parser AST mismatch: {primary_backend} vs {shadow_backend}"),
-                additional_properties={
-                    "hogql_parser_rule": str(rule),
-                    "hogql_parser_primary": primary_backend,
-                    "hogql_parser_shadow": shadow_backend,
-                    "hogql_parser_statement": statement,
-                },
-            )
     except Exception as err:
+        if test_mode:
+            raise
         capture_exception(
             err,
             additional_properties={
@@ -213,6 +225,21 @@ def _run_shadow_comparison(
                 "hogql_parser_statement": statement,
             },
         )
+        return
+    if clear_locations(primary_node) == clear_locations(shadow_node):
+        return
+    mismatch = HogQLParserShadowMismatch(f"{rule} parser AST mismatch: {primary_backend} vs {shadow_backend}")
+    if test_mode:
+        raise mismatch
+    capture_exception(
+        mismatch,
+        additional_properties={
+            "hogql_parser_rule": str(rule),
+            "hogql_parser_primary": primary_backend,
+            "hogql_parser_shadow": shadow_backend,
+            "hogql_parser_statement": statement,
+        },
+    )
 
 
 # Two caches so a flood of unique user-generated queries can't displace the
