@@ -183,6 +183,36 @@ class TestSentimentGenerationsEndpoint(APIBaseTest):
         assert heavy_placeholders["ts_start"].value == datetime(2026, 4, 27, 6, 0, tzinfo=UTC)
         assert heavy_placeholders["ts_end"].value == datetime(2026, 4, 27, 7, 0, tzinfo=UTC)
 
+    # The heavy SQL must carry an explicit `LIMIT` matching the preflight's
+    # `GENERATIONS_QUERY_LIMIT`. Without it, `execute_hogql_query` (via
+    # `LimitContext.QUERY`) injects a default of 100 rows and the `GROUP BY
+    # trace_id` is silently truncated when the preflight returns more, so
+    # the truncated half renders as blank cards on the Sentiment tab.
+    @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
+    @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
+    def test_heavy_query_has_explicit_limit(self, mock_preflight: MagicMock, mock_heavy: MagicMock) -> None:
+        from posthog.hogql import ast as hogql_ast
+
+        from products.llm_analytics.backend.api.sentiment import GENERATIONS_QUERY_LIMIT
+
+        mock_preflight.return_value = self._make_response([self._preflight_row()])
+        mock_heavy.return_value = self._make_response([["trace-1", '[{"role":"user","content":"hi"}]']])
+
+        response = self.client.post(self.URL, {"filters": {}}, content_type="application/json")
+        assert response.status_code == status.HTTP_200_OK
+
+        heavy_query = mock_heavy.call_args.kwargs["query"]
+        heavy_select = cast(hogql_ast.SelectQuery, heavy_query)
+        assert heavy_select.limit is not None, "heavy query must have an explicit LIMIT"
+        assert isinstance(heavy_select.limit, hogql_ast.Constant)
+        assert heavy_select.limit.value == GENERATIONS_QUERY_LIMIT
+
+    # When the heavy table returns fewer rows than the preflight (e.g. a
+    # trace had no input column, or partial ai_events coverage in some
+    # future state), the un-matched traces fall back to null ai_input and
+    # the response still includes them positionally. This keeps the
+    # frontend dedup grouping (and the per-card "View trace" links)
+    # working for the remaining rows.
     @patch("products.llm_analytics.backend.api.sentiment.execute_with_ai_events_fallback")
     @patch("products.llm_analytics.backend.api.sentiment.execute_hogql_query")
     def test_traces_without_heavy_match_get_null_ai_input(

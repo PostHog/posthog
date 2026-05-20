@@ -344,12 +344,10 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
             ),
         frequency: zod
-            .enum(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
+            .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
             .describe(
-                '* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            )
-            .describe(
-                'How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -472,13 +470,11 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
             ),
         frequency: zod
-            .enum(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
-            .describe(
-                '* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            )
+            .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
             .optional()
             .describe(
-                'How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
             ),
         interval: zod
             .number()
