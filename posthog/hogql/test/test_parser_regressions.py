@@ -1879,6 +1879,39 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_program(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_multi_join_with_stacked_on_using_clauses(self):
+        # cpp's left-recursive `joinExpr: joinExpr JOIN joinExpr
+        # joinConstraintClause?` parses `a JOIN b JOIN c ON1 ON2`
+        # right-associatively: ON1 attaches to the innermost JOIN
+        # (`c`), ON2 to the next outer (`b`). The Rust JOIN loop was
+        # left-to-right and only consumed one constraint per JOIN,
+        # leaving subsequent ON / USING constraints stranded. After
+        # the loop, peel off any extra constraints and attach them
+        # inward-to-outward along the chain.
+        cases = (
+            "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
+            "SELECT * FROM a JOIN b JOIN c ON a.x=b.x ON b.y=c.y",
+            "SELECT * FROM a INNER JOIN b INNER JOIN c ON 1 ON 1",
+            "SELECT * FROM a JOIN b JOIN c USING (x) USING (y)",
+            "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+        # Guards: the interleaved / single-constraint shapes still
+        # parse the same way.
+        for src in (
+            "SELECT * FROM a JOIN b ON 1 JOIN c ON 1",
+            "SELECT * FROM a JOIN b ON 1",
+            "SELECT * FROM a JOIN b USING (x)",
+        ):
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_enum_cast_rejected_as_unsupported(self):
         # cpp's visitor explicitly rejects the `ColumnTypeExprEnum`
         # alternative (`identifier '(' enumValue (',' enumValue)* ')'`

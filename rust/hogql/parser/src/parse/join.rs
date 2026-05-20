@@ -110,6 +110,34 @@ impl<'a> Parser<'a> {
             joined_any = true;
         }
 
+        // cpp's `joinExpr` is left-recursive (`joinExpr JOIN joinExpr
+        // joinConstraintClause?`), so a stacked `ON` / `USING` chain
+        // (`a JOIN b JOIN c ON1 ON2 ON3`) is parsed right-associatively:
+        // ON1 attaches to the innermost JOIN (`c`), ON2 to the next
+        // outer (`b`), ON3 to the outermost. Rust's loop is
+        // left-to-right and only consumes the first constraint per
+        // JOIN, leaving subsequent ON / USING constraints stranded.
+        // After the loop, peel off any extra constraints and attach
+        // them inward-to-outward along the chain.
+        loop {
+            if !matches!(
+                self.peek(),
+                TokenKind::Keyword(Kw::On) | TokenKind::Keyword(Kw::Using)
+            ) {
+                break;
+            }
+            let Some(constraint) = self.parse_join_constraint_opt()? else {
+                break;
+            };
+            if !attach_constraint_to_outermost_unconstrained_join(&mut left, constraint) {
+                // No unconstrained JoinExpr in the chain — every level
+                // already has a constraint. Treat the extra ON / USING
+                // as trailing tokens; the outer SELECT parser will
+                // report the syntax error at the expected position.
+                break;
+            }
+        }
+
         Ok(left)
     }
 
@@ -1434,4 +1462,47 @@ fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
                     | Kw::As,
             )
     )
+}
+
+/// Walk a JOIN chain (the outermost `JoinExpr`'s `next_join` linked
+/// list) inward-to-outward, looking for the FIRST `JoinExpr` along
+/// the way whose `constraint` is missing / null, and attach the given
+/// constraint there. Returns `true` on success, `false` when every
+/// level already has a constraint.
+///
+/// "Inward-to-outward" because cpp's right-associative join parse for
+/// `a JOIN b JOIN c ON1 ON2` puts ON1 on the innermost (`c`) and ON2
+/// on the next outer (`b`). The first stranded ON attaches inward
+/// (after the loop's left-to-right pass already placed one on the
+/// deepest JoinExpr); the second moves outward; etc.
+fn attach_constraint_to_outermost_unconstrained_join(
+    node: &mut Value,
+    constraint: Value,
+) -> bool {
+    let Some(obj) = node.as_object_mut() else {
+        return false;
+    };
+    if obj.get("node").and_then(Value::as_str) != Some("JoinExpr") {
+        return false;
+    }
+    // Recurse into next_join first — cpp's right-associative parse
+    // attaches the FIRST stranded constraint to the inner-most
+    // unconstrained JoinExpr.
+    if let Some(nj) = obj.get_mut("next_join") {
+        if nj.is_object()
+            && attach_constraint_to_outermost_unconstrained_join(nj, constraint.clone())
+        {
+            return true;
+        }
+    }
+    // No deeper attachment site — try this level.
+    let needs_constraint = match obj.get("constraint") {
+        None | Some(Value::Null) => true,
+        _ => false,
+    };
+    if needs_constraint {
+        obj.insert("constraint".into(), constraint);
+        return true;
+    }
+    false
 }
