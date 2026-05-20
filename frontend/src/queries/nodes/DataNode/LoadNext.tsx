@@ -63,9 +63,13 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 
     return (
         <div className="m-2 flex items-center">
-            <LemonButton onClick={loadNextData} loading={nextDataLoading} fullWidth center disabled={!canLoadNextData}>
-                {text}
-            </LemonButton>
+            {canLoadNextData || nextDataLoading ? (
+                <LemonButton onClick={loadNextData} loading={nextDataLoading} fullWidth center>
+                    {text}
+                </LemonButton>
+            ) : (
+                <div className="w-full py-2 text-center text-secondary text-sm">{text}</div>
+            )}
         </div>
     )
 }
