@@ -901,6 +901,21 @@ export const ExternalDataSourcesWizardRetrieveParams = /* @__PURE__ */ zod.objec
         ),
 })
 
+export const ExternalDataSourcesWizardRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    released_only: zod
+        .boolean()
+        .optional()
+        .describe(
+            'If true, exclude sources marked `unreleasedSource: true` (scaffolded sources with no working sync logic). Defaults to false to preserve previous behaviour.'
+        ),
+    source_type: zod
+        .string()
+        .optional()
+        .describe(
+            "Return only the config for the given source type (e.g. 'GoogleAds', 'GoogleSheets'). Case-sensitive. When set, the response additionally includes `_available_integrations` and `_oauth_hint` for any OAuth fields. Omit to return the full catalog."
+        ),
+})
+
 export const InsightVariablesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()

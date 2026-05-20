@@ -1987,6 +1987,17 @@ export type ExternalDataSourcesConnectionsListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * If true, exclude sources marked `unreleasedSource: true` (scaffolded sources with no working sync logic). Defaults to false to preserve previous behaviour.
+     */
+    released_only?: boolean
+    /**
+     * Return only the config for the given source type (e.g. 'GoogleAds', 'GoogleSheets'). Case-sensitive. When set, the response additionally includes `_available_integrations` and `_oauth_hint` for any OAuth fields. Omit to return the full catalog.
+     */
+    source_type?: string
+}
+
 export type InsightVariablesListParams = {
     /**
      * A page number within the paginated result set.

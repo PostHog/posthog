@@ -433,12 +433,12 @@ tools:
         description: >
             Return the configuration metadata for supported data warehouse source types. Each entry describes the
             required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Pass
-            `source_type=<Name>` (case-sensitive, e.g. `GoogleAds`, `GoogleSheets`) to scope the response to a
-            single source — strongly preferred when the target source is known, as the full catalog is large.
-            Pass `released_only=true` to drop sources marked `unreleasedSource: true` (scaffolded sources with no
-            working sync logic). When scoped to one source, the response also includes `_available_integrations`
-            (existing OAuth integrations of the matching `kind` in this project) and `_oauth_hint` explaining how
-            to populate `*_integration_id` fields.
+            `source_type=<Name>` (case-sensitive, e.g. `GoogleAds`, `GoogleSheets`) to scope the response to a single
+            source — strongly preferred when the target source is known, as the full catalog is large. Pass
+            `released_only=true` to drop sources marked `unreleasedSource: true` (scaffolded sources with no working
+            sync logic). When scoped to one source, the response also includes `_available_integrations` (existing OAuth
+            integrations of the matching `kind` in this project) and `_oauth_hint` explaining how to populate
+            `*_integration_id` fields.
         response:
             include:
                 - '*.name'

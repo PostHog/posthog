@@ -33,6 +33,7 @@ import {
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
+    ExternalDataSourcesWizardRetrieveQueryParams,
     InsightVariablesCreateBody,
     InsightVariablesDestroyParams,
     InsightVariablesPartialUpdateBody,
@@ -695,17 +696,20 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = z.object({})
+const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams
 
 const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
     name: 'external-data-sources-wizard',
     schema: ExternalDataSourcesWizardSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWizardSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
+            query: {
+                released_only: params.released_only,
+                source_type: params.source_type,
+            },
         })
         const filtered = pickResponseFields(result, [
             '*.name',
@@ -714,6 +718,8 @@ const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardS
             '*.featured',
             '*.unreleasedSource',
             '*.fields',
+            '*._available_integrations',
+            '*._oauth_hint',
         ]) as typeof result
         return filtered
     },

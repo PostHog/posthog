@@ -26,6 +26,7 @@ import type {
     ExternalDataSourcesCheckCdcPrerequisitesCreate200,
     ExternalDataSourcesConnectionsListParams,
     ExternalDataSourcesListParams,
+    ExternalDataSourcesWizardRetrieveParams,
     FixHogqlListParams,
     InsightVariableApi,
     InsightVariablesListParams,
@@ -1210,15 +1211,34 @@ export const externalDataSourcesSourcePrefixCreate = async (
     })
 }
 
-export const getExternalDataSourcesWizardRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/external_data_sources/wizard/`
+export const getExternalDataSourcesWizardRetrieveUrl = (
+    projectId: string,
+    params?: ExternalDataSourcesWizardRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_sources/wizard/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_sources/wizard/`
 }
 
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const externalDataSourcesWizardRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId), {
+export const externalDataSourcesWizardRetrieve = async (
+    projectId: string,
+    params?: ExternalDataSourcesWizardRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
