@@ -45,9 +45,17 @@ def get_latest_session(team_id: int, workflow_id: str, skill_id: str) -> WizardS
     return _to_dto(instance) if instance else None
 
 
-def list_sessions(team_id: int) -> list[WizardSessionDTO]:
-    instances = WizardSession.objects.filter(team_id=team_id).order_by("-started_at")
-    return [_to_dto(instance) for instance in instances]
+def list_sessions(
+    team_id: int,
+    workflow_id: str | None = None,
+    skill_id: str | None = None,
+) -> list[WizardSessionDTO]:
+    qs = WizardSession.objects.filter(team_id=team_id)
+    if workflow_id:
+        qs = qs.filter(workflow_id=workflow_id)
+    if skill_id:
+        qs = qs.filter(skill_id=skill_id)
+    return [_to_dto(instance) for instance in qs.order_by("-started_at")]
 
 
 def _to_dto(instance: WizardSession) -> WizardSessionDTO:

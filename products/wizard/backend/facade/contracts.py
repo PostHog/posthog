@@ -35,6 +35,20 @@ class WizardSessionDTO:
 
 
 @dataclass(frozen=True)
+class UpsertWizardSessionRequest:
+    """What the wizard CLI POSTs. team_id is derived from the URL, not the body."""
+
+    session_id: str
+    workflow_id: str
+    skill_id: str
+    started_at: datetime
+    run_phase: RunPhase
+    tasks: tuple[WizardTaskDTO, ...]
+    event_plan: dict[str, Any] | None = None
+    error: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
 class UpsertWizardSessionInput:
     team_id: int
     session_id: str
