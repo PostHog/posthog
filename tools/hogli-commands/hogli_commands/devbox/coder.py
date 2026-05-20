@@ -980,12 +980,25 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
 
 
 def _list_template_presets(template: str) -> list[str]:
-    """Return preset names defined on the active version of ``template``, or [] on failure."""
+    """Return preset names defined on the active version of ``template``, or [] on failure.
+
+    Emits a warning when the coder CLI itself fails (auth/network/version issues) so
+    a silent fall-through to ``--preset none`` is distinguishable from a template that
+    simply defines no presets.
+    """
     result = _run(
         ["coder", "templates", "presets", "list", template, "-o", "json"],
         capture_output=True,
     )
     if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        suffix = f": {detail}" if detail else "."
+        click.echo(
+            click.style(
+                f"Warning: failed to list presets for template '{template}'{suffix}",
+                fg="yellow",
+            ),
+        )
         return []
     try:
         payload = json.loads(result.stdout)

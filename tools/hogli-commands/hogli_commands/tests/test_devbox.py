@@ -661,8 +661,8 @@ def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., Non
         git_name: str | None = None,
         git_email: str | None = None,
         dotfiles_uri: str | None = None,
-        template: str = "posthog-linux",
-        preset: str = "Default (warm)",
+        template: str = coder.DEFAULT_TEMPLATE,
+        preset: str = coder.DEFAULT_PRESET,
         verbose: bool = False,
     ) -> None:
         captured.update(
@@ -868,30 +868,48 @@ class TestTemplatePresetResolution:
     """Test the runtime preset resolution that suppresses coder's picker."""
 
     @pytest.mark.parametrize(
-        "rc, stdout, expected",
+        "rc, stdout, stderr, expected, warning_expected",
         [
-            (0, '[{"name": "Default (warm)"}, {"name": "Cold"}]', ["Default (warm)", "Cold"]),
-            (1, "", []),
-            (0, '{"error": "no presets"}', []),
-            (0, "not json", []),
-            (0, '[{"name": "Default (warm)"}, {"description": "no-name"}]', ["Default (warm)"]),
+            (0, '[{"name": "Default (warm)"}, {"name": "Cold"}]', "", ["Default (warm)", "Cold"], False),
+            (1, "", "auth: token expired", [], True),
+            (1, "", "", [], True),
+            (0, '{"error": "no presets"}', "", [], False),
+            (0, "not json", "", [], False),
+            (0, '[{"name": "Default (warm)"}, {"description": "no-name"}]', "", ["Default (warm)"], False),
         ],
-        ids=["happy", "non-zero-exit", "non-list-json", "invalid-json", "skip-nameless"],
+        ids=[
+            "happy",
+            "non-zero-exit-with-stderr",
+            "non-zero-exit-bare",
+            "non-list-json",
+            "invalid-json",
+            "skip-nameless",
+        ],
     )
     def test_list_template_presets_parses_coder_output(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
         rc: int,
         stdout: str,
+        stderr: str,
         expected: list[str],
+        warning_expected: bool,
     ) -> None:
         def fake_run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
             assert args[:4] == ["coder", "templates", "presets", "list"]
-            return subprocess.CompletedProcess(args, rc, stdout, "")
+            return subprocess.CompletedProcess(args, rc, stdout, stderr)
 
         monkeypatch.setattr(coder, "_run", fake_run)
 
-        assert coder._list_template_presets("posthog-linux") == expected
+        assert coder._list_template_presets(coder.DEFAULT_TEMPLATE) == expected
+        output = capsys.readouterr().out
+        if warning_expected:
+            assert "Warning: failed to list presets" in output
+            if stderr:
+                assert stderr in output
+        else:
+            assert "Warning" not in output
 
     @pytest.mark.parametrize(
         "requested, presets, expected, warning_expected",
@@ -1212,8 +1230,8 @@ class TestDevboxCommands:
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
-            "template": "posthog-linux",
-            "preset": "Default (warm)",
+            "template": coder.DEFAULT_TEMPLATE,
+            "preset": coder.DEFAULT_PRESET,
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1245,8 +1263,8 @@ class TestDevboxCommands:
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
-        assert captured["template"] == "posthog-linux"
-        assert captured["preset"] == "Default (warm)"
+        assert captured["template"] == coder.DEFAULT_TEMPLATE
+        assert captured["preset"] == coder.DEFAULT_PRESET
         assert "devbox:ssh api" in result.output
 
     def test_devbox_start_forwards_template_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1263,7 +1281,7 @@ class TestDevboxCommands:
 
         assert result.exit_code == 0, result.output
         assert captured["template"] == "posthog-microvm"
-        assert captured["preset"] == "Default (warm)"
+        assert captured["preset"] == coder.DEFAULT_PRESET
 
     def test_devbox_start_forwards_preset_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, str | None] = {}
