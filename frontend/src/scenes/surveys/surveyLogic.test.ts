@@ -1,3 +1,4 @@
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -22,6 +23,7 @@ import {
     OpenQuestionProcessedResponses,
     PropertyFilterType,
     PropertyOperator,
+    RatingSurveyQuestion,
     ResponsesByQuestion,
     Survey,
     SurveyEventName,
@@ -388,7 +390,9 @@ describe('rating question validation', () => {
             logic.actions.loadSurveySuccess(survey)
         }).toFinishAllListeners()
 
-        const questionErrors = logic.values.surveyErrors.questions?.[0]
+        const questionErrors = logic.values.surveyErrors.questions?.[0] as
+            | DeepPartialMap<RatingSurveyQuestion, ValidationErrorType>
+            | undefined
         if (expectedLower === undefined) {
             expect(questionErrors?.lowerBoundLabel).toBeFalsy()
             expect(questionErrors?.upperBoundLabel).toBeFalsy()
