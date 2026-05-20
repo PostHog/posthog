@@ -384,23 +384,55 @@ describe('handleToolError with API errors', () => {
         captureException.mockClear()
     })
 
-    it('short-circuits 4xx PostHogApiError without capturing an exception', () => {
-        const error = new PostHogApiError({
-            status: 404,
-            statusText: 'Not Found',
-            body: '{"detail":"Not found.","type":"invalid_request"}',
-            url: 'https://us.posthog.com/api/environments/2/symbol_sets/00000000-0000-0000-0000-000000000000/',
-            method: 'GET',
-        })
+    // Boundary coverage: include 499 and 500 in the tables so an off-by-one
+    // in the `status < 500` guard (e.g. `<=` instead of `<`) gets caught.
+    it.each([
+        { status: 400, statusText: 'Bad Request' },
+        { status: 404, statusText: 'Not Found' },
+        { status: 422, statusText: 'Unprocessable Entity' },
+        { status: 499, statusText: 'Client Closed Request' },
+    ])(
+        'short-circuits $status PostHogApiError without capturing an exception',
+        ({ status, statusText }: { status: number; statusText: string }) => {
+            const error = new PostHogApiError({
+                status,
+                statusText,
+                body: '{"detail":"Not found."}',
+                url: 'https://us.posthog.com/api/environments/2/symbol_sets/00000000-0000-0000-0000-000000000000/',
+                method: 'GET',
+            })
 
-        const result = handleToolError(error, 'error-tracking-symbol-sets-retrieve')
+            const result = handleToolError(error, 'error-tracking-symbol-sets-retrieve')
 
-        expect(captureException).not.toHaveBeenCalled()
-        expect(result.isError).toBe(true)
-        const [content] = result.content as Array<{ type: string; text: string }>
-        expect(content?.text).toContain('[error-tracking-symbol-sets-retrieve]')
-        expect(content?.text).toContain('Status Code: 404')
-    })
+            expect(captureException).not.toHaveBeenCalled()
+            expect(result.isError).toBe(true)
+            const [content] = result.content as Array<{ type: string; text: string }>
+            expect(content?.text).toContain('[error-tracking-symbol-sets-retrieve]')
+            expect(content?.text).toContain(`Status Code: ${status}`)
+        }
+    )
+
+    it.each([
+        { status: 500, statusText: 'Internal Server Error' },
+        { status: 502, statusText: 'Bad Gateway' },
+        { status: 503, statusText: 'Service Unavailable' },
+    ])(
+        'captures $status PostHogApiError as an exception (real service failure)',
+        ({ status, statusText }: { status: number; statusText: string }) => {
+            const error = new PostHogApiError({
+                status,
+                statusText,
+                body: '{"detail":"oops"}',
+                url: 'https://us.posthog.com/api/environments/2/symbol_sets/abc/',
+                method: 'GET',
+            })
+
+            const result = handleToolError(error, 'error-tracking-symbol-sets-retrieve')
+
+            expect(captureException).toHaveBeenCalledTimes(1)
+            expect(result.isError).toBe(true)
+        }
+    )
 
     it('short-circuits PostHogValidationError without capturing an exception', () => {
         const error = new PostHogValidationError({
@@ -434,21 +466,6 @@ describe('handleToolError with API errors', () => {
         const result = handleToolError(wrapped, 'error-tracking-symbol-sets-retrieve')
 
         expect(captureException).not.toHaveBeenCalled()
-        expect(result.isError).toBe(true)
-    })
-
-    it('captures 5xx PostHogApiError as an exception (real service failure)', () => {
-        const error = new PostHogApiError({
-            status: 500,
-            statusText: 'Internal Server Error',
-            body: '{"detail":"oops"}',
-            url: 'https://us.posthog.com/api/environments/2/symbol_sets/abc/',
-            method: 'GET',
-        })
-
-        const result = handleToolError(error, 'error-tracking-symbol-sets-retrieve')
-
-        expect(captureException).toHaveBeenCalledTimes(1)
         expect(result.isError).toBe(true)
     })
 

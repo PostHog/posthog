@@ -96,14 +96,14 @@ export const buildApiFetcher: (config: ApiConfig) => Fetcher = (config) => {
 
                 if (!response.ok) {
                     const errorResponse = await response.json()
-                    const body = JSON.stringify(errorResponse)
+                    const errorBody = JSON.stringify(errorResponse)
                     throw new PostHogApiError({
                         status: response.status,
                         statusText: response.statusText,
-                        body,
+                        body: errorBody,
                         url: input.url.toString(),
                         method: input.method.toUpperCase(),
-                        message: `Failed request: [${response.status}] ${body}`,
+                        message: `Failed request: [${response.status}] ${errorBody}`,
                     })
                 }
 
