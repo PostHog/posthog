@@ -809,6 +809,34 @@ class TestParserRegressions(BaseTest):
                 got = clear_locations(parse_select(src, backend=backend))
                 self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
 
+    def test_pivot_in_separator_extends_via_postfix_call(self):
+        # `pivotColumn: columnExprTupleOrSingle IN LPAREN columnExprList
+        # RPAREN`. The LHS columnExprTupleOrSingle is a full columnExpr,
+        # so cpp's ALL(*) greedy-extends it past any `IN (...)` group
+        # whose closing `)` is followed by another `(` (a postfix call
+        # on whatever LHS has built so far). Only the LAST `IN (...)`
+        # — the one NOT followed by `(` — is the structural separator.
+        # Rust's prior heuristic locked the FIRST depth-0 IN as the
+        # structural one, mis-splitting `y IN (1) (2) IN (3)`.
+        cases = (
+            # Same shape, two pivotColumns split at the FIRST IN (b
+            # after the first close means LHS-extension fails, so the
+            # first IN is structural).
+            "SELECT 1 FROM t PIVOT (s FOR a IN (1) b IN (2))",
+            # ONE pivotColumn — LHS = `y IN (1)(2)` (CompareOperation
+            # with postfix-call right), structural IN at the SECOND
+            # depth-0 position.
+            "SELECT 1 FROM t PIVOT (sum(x) FOR y IN (1) (2) IN (3))",
+            # Baselines that must keep working.
+            "SELECT 1 FROM t PIVOT (sum(x) FOR y IN (1, 2))",
+            "SELECT 1 FROM t PIVOT (sum(x) FOR (y, z) IN ((a, b), (c, d)))",
+        )
+        for src in cases:
+            oracle = clear_locations(parse_select(src, backend="cpp-json"))
+            for backend in ("rust-json", "python"):
+                got = clear_locations(parse_select(src, backend=backend))
+                self.assertEqual(got, oracle, msg=f"{backend}: {src!r}")
+
     def test_return_expr_prefix_shortened_when_assignment_follows(self):
         # `returnStmt: RETURN columnExpr? SEMICOLON?` — the columnExpr is
         # optional. When the full following expression would strand a

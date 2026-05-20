@@ -1062,34 +1062,89 @@ impl<'a> Parser<'a> {
     /// expression (`x IN (1,2) IN (r)`) — vanishingly rare, and
     /// already rejected before this fix.
     fn find_pivot_in_separator(&self) -> Option<usize> {
+        // Find the structural `IN` of this pivotColumn.
+        //
+        // cpp's ANTLR ALL(*) greedy-consumes the LHS
+        // `columnExprTupleOrSingle` (a full `columnExpr`, which admits
+        // nested `... IN (...)` operator expressions AND postfix
+        // `(...)` calls on whatever it's already built). The structural
+        // `IN` is the FIRST depth-0 `IN (` whose closing `)` is NOT
+        // immediately followed by another `(` — i.e. the first IN
+        // beyond which the LHS columnExpr cannot greedy-extend via
+        // postfix-call chaining.
+        //
+        // `y IN (1) (2) IN (3)` is one pivotColumn:
+        //   IN1 = `IN (1)` followed by `(2)` (postfix call); LHS extends.
+        //   IN2 = `IN (3)` followed by `)` (end); structural. ✓
+        //
+        // `a IN (1) b IN (2)` is two pivotColumns:
+        //   IN1 = `IN (1)` followed by `b` (new LHS); structural. ✓
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         let mut depth: i32 = 0;
         let mut pending_in: Option<usize> = None;
+        // After an `IN ( ... )` group closes, this state holds the
+        // start-pos of the candidate IN until we see the *next* token
+        // and decide whether it's a postfix `(` (extends LHS) or
+        // anything else (commits the IN as structural).
+        let mut candidate_after_close: Option<usize> = None;
         loop {
             let tok = match probe.next_token() {
                 Ok(t) => t,
-                Err(_) => return None,
+                Err(_) => break,
             };
+            if let Some(in_pos) = candidate_after_close.take() {
+                if tok.kind != TokenKind::LParen {
+                    return Some(in_pos);
+                }
+                // Postfix-call after the IN-group close — LHS extends;
+                // keep scanning for a later IN. Fall through to the
+                // normal LParen handling below to track depth.
+            }
             if let Some(in_pos) = pending_in.take() {
                 if tok.kind == TokenKind::LParen {
-                    return Some(in_pos);
+                    // Found `IN (`; we'll commit it as structural when
+                    // the matching `)` closes AND the following token
+                    // isn't another `(`.
+                    depth += 1;
+                    // Scan to matching close.
+                    while depth > 0 {
+                        let inner = match probe.next_token() {
+                            Ok(t) => t,
+                            Err(_) => return None,
+                        };
+                        match inner.kind {
+                            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                                depth += 1
+                            }
+                            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                                depth -= 1
+                            }
+                            TokenKind::Eof => return None,
+                            _ => {}
+                        }
+                    }
+                    candidate_after_close = Some(in_pos);
+                    continue;
                 }
             }
             match tok.kind {
                 TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
                 TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
                     if depth == 0 {
-                        return None;
+                        break;
                     }
                     depth -= 1;
                 }
-                TokenKind::Comma if depth == 0 => return None,
-                TokenKind::Keyword(Kw::For) if depth == 0 => return None,
+                TokenKind::Comma if depth == 0 => break,
+                TokenKind::Keyword(Kw::For) if depth == 0 => break,
                 TokenKind::Keyword(Kw::In) if depth == 0 => pending_in = Some(tok.start),
-                TokenKind::Eof => return None,
+                TokenKind::Eof => break,
                 _ => {}
             }
         }
+        // Reached end of pivotColumn body. If the most-recent IN-(...)
+        // group has no follow-on `(`, commit it.
+        candidate_after_close
     }
 
     /// `self.peek()` is `(` — scan to its matching `)` and report
