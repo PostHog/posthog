@@ -387,6 +387,7 @@ class EnterpriseExperimentsViewSet(
             release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            kept_variant_was_recommended=request_serializer.validated_data.get("kept_variant_was_recommended"),
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)

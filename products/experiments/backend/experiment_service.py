@@ -1434,6 +1434,7 @@ class ExperimentService:
         release_to_everyone: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        kept_variant_was_recommended: bool | None = None,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -1508,7 +1509,11 @@ class ExperimentService:
         experiment.save()
 
         self._report_experiment_variant_shipped(
-            experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
+            experiment,
+            variant_key=variant_key,
+            release_to_everyone=release_to_everyone,
+            kept_variant_was_recommended=kept_variant_was_recommended,
+            request=request,
         )
         if was_running:
             self._report_experiment_ended(experiment, request=request)
@@ -1566,6 +1571,7 @@ class ExperimentService:
         *,
         variant_key: str,
         release_to_everyone: bool = False,
+        kept_variant_was_recommended: bool | None = None,
         request: Any | None = None,
     ) -> None:
         if request is None:
@@ -1574,6 +1580,7 @@ class ExperimentService:
         metadata = experiment.get_analytics_metadata()
         metadata["variant_key"] = variant_key
         metadata["release_to_everyone"] = release_to_everyone
+        metadata["kept_variant_was_recommended"] = kept_variant_was_recommended
         metadata["parameters"] = experiment.parameters
 
         report_user_action(

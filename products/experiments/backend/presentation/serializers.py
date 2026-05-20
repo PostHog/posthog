@@ -493,6 +493,16 @@ class ShipVariantSerializer(EndExperimentSerializer):
             "already match them."
         ),
     )
+    kept_variant_was_recommended = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Whether the kept variant matched the modal's recommendation. Populated by the UI to enable measurement "
+            "of how often users accept the system's suggestion versus override it. Null when the UI cannot determine "
+            "a recommendation (e.g., no conclusion set, legacy code path)."
+        ),
+    )
 
 
 class CopyExperimentToProjectSerializer(serializers.Serializer):
