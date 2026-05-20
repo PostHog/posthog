@@ -338,6 +338,21 @@ describe('translation validation', () => {
 
 describe('rating question validation', () => {
     let logic: ReturnType<typeof surveyLogic.build>
+    let originalCSS: typeof globalThis.CSS
+
+    beforeAll(() => {
+        // The form errors selector calls validateSurveyAppearance, which uses CSS.supports.
+        // JSDOM doesn't implement CSS.supports, so stub it to always pass — we're testing
+        // rating-question label validation, not CSS validation.
+        originalCSS = globalThis.CSS
+        ;(globalThis as unknown as { CSS: { supports: () => boolean } }).CSS = {
+            supports: () => true,
+        }
+    })
+
+    afterAll(() => {
+        ;(globalThis as unknown as { CSS: typeof globalThis.CSS }).CSS = originalCSS
+    })
 
     beforeEach(() => {
         initKeaTests()
