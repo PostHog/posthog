@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 import structlog
 from temporalio import activity, workflow
@@ -37,7 +36,6 @@ class PlannedRun:
 
     team_id: int
     skill_name: str
-    limit_overrides: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -116,7 +114,6 @@ def _collect_planned_runs() -> list[PlannedRun]:
                 PlannedRun(
                     team_id=team_id,
                     skill_name=skill_name,
-                    limit_overrides=dict(config.limit_overrides or {}),
                 )
             )
     # Stable order: team_id then skill_name. Keeps child workflow IDs predictable
@@ -228,7 +225,6 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
             RunSignalsScoutInput(
                 team_id=planned.team_id,
                 skill_name=planned.skill_name,
-                limit_overrides=planned.limit_overrides or None,
             ),
             id=child_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

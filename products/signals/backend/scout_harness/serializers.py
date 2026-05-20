@@ -14,98 +14,53 @@ from rest_framework import serializers
 
 
 class SignalScoutRunSummarySerializer(serializers.Serializer):
-    """Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`."""
+    """Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
 
-    run_id = serializers.CharField(help_text="UUID of the run row.")
+    Status and timestamps flow from the linked `tasks.TaskRun`.
+    """
+
+    run_id = serializers.CharField(help_text="UUID of the bridge row.")
     skill_name = serializers.CharField(
         help_text="Canonical skill name the run executed (e.g. `signals-scout-general`)."
     )
     skill_version = serializers.IntegerField(help_text="Skill version snapshotted at run start.")
     status = serializers.CharField(
-        help_text="Run status: scheduled | running | completed | failed | abandoned.",
+        help_text="Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled.",
     )
-    started_at = serializers.CharField(help_text="ISO-8601 timestamp the run row was inserted.")
+    started_at = serializers.CharField(help_text="ISO-8601 timestamp the TaskRun was created.")
     completed_at = serializers.CharField(
         allow_null=True,
-        help_text="ISO-8601 timestamp the run finalized; null while still running.",
-    )
-    summary = serializers.CharField(
-        allow_blank=True,
-        help_text="Prose: what this run looked at, found, and skipped. ILIKE search target for dedupe.",
-    )
-    findings_count = serializers.IntegerField(
-        help_text="Number of finding entries persisted on the run row.",
+        help_text="ISO-8601 timestamp the TaskRun completed; null while still running.",
     )
     task_id = serializers.CharField(
         allow_null=True,
         required=False,
-        help_text="UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.",
+        help_text="UUID of the Tasks `Task` the scout span ran inside.",
     )
     task_run_id = serializers.CharField(
         allow_null=True,
         required=False,
-        help_text="UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.",
+        help_text="UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.",
     )
     task_url = serializers.CharField(
         allow_null=True,
         required=False,
-        help_text="Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.",
+        help_text="Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.",
     )
 
 
-class SignalScoutRunDetailSerializer(serializers.Serializer):
-    """Full `SignalScoutRun` projection used by `get-run`. Includes structured payloads."""
-
-    run_id = serializers.CharField(help_text="UUID of the run row.")
-    skill_name = serializers.CharField(help_text="Canonical skill name the run executed.")
-    skill_version = serializers.IntegerField(help_text="Skill version snapshotted at run start.")
-    status = serializers.CharField(help_text="Run status.")
-    started_at = serializers.CharField(help_text="ISO-8601 timestamp the run row was inserted.")
-    completed_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp the run finalized.")
-    summary = serializers.CharField(allow_blank=True, help_text="Prose summary of the run.")
-    findings = serializers.ListField(
-        child=serializers.DictField(),
-        help_text="Findings persisted to the run row, including pre-emit attribution.",
-    )
-    hypotheses_considered = serializers.ListField(
-        child=serializers.DictField(),
-        help_text="Hypotheses the run considered, including ones it explicitly skipped.",
-    )
-    run_metrics = serializers.DictField(
-        child=serializers.FloatField(),
-        help_text="Measured quantities about how the run went, e.g. {runtime_s, findings}.",
-    )
-    metadata = serializers.DictField(
-        help_text="Run metadata snapshot (limits, skill id, allowed_tools resolution, plus `task_id` / `task_run_id` for the Tasks UI cross-link).",
-    )
-    task_id = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="UUID of the Tasks `Task` the harness span ran inside. Null on aborted rows or rows older than the linkage capture.",
-    )
-    task_run_id = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="UUID of the Tasks `TaskRun` (the specific execution of the task). Pairs with `task_id` to deep-link.",
-    )
-    task_url = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`. Null when either `task_id` or `task_run_id` is missing.",
-    )
+class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
+    """Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
+    post-refactor — the bridge row no longer holds structured payloads. Future
+    extensions (linked Signal rows, LLMA token-cost join) land here."""
 
 
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 
-    text = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="ILIKE substring match against `summary`. Omit to return the latest runs unfiltered.",
-    )
     since = serializers.DateTimeField(
         required=False,
-        help_text="ISO-8601 lower bound on `started_at`. Use to scope to a recent window.",
+        help_text="ISO-8601 lower bound on `created_at`. Use to scope to a recent window.",
     )
     limit = serializers.IntegerField(
         required=False,
@@ -123,19 +78,8 @@ class ScratchpadEntrySerializer(serializers.Serializer):
 
     key = serializers.CharField(help_text="Agent-chosen semantic key, unique per team.")
     content = serializers.CharField(help_text="Prose content for prompt injection.")
-    authority = serializers.CharField(
-        help_text="Always `agent_inference` in v1; reserved for future human-confirmed entries.",
-    )
-    tags = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Free-form tags the agent uses to scope search; matched via Postgres array overlap.",
-    )
     created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-write timestamp.")
-    expires_at = serializers.CharField(
-        allow_null=True,
-        help_text="ISO-8601 expiry timestamp (null = no expiry, reserved for future use).",
-    )
     created_by_run_id = serializers.CharField(
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
@@ -150,42 +94,22 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
         allow_blank=True,
         help_text="ILIKE substring match against `content`. Omit to return the most recent entries.",
     )
-    tags = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        help_text="Tags filtered via Postgres array overlap. Pass repeated `tags=` query params to filter.",
-    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
         max_value=100,
         help_text="Max rows to return (default 20, hard cap 100).",
     )
-    include_expired = serializers.BooleanField(
-        required=False,
-        help_text="Include expired `agent_inference` entries (default false). Use for audit/debug only.",
-    )
 
 
 class RememberRequestSerializer(serializers.Serializer):
-    """Request body for `remember`. Authority is always `agent_inference` — humans use Django admin."""
+    """Request body for `remember`."""
 
     key = serializers.CharField(
         max_length=300,
         help_text="Agent-chosen semantic key. Re-using a key updates the existing entry in place.",
     )
     content = serializers.CharField(help_text="Prose to write. Read verbatim into future prompts.")
-    tags = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        help_text="Tags for later search. Empty/whitespace tags are dropped.",
-    )
-    ttl_days = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=90,
-        help_text="Days until expiry (default 7, hard cap 90).",
-    )
     run_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -197,7 +121,7 @@ class RememberRequestSerializer(serializers.Serializer):
 
 
 class ForgetRequestSerializer(serializers.Serializer):
-    """Request body for `forget`. Only `agent_inference` keys can be deleted."""
+    """Request body for `forget`."""
 
     key = serializers.CharField(max_length=300, help_text="Memory key to delete.")
 
@@ -289,5 +213,5 @@ class EmitFindingResponseSerializer(serializers.Serializer):
     emitted = serializers.BooleanField(help_text="Whether `emit_signal` was actually fired.")
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="`shadow_mode` | `already_emitted` | null when emitted normally.",
+        help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
     )

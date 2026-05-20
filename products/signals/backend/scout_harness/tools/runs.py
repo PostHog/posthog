@@ -1,17 +1,22 @@
 """Run-history tools: read access to past `SignalScoutRun` rows for the team.
 
 These are the agent's window into what previous runs concluded. Used for best-effort
-dedupe (\"have I seen this hypothesis recently?\") and continuity (\"what was I
-working on yesterday?\"). Strictly team-scoped — no cross-team reads.
+dedupe ("have I seen this hypothesis recently?") and continuity ("what was I
+working on yesterday?"). Strictly team-scoped — no cross-team reads.
+
+Per the PR 2 refactor, `SignalScoutRun` is now a thin bridge to `tasks.TaskRun`
+(see model docstring). Status, timestamps, and error all flow from the linked
+TaskRun via `select_related("task_run")`. The prior `summary` / `findings` /
+`hypotheses_considered` / `run_metrics` / `metadata` jsonb fields are gone —
+findings are recoverable as emitted `Signal` rows keyed by
+`source_id = run:<run_id>:finding:<finding_id>`.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
-
-from django.db.models import Q
 
 from products.signals.backend.models import SignalScoutRun
 
@@ -30,12 +35,6 @@ class RunSummary:
     status: str
     started_at: str
     completed_at: str | None
-    summary: str
-    findings_count: int
-    # Tasks (Task, TaskRun) IDs the harness span ran inside, plus the deep-link
-    # path ready to render in MCP clients. All three are null on rows older than
-    # the linkage capture (predates the runner's `_record_task_linkage` write)
-    # or on aborted rows that died before `MultiTurnSession.start()` returned.
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -46,7 +45,13 @@ class RunSummary:
 
 @dataclass(frozen=True)
 class RunDetail:
-    """Full run row — call `get_run` to fetch this when a `RunSummary` looks relevant."""
+    """Full run row — call `get_run` to fetch this when a `RunSummary` looks relevant.
+
+    Identical shape to `RunSummary` post-refactor — `SignalScoutRun` no longer
+    holds any structured payloads. Kept as a distinct type so callers expecting
+    a "detail" projection continue to type-check; future extensions (e.g. linked
+    Signal rows, LLMA token-cost join) land here.
+    """
 
     run_id: str
     skill_name: str
@@ -54,12 +59,6 @@ class RunDetail:
     status: str
     started_at: str
     completed_at: str | None
-    summary: str
-    findings: list[Any] = field(default_factory=list)
-    hypotheses_considered: list[Any] = field(default_factory=list)
-    run_metrics: dict[str, Any] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    # See `RunSummary` — same shape, same null cases.
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -71,23 +70,21 @@ class RunDetail:
 def search_recent_runs(
     *,
     team_id: int,
-    text: str | None = None,
     since: datetime | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
-    `text` is matched ILIKE against `summary` — sufficient until traffic grows enough
-    to justify a `tsvector` index (tracked under "Postgres schema indexing" in the
-    decisions snapshot). `since` filters on `started_at` for windowed lookups.
-    Results are capped at `MAX_RUN_SEARCH_LIMIT`.
+    `since` filters on `created_at` (the bridge-row insert timestamp, which fires
+    right after `MultiTurnSession.start`). Results are capped at
+    `MAX_RUN_SEARCH_LIMIT`. The previous `text` ILIKE filter (which matched against
+    the dropped `summary` field) is gone — natural-language search across past
+    runs is now an LLMA chat-log query keyed by `task_run.id`.
     """
     clamped_limit = _clamp_limit(limit)
-    qs = SignalScoutRun.objects.filter(team_id=team_id).order_by("-started_at")
-    if text:
-        qs = qs.filter(Q(summary__icontains=text))
+    qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
     if since is not None:
-        qs = qs.filter(started_at__gte=since)
+        qs = qs.filter(created_at__gte=since)
     qs = qs[:clamped_limit]
     return [_to_summary(row, team_id=team_id) for row in qs]
 
@@ -98,26 +95,23 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     Team scoping is non-negotiable: a run row from another team must not be
     readable, even if the caller knows the UUID.
     """
-    row = SignalScoutRun.objects.filter(team_id=team_id, id=run_id).first()
+    row = SignalScoutRun.objects.select_related("task_run").filter(team_id=team_id, id=run_id).first()
     if row is None:
         return None
     return _to_detail(row, team_id=team_id)
 
 
 def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
-    findings = row.findings or []
-    metadata = row.metadata or {}
-    task_id = metadata.get("task_id")
-    task_run_id = metadata.get("task_run_id")
+    task_run = row.task_run
+    task_id = str(task_run.task_id) if task_run is not None else None
+    task_run_id = str(task_run.id) if task_run is not None else None
     return RunSummary(
         run_id=str(row.id),
         skill_name=row.skill_name,
         skill_version=row.skill_version,
-        status=row.status,
-        started_at=row.started_at.isoformat(),
-        completed_at=row.completed_at.isoformat() if row.completed_at else None,
-        summary=row.summary or "",
-        findings_count=len(findings) if isinstance(findings, list) else 0,
+        status=task_run.status if task_run is not None else "",
+        started_at=task_run.created_at.isoformat() if task_run is not None else row.created_at.isoformat(),
+        completed_at=task_run.completed_at.isoformat() if task_run is not None and task_run.completed_at else None,
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
@@ -125,25 +119,8 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
 
 
 def _to_detail(row: SignalScoutRun, *, team_id: int) -> RunDetail:
-    metadata = dict(row.metadata or {})
-    task_id = metadata.get("task_id")
-    task_run_id = metadata.get("task_run_id")
-    return RunDetail(
-        run_id=str(row.id),
-        skill_name=row.skill_name,
-        skill_version=row.skill_version,
-        status=row.status,
-        started_at=row.started_at.isoformat(),
-        completed_at=row.completed_at.isoformat() if row.completed_at else None,
-        summary=row.summary or "",
-        findings=list(row.findings or []),
-        hypotheses_considered=list(row.hypotheses_considered or []),
-        run_metrics=dict(row.run_metrics or {}),
-        metadata=metadata,
-        task_id=task_id,
-        task_run_id=task_run_id,
-        task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
-    )
+    summary = _to_summary(row, team_id=team_id)
+    return RunDetail(**asdict(summary))
 
 
 def _build_task_url(*, team_id: int, task_id: str | None, task_run_id: str | None) -> str | None:

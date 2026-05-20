@@ -26,12 +26,13 @@ class RunSignalsScoutInput:
     skill_name: str
     skill_version: int | None = None
     repository: str | None = None
-    limit_overrides: dict[str, Any] | None = None
+    limits_override: dict[str, Any] | None = None
 
 
 @dataclass
 class RunSignalsScoutOutput:
     run_id: str | None
+    task_run_id: str | None
     status: str | None
     runtime_s: float
     skill_name: str
@@ -42,7 +43,8 @@ class RunSignalsScoutOutput:
 def _to_output(result: RunResult) -> RunSignalsScoutOutput:
     return RunSignalsScoutOutput(
         run_id=result.run_id,
-        status=result.status.value if result.status is not None else None,
+        task_run_id=result.task_run_id,
+        status=result.status,
         runtime_s=result.runtime_s,
         skill_name=result.skill_name,
         skill_version=result.skill_version,
@@ -63,7 +65,7 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
             team_id=input.team_id,
             skill_name=input.skill_name,
             skill_version=input.skill_version,
-            limit_overrides=input.limit_overrides,
+            limits_override=input.limits_override,
             repository=input.repository,
         )
     logger.info(
@@ -71,7 +73,7 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
         team_id=input.team_id,
         skill_name=input.skill_name,
         run_id=result.run_id,
-        status=result.status.value if result.status is not None else None,
+        status=result.status,
         runtime_s=result.runtime_s,
         skip_reason=result.skip_reason,
     )

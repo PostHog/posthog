@@ -48,7 +48,6 @@ from products.signals.backend.scout_harness.serializers import (
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
-    HumanConfirmedScratchpadError,
     InvalidScratchpadError,
     forget,
     remember,
@@ -89,15 +88,14 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Return the most recent `SignalScoutRun` summaries for this project, newest first. "
             "Used by the headless agent to dedupe against work other runs already covered. "
-            "ILIKE matches on `summary`; results are capped at 100."
+            "Results are capped at 100; pass `since` to scope to a recent window."
         ),
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
-        text = validated.get("text") or None
         since = validated.get("since")
         limit = validated.get("limit") or 20
-        rows = search_recent_runs(team_id=self.team_id, text=text, since=since, limit=limit)
+        rows = search_recent_runs(team_id=self.team_id, since=since, limit=limit)
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
     @extend_schema(
@@ -107,9 +105,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Get a run by ID",
         description=(
-            "Return the full `SignalScoutRun` row including `summary`, `findings`, "
-            "`hypotheses_considered`, `run_metrics`, and `metadata`. Strictly team-scoped — "
-            "a UUID belonging to another team returns 404."
+            "Return the full `SignalScoutRun` row. Status, timing, and error flow from the linked "
+            "`tasks.TaskRun`. Strictly team-scoped — a UUID belonging to another team returns 404."
         ),
     )
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -132,11 +129,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Emit a finding for a run",
         description=(
-            "Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with "
-            "`source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a "
-            "second call with the same `finding_id` short-circuits without re-firing the pipeline. "
-            "Honors the team's `shadow_mode` flag: when true, the finding is persisted but the external "
-            "emit is a no-op."
+            "Fire `emit_signal` with `source_product = signals_scout`. Idempotent on "
+            "`(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — "
+            "a second call with the same `finding_id` short-circuits without re-firing the pipeline."
         ),
     )
     @action(
@@ -150,12 +145,18 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run_id = kwargs.get("id")
         if run_id is None:
             raise exceptions.NotFound()
-        run = SignalScoutRun.objects.select_related("scout_config").filter(team_id=self.team_id, id=run_id).first()
+        from products.tasks.backend.models import TaskRun
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run")
+            .filter(team_id=self.team_id, id=run_id)
+            .first()
+        )
         if run is None:
             raise exceptions.NotFound()
-        if run.status != SignalScoutRun.Status.RUNNING:
+        if run.task_run.status != TaskRun.Status.IN_PROGRESS:
             raise exceptions.ValidationError(
-                {"status": f"Findings can only be emitted on RUNNING runs (current: {run.status})."}
+                {"status": f"Findings can only be emitted on in-progress runs (current: {run.task_run.status})."}
             )
 
         data = request.validated_data
@@ -174,11 +175,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for entry in evidence_payload
         ]
 
-        # Default to shadow mode when there is no config (e.g. legacy run row from a deleted
-        # config) — safe-by-default keeps a misconfigured run from accidentally firing emits.
-        config = run.scout_config
-        shadow_mode = True if config is None else bool(config.shadow_mode)
-
         try:
             result = emit_finding_sync(
                 team=self.team,
@@ -193,7 +189,6 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 time_range=time_range_tuple,
                 mcp_trace_id=data.get("mcp_trace_id") or None,
                 finding_id=data.get("finding_id") or None,
-                shadow_mode=shadow_mode,
             )
         except InvalidEmitError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -251,25 +246,13 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         },
         summary="Search durable memories",
-        description=(
-            "Return `SignalScratchpad` entries for this project. ILIKE matches on `content`; tags "
-            "filter via Postgres array overlap. Expired `agent_inference` entries are hidden by "
-            "default."
-        ),
+        description=("Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`."),
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
         text = validated.get("text") or None
-        tags = validated.get("tags") or None
         limit = validated.get("limit") or 20
-        include_expired = bool(validated.get("include_expired") or False)
-        rows = search_scratchpad(
-            team_id=self.team_id,
-            text=text,
-            tags=list(tags) if tags else None,
-            limit=limit,
-            include_expired=include_expired,
-        )
+        rows = search_scratchpad(team_id=self.team_id, text=text, limit=limit)
         return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
@@ -277,13 +260,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(description="Invalid memory shape (empty key/content, key too long)."),
-            403: OpenApiResponse(description="Tried to overwrite a `human_confirmed` entry."),
         },
         summary="Write or refresh an agent memory",
-        description=(
-            "Upsert an `agent_inference` memory keyed on `(team, key)`. Re-using a key updates the "
-            "existing entry in place and resets its TTL. Cannot overwrite `human_confirmed` entries."
-        ),
+        description=("Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place."),
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = request.validated_data
@@ -300,27 +279,19 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 key=data["key"],
                 content=data["content"],
-                tags=list(data["tags"]) if data.get("tags") else None,
-                ttl_days=data.get("ttl_days") or 7,
                 run_id=str(run_id) if run_id is not None else None,
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
-        except HumanConfirmedScratchpadError as exc:
-            raise exceptions.PermissionDenied(detail=str(exc))
         return Response(ScratchpadEntrySerializer(entry.as_dict()).data, status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=ForgetRequestSerializer,
         responses={
             200: OpenApiResponse(response=ForgetResponseSerializer, description="Whether a row was removed."),
-            403: OpenApiResponse(description="Tried to delete a `human_confirmed` entry."),
         },
         summary="Delete an agent memory by key",
-        description=(
-            "Delete an `agent_inference` entry by key. Returns `deleted=false` if no row matched. "
-            "Cannot delete `human_confirmed` entries — those are human-managed only."
-        ),
+        description="Delete an entry by key. Returns `deleted=false` if no row matched.",
         operation_id="signals_scout_scratchpad_delete",
     )
     @action(
@@ -332,8 +303,5 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def delete(self, request: Request, **kwargs) -> Response:
         data = request.validated_data
-        try:
-            removed = forget(team_id=self.team_id, key=data["key"])
-        except HumanConfirmedScratchpadError as exc:
-            raise exceptions.PermissionDenied(detail=str(exc))
+        removed = forget(team_id=self.team_id, key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)

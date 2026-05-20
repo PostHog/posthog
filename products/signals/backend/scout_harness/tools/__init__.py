@@ -21,9 +21,6 @@ from products.signals.backend.scout_harness.tools.runs import (
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
-    DEFAULT_SCRATCHPAD_TTL_DAYS,
-    MAX_SCRATCHPAD_TTL_DAYS,
-    HumanConfirmedScratchpadError,
     InvalidScratchpadError,
     ScratchpadEntry,
     forget,
@@ -32,15 +29,12 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 )
 
 __all__ = [
-    "DEFAULT_SCRATCHPAD_TTL_DAYS",
     "DEFAULT_RUN_SEARCH_LIMIT",
     "EmitResult",
     "EvidenceEntry",
-    "HumanConfirmedScratchpadError",
     "InvalidEmitError",
     "InvalidScratchpadError",
     "MAX_EVIDENCE_ENTRIES",
-    "MAX_SCRATCHPAD_TTL_DAYS",
     "MAX_RUN_SEARCH_LIMIT",
     "ScratchpadEntry",
     "RunDetail",
