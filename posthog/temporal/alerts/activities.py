@@ -18,8 +18,8 @@ from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.slo.events import emit_slo_completed
-from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome
+from posthog.slo.events import emit_slo_completed, emit_slo_started
+from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloOutcome, SloStartedProperties
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
@@ -65,9 +65,9 @@ ALERT_TIMELINESS_GRACE_FRACTION = 0.10
 
 @functools.cache
 def _interval_seconds(interval: AlertCalculationInterval) -> float:
-    # Reuse the canonical scheduling mapping so a new interval (e.g. 15m) is handled
-    # automatically. relativedelta needs a concrete anchor to resolve calendar-variable
-    # units (months); a fixed one is precise enough for a grace window.
+    # Reuse the canonical scheduling mapping so new intervals are handled automatically.
+    # relativedelta needs a concrete anchor to resolve calendar-variable units (months);
+    # a fixed one is precise enough for a grace window.
     anchor = datetime(2024, 1, 1, tzinfo=UTC)
     return ((anchor + alert_calculation_interval_to_relativedelta(interval)) - anchor).total_seconds()
 
@@ -424,7 +424,21 @@ async def report_alert_timeliness() -> None:
                 grace_seconds = _interval_seconds(interval) * ALERT_TIMELINESS_GRACE_FRACTION
                 late_seconds = (now - alert.next_check_at).total_seconds()
                 on_time = late_seconds <= grace_seconds
+                extra_properties = {"calculation_interval": alert.calculation_interval}
 
+                # Pair started+completed so the SLO dashboards (which denominate on
+                # slo_operation_started) count one timeliness sample per alert.
+                emit_slo_started(
+                    distinct_id=str(alert.id),
+                    properties=SloStartedProperties(
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        operation=SloOperation.ALERT_TIMELINESS,
+                        team_id=alert.team_id,
+                        resource_id=str(alert.id),
+                    ),
+                    extra_properties=extra_properties,
+                    capture=capture_ph_event,
+                )
                 emit_slo_completed(
                     distinct_id=str(alert.id),
                     properties=SloCompletedProperties(
@@ -434,10 +448,7 @@ async def report_alert_timeliness() -> None:
                         outcome=SloOutcome.SUCCESS if on_time else SloOutcome.FAILURE,
                         resource_id=str(alert.id),
                     ),
-                    extra_properties={
-                        "calculation_interval": alert.calculation_interval,
-                        "late_seconds": max(late_seconds, 0.0),
-                    },
+                    extra_properties={**extra_properties, "late_seconds": max(late_seconds, 0.0)},
                     capture=capture_ph_event,
                 )
 

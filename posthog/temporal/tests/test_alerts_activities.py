@@ -627,14 +627,17 @@ class TestReportAlertTimeliness:
         with self._capture_slo() as captured:
             await ActivityEnvironment().run(report_alert_timeliness)
 
-        outcome_by_alert = {c["properties"]["resource_id"]: c["properties"]["outcome"] for c in captured}
+        completed = [c for c in captured if c["event"] == "slo_operation_completed"]
+        outcome_by_alert = {c["properties"]["resource_id"]: c["properties"]["outcome"] for c in completed}
         assert outcome_by_alert == {
             str(on_time.id): SloOutcome.SUCCESS,
             str(within_grace.id): SloOutcome.SUCCESS,
             str(late_daily.id): SloOutcome.FAILURE,
             str(late_hourly.id): SloOutcome.FAILURE,
         }
-        assert all(c["event"] == "slo_operation_completed" for c in captured)
+        # Each alert emits a paired started+completed sample so the SLO dashboards have a denominator.
+        started = [c for c in captured if c["event"] == "slo_operation_started"]
+        assert len(started) == len(completed) == 4
         assert all(c["properties"]["operation"] == SloOperation.ALERT_TIMELINESS for c in captured)
 
     @freeze_time("2024-06-03T12:00:00Z")
