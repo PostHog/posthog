@@ -177,6 +177,13 @@ pub(super) fn merge_and_or(node: &str, mut lhs: Value, rhs: Value) -> Value {
         if obj.get("node").and_then(Value::as_str) == Some(node) {
             if let Some(exprs) = obj.get_mut("exprs").and_then(Value::as_array_mut) {
                 exprs.extend(rhs_children);
+                // Clear positions so the pratt loop's outer `wrap_pos` can
+                // re-stamp them with the new span — without this the
+                // idempotent `with_pos` would keep the pre-merge `[start,
+                // end]` (end of the second operand only) and `a or b or c`
+                // would end at `b`'s position instead of `c`'s.
+                obj.remove("start");
+                obj.remove("end");
                 return lhs;
             }
         }

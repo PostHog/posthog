@@ -82,9 +82,13 @@ impl<'a> Parser<'a> {
     }
 
     /// `LET ident (':=' expression)?` (no required trailing `;` —
-    /// cpp's `varDecl` doesn't include it). Trailing `;` is consumed
-    /// at the statement level via the `emptyStmt` skip in
-    /// `parse_program` / `parse_block`.
+    /// cpp's `varDecl` doesn't include it). The optional trailing `;`
+    /// is consumed at the statement level via the `emptyStmt` skip in
+    /// `parse_program` / `parse_block`. We do NOT consume it here:
+    /// cpp's `VarDecl` ctx span ends at the expression token, not at
+    /// the trailing `;`, so wrapping with `last_consumed_end` after a
+    /// local `eat(Semicolon)` would over-extend the span by 1 byte
+    /// vs cpp's `addPositionInfo(json, ctx)`.
     fn parse_var_decl(&mut self) -> Result<Value, ParseError> {
         self.expect_kw(Kw::Let, "let")?;
         let name_tok = self.bump()?;
@@ -146,7 +150,6 @@ impl<'a> Parser<'a> {
                 obj.insert("expr".into(), expr);
             }
         }
-        let _ = self.eat(TokenKind::Semicolon)?;
         Ok(Value::Object(obj))
     }
 

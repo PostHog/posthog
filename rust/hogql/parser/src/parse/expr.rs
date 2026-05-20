@@ -118,6 +118,12 @@ impl<'a> Parser<'a> {
             }
             if let Some(handled) = self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)? {
                 if handled {
+                    // `try_special_infix` mutates `lhs` in place with a fresh
+                    // unpositioned JSON node (`CompareOperation`, `BetweenExpr`,
+                    // `IsDistinctFrom`, etc.). Wrap with the pratt loop's
+                    // running span so the new outer node carries `start` /
+                    // `end` matching cpp's `addPositionInfo` calls.
+                    lhs = self.wrap_pos(lhs, lhs_start);
                     continue;
                 }
             }
@@ -1277,13 +1283,19 @@ impl<'a> Parser<'a> {
                         }
                     }
                     if ok && saw_star {
+                        // Capture the end of the `*` token before committing
+                        // the cursor — we want the Field span to cover the
+                        // qualified asterisk (`table.*`), matching cpp's
+                        // `ColumnExprColumnsQualifiedAll` ctx span.
+                        let asterisk_end = probe.pos();
                         // Commit the qualified-asterisk consumption.
                         self.set_lexer_pos(probe.pos())?;
                         let (exclude, replace) = self.parse_columns_decorators()?;
                         let mut chain_values: Vec<Value> =
                             chain.into_iter().map(Value::String).collect();
                         chain_values.push(Value::String("*".into()));
-                        let qualified_field = emit::field(chain_values);
+                        let qualified_field =
+                            self.wrap_pos_to(emit::field(chain_values), saved_pos, asterisk_end);
                         // Four C++-visitor shapes, all reachable here:
                         //   QualifiedAll:           ColumnsExpr(columns=[Field(table.*)])
                         //   QualifiedExclude:       ColumnsExpr(columns=[ColumnsExpr(all_columns=True, exclude=...)])
@@ -1812,6 +1824,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_paren_or_tuple(&mut self) -> Result<Value, ParseError> {
+        // Capture the outer-LParen start before consuming it. cpp's
+        // `ColumnExprColumnsReplace` / `ColumnExprColumnsExcludeReplace`
+        // grammar alts (`LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`)
+        // include the outer parens in the ctx span, but our inner parser
+        // wraps the ColumnsExpr at the `*` position only. We override the
+        // span with the outer paren bounds for those shapes after parsing.
+        let outer_start = self.peek0.start;
         self.expect(TokenKind::LParen, "(")?;
         // Empty `()` isn't a valid expression form (lambdas use `() -> ...`).
         if self.peek() == TokenKind::RParen {
@@ -1831,7 +1850,7 @@ impl<'a> Parser<'a> {
         // tuple arm fires when a comma appears at depth 0 after the
         // first expression. Encoded as a single arm with a runtime
         // comma probe.
-        self.try_alt(&[
+        let result = self.try_alt(&[
             // Alt 1: subquery
             &|p| {
                 let sub = p.parse_select_set_stmt()?;
@@ -1840,7 +1859,18 @@ impl<'a> Parser<'a> {
             },
             // Alt 2: parens / tuple
             &Self::parse_paren_expr_or_tuple_arm,
-        ])
+        ])?;
+        // Re-wrap ColumnsExpr-with-REPLACE shapes whose grammar rule
+        // (`LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`) makes the
+        // outer parens part of the ctx span — the inner wrap missed them.
+        // Exclude-only `(* EXCLUDE (...))` is a regular ColumnExprAsterisk
+        // inside ColumnExprParens (pass-through), so REPLACE is the
+        // distinguishing marker.
+        if is_paren_form_columns_replace(&result) {
+            let end = self.last_consumed_end;
+            return Ok(self.replace_pos_to(result, outer_start, end));
+        }
+        Ok(result)
     }
 
     /// `parse_paren_or_tuple` arm: ColumnExprParens or ColumnExprTuple
@@ -2815,6 +2845,7 @@ impl<'a> Parser<'a> {
             let with_fill = if matches!(self.peek(), TokenKind::Keyword(Kw::With))
                 && self.peek_next() == TokenKind::Keyword(Kw::Fill)
             {
+                let with_fill_start = self.peek0.start;
                 self.bump()?;
                 self.bump()?;
                 let from_value = if self.eat_kw(Kw::From)? {
@@ -2843,7 +2874,10 @@ impl<'a> Parser<'a> {
                 if let Some(v) = step_value {
                     obj.insert("step_value".into(), v);
                 }
-                Some(Value::Object(obj))
+                // cpp's `WithFill` visitor calls `addPositionInfo(json, ctx)`,
+                // so the JSON has `start` / `end` spanning the `WITH FILL ...`
+                // tokens. Wrap before stuffing into OrderExpr.
+                Some(self.wrap_pos(Value::Object(obj), with_fill_start))
             } else {
                 None
             };
@@ -5333,4 +5367,25 @@ pub(crate) fn is_bare_field(v: &Value) -> bool {
         return false;
     };
     chain.len() == 1
+}
+
+/// Detect a ColumnsExpr produced by the bare-paren grammar alts
+/// `LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`, whose ctx
+/// span includes the outer parens. Exclude-only `(* EXCLUDE(...))` is
+/// a regular `ColumnExprAsterisk` inside `ColumnExprParens` (paren
+/// pass-through), so we key off `replace` presence to identify the
+/// bare-paren form. The COLUMNS-prefixed `COLUMNS(* REPLACE(...))`
+/// variant takes a different parse path (it doesn't go through
+/// `parse_paren_or_tuple`), so this check is safe.
+fn is_paren_form_columns_replace(v: &Value) -> bool {
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
+    if obj.get("node").and_then(Value::as_str) != Some("ColumnsExpr") {
+        return false;
+    }
+    if obj.get("all_columns").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+    obj.get("replace").map(|v| !v.is_null()).unwrap_or(false)
 }

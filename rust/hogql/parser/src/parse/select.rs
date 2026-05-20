@@ -1344,6 +1344,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn parse_window_expr(&mut self) -> Result<Value, ParseError> {
+        let we_start = self.peek0.start;
         let mut obj = serde_json::Map::new();
         obj.insert("node".into(), Value::String("WindowExpr".into()));
         if matches!(self.peek(), TokenKind::Keyword(Kw::Partition))
@@ -1406,7 +1407,10 @@ impl<'a> Parser<'a> {
                 obj.insert("frame_start".into(), start);
             }
         }
-        Ok(Value::Object(obj))
+        // cpp's `VISIT(WindowExpr)` calls `addPositionInfo(json, ctx)`,
+        // so the JSON has `start` / `end` spanning the window-expr body
+        // (between the parens — `OVER ( PARTITION BY ... ROWS ... )`).
+        Ok(self.wrap_pos(Value::Object(obj), we_start))
     }
 
     fn parse_window_frame_bound(&mut self) -> Result<Value, ParseError> {
