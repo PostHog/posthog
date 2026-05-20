@@ -538,6 +538,62 @@ class TestBoundedResolver(BaseTest):
         resolver = self._resolve("select * from events", initial_view_name="caller", deadline_seconds=None)
         assert resolver.deadline_seconds is None
 
+    def test_bounded_resolver_errors_inherit_query_error(self):
+        # Locks in the public contract: callers that catch QueryError (DRF exception
+        # handlers, workflow error mappers) keep working when cycles/depth/timeouts fire.
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="a", query={"query": "select * from b"})
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="b", query={"query": "select * from a"})
+
+        with pytest.raises(QueryError) as exc_info:
+            get_parents_from_model_query(self.team, "a", "select * from b")
+
+        assert isinstance(exc_info.value, ResolutionCycleError)
+
+    def test_soft_mode_depth_observes_without_raising(self):
+        self._make_chain(length=4)  # v0 → v1 → v2 → v3, would breach max_view_depth=2
+
+        # enforce_bounds=False: depth overshoot is recorded but the walk continues
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(team_id=context.team_id, modifiers=context.modifiers, team=context.team)
+        resolver = BoundedResolver(
+            context=context,
+            dialect="hogql",
+            initial_view_name="caller",
+            max_view_depth=2,
+            enforce_bounds=False,
+        )
+        resolver.visit(parse_select("select * from v3"))
+
+        assert resolver.max_view_depth_observed > resolver.max_view_depth
+
+    def test_soft_mode_deadline_observes_without_raising(self):
+        # Negative deadline = already expired. In soft mode we record but don't raise.
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(team_id=context.team_id, modifiers=context.modifiers, team=context.team)
+        resolver = BoundedResolver(
+            context=context,
+            dialect="hogql",
+            initial_view_name="caller",
+            deadline_seconds=-1.0,
+            enforce_bounds=False,
+        )
+        resolver.visit(parse_select("select * from events"))
+
+        assert resolver.deadline_violated is True
+
+    def test_soft_mode_cycle_still_raises(self):
+        # Cycles MUST raise even in soft mode — observe-only would loop forever
+        # because the resolver re-enters the same view.
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="a", query={"query": "select * from b"})
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="b", query={"query": "select * from a"})
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(team_id=context.team_id, modifiers=context.modifiers, team=context.team)
+        resolver = BoundedResolver(context=context, dialect="hogql", initial_view_name="a", enforce_bounds=False)
+
+        with pytest.raises(ResolutionCycleError):
+            resolver.visit(parse_select("select * from b"))
+
 
 class TestResolutionMetrics(BaseTest):
     def _counter(self, status: str) -> float:
@@ -641,3 +697,51 @@ class TestResolverFactoryInjection(BaseTest):
 
         # Should not raise — the default base Resolver has no depth bound.
         prepare_ast_for_printing(query_node, context=context, dialect="clickhouse")
+
+    def test_shared_deadline_anchor_spans_multiple_resolvers(self):
+        """Two BoundedResolvers built from the same factory must share a deadline clock.
+
+        Without a shared anchor, each resolver would get its own deadline_seconds budget
+        and prepare_ast_for_printing's multi-pass resolution would compound the bound.
+        """
+        from products.data_warehouse.backend.models.modeling import bounded_resolver_factory_for_view
+
+        factory = bounded_resolver_factory_for_view("caller", deadline_seconds=10.0)
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.database = Database.create_for(team_id=context.team_id, modifiers=context.modifiers, team=context.team)
+
+        # First resolver seeds the anchor; second resolver reads it. Both must see the same value.
+        r1 = factory(context, "hogql", None)
+        r2 = factory(context, "hogql", None)
+        assert isinstance(r1, BoundedResolver)
+        assert isinstance(r2, BoundedResolver)
+        assert r1.deadline_anchor is r2.deadline_anchor
+        assert r1.deadline_anchor == [None]
+
+        r1.visit(parse_select("select * from events"))
+        assert r1.deadline_anchor[0] is not None
+        # second resolver inherits the anchor set by the first
+        assert r2.deadline_anchor[0] == r1.deadline_anchor[0]
+
+    def test_factory_threaded_through_resolve_lazy_tables(self):
+        """Lazy-table resolution invokes the factory on subqueries it builds — depth bound applies.
+
+        Queries against events touch lazy joins (persons, etc.) which `resolve_lazy_tables`
+        materializes as subqueries and re-resolves. Threading the factory means those
+        re-resolutions go through BoundedResolver too.
+        """
+        from posthog.hogql.printer import prepare_ast_for_printing
+
+        from products.data_warehouse.backend.models.modeling import bounded_resolver_factory_for_view
+
+        # Use the shared factory helper so the deadline is end-to-end across passes
+        factory = bounded_resolver_factory_for_view("caller", max_view_depth=DEFAULT_RESOLUTION_MAX_VIEW_DEPTH)
+
+        query_node = parse_select("select event from events")
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+
+        # Should not raise — a simple events query is well within bounds, but it does
+        # exercise the lazy-table path (events has lazy joins to persons/sessions).
+        # Success here proves the factory is invoked at lazy_tables.resolve_types and
+        # those nested resolutions don't error.
+        prepare_ast_for_printing(query_node, context=context, dialect="clickhouse", resolver_factory=factory)

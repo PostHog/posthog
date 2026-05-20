@@ -34,6 +34,7 @@ from posthog.temporal.common.logger import get_logger
 from products.data_modeling.backend.models import Node, NodeType
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
 
@@ -233,15 +234,6 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
-def _bounded_resolver_factory(view_name: str | None):
-    """Build a resolver factory that bounds depth, cycles, and deadline using the saved query's name as the seed."""
-
-    def factory(context, dialect, scopes):
-        return BoundedResolver(scopes=scopes, context=context, dialect=dialect, initial_view_name=view_name)
-
-    return factory
-
-
 async def get_query_row_count(
     query: str, team: Team, logger: FilteringBoundLogger, view_name: str | None = None
 ) -> int:
@@ -267,7 +259,7 @@ async def get_query_row_count(
         dialect="clickhouse",
         settings=settings,
         stack=[],
-        resolver_factory=_bounded_resolver_factory(view_name),
+        resolver_factory=bounded_resolver_factory_for_view(view_name),
     )
 
     if prepared_hogql_query is None:
@@ -305,7 +297,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     )
     context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
-    factory = _bounded_resolver_factory(view_name)
+    factory = bounded_resolver_factory_for_view(view_name)
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node,
         context=context,

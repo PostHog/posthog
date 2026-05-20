@@ -100,7 +100,7 @@ def prepare_ast_for_printing(
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
-            resolve_in_cohorts_conjoined(node, dialect, context, stack)
+            resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(
@@ -123,7 +123,7 @@ def prepare_ast_for_printing(
 
     if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -146,7 +146,7 @@ def prepare_ast_for_printing(
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, dialect, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
@@ -168,7 +168,7 @@ def prepare_ast_for_printing(
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, dialect, stack, context)
+            resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
