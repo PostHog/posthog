@@ -514,10 +514,10 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
         return self.query_date_range
 
     @property
-    def exact_timerange(self) -> bool | None:
+    def exact_timerange(self) -> bool:
         if self.query.dateRange is None:
-            return None
-        return self.query.dateRange.explicitDate
+            return False
+        return bool(self.query.dateRange.explicitDate)
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:

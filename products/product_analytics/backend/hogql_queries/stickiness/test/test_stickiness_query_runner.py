@@ -47,6 +47,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+import posthog
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.action.action import Action
@@ -158,7 +159,13 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _setup_data_warehouse(self) -> str:
         table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
-            csv_path=Path(__file__).parent.parent.parent / "trends" / "test" / "data" / "trends_data.csv",
+            csv_path=Path(posthog.__file__).parent
+            / "hogql_queries"
+            / "insights"
+            / "trends"
+            / "test"
+            / "data"
+            / "trends_data.csv",
             table_name="test_table_stickiness",
             table_columns={
                 "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
