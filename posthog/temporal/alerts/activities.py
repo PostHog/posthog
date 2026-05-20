@@ -72,6 +72,55 @@ def _interval_seconds(interval: AlertCalculationInterval) -> float:
     return ((anchor + alert_calculation_interval_to_relativedelta(interval)) - anchor).total_seconds()
 
 
+def _emit_alert_timeliness_slo(
+    *,
+    alert_id: str,
+    team_id: int,
+    calculation_interval: str | None,
+    scheduled_check_at: datetime,
+    checked_at: datetime,
+) -> None:
+    """Emit one Alert Timeliness SLO sample for a check that just ran.
+
+    Compares when the check actually ran against when it was scheduled
+    (``scheduled_check_at``); on time within a grace window of the interval is a
+    SUCCESS, later is a FAILURE. Emitted once per check from the evaluate activity
+    rather than by polling, so the SLO reflects every check's punctuality exactly.
+    """
+    interval = AlertCalculationInterval(calculation_interval or AlertCalculationInterval.HOURLY)
+    grace_seconds = _interval_seconds(interval) * ALERT_TIMELINESS_GRACE_FRACTION
+    late_seconds = (checked_at - scheduled_check_at).total_seconds()
+    on_time = late_seconds <= grace_seconds
+    extra_properties = {"calculation_interval": calculation_interval}
+
+    # Pair started+completed so the SLO dashboards (which denominate on
+    # slo_operation_started) count one timeliness sample per check.
+    with ph_scoped_capture() as capture_ph_event:
+        emit_slo_started(
+            distinct_id=alert_id,
+            properties=SloStartedProperties(
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_TIMELINESS,
+                team_id=team_id,
+                resource_id=alert_id,
+            ),
+            extra_properties=extra_properties,
+            capture=capture_ph_event,
+        )
+        emit_slo_completed(
+            distinct_id=alert_id,
+            properties=SloCompletedProperties(
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_TIMELINESS,
+                team_id=team_id,
+                outcome=SloOutcome.SUCCESS if on_time else SloOutcome.FAILURE,
+                resource_id=alert_id,
+            ),
+            extra_properties={**extra_properties, "late_seconds": max(late_seconds, 0.0)},
+            capture=capture_ph_event,
+        )
+
+
 @temporalio.activity.defn
 async def retrieve_due_alerts() -> list[AlertInfo]:
     @database_sync_to_async(thread_sensitive=False)
@@ -223,6 +272,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # Snapshot before add_alert_check mutates alert.state — needed to detect the
         # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.
         previous_state = alert.state
+        # The scheduled due time, captured before add_alert_check advances next_check_at.
+        # None on a first-ever check — nothing to measure timeliness against.
+        scheduled_check_at = alert.next_check_at
 
         value: float | None = None
         breaches: list[str] | None = None
@@ -276,6 +328,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 if claim_investigation_slot(alert, alert_check):
                     should_start_investigation = True
                     should_gate_notification = bool(alert.investigation_gates_notifications)
+
+        if scheduled_check_at is not None:
+            _emit_alert_timeliness_slo(
+                alert_id=str(alert.id),
+                team_id=alert.team_id,
+                calculation_interval=alert.calculation_interval,
+                scheduled_check_at=scheduled_check_at,
+                checked_at=datetime.now(UTC),
+            )
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -394,63 +455,3 @@ async def cleanup_alert_checks() -> None:
 
     async with Heartbeater():
         await _cleanup()
-
-
-@temporalio.activity.defn
-async def report_alert_timeliness() -> None:
-    """Emit an Alert Timeliness SLO sample for every enabled alert.
-
-    For each alert we compare how overdue its next check is against a grace window
-    (a fraction of the calculation interval). On-time alerts emit a SUCCESS sample,
-    late ones FAILURE — so the SLO success rate is the share of alerts being checked
-    on schedule, and an alert that stops being checked at all shows up as sustained
-    failure. ``next_check_at`` is the authoritative due signal: it already accounts
-    for snoozes and quiet-hours, so deferred alerts don't read as late.
-    """
-
-    @database_sync_to_async(thread_sensitive=False)
-    def _emit() -> None:
-        now = datetime.now(UTC)
-        # next_check_at is the due signal; never-scheduled alerts have nothing to judge.
-        alerts = (
-            AlertConfiguration.objects.filter(enabled=True, insight__deleted=False, next_check_at__isnull=False)
-            .only("id", "team_id", "calculation_interval", "next_check_at")
-            .iterator()
-        )
-        # ph_scoped_capture().__exit__ blocks on an HTTP flush, so keep the whole loop here.
-        with ph_scoped_capture() as capture_ph_event:
-            for alert in alerts:
-                interval = AlertCalculationInterval(alert.calculation_interval or AlertCalculationInterval.HOURLY)
-                grace_seconds = _interval_seconds(interval) * ALERT_TIMELINESS_GRACE_FRACTION
-                late_seconds = (now - alert.next_check_at).total_seconds()
-                on_time = late_seconds <= grace_seconds
-                extra_properties = {"calculation_interval": alert.calculation_interval}
-
-                # Pair started+completed so the SLO dashboards (which denominate on
-                # slo_operation_started) count one timeliness sample per alert.
-                emit_slo_started(
-                    distinct_id=str(alert.id),
-                    properties=SloStartedProperties(
-                        area=SloArea.ANALYTIC_PLATFORM,
-                        operation=SloOperation.ALERT_TIMELINESS,
-                        team_id=alert.team_id,
-                        resource_id=str(alert.id),
-                    ),
-                    extra_properties=extra_properties,
-                    capture=capture_ph_event,
-                )
-                emit_slo_completed(
-                    distinct_id=str(alert.id),
-                    properties=SloCompletedProperties(
-                        area=SloArea.ANALYTIC_PLATFORM,
-                        operation=SloOperation.ALERT_TIMELINESS,
-                        team_id=alert.team_id,
-                        outcome=SloOutcome.SUCCESS if on_time else SloOutcome.FAILURE,
-                        resource_id=str(alert.id),
-                    ),
-                    extra_properties={**extra_properties, "late_seconds": max(late_seconds, 0.0)},
-                    capture=capture_ph_event,
-                )
-
-    async with Heartbeater():
-        await _emit()

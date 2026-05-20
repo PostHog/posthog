@@ -16,7 +16,6 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 SCHEDULE_ID = "schedule-due-alert-checks-schedule"
 INVESTIGATION_SAFETY_NET_SCHEDULE_ID = "run-investigation-safety-net-schedule"
 CLEANUP_ALERT_CHECKS_SCHEDULE_ID = "cleanup-alert-checks-schedule"
-ALERT_TIMELINESS_SCHEDULE_ID = "report-alert-timeliness-schedule"
 
 
 async def create_schedule_due_alert_checks_schedule(client: Client) -> None:
@@ -62,7 +61,6 @@ async def create_run_investigation_safety_net_schedule(client: Client) -> None:
 
 
 async def create_cleanup_alert_checks_schedule(client: Client) -> None:
-    """Daily at 8:00 UTC — matches the prior Celery crontab."""
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "cleanup-alert-checks",
@@ -79,23 +77,3 @@ async def create_cleanup_alert_checks_schedule(client: Client) -> None:
         await a_update_schedule(client, CLEANUP_ALERT_CHECKS_SCHEDULE_ID, schedule)
     else:
         await a_create_schedule(client, CLEANUP_ALERT_CHECKS_SCHEDULE_ID, schedule, trigger_immediately=False)
-
-
-async def create_alert_timeliness_schedule(client: Client) -> None:
-    """Every 5 minutes — sample timeliness often enough to catch lateness promptly."""
-    schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "report-alert-timeliness",
-            id=ALERT_TIMELINESS_SCHEDULE_ID,
-            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-            execution_timeout=dt.timedelta(minutes=5),
-        ),
-        spec=ScheduleSpec(cron_expressions=["*/5 * * * *"]),
-        # SKIP — if the previous run is still going, don't stack up overlapping samples.
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-    )
-
-    if await a_schedule_exists(client, ALERT_TIMELINESS_SCHEDULE_ID):
-        await a_update_schedule(client, ALERT_TIMELINESS_SCHEDULE_ID, schedule)
-    else:
-        await a_create_schedule(client, ALERT_TIMELINESS_SCHEDULE_ID, schedule, trigger_immediately=False)

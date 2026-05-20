@@ -27,11 +27,11 @@ from posthog.models.alert import AlertCheck
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import (
+    _emit_alert_timeliness_slo,
     cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
     prepare_alert,
-    report_alert_timeliness,
 )
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -588,75 +588,91 @@ class TestCleanupAlertChecks:
         mock_cleanup.assert_called_once()
 
 
+@contextlib.contextmanager
+def _capture_slo():
+    captured: list[dict] = []
+
+    @contextlib.contextmanager
+    def fake_scoped_capture():
+        def capture(**kwargs):
+            captured.append(kwargs)
+
+        yield capture
+
+    with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
+        yield captured
+
+
+class TestAlertTimelinessSlo:
+    @pytest.mark.parametrize(
+        "interval,offset_minutes,expected",
+        [
+            # hourly grace = 6min
+            (AlertCalculationInterval.HOURLY.value, 1, SloOutcome.SUCCESS),
+            (AlertCalculationInterval.HOURLY.value, 10, SloOutcome.FAILURE),
+            # daily grace = 2.4h = 144min
+            (AlertCalculationInterval.DAILY.value, 60, SloOutcome.SUCCESS),
+            (AlertCalculationInterval.DAILY.value, 180, SloOutcome.FAILURE),
+        ],
+    )
+    def test_emit_helper_outcome(self, interval: str, offset_minutes: int, expected: SloOutcome) -> None:
+        checked_at = datetime(2024, 6, 3, 12, 0, tzinfo=UTC)
+        with _capture_slo() as captured:
+            _emit_alert_timeliness_slo(
+                alert_id="alert-1",
+                team_id=1,
+                calculation_interval=interval,
+                scheduled_check_at=checked_at - timedelta(minutes=offset_minutes),
+                checked_at=checked_at,
+            )
+
+        started = [c for c in captured if c["event"] == "slo_operation_started"]
+        completed = [c for c in captured if c["event"] == "slo_operation_completed"]
+        assert len(started) == len(completed) == 1
+        assert completed[0]["properties"]["operation"] == SloOperation.ALERT_TIMELINESS
+        assert completed[0]["properties"]["outcome"] == expected
+        assert completed[0]["properties"]["resource_id"] == "alert-1"
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-class TestReportAlertTimeliness:
-    @staticmethod
-    @contextlib.contextmanager
-    def _capture_slo():
-        captured: list[dict] = []
-
-        @contextlib.contextmanager
-        def fake_scoped_capture():
-            def capture(**kwargs):
-                captured.append(kwargs)
-
-            yield capture
-
-        with patch("posthog.temporal.alerts.activities.ph_scoped_capture", fake_scoped_capture):
-            yield captured
-
+class TestEvaluateAlertEmitsTimeliness:
     @freeze_time("2024-06-03T12:00:00Z")
-    async def test_emits_success_for_on_time_and_failure_for_late(self, ateam) -> None:
+    async def test_emits_failure_when_check_runs_late(self, ateam) -> None:
         now = datetime.now(UTC)
-        # Daily grace = 10% of 1 day = 2.4h.
-        on_time = await _create_alert(
-            ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now + timedelta(hours=1)
-        )
-        within_grace = await _create_alert(
-            ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now - timedelta(hours=1)
-        )
-        late_daily = await _create_alert(
+        # Daily grace = 2.4h; scheduled 3h ago means this check ran late.
+        a = await _create_alert(
             ateam, calculation_interval=AlertCalculationInterval.DAILY.value, next_check_at=now - timedelta(hours=3)
         )
-        # Hourly grace = 10% of 1h = 6min; 10min overdue is late.
-        late_hourly = await _create_alert(
-            ateam, calculation_interval=AlertCalculationInterval.HOURLY.value, next_check_at=now - timedelta(minutes=10)
-        )
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                return_value=AlertEvaluationResult(value=1.0, breaches=None),
+            ),
+            _capture_slo() as captured,
+        ):
+            await ActivityEnvironment().run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(a.id)))
 
-        with self._capture_slo() as captured:
-            await ActivityEnvironment().run(report_alert_timeliness)
-
-        completed = [c for c in captured if c["event"] == "slo_operation_completed"]
-        outcome_by_alert = {c["properties"]["resource_id"]: c["properties"]["outcome"] for c in completed}
-        assert outcome_by_alert == {
-            str(on_time.id): SloOutcome.SUCCESS,
-            str(within_grace.id): SloOutcome.SUCCESS,
-            str(late_daily.id): SloOutcome.FAILURE,
-            str(late_hourly.id): SloOutcome.FAILURE,
-        }
-        # Each alert emits a paired started+completed sample so the SLO dashboards have a denominator.
-        started = [c for c in captured if c["event"] == "slo_operation_started"]
-        assert len(started) == len(completed) == 4
-        assert all(c["properties"]["operation"] == SloOperation.ALERT_TIMELINESS for c in captured)
+        completed = [
+            c
+            for c in captured
+            if c["event"] == "slo_operation_completed" and c["properties"]["operation"] == SloOperation.ALERT_TIMELINESS
+        ]
+        assert len(completed) == 1
+        assert completed[0]["properties"]["outcome"] == SloOutcome.FAILURE
+        assert completed[0]["properties"]["resource_id"] == str(a.id)
 
     @freeze_time("2024-06-03T12:00:00Z")
-    async def test_skips_disabled_deleted_and_never_scheduled_alerts(self, ateam) -> None:
-        now = datetime.now(UTC)
-        await _create_alert(ateam, enabled=False, next_check_at=now - timedelta(days=2))  # disabled — excluded by query
-        await _create_alert(
-            ateam, insight_deleted=True, next_check_at=now - timedelta(days=2)
-        )  # deleted insight — excluded
-        await _create_alert(ateam, next_check_at=None)  # never scheduled — nothing to judge
-
-        with self._capture_slo() as captured:
-            await ActivityEnvironment().run(report_alert_timeliness)
-
-        assert captured == []
-
-    @freeze_time("2024-06-03T12:00:00Z")
-    async def test_no_alerts_emits_nothing(self, ateam) -> None:
-        with self._capture_slo() as captured:
-            await ActivityEnvironment().run(report_alert_timeliness)
+    async def test_skips_timeliness_on_first_check(self, ateam) -> None:
+        # next_check_at is None on a first-ever check — no schedule to measure against.
+        a = await _create_alert(ateam, next_check_at=None)
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                return_value=AlertEvaluationResult(value=1.0, breaches=None),
+            ),
+            _capture_slo() as captured,
+        ):
+            await ActivityEnvironment().run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(a.id)))
 
         assert captured == []
