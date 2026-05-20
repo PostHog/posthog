@@ -29,7 +29,8 @@ paginated download, parity grind and failure report are shared via
 4. **For each unique query**: parse with `--oracle` (default
    `cpp-json`); oracle reject → skipped. Otherwise parse with
    `--candidate` — reject, crash, AST mismatch, or pass. ASTs are
-   compared after `clear_locations()`.
+   compared with per-node `start` / `end` positions by default
+   (`CLEAR_LOCATIONS=1` strips them for structural-only comparison).
 
 ## Usage
 

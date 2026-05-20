@@ -28,7 +28,8 @@ shared machinery lives in `_diagnostic_common.py`.
 4. **For each unique program**: parse with `--oracle` (default
    `cpp-json`); oracle reject → skipped. Otherwise parse with
    `--candidate` — reject, crash, AST mismatch, or pass. ASTs are
-   compared after `clear_locations()`.
+   compared with per-node `start` / `end` positions by default
+   (`CLEAR_LOCATIONS=1` strips them for structural-only comparison).
 
 Only Hog functions belonging to organisations that have opted into AI
 data processing (`posthog_organization.is_ai_data_processing_approved`)
