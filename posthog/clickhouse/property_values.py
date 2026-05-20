@@ -56,13 +56,18 @@ SETTINGS
 
 
 def KAFKA_PROPERTY_VALUES_TABLE_SQL_FN() -> str:
+    # `kafka_isolation_level = 'read_committed'` is what makes the aggregator's
+    # transactional produce stick end-to-end. Without it the engine would still
+    # pick up records from aborted transactions and the MV would double-count
+    # on aggregator crash.
+    engine = kafka_engine(
+        topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES,
+        group=CONSUMER_GROUP_PROPERTY_VALUES,
+        named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+    )
     return KAFKA_PROPERTY_VALUES_TABLE_SQL.format(
         table_name=KAFKA_TABLE_NAME,
-        engine=kafka_engine(
-            topic=KAFKA_CLICKHOUSE_PROPERTY_VALUES,
-            group=CONSUMER_GROUP_PROPERTY_VALUES,
-            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
-        ),
+        engine=f"{engine} SETTINGS kafka_isolation_level = 'read_committed'",
     )
 
 
