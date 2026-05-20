@@ -36,6 +36,17 @@ def _parse_lookback_days(value: Any, fallback: int = DEFAULT_CUPED_LOOKBACK_DAYS
     return days
 
 
+def _resolve_lookback_days(experiment_value: Any, team_default: int | None) -> int:
+    """Resolve lookback days using precedence: experiment value > team default > hardcoded default.
+
+    Invalid values at either level fall through to the next level rather than failing.
+    """
+    team_fallback = _parse_lookback_days(team_default) if team_default is not None else DEFAULT_CUPED_LOOKBACK_DAYS
+    if experiment_value is None:
+        return team_fallback
+    return _parse_lookback_days(experiment_value, fallback=team_fallback)
+
+
 def _metric_supports_cuped(metric: object) -> bool:
     if isinstance(metric, ExperimentMeanMetric):
         # Session property metrics use a separate session-deduplication CTE pipeline.
@@ -79,15 +90,7 @@ def get_cuped_config(
     if not enabled:
         return CupedQueryConfig()
 
-    fallback_lookback_days = (
-        _parse_lookback_days(team_default_lookback_days)
-        if team_default_lookback_days is not None
-        else DEFAULT_CUPED_LOOKBACK_DAYS
-    )
     return CupedQueryConfig(
         enabled=True,
-        lookback_days=_parse_lookback_days(
-            cuped_config.get("lookback_days", fallback_lookback_days),
-            fallback=fallback_lookback_days,
-        ),
+        lookback_days=_resolve_lookback_days(cuped_config.get("lookback_days"), team_default_lookback_days),
     )

@@ -68,6 +68,18 @@ def test_get_cuped_config_team_default_ignored_when_metric_unsupported():
         ("invalid_team_default_falls_back_to_hardcoded", None, "not-a-number", DEFAULT_CUPED_LOOKBACK_DAYS),
         ("team_default_below_min_clamps_to_min", None, 0, MIN_CUPED_LOOKBACK_DAYS),
         ("team_default_above_max_clamps_to_max", None, 1000, MAX_CUPED_LOOKBACK_DAYS),
+        (
+            "invalid_experiment_lookback_falls_back_to_team_default",
+            {"cuped": {"enabled": True, "lookback_days": "abc"}},
+            7,
+            7,
+        ),
+        (
+            "invalid_experiment_lookback_with_no_team_default_falls_back_to_hardcoded",
+            {"cuped": {"enabled": True, "lookback_days": "abc"}},
+            None,
+            DEFAULT_CUPED_LOOKBACK_DAYS,
+        ),
     ]
 )
 def test_get_cuped_config_lookback_days_resolution(
