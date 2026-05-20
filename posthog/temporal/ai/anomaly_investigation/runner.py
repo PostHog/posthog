@@ -136,6 +136,7 @@ async def run_investigation(
         max_retries=2,
         temperature=0,
         default_request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+        posthog_properties={"ai_product": "alert_investigation_agent"},
     )
     llm_with_tools = llm.bind_tools(
         [

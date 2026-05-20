@@ -21,6 +21,7 @@ class ScoreScale(BaseModel, frozen=True):
 
 
 class ScorerOutput(BaseLensOutput, frozen=True):
+    lens_type: Literal[LensType.SCORER] = LensType.SCORER
     score: float = Field(description="Numeric score on the configured scale.")
     reasoning: str = Field(description="One paragraph grounding the score in concrete moments.")
     label: str | None = Field(

@@ -95,8 +95,7 @@ export function SettingsTab(): JSX.Element {
                     />
                 </div>
                 <p className="text-muted text-xs mt-1">
-                    Only count participants whose full conversion window has elapsed. Applies to metrics with a custom
-                    time window. Default is set in{' '}
+                    Exclude participants whose conversion or retention window hasn't elapsed yet. Default is set in{' '}
                     <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
                         environment settings
                     </Link>

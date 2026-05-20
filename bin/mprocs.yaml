@@ -35,7 +35,7 @@ procs:
             capability: pinned
 
     backend:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-backend'
+        shell: 'bin/wait-for-docker && ./bin/start-backend'
         ready_pattern: 'Listening at'
         groups:
             layer: Application
@@ -43,7 +43,7 @@ procs:
         # no capability: always_required via intent-map.yaml
 
     celery-worker:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
+        shell: 'bin/wait-for-docker && ./bin/start-celery worker'
         capability: celery_workers
         ready_pattern: 'celery@'
         groups:
@@ -51,7 +51,7 @@ procs:
             tech: Python
 
     celery-beat:
-        shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery beat'
+        shell: 'bin/wait-for-docker && ./bin/start-celery beat'
         capability: celery_scheduler
         ready_pattern: 'celery beat'
         groups:
@@ -158,7 +158,6 @@ procs:
 
     webhook-s3-sink:
         shell: |-
-            uv sync --active && \
             bin/wait-for-docker && \
             python manage.py run_webhook_s3_sink --consumer-group dwh-webhook-sink-dev --health-port 8091
         capability: warehouse_webhook_sink
