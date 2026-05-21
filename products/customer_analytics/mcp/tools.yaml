@@ -9,9 +9,6 @@ feature: customer_analytics
 url_prefix: /customer-analytics
 ui_apps: {}
 tools:
-    accounts-bulk-update-tags-create:
-        operation: accounts_bulk_update_tags_create
-        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true
@@ -69,8 +66,8 @@ tools:
             account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive,
             account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
             zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g.
-            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use
-            `accounts-retrieve` for a single account by id.
+            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve`
+            for a single account by id.
         param_overrides:
             tags:
                 description: >
