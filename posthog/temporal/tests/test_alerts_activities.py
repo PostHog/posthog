@@ -25,7 +25,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import AlertConfiguration, Insight, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -568,3 +568,15 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestCleanupAlertChecks:
+    async def test_delegates_to_model_classmethod(self) -> None:
+        with patch.object(AlertCheck, "clean_up_old_checks", return_value=7) as mock_cleanup:
+            env = ActivityEnvironment()
+            deleted = await env.run(cleanup_alert_checks)
+
+        mock_cleanup.assert_called_once()
+        assert deleted == 7

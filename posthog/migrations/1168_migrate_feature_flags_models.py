@@ -24,7 +24,9 @@ def update_content_type(apps, schema_editor):
         old = ContentType.objects.filter(app_label="posthog", model=model).first()
         if old is None:
             continue
-        new_exists = ContentType.objects.filter(app_label="feature_flags", model=model).exists()
+        new_exists = ContentType.objects.filter(
+            app_label="feature_flags", model=model
+        ).exists()
         if new_exists:
             old.delete()
         else:
@@ -38,7 +40,9 @@ def reverse_content_type(apps, schema_editor):
         new = ContentType.objects.filter(app_label="feature_flags", model=model).first()
         if new is None:
             continue
-        old_exists = ContentType.objects.filter(app_label="posthog", model=model).exists()
+        old_exists = ContentType.objects.filter(
+            app_label="posthog", model=model
+        ).exists()
         if old_exists:
             new.delete()
         else:
@@ -52,7 +56,7 @@ class Migration(migrations.Migration):
         ("ee", "0044_migrate_feature_flags_models"),
         ("experiments", "0013_migrate_feature_flags_models"),
         ("feature_flags", "0002_migrate_feature_flags_models"),
-        ("posthog", "1166_oauth_impersonated_by"),
+        ("posthog", "1167_remove_alertconfiguration_is_calculating"),
         ("product_tours", "0007_migrate_feature_flags_models"),
         ("surveys", "0002_migrate_feature_flags_models"),
     ]

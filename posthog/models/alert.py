@@ -141,7 +141,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
-    is_calculating = models.BooleanField(default=False, null=True, blank=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
@@ -156,14 +155,14 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # When enabled and the alert transitions to FIRING, an investigation agent runs
     # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/tasks/alerts/checks.py for the trigger logic.
+    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
     investigation_agent_enabled = models.BooleanField(default=False)
 
     # When enabled (and investigation_agent_enabled is on), notification dispatch is
     # held until the investigation agent produces a verdict — and suppressed if the
-    # verdict is false_positive. A safety-net celery task force-notifies after a
+    # verdict is false_positive. A safety-net Temporal workflow force-notifies after a
     # grace period if the investigation stalls, so users can never silently miss a
-    # real fire. See posthog/tasks/alerts/investigation_notifications.py.
+    # real fire. See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
     investigation_gates_notifications = models.BooleanField(default=False)
 
     # What to do with an "inconclusive" verdict when notifications are gated.

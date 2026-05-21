@@ -152,7 +152,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         # across all actions — including `partial_update`, so they cannot be
         # individually edited or restored while their parent is soft-deleted.
         # They reappear automatically when the parent is restored. Mirrors how
-        # alerts behave (see posthog/tasks/alerts/checks.py).
+        # alerts behave (see posthog/temporal/alerts/activities.py).
         queryset = queryset.filter(
             Q(dashboard_item__isnull=True) | Q(dashboard_item__deleted=False),
             Q(dashboard__isnull=True) | Q(dashboard__deleted=False),
