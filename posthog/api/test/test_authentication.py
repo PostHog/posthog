@@ -1557,12 +1557,12 @@ class TestPasswordResetAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("none_becomes_true", None, True),
-            ("true_stays_true", True, True),
-            ("false_stays_false", False, False),
+            ("none_becomes_true", None),
+            ("true_stays_true", True),
+            ("false_becomes_true", False),
         ]
     )
-    def test_password_reset_flips_is_email_verified_only_from_none(self, _name, initial_state, expected_state):
+    def test_password_reset_flips_is_email_verified_to_true(self, _name, initial_state):
         self.user.is_email_verified = initial_state
         self.user.requested_password_reset_at = datetime.now()
         self.user.save()
@@ -1575,7 +1575,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.user.refresh_from_db()
-        self.assertEqual(self.user.is_email_verified, expected_state)
+        self.assertEqual(self.user.is_email_verified, True)
 
     def test_password_reset_does_not_clear_pending_email(self):
         self.user.is_email_verified = False
@@ -1591,7 +1591,6 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.user.refresh_from_db()
-        self.assertEqual(self.user.is_email_verified, False)
         self.assertEqual(self.user.pending_email, "new-address@example.com")
 
     @patch("posthog.tasks.email.send_password_changed_email.delay")

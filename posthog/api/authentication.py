@@ -929,11 +929,11 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         user.set_password(password)
         user.requested_password_reset_at = None
-        # Possessing a unique reset token sent to this email proves ownership.
-        # Don't override an explicit False: that means a pending_email change
-        # is in flight and needs its own verification step.
-        if user.is_email_verified is None:
-            user.is_email_verified = True
+        # Possessing the unique reset token (only ever delivered by email via
+        # send_password_reset) proves the user owns this address, regardless of
+        # whether they came in as None (legacy / agentic-provisioned), False
+        # (invite-accept, Vercel-provisioned), or True.
+        user.is_email_verified = True
         user.save()
 
         report_user_password_reset(user)
