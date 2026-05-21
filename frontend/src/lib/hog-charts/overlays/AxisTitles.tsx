@@ -32,7 +32,7 @@ const SVG_STYLE: React.CSSProperties = {
 const X_AXIS_TITLE_BASELINE_OFFSET = 6
 const Y_AXIS_TITLE_X = 12
 const TITLE_EDGE_PADDING = 8
-const ELLIPSIS = '...'
+const ELLIPSIS = '\u2026'
 
 function measureAxisTitleWidth(label: string): number {
     const measured = measureLabelWidth(label, AXIS_TITLE_FONT)

@@ -150,8 +150,8 @@ describe('LineChart', () => {
 
             const xTitle = chart.element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-x"]')
             const yTitle = chart.element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
-            expect(xTitle?.textContent).toMatch(/\.\.\.$/)
-            expect(yTitle?.textContent).toMatch(/\.\.\.$/)
+            expect(xTitle?.textContent).toMatch(/\u2026$/)
+            expect(yTitle?.textContent).toMatch(/\u2026$/)
             expect(xTitle?.textContent).not.toBe(xAxisLabel)
             expect(yTitle?.textContent).not.toBe(yAxisLabel)
             expect(xTitle?.getAttribute('data-full-label')).toBe(xAxisLabel)

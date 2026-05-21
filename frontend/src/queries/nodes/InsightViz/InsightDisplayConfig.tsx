@@ -50,22 +50,18 @@ import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-const LINE_DISPLAYS: ChartDisplayType[] = [
+const LINE_DISPLAYS = [
     ChartDisplayType.ActionsLineGraph,
     ChartDisplayType.ActionsLineGraphCumulative,
     ChartDisplayType.ActionsAreaGraph,
-]
-const MOVING_STATISTIC_DISPLAYS: ChartDisplayType[] = [
-    ChartDisplayType.ActionsLineGraph,
-    ChartDisplayType.ActionsAreaGraph,
-]
-const BAR_DISPLAYS: ChartDisplayType[] = [
+] as const
+const BAR_DISPLAYS = [
     ChartDisplayType.ActionsBar,
     ChartDisplayType.ActionsUnstackedBar,
     ChartDisplayType.ActionsBarValue,
-]
+] as const
 
-function displayMatches(display: ChartDisplayType | null | undefined, displays: ChartDisplayType[]): boolean {
+function displayMatches(display: ChartDisplayType | null | undefined, displays: readonly ChartDisplayType[]): boolean {
     return !!display && displays.includes(display)
 }
 
@@ -132,12 +128,12 @@ export function InsightDisplayConfig(): JSX.Element {
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
     const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
+    const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
     const showAxisLabelsConfig =
         isTrends &&
         ((isLineDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) ||
             (isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]))
-    const isLineGraph =
-        isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, MOVING_STATISTIC_DISPLAYS)
+    const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
     const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
