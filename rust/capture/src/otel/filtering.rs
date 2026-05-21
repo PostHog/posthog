@@ -5,7 +5,9 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
-use crate::event_restrictions::{AppliedRestrictions, EventContext, EventRestrictionService};
+use crate::event_restrictions::{
+    AppliedRestrictions, EventContext, EventRestrictionService, Pipeline,
+};
 use crate::prometheus::report_dropped_events;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
@@ -62,7 +64,7 @@ pub async fn check_restrictions(
             now_ts,
             ..Default::default()
         };
-        let applied = service.get_restrictions(token, &ctx).await;
+        let applied = service.get_restrictions(token, &ctx, Pipeline::Ai).await;
         merged = merged.merge(applied);
     }
 

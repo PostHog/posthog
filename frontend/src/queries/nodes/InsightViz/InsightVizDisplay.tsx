@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -148,9 +150,10 @@ export function InsightVizDisplay({
         series,
         insightData,
         validationError,
+        validationErrorCode,
         theme,
     } = useValues(insightVizDataLogic(insightProps))
-    const { loadData } = useActions(insightVizDataLogic(insightProps))
+    const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
     const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
@@ -190,13 +193,35 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
+            const isUnsupportedDataWarehouseSettings =
+                validationErrorCode === 'data_warehouse_series_unsupported_settings'
+            const resetCta = isUnsupportedDataWarehouseSettings ? (
+                <LemonButton
+                    type="primary"
+                    loading={insightDataLoading}
+                    onClick={() =>
+                        updateQuerySource({
+                            filterTestAccounts: false,
+                            properties: undefined,
+                            samplingFactor: undefined,
+                        })
+                    }
+                >
+                    Reset unsupported settings
+                </LemonButton>
+            ) : undefined
             return (
                 <InsightValidationError
                     query={query}
                     detail={validationError}
-                    onRetry={() => {
-                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
-                    }}
+                    onRetry={
+                        resetCta
+                            ? undefined
+                            : () => {
+                                  loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                              }
+                    }
+                    cta={resetCta}
                 />
             )
         }

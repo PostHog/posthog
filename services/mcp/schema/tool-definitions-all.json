@@ -1,4 +1,84 @@
 {
+    "accounts-create": {
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account",
+        "title": "Create account",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-destroy": {
+        "description": "Permanently delete a Customer Analytics account by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account",
+        "title": "Delete account",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-list": {
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List accounts",
+        "title": "List accounts",
+        "required_scopes": ["account:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-partial-update": {
+        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update account",
+        "title": "Update account",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-retrieve": {
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account",
+        "title": "Get account",
+        "required_scopes": ["account:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "action-create": {
         "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
         "category": "Actions",
@@ -1354,6 +1434,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-grouping-rules-update": {
+        "description": "Update an error tracking grouping rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule also clears any auto-disable state so the rule is re-enabled.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking grouping rule",
+        "title": "Update error tracking grouping rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-issues-merge-create": {
@@ -5149,10 +5244,10 @@
         }
     },
     "switch-organization": {
-        "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
+        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-list` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active organization from the default organization.",
+        "summary": "Switch the active PostHog organization for subsequent tool calls.",
         "title": "Switch active organization",
         "required_scopes": ["organization:read"],
         "new_mcp": true,
@@ -5164,10 +5259,10 @@
         }
     },
     "switch-project": {
-        "description": "Change the active project from the default project. You should only use this tool if the user asks you to change the project - otherwise, the default project will be used.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active project from the default project.",
+        "summary": "Switch the active PostHog project for subsequent tool calls.",
         "title": "Switch active project",
         "required_scopes": ["project:read"],
         "new_mcp": true,
@@ -5361,8 +5456,24 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-interviewees-bulk-create": {
+        "description": "Create up to 500 per-interviewee context rows for a topic in a single request. Each item is (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over `user-interview-topics-interviewees-create` when adding many rows.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Create many per-interviewee context rows at once",
+        "title": "Create many per-interviewee context rows at once",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-interviewees-create": {
-        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict.",
+        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict. Prefer `user-interview-topics-interviewees-bulk-create` when adding many rows at once.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Add per-interviewee context to a topic",

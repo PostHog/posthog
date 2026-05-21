@@ -34,14 +34,14 @@ export const LensProviderEnumApi = {
 } as const
 
 /**
- * * `gemini-3-flash` - Gemini 3 Flash
- * `gemini-3-flash-lite` - Gemini 3 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
  */
 export type LensModelEnumApi = (typeof LensModelEnumApi)[keyof typeof LensModelEnumApi]
 
 export const LensModelEnumApi = {
-    Gemini3Flash: 'gemini-3-flash',
-    Gemini3FlashLite: 'gemini-3-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
 } as const
 
 /**
@@ -116,7 +116,7 @@ export interface ReplayLensApi {
   * `summarizer` - Summarizer
   * `indexer` - Indexer */
     lens_type: LensTypeEnumApi
-    /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
     lens_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -132,8 +132,8 @@ export interface ReplayLensApi {
     provider?: LensProviderEnumApi
     /** Concrete model to use for this lens.
 
-  * `gemini-3-flash` - Gemini 3 Flash
-  * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+  * `gemini-3-flash-preview` - Gemini 3 Flash
+  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model: LensModelEnumApi
     /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -191,8 +191,8 @@ export interface LensSnapshotApi {
     lens_version: number
     /** Concrete model that ran the observation.
 
-  * `gemini-3-flash` - Gemini 3 Flash
-  * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+  * `gemini-3-flash-preview` - Gemini 3 Flash
+  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model: LensModelEnumApi
     /** Concrete provider that ran the observation.
 
@@ -202,6 +202,26 @@ export interface LensSnapshotApi {
     emits_signals: boolean
     /** Lens-type-specific configuration at run time (prompt, tags, scale, etc.). */
     lens_config: unknown
+}
+
+/**
+ * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+ */
+export type LensResultApiEventIdMapping = { [key: string]: unknown }
+
+/**
+ * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+ */
+export interface LensResultApi {
+    /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+    model_output: unknown
+    /**
+     * Number of PostHog Signals emitted from this observation.
+     * @minimum 0
+     */
+    signals_count: number
+    /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+    event_id_mapping: LensResultApiEventIdMapping
 }
 
 /**
@@ -233,7 +253,9 @@ export interface ReplayObservationApi {
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
     /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
-    readonly lens_snapshot: LensSnapshotApi
+    readonly lens_snapshot: LensSnapshotApi | null
+    /** Result data persisted on success; null until the observation succeeds. */
+    readonly lens_result: LensResultApi | null
     /** Whether this observation came from the schedule or an on-demand request.
 
   * `schedule` - Schedule
@@ -274,7 +296,7 @@ export interface PatchedReplayLensApi {
   * `summarizer` - Summarizer
   * `indexer` - Indexer */
     lens_type?: LensTypeEnumApi
-    /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
     lens_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -290,8 +312,8 @@ export interface PatchedReplayLensApi {
     provider?: LensProviderEnumApi
     /** Concrete model to use for this lens.
 
-  * `gemini-3-flash` - Gemini 3 Flash
-  * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+  * `gemini-3-flash-preview` - Gemini 3 Flash
+  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model?: LensModelEnumApi
     /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean

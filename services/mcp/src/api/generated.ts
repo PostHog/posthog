@@ -32,6 +32,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `read_write` - read_write
+    * `read` - read
+    * `none` - none
+     */
+    export type AccessLevelEnum = typeof AccessLevelEnum[keyof typeof AccessLevelEnum];
+
+
+    export const AccessLevelEnum = {
+      ReadWrite: 'read_write',
+      Read: 'read',
+      None: 'none',
+    } as const;
+
+    /**
      * * `warehouse` - warehouse
     * `direct` - direct
      */
@@ -42,6 +56,63 @@ export namespace Schemas {
       Warehouse: 'warehouse',
       Direct: 'direct',
     } as const;
+
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    export type AccountProperties = {
+      /** @nullable */
+      csm?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_executive?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_owner?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      stripe_customer_id?: string | null;
+      /** @nullable */
+      hubspot_deal_id?: string | null;
+      /** @nullable */
+      billing_id?: string | null;
+      /** @nullable */
+      sfdc_id?: string | null;
+      /** @nullable */
+      zendesk_id?: string | null;
+    } | null;
+
+    export interface Account {
+      readonly id: string;
+      /**
+         * Human-readable name of the account.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * @maxLength 400
+         * @nullable
+         */
+      external_id?: string | null;
+      /**
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * @nullable
+         */
+      properties?: AccountProperties;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
 
     /**
      * * `event` - event
@@ -3565,6 +3636,7 @@ export namespace Schemas {
     * `flags` - flags
     * `llm_analytics` - llm_analytics
     * `sandbox` - sandbox
+    * `user_interview` - user_interview
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -3581,6 +3653,7 @@ export namespace Schemas {
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
+      UserInterview: 'user_interview',
     } as const;
 
     export interface AggregatedSpanRow {
@@ -3894,7 +3967,8 @@ export namespace Schemas {
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
-     * * `hourly` - hourly
+     * * `every_15_minutes` - every_15_minutes
+    * `hourly` - hourly
     * `daily` - daily
     * `weekly` - weekly
     * `monthly` - monthly
@@ -3903,6 +3977,7 @@ export namespace Schemas {
 
 
     export const CalculationIntervalEnum = {
+      Every15Minutes: 'every_15_minutes',
       Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
@@ -3967,8 +4042,9 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -4965,7 +5041,28 @@ export namespace Schemas {
       Zmw: 'ZMW',
     } as const;
 
+    export interface QuarantineSourceRun {
+      id: string;
+      branch: string;
+      commit_sha: string;
+      created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+    }
+
+    export interface BaselineQuarantineSummary {
+      created_by?: UserBasicInfo | null;
+      source_run?: QuarantineSourceRun | null;
+      id: string;
+      reason: string;
+      /** @nullable */
+      expires_at: string | null;
+      created_at: string;
+    }
+
     export interface BaselineEntry {
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
       identifier: string;
       run_type: string;
       /** @nullable */
@@ -5296,8 +5393,16 @@ export namespace Schemas {
          * @nullable
          */
       bytes_exported?: number | null;
-      /** The BatchExport this run belongs to. */
-      readonly batch_export: string;
+      /**
+         * The `BatchExport` this run belongs to.
+         * @nullable
+         */
+      readonly batch_export: string | null;
+      /**
+         * The `BatchExportOnDemand` this run belongs to.
+         * @nullable
+         */
+      batch_export_on_demand?: string | null;
       /**
          * The backfill this run belongs to.
          * @nullable
@@ -6340,6 +6445,33 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BulkIntervieweeContextItem {
+      /**
+         * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
+         * @maxLength 400
+         */
+      interviewee_identifier: string;
+      /**
+         * Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.
+         * @maxLength 10000
+         */
+      agent_context: string;
+    }
+
+    export interface BulkIntervieweeContextRequest {
+      /** List of interviewee context rows to create. Each item has an `interviewee_identifier` and an `agent_context`. At most 500 items per request. */
+      items: BulkIntervieweeContextItem[];
+    }
+
+    export interface BulkIntervieweeContextResponse {
+      /** Number of rows inserted by this request. */
+      inserted_count: number;
+      /** Number of items skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_count: number;
+      /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
+      skipped_identifiers: string[];
+    }
+
     export interface BulkNotificationIdsRequest {
       /**
          * UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.
@@ -6833,6 +6965,11 @@ export namespace Schemas {
       settings?: Settings | null;
     }
 
+    /**
+     * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+     */
+    export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
+
     export interface HeatmapGradientStop {
       color: string;
       value: number;
@@ -6890,6 +7027,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
+      /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+      resultCustomizations?: ChartSettingsResultCustomizations;
       rightYAxisSettings?: YAxisSettings | null;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
@@ -8031,6 +8170,43 @@ export namespace Schemas {
       SameOrigin: 'same_origin',
       GithubRepo: 'github_repo',
     } as const;
+
+    /**
+     * * `cost` - cost
+    * `latency` - latency
+    * `eval_pass_rate` - eval_pass_rate
+     */
+    export type TemplatesEnum = typeof TemplatesEnum[keyof typeof TemplatesEnum];
+
+
+    export const TemplatesEnum = {
+      Cost: 'cost',
+      Latency: 'latency',
+      EvalPassRate: 'eval_pass_rate',
+    } as const;
+
+    export interface CreateFromPromptInput {
+      /** The name of the LLM prompt to experiment on. Must already exist for this team. */
+      prompt_name: string;
+      /**
+         * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
+         * @minItems 2
+         * @maxItems 10
+         */
+      versions: number[];
+      /**
+         * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+         * @minItems 1
+         * @maxItems 3
+         */
+      templates: TemplatesEnum[];
+      /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
+      name?: string;
+      /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
+      feature_flag_key?: string;
+      /** Optional experiment description. */
+      description?: string;
+    }
 
     export interface CreateGroup {
       /**
@@ -11493,6 +11669,7 @@ export namespace Schemas {
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
     * `Resend` - Resend
+    * `PgAnalyze` - PgAnalyze
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -11642,6 +11819,7 @@ export namespace Schemas {
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
       Resend: 'Resend',
+      PgAnalyze: 'PgAnalyze',
     } as const;
 
     /**
@@ -11797,7 +11975,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -13762,6 +13941,11 @@ export namespace Schemas {
       results: ErrorTrackingGroupingRule[];
     }
 
+    export interface ErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+    }
+
     export interface ErrorTrackingImpact {
       /** Exception occurrence count. */
       occurrences?: number;
@@ -14527,6 +14711,8 @@ export namespace Schemas {
       symbol_sets?: ErrorTrackingSymbolSetUpload[];
       /** Whether to overwrite uploaded symbol sets whose content hash changed. */
       force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
     }
 
     export interface ErrorTrackingSymbolSetFinishUpload {
@@ -15574,6 +15760,12 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
@@ -15714,6 +15906,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -15755,6 +15954,11 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Columns to sync. Null means sync all columns.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -15919,7 +16123,8 @@ export namespace Schemas {
       * `Convex` - Convex
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
-      * `Resend` - Resend */
+      * `Resend` - Resend
+      * `PgAnalyze` - PgAnalyze */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -16855,6 +17060,22 @@ export namespace Schemas {
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
+      has_more: boolean;
+    }
+
+    export interface GitHubTeam {
+      /** GitHub team numeric identifier. */
+      id: number;
+      /** GitHub team slug. */
+      slug: string;
+      /** GitHub team display name. */
+      name: string;
+    }
+
+    export interface GitHubTeamsResponse {
+      /** List of GitHub teams available to the installation organization. */
+      teams: GitHubTeam[];
+      /** Whether more teams are available beyond this page. */
       has_more: boolean;
     }
 
@@ -19694,15 +19915,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `gemini-3-flash` - Gemini 3 Flash
-    * `gemini-3-flash-lite` - Gemini 3 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+    * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
      */
     export type LensModelEnum = typeof LensModelEnum[keyof typeof LensModelEnum];
 
 
     export const LensModelEnum = {
-      Gemini3Flash: 'gemini-3-flash',
-      Gemini3FlashLite: 'gemini-3-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
     } as const;
 
     /**
@@ -19714,6 +19935,26 @@ export namespace Schemas {
     export const LensProviderEnum = {
       Google: 'google',
     } as const;
+
+    /**
+     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+     */
+    export type LensResultEventIdMapping = { [key: string]: unknown };
+
+    /**
+     * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+     */
+    export interface LensResult {
+      /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+      event_id_mapping: LensResultEventIdMapping;
+    }
 
     /**
      * * `monitor` - Monitor
@@ -19751,8 +19992,8 @@ export namespace Schemas {
       lens_version: number;
       /** Concrete model that ran the observation.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** Concrete provider that ran the observation.
 
@@ -20337,6 +20578,124 @@ export namespace Schemas {
       category?: MCPFeedbackCreateCategoryEnum;
     }
 
+    export interface MCPIntentClusterToolEntry {
+      /** MCP tool name that received calls for this cluster. */
+      readonly tool: string;
+      /** Number of tool calls routed to this tool across the cluster. */
+      readonly count: number;
+      /** Percentage of the cluster's calls that went to this tool, 0–100. */
+      readonly pct: number;
+      /** Number of error responses observed for this tool within the cluster. */
+      readonly errors: number;
+      /** Error rate for this tool within the cluster, 0–100. */
+      readonly error_rate_pct: number;
+    }
+
+    /**
+     * * `completed` - Completed
+    * `error` - Error
+     */
+    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
+
+
+    export const OutcomeEnum = {
+      Completed: 'completed',
+      Error: 'error',
+    } as const;
+
+    export interface MCPIntentClusterJourneyPath {
+      /** Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step. */
+      readonly steps: readonly (string | null)[];
+      /** Terminal outcome of the sessions following this path.
+
+      * `completed` - Completed
+      * `error` - Error */
+      readonly outcome: OutcomeEnum;
+      /** Number of sessions in this cluster that followed this exact path. */
+      readonly count: number;
+    }
+
+    export interface MCPIntentClusterJourney {
+      /** Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER. */
+      readonly paths: readonly MCPIntentClusterJourneyPath[];
+      /** Total session count represented across all paths in this cluster. */
+      readonly total_sessions: number;
+      /** Highest-volume non-completed path. Null when every path completed successfully. */
+      readonly leak: MCPIntentClusterJourneyPath | null;
+    }
+
+    export interface MCPIntentCluster {
+      /** Stable cluster identifier within this snapshot. */
+      readonly id: number;
+      /** Representative intent text for the cluster (the medoid intent closest to the cluster centroid). */
+      readonly label: string;
+      /** Number of distinct intent texts that belong to this cluster. */
+      readonly intent_count: number;
+      /** Number of MCP sessions whose summarised intent belongs to this cluster. */
+      readonly session_count: number;
+      /** Total number of mcp_tool_call events represented by this cluster. */
+      readonly call_count: number;
+      /** Total number of error responses observed across the cluster. */
+      readonly error_count: number;
+      /** Aggregate error rate across all tool calls in the cluster, 0–100. */
+      readonly error_rate_pct: number;
+      /** Normalised Shannon entropy of the tool distribution. 0 means perfectly consistent routing (one tool dominates); 1 means uniformly spread across all tools called for this intent cluster. */
+      readonly routing_entropy: number;
+      /** Per-tool breakdown of calls and errors within the cluster. */
+      readonly tool_distribution: readonly MCPIntentClusterToolEntry[];
+      /** Up to three representative intent strings from the cluster, ordered by frequency desc. */
+      readonly sample_intents: readonly string[];
+      /** Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable. */
+      readonly journey: MCPIntentClusterJourney | null;
+    }
+
+    /**
+     * * `idle` - Idle
+    * `computing` - Computing
+    * `error` - Error
+     */
+    export type MCPIntentClusterSnapshotStatusEnum = typeof MCPIntentClusterSnapshotStatusEnum[keyof typeof MCPIntentClusterSnapshotStatusEnum];
+
+
+    export const MCPIntentClusterSnapshotStatusEnum = {
+      Idle: 'idle',
+      Computing: 'computing',
+      Error: 'error',
+    } as const;
+
+    export interface MCPIntentClusterSnapshotMeta {
+      /** Cosine distance threshold used by the clustering algorithm. */
+      readonly distance_threshold: number;
+      /** Embedding model used to vectorise intents. */
+      readonly embedding_model: string;
+      /** Number of distinct intents that fed into the clustering run. */
+      readonly n_intents: number;
+      /** Number of clusters produced by the run. */
+      readonly n_clusters: number;
+    }
+
+    export interface MCPIntentClusterSnapshot {
+      /** Whether a snapshot is current (idle), being recomputed (computing), or failed (error).
+
+      * `idle` - Idle
+      * `computing` - Computing
+      * `error` - Error */
+      readonly status: MCPIntentClusterSnapshotStatusEnum;
+      /** Error message from the most recent failed run, otherwise empty. */
+      readonly error_message: string;
+      /**
+         * When the latest snapshot finished computing.
+         * @nullable
+         */
+      readonly last_computed_at: string | null;
+      /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
+      readonly last_computed_by_email: string;
+      /** All clusters in the snapshot. */
+      readonly clusters: readonly MCPIntentCluster[];
+      /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
+      readonly computed_with: MCPIntentClusterSnapshotMeta | null;
+    }
+
     export interface MCPMissingCapabilityCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -20475,6 +20834,51 @@ export namespace Schemas {
       category?: MCPServerTemplateCategoryEnum;
     }
 
+    export interface MCPSession {
+      /** PostHog $session_id grouping all mcp_tool_call events. */
+      readonly session_id: string;
+      /** Total number of mcp_tool_call events in the session. */
+      readonly tool_calls: number;
+      /** Timestamp of the first mcp_tool_call event in the session. */
+      readonly session_start: string;
+      /** Timestamp of the most recent mcp_tool_call event in the session. */
+      readonly session_end: string;
+      /** Number of distinct PostHog distinct_ids that produced events in the session. */
+      readonly distinct_id_count: number;
+      /** Distinct $mcp_tool_name values seen in the session. */
+      readonly tools_used: readonly string[];
+      /** Most recent $mcp_client_name observed in the session. */
+      readonly mcp_client_name: string;
+      /** Most recent distinct_id observed for the session. Stable identifier the SDK tagged the events with. */
+      readonly distinct_id: string;
+      /** email property of the Person resolved from distinct_id; empty when no Person is mapped. */
+      readonly person_email: string;
+      /** name property of the Person resolved from distinct_id; empty when no Person is mapped. */
+      readonly person_name: string;
+      /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until the summary workflow runs. */
+      readonly intent: string;
+    }
+
+    export interface MCPToolCall {
+      /** ClickHouse uuid of the mcp_tool_call event. */
+      readonly event_id: string;
+      /** When the tool call was captured. */
+      readonly timestamp: string;
+      /** Tool that was invoked ($mcp_tool_name). */
+      readonly tool_name: string;
+      /** Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context. */
+      readonly intent: string;
+      /** Whether the tool call resulted in an error. */
+      readonly is_error: boolean;
+      /** Error message when is_error is true, otherwise empty. */
+      readonly error_message: string;
+      /**
+         * Duration of the tool call in milliseconds when captured.
+         * @nullable
+         */
+      readonly duration_ms: number | null;
+    }
+
     export interface MarkToleratedInput {
       snapshot_id: string;
     }
@@ -20514,7 +20918,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `BACKFILL` - Backfill
+     * * `PENDING` - Pending
+    * `BACKFILL` - Backfill
     * `READY` - Ready
     * `ERROR` - Error
      */
@@ -20522,6 +20927,7 @@ export namespace Schemas {
 
 
     export const MaterializedColumnSlotStateEnum = {
+      Pending: 'PENDING',
       Backfill: 'BACKFILL',
       Ready: 'READY',
       Error: 'ERROR',
@@ -20532,18 +20938,18 @@ export namespace Schemas {
       team: number;
       property_definition: string;
       readonly property_definition_details: PropertyDefinition;
-      property_type: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at: string;
@@ -21136,6 +21542,23 @@ export namespace Schemas {
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown: boolean | null;
+      /** @nullable */
+      readonly is_hipaa: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -21392,6 +21815,15 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface PaginatedAccountList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Account[];
+    }
 
     export interface PaginatedActionList {
       count: number;
@@ -22241,6 +22673,24 @@ export namespace Schemas {
       results: MCPServerTemplate[];
     }
 
+    export interface PaginatedMCPSessionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPSession[];
+    }
+
+    export interface PaginatedMCPToolCallList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPToolCall[];
+    }
+
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
       /** @nullable */
@@ -22599,6 +23049,8 @@ export namespace Schemas {
 
     export interface QuarantinedIdentifierEntry {
       created_by?: UserBasicInfo | null;
+      /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+      source_run?: QuarantineSourceRun | null;
       id: string;
       identifier: string;
       run_type: string;
@@ -22689,7 +23141,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -22705,8 +23157,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -22749,7 +23201,9 @@ export namespace Schemas {
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
       /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
-      readonly lens_snapshot: LensSnapshot;
+      readonly lens_snapshot: LensSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly lens_result: LensResult | null;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
@@ -23341,6 +23795,7 @@ export namespace Schemas {
     * `zendesk` - Zendesk
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
+    * `pganalyze` - pganalyze
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -23353,6 +23808,7 @@ export namespace Schemas {
       Zendesk: 'zendesk',
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
+      Pganalyze: 'pganalyze',
     } as const;
 
     /**
@@ -23555,8 +24011,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `hourly` - Hourly
-    * `daily` - Daily
+     * * `daily` - Daily
     * `weekly` - Weekly
     * `monthly` - Monthly
     * `yearly` - Yearly
@@ -23565,7 +24020,6 @@ export namespace Schemas {
 
 
     export const SubscriptionFrequencyEnum = {
-      Hourly: 'hourly',
       Daily: 'daily',
       Weekly: 'weekly',
       Monthly: 'monthly',
@@ -23623,9 +24077,8 @@ export namespace Schemas {
       target_type: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value: string;
-      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+      /** How often to deliver: daily, weekly, monthly, or yearly.
 
-      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -24217,6 +24670,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -24984,6 +25441,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -25148,6 +25607,63 @@ export namespace Schemas {
     }
 
     /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    export type PatchedAccountProperties = {
+      /** @nullable */
+      csm?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_executive?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      account_owner?: {
+      id: number;
+      email: string;
+    } | null;
+      /** @nullable */
+      stripe_customer_id?: string | null;
+      /** @nullable */
+      hubspot_deal_id?: string | null;
+      /** @nullable */
+      billing_id?: string | null;
+      /** @nullable */
+      sfdc_id?: string | null;
+      /** @nullable */
+      zendesk_id?: string | null;
+    } | null;
+
+    export interface PatchedAccount {
+      readonly id?: string;
+      /**
+         * Human-readable name of the account.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Identifier for the account in an external system (e.g. CRM ID). Optional.
+         * @maxLength 400
+         * @nullable
+         */
+      external_id?: string | null;
+      /**
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * @nullable
+         */
+      properties?: PatchedAccountProperties;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly created_by?: number | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface PatchedAction {
@@ -25233,8 +25749,9 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
+      * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
       * `daily` - daily
       * `weekly` - weekly
@@ -26318,6 +26835,11 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+    }
+
     /**
      * @nullable
      */
@@ -26684,6 +27206,12 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -26756,6 +27284,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -27596,18 +28131,18 @@ export namespace Schemas {
       team?: number;
       property_definition?: string;
       readonly property_definition_details?: PropertyDefinition;
-      property_type?: PropertyDefinitionTypeEnum;
       /**
          * @minimum 0
          * @maximum 32767
+         * @nullable
          */
-      slot_index?: number;
+      slot_index?: number | null;
       state?: MaterializedColumnSlotStateEnum;
       /**
          * @maxLength 400
          * @nullable
          */
-      backfill_temporal_workflow_id?: string | null;
+      backfill_temporal_run_id?: string | null;
       /** @nullable */
       error_message?: string | null;
       readonly created_at?: string;
@@ -27770,6 +28305,23 @@ export namespace Schemas {
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked?: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown?: boolean | null;
+      /** @nullable */
+      readonly is_hipaa?: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -28012,10 +28564,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -28858,7 +29407,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type?: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -28874,8 +29423,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model?: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -29229,9 +29778,8 @@ export namespace Schemas {
       target_type?: TargetTypeEnum;
       /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
       target_value?: string;
-      /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+      /** How often to deliver: daily, weekly, monthly, or yearly.
 
-      * `hourly` - Hourly
       * `daily` - Daily
       * `weekly` - Weekly
       * `monthly` - Monthly
@@ -30023,6 +30571,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at?: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -30597,6 +31149,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
@@ -30888,10 +31442,7 @@ export namespace Schemas {
     };
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface ProjectBackwardCompat {
       readonly id: number;
@@ -31719,6 +32270,72 @@ export namespace Schemas {
       values: PropertyItem[];
     }
 
+    /**
+     * Serializes a single access control rule DTO.
+     */
+    export interface PropertyAccessControlRule {
+      readonly id: string;
+      /** The access level for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID this rule applies to, if any.
+         * @nullable
+         */
+      organization_member: string | null;
+      /**
+         * The role UUID this rule applies to, if any.
+         * @nullable
+         */
+      role: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
+     * Serializes the aggregate state for a property definition.
+
+    Preserves the existing API shape: ``access_controls`` is the list
+    of rules, plus the available levels and the computed default.
+     */
+    export interface PropertyAccessControlState {
+      /** List of all access control rules for this property definition. */
+      access_controls: PropertyAccessControlRule[];
+      /** Available access levels that can be assigned. */
+      available_access_levels: string[];
+      /** The default access level when no rules match. */
+      default_access_level: string;
+    }
+
+    /**
+     * Request body for upserting a rule (create or update).
+     */
+    export interface PropertyAccessControlUpdate {
+      /** The property definition ID this rule applies to. */
+      property_definition_id: string;
+      /** The access level to set for this rule.
+
+      * `read_write` - read_write
+      * `read` - read
+      * `none` - none */
+      access_level: AccessLevelEnum;
+      /**
+         * The organization member UUID to set an override for.
+         * @nullable
+         */
+      organization_member?: string | null;
+      /**
+         * The role UUID to set an override for.
+         * @nullable
+         */
+      role?: string | null;
+    }
+
     export type PropertyType = typeof PropertyType[keyof typeof PropertyType];
 
 
@@ -31846,10 +32463,21 @@ export namespace Schemas {
     } as const;
 
     export interface QuarantineInput {
-      /** @maxLength 512 */
+      /**
+         * Snapshot identifier to quarantine.
+         * @maxLength 512
+         */
       identifier: string;
-      /** @maxLength 255 */
+      /**
+         * Why this snapshot is being quarantined.
+         * @maxLength 255
+         */
       reason: string;
+      /**
+         * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+         * @nullable
+         */
+      source_run_id?: string | null;
       /** @nullable */
       expires_at?: string | null;
     }
@@ -34248,6 +34876,24 @@ export namespace Schemas {
       stats: SurveyGlobalStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyGlobalStatsResponseRates;
+    }
+
+    export interface SurveyQuestionLabel {
+      /** UUID assigned to the survey question. */
+      question_id: string;
+      /** Untranslated question text as configured by the survey author. */
+      question_text: string;
+      /** Zero-based index of the question within the survey. */
+      question_index: number;
+      /** UUID of the survey this question belongs to. */
+      survey_id: string;
+      /** Display name of the survey. */
+      survey_name: string;
+    }
+
+    export interface SurveyQuestionLabelsResponse {
+      /** One entry per question that has an ID assigned, across all the team's surveys. */
+      labels: SurveyQuestionLabel[];
     }
 
     export interface SurveySerializerCreateUpdateOnly {
@@ -38314,6 +38960,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsIntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -39021,6 +39685,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type AccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -39812,6 +40487,36 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type McpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_end'.
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type McpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -39915,6 +40620,28 @@ export namespace Schemas {
      * Filter by recipient target type (e.g. `user`, `team`)
      */
     target_type?: string;
+    };
+
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
     };
 
     export type QuickFiltersListParams = {
@@ -42069,6 +42796,10 @@ export namespace Schemas {
      */
     order?: string;
     /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string;
+    /**
      * Free-text search applied to the experiment name (case-insensitive).
      */
     search?: string;
@@ -42099,6 +42830,12 @@ export namespace Schemas {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string;
+    };
+
+    export type ExperimentsPromptTemplatesRetrieve200Item = {
+      key: string;
+      label: string;
+      description: string;
     };
 
     export type ExportsListParams = {
@@ -43403,6 +44140,24 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive team name or slug search query.
+     */
+    search?: string;
+    };
+
     export type JsSnippetResolveRetrieve200 = { [key: string]: unknown };
 
     export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
@@ -44460,6 +45215,15 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
+     * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
+
+    * `true` - true
+    * `false` - false
+    * `all` - all
+     * @minLength 1
+     */
+    archived?: TasksListArchived;
+    /**
      * Filter by creator user ID
      */
     created_by?: number;
@@ -44512,6 +45276,15 @@ export namespace Schemas {
      */
     status?: TasksListStatus;
     };
+
+    export type TasksListArchived = typeof TasksListArchived[keyof typeof TasksListArchived];
+
+
+    export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
 

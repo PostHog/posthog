@@ -1,5 +1,5 @@
 import logging
-from typing import Union
+from typing import Union, cast
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -207,7 +207,7 @@ class PostHogSCIMGroup(SCIMGroup):
                 if path.is_complex:
                     raise ValueError("Complex filtered paths for members are not supported")
                 else:
-                    members_data = value if isinstance(value, list) else [value]
+                    members_data: list[dict] = cast(list[dict], value if isinstance(value, list) else [value])
                     self._update_members(self.obj, members_data, self._organization_domain)
 
     def handle_add(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:

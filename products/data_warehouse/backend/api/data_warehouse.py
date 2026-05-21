@@ -662,13 +662,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for run in failed_runs:
                 results.append(
                     {
-                        "id": str(run.batch_export.id),
-                        "name": run.batch_export.name,
+                        "id": str(run.parent.id),
+                        "name": getattr(run.parent, "name", "Batch export on demand"),
                         "type": "destination",
                         "status": "failed",
                         "error": run.latest_error,
                         "failed_at": run.finished_at.isoformat() if run.finished_at else None,
-                        "url": f"/pipeline/batch-exports/{run.batch_export.id}",
+                        "url": f"/pipeline/batch-exports/{run.parent.id}",
                     }
                 )
 

@@ -2,7 +2,7 @@
  * Workflows E2E tests through postgres-v2 (Cyclotron node DB).
  *
  * These tests exercise the full hogflow lifecycle:
- *   event → CdpEventsConsumer → CyclotronJobQueue (produces to v2 DB)
+ *   event → CdpEventsConsumer → CyclotronJobQueuePostgresV2 (produces to v2 DB)
  *   → CdpCyclotronWorkerHogFlow (polls v2 DB) → HogFlowExecutorService
  *   → results written back to v2 DB → logs/metrics to Kafka
  *
@@ -35,22 +35,21 @@ import { createHogExecutionGlobals, insertHogFunctionTemplate } from './_tests/f
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
+import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
+import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from './services/job-queue/job-queue.interface'
 import { HogFunctionInvocationGlobals } from './types'
-
-// Mock the v1 Cyclotron native addon — it crashes on import locally.
-// We only use postgres-v2 in these tests so v1 is not needed.
-jest.mock('@posthog/cyclotron', () => ({
-    CyclotronManager: jest.fn(),
-    CyclotronWorker: jest.fn(),
-}))
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
-// Use the same env var as config.ts (line 210-211) so the cleanup pool and hub always target the same DB
+// Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+const CYCLOTRON_DB_URL =
+    process.env.CYCLOTRON_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
-describe('Workflows E2E (postgres-v2)', () => {
+describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)', (mode) => {
     jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
@@ -64,7 +63,9 @@ describe('Workflows E2E (postgres-v2)', () => {
     let cyclotronPool: Pool
 
     beforeAll(() => {
-        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+        cyclotronPool = new Pool({
+            connectionString: mode === 'postgres-v2' ? CYCLOTRON_NODE_DB_URL : CYCLOTRON_DB_URL,
+        })
     })
 
     afterAll(async () => {
@@ -89,8 +90,6 @@ describe('Workflows E2E (postgres-v2)', () => {
         team = await getFirstTeam(hub.postgres)
         mockProducerObserver.resetKafkaProducer()
 
-        // Route hogflow to postgres-v2, everything else to kafka
-        hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = 'hogflow:postgres-v2,*:kafka'
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
         hub.CDP_FETCH_RETRIES = 2
         hub.CDP_FETCH_BACKOFF_BASE_MS = 50
@@ -111,16 +110,26 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         const deps = createCdpConsumerDeps(hub, kafkaProducer)
 
+        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub)
+
+        // Build the hogflow queue for the current mode
+        let hogflowQueue: JobQueue
+        if (mode === 'postgres-v2') {
+            hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        } else {
+            hogflowQueue = new CyclotronJobQueuePostgres(hub.CONSUMER_BATCH_SIZE, hub)
+        }
+
         // Events consumer — only start as producer (skip Kafka consumer connection).
         // We call processBatch() directly so the Kafka consumer is not needed.
-        eventsConsumer = new CdpEventsConsumer({ ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres-v2' }, deps)
-        await (eventsConsumer as any).cyclotronJobQueue.startAsProducer()
+        eventsConsumer = new CdpEventsConsumer(hub, deps, {
+            hogQueue: kafkaQueue,
+            hogflowQueue,
+        })
+        await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
 
-        // Start hogflow worker (consumer side — polls v2 DB)
-        hogflowWorker = new CdpCyclotronWorkerHogFlow(
-            { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres-v2' },
-            deps
-        )
+        // Start hogflow worker (consumer side — polls from the mode's backend)
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
         await hogflowWorker.start()
 
         mockFetch.mockResolvedValue({
@@ -159,8 +168,15 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     }
 
+    // v1 stores lifecycle in `state` (and vm payload in `vm_state`);
+    // v2 stores lifecycle in `status` (and state payload in `state`).
+    // Normalize so tests can use `.status` regardless of mode.
+    const statusColumn = mode === 'postgres-v2' ? 'status' : 'state'
+
     async function queryCyclotronJobs(): Promise<any[]> {
-        const result = await cyclotronPool.query('SELECT * FROM cyclotron_jobs ORDER BY created ASC')
+        const result = await cyclotronPool.query(
+            `SELECT *, ${statusColumn} AS status FROM cyclotron_jobs ORDER BY created ASC`
+        )
         return result.rows
     }
 
@@ -566,7 +582,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(mockFetch).not.toHaveBeenCalled()
 
             // Fast-forward: set the scheduled time to now so the worker picks it up
-            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE status = 'available'`)
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available'`)
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)

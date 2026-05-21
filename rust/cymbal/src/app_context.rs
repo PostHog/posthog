@@ -1,11 +1,13 @@
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use health::HealthRegistry;
+use moka::future::{Cache, CacheBuilder};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     config::{get_aws_config, init_global_state, Config},
@@ -24,6 +26,7 @@ use crate::{
         BlobClient, Catalog, S3Client,
     },
     teams::TeamManager,
+    types::operator::TeamId,
 };
 
 pub struct AppContext {
@@ -42,6 +45,11 @@ pub struct AppContext {
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     pub signal_client: MaybeSignalClient,
+    // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
+    // it persists across requests — only the stable mapping is cached, never the Issue
+    // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
+    // moka caches are cheap to clone (internally Arc'd).
+    pub issue_cache: Cache<(TeamId, String), Uuid>,
 }
 
 impl AppContext {
@@ -198,6 +206,10 @@ impl AppContext {
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
+        let issue_cache = CacheBuilder::new(1000)
+            .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
+            .build();
+
         Ok(Self {
             health_registry,
             immediate_producer,
@@ -211,6 +223,7 @@ impl AppContext {
             issue_buckets_redis_client,
             signal_client,
             symbol_resolver,
+            issue_cache,
         })
     }
 }
