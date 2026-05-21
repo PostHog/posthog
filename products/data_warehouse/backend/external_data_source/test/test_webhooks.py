@@ -129,7 +129,7 @@ class TestGetOrCreateWebhookHogFunction:
         assert mapping["invoice"] == str(schemas[1].id)
         assert result.hog_function.inputs["source_id"]["value"] == "source-123"
 
-    def test_skips_schemas_not_in_resource_map(self):
+    def test_falls_back_to_schema_name_when_not_in_resource_map(self):
         _, team = _create_org_and_team()
         _create_hog_function_template()
         source = _make_webhook_source(resource_map={"Customers": "customer"})
@@ -143,7 +143,8 @@ class TestGetOrCreateWebhookHogFunction:
 
         mapping = result.hog_function.inputs["schema_mapping"]["value"]
         assert "customer" in mapping
-        assert len(mapping) == 1
+        assert "UnknownTable" in mapping
+        assert len(mapping) == 2
 
     def test_includes_extra_inputs(self):
         _, team = _create_org_and_team()
@@ -340,3 +341,37 @@ class TestCreateAndRegisterWebhook:
         result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
 
         assert result.webhook_url == hog_fn_result.webhook_url
+
+    def test_propagates_pending_inputs_to_setup_result(self):
+        _, team = _create_org_and_team()
+        _create_hog_function_template()
+        webhook_source = _make_webhook_source()
+        ext_source = _create_external_data_source(team)
+        schemas = _create_schemas(team, ext_source, ["Customers"])
+
+        hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
+        webhook_source.create_webhook.return_value = WebhookCreationResult(
+            success=True,
+            pending_inputs=["signing_secret"],
+        )
+
+        config = MagicMock()
+        result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
+
+        assert result.success is True
+        assert result.pending_inputs == ["signing_secret"]
+
+    def test_pending_inputs_default_to_empty_list(self):
+        _, team = _create_org_and_team()
+        _create_hog_function_template()
+        webhook_source = _make_webhook_source()
+        ext_source = _create_external_data_source(team)
+        schemas = _create_schemas(team, ext_source, ["Customers"])
+
+        hog_fn_result = get_or_create_webhook_hog_function(team, webhook_source, "source-123", schemas)
+        webhook_source.create_webhook.return_value = WebhookCreationResult(success=True)
+
+        config = MagicMock()
+        result = create_and_register_webhook(webhook_source, config, hog_fn_result, team.id)
+
+        assert result.pending_inputs == []

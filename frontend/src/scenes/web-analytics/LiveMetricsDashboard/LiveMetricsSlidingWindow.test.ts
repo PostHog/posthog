@@ -188,6 +188,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([
@@ -203,6 +204,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([
@@ -228,6 +230,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-2'])]]),
@@ -239,6 +242,7 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([['Mobile', new Set(['device-1', 'device-3'])]]),
@@ -263,6 +267,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map([
@@ -291,6 +296,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -306,6 +312,7 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -338,6 +345,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -397,6 +405,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -408,6 +417,7 @@ describe('LiveMetricsSlidingWindow', () => {
             })
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -722,6 +732,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 10,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -747,6 +758,49 @@ describe('LiveMetricsSlidingWindow', () => {
             window.prune()
 
             expect(window.getTotalPageviews()).toBe(10)
+        })
+    })
+
+    describe('incremental totalBotEligibleEvents', () => {
+        it('tracks botEligibleEvents incrementally via addDataPoint', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', { botEligibleEvents: 1 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'user-2', { botEligibleEvents: 4 })
+            expect(window.getTotalBotEligibleEvents()).toBe(5)
+        })
+
+        it('tracks botEligibleEvents via extendBucketData', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
+                pageviews: 0,
+                botEligibleEvents: 12,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                browsers: new Map(),
+                paths: new Map(),
+                referrers: new Map(),
+                uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
+            })
+
+            expect(window.getTotalBotEligibleEvents()).toBe(12)
+        })
+
+        it('decrements totalBotEligibleEvents when buckets are pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'user-old', { botEligibleEvents: 8 })
+            window.addDataPoint(toUnixSeconds(relativeTime(-2 * MINUTE)), 'user-new', { botEligibleEvents: 3 })
+
+            expect(window.getTotalBotEligibleEvents()).toBe(11)
+
+            tickMinute()
+            window.prune()
+
+            expect(window.getTotalBotEligibleEvents()).toBe(3)
         })
     })
 
@@ -800,6 +854,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -863,6 +918,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -875,6 +931,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -988,6 +1045,7 @@ describe('LiveMetricsSlidingWindow', () => {
 
             window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
                 pageviews: 0,
+                botEligibleEvents: 0,
                 newUserCount: 0,
                 returningUserCount: 0,
                 devices: new Map(),
@@ -1010,6 +1068,74 @@ describe('LiveMetricsSlidingWindow', () => {
         it('returns empty array for empty window', () => {
             const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
             expect(window.getTopReferrers(10)).toEqual([])
+        })
+    })
+
+    describe('bot tracking', () => {
+        it('tracks bot counts per name via addDataPoint', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            const eventTs = toUnixSeconds(relativeTime(-5 * MINUTE))
+
+            window.addDataPoint(eventTs, 'bot-1', { bot: { name: 'Googlebot', category: 'Search crawler' } })
+            window.addDataPoint(eventTs, 'bot-2', { bot: { name: 'Googlebot', category: 'Search crawler' } })
+            window.addDataPoint(eventTs, 'bot-3', { bot: { name: 'GPTBot', category: 'AI crawler' } })
+
+            expect(window.getTotalBotEvents()).toBe(3)
+            expect(window.getBotBreakdown()).toEqual([
+                { bot: 'Googlebot', category: 'Search crawler', count: 2, percentage: (2 / 3) * 100 },
+                { bot: 'GPTBot', category: 'AI crawler', count: 1, percentage: (1 / 3) * 100 },
+            ])
+        })
+
+        it('rolls excess bots into the "Other" bucket when over the limit', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            const eventTs = toUnixSeconds(relativeTime(-5 * MINUTE))
+
+            window.addDataPoint(eventTs, 'a', { bot: { name: 'Googlebot', category: 'Search crawler' } })
+            window.addDataPoint(eventTs, 'b', { bot: { name: 'GPTBot', category: 'AI crawler' } })
+            window.addDataPoint(eventTs, 'c', { bot: { name: 'Bingbot', category: 'Search crawler' } })
+
+            const breakdown = window.getBotBreakdown(2)
+            expect(breakdown.length).toBe(3)
+            expect(breakdown[2].bot).toBe('Other')
+            expect(breakdown[2].count).toBe(1)
+        })
+
+        it('decrements bot counts when buckets are pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            const oldTs = toUnixSeconds(relativeTime(-40 * MINUTE))
+            const recentTs = toUnixSeconds(relativeTime(-5 * MINUTE))
+
+            window.addDataPoint(oldTs, 'old-1', { bot: { name: 'ClaudeBot', category: 'AI crawler' } })
+            window.addDataPoint(recentTs, 'new-1', { bot: { name: 'Googlebot', category: 'Search crawler' } })
+
+            window.prune()
+
+            expect(window.getTotalBotEvents()).toBe(1)
+            expect(window.getBotBreakdown().map((b) => b.bot)).toEqual(['Googlebot'])
+        })
+
+        it('round-trips bot data through extendBucketData', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            window.extendBucketData(toUnixSeconds(relativeTime(-5 * MINUTE)), {
+                pageviews: 0,
+                botEligibleEvents: 0,
+                newUserCount: 0,
+                returningUserCount: 0,
+                devices: new Map(),
+                paths: new Map(),
+                referrers: new Map(),
+                browsers: new Map(),
+                uniqueUsers: new Set(),
+                countries: new Map(),
+                bots: new Map([
+                    ['Googlebot', { count: 4, category: 'Search crawler' }],
+                    ['GPTBot', { count: 2, category: 'AI crawler' }],
+                ]),
+            })
+
+            expect(window.getTotalBotEvents()).toBe(6)
+            expect(window.getBotBreakdown().map((b) => b.bot)).toEqual(['Googlebot', 'GPTBot'])
         })
     })
 })

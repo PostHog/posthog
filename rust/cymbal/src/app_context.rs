@@ -1,11 +1,13 @@
 use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
 use common_redis::{Client as RedisClientTrait, RedisClient};
 use health::HealthRegistry;
+use moka::future::{Cache, CacheBuilder};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     config::{get_aws_config, init_global_state, Config},
@@ -24,11 +26,15 @@ use crate::{
         BlobClient, Catalog, S3Client,
     },
     teams::TeamManager,
+    types::operator::TeamId,
 };
 
 pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub immediate_producer: FutureProducer<KafkaContext>,
+    // Dedicated producer for `cdp_internal_events`. Points at warpstream-cyclotron when
+    // `CYMBAL_CYCLOTRON_KAFKA_HOSTS` is set; otherwise falls back to `immediate_producer`.
+    pub cyclotron_producer: FutureProducer<KafkaContext>,
     pub posthog_pool: PgPool,
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
@@ -39,6 +45,11 @@ pub struct AppContext {
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     pub signal_client: MaybeSignalClient,
+    // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
+    // it persists across requests — only the stable mapping is cached, never the Issue
+    // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
+    // moka caches are cheap to clone (internally Arc'd).
+    pub issue_cache: Cache<(TeamId, String), Uuid>,
 }
 
 impl AppContext {
@@ -88,13 +99,35 @@ impl AppContext {
         let immediate_producer =
             create_kafka_producer(&config.kafka, kafka_immediate_liveness).await?;
 
+        // Build the cyclotron producer if a separate broker list is configured; otherwise
+        // reuse the primary producer (so call sites can always target `cyclotron_producer`
+        // without branching).
+        let cyclotron_producer = match config.cyclotron_kafka_hosts.as_deref() {
+            Some(hosts) if !hosts.is_empty() => {
+                let mut cyclotron_config = config.kafka.clone();
+                cyclotron_config.kafka_hosts = hosts.to_string();
+                if let Some(tls) = config.cyclotron_kafka_tls {
+                    cyclotron_config.kafka_tls = tls;
+                }
+                let kafka_cyclotron_liveness = health_registry
+                    .register("cyclotron_kafka".to_string(), Duration::from_secs(30))
+                    .await;
+                create_kafka_producer(&cyclotron_config, kafka_cyclotron_liveness).await?
+            }
+            _ => immediate_producer.clone(),
+        };
+
         s3_client.ping_bucket(&config.object_storage_bucket).await?;
 
         let ss_cache = Arc::new(Mutex::new(SymbolSetCache::new(
             config.symbol_store_cache_max_bytes,
         )));
 
-        let smp = SourcemapProvider::new(config);
+        let smp = SourcemapProvider::new(config).with_chunk_id_rescue(
+            posthog_pool.clone(),
+            s3_client.clone(),
+            config.object_storage_bucket.clone(),
+        );
         let smp_chunk = ChunkIdFetcher::new(
             smp,
             s3_client.clone(),
@@ -173,9 +206,14 @@ impl AppContext {
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
+        let issue_cache = CacheBuilder::new(1000)
+            .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
+            .build();
+
         Ok(Self {
             health_registry,
             immediate_producer,
+            cyclotron_producer,
             posthog_pool,
             catalog,
             config: config.clone(),
@@ -185,6 +223,7 @@ impl AppContext {
             issue_buckets_redis_client,
             signal_client,
             symbol_resolver,
+            issue_cache,
         })
     }
 }

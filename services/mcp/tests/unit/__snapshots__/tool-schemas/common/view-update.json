@@ -4,6 +4,8 @@
         "dag_id": {
             "anyOf": [
                 {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                 },
                 {
@@ -26,6 +28,8 @@
         "folder_id": {
             "anyOf": [
                 {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                 },
                 {
@@ -48,12 +52,6 @@
             "type": "string"
         },
         "query": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "HogQL query definition as a JSON object. Must contain a \"query\" key with the SQL string. Example: {\"query\": \"SELECT * FROM events LIMIT 100\"}"
         }
     },

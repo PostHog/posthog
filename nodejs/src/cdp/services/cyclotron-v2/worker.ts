@@ -3,7 +3,12 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
-import { CyclotronV2DequeuedJob, CyclotronV2WorkerConfig } from './types'
+import {
+    CyclotronV2DequeuedJob,
+    CyclotronV2RescheduleOptions,
+    CyclotronV2RescheduleOptionsSchema,
+    CyclotronV2WorkerConfig,
+} from './types'
 
 interface RawJobRow {
     id: string
@@ -16,6 +21,9 @@ interface RawJobRow {
     parent_run_id: string | null
     transition_count: number
     state: Buffer | null
+    distinct_id: string | null
+    person_id: string | null
+    action_id: string | null
     lock_id: string
 }
 
@@ -109,6 +117,9 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.parent_run_id,
                 cyclotron_jobs.transition_count,
                 cyclotron_jobs.state,
+                cyclotron_jobs.distinct_id,
+                cyclotron_jobs.person_id,
+                cyclotron_jobs.action_id,
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, this.batchMaxSize, lockId]
         )
@@ -143,6 +154,9 @@ export class CyclotronV2Worker {
             parentRunId: row.parent_run_id,
             transitionCount: row.transition_count,
             state: row.state,
+            distinctId: row.distinct_id,
+            personId: row.person_id,
+            actionId: row.action_id,
 
             async ack(): Promise<void> {
                 releaseGuard('ack')
@@ -166,31 +180,43 @@ export class CyclotronV2Worker {
                 )
             },
 
-            async reschedule(options?: { scheduledAt?: Date; state?: Buffer | null }): Promise<void> {
+            async reschedule(input?: CyclotronV2RescheduleOptions): Promise<void> {
                 releaseGuard('reschedule')
+                const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
                 const scheduled = options?.scheduledAt ?? new Date()
-                const hasStateUpdate = options?.state !== undefined
 
-                if (hasStateUpdate) {
-                    await pool.query(
-                        `UPDATE cyclotron_jobs
-                         SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                             last_transition = NOW(), transition_count = transition_count + 1,
-                             scheduled = $3,
-                             state = $4
-                         WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId, scheduled, options!.state ?? null]
-                    )
-                } else {
-                    await pool.query(
-                        `UPDATE cyclotron_jobs
-                         SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                             last_transition = NOW(), transition_count = transition_count + 1,
-                             scheduled = $3
-                         WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId, scheduled]
-                    )
+                const setClauses = [
+                    `status = 'available'`,
+                    `lock_id = NULL`,
+                    `last_heartbeat = NULL`,
+                    `last_transition = NOW()`,
+                    `transition_count = transition_count + 1`,
+                    `scheduled = $3`,
+                ]
+                const params: any[] = [row.id, lockId, scheduled]
+
+                if (options?.state !== undefined) {
+                    params.push(options.state ?? null)
+                    setClauses.push(`state = $${params.length}`)
                 }
+                if (options?.distinctId !== undefined) {
+                    params.push(options.distinctId ?? null)
+                    setClauses.push(`distinct_id = $${params.length}`)
+                }
+                if (options?.personId !== undefined) {
+                    params.push(options.personId ?? null)
+                    setClauses.push(`person_id = $${params.length}`)
+                }
+                if (options?.actionId !== undefined) {
+                    params.push(options.actionId ?? null)
+                    setClauses.push(`action_id = $${params.length}`)
+                }
+
+                await pool.query(
+                    `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
+                     WHERE id = $1 AND lock_id = $2`,
+                    params
+                )
             },
 
             async cancel(): Promise<void> {

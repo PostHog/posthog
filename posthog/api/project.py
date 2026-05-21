@@ -1,4 +1,3 @@
-from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -20,6 +19,7 @@ from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TeamSerializer,
+    get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     validate_team_attrs,
 )
@@ -29,7 +29,6 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
@@ -39,7 +38,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
@@ -76,6 +75,7 @@ MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
+        # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
         fields = ["id", "organization_id", "name", "product_description", "created_at"]
         read_only_fields = ["id", "organization_id", "created_at"]
 
@@ -346,26 +346,16 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return bool(get_group_types_for_project(project.id))
+        return bool(cached_group_types_for_project(project))
 
     def get_group_types(self, project: Project) -> list[dict[str, Any]]:
-        return get_group_types_for_project(project.id)
+        return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
-        claims = {
-            "team_id": team.id,
-            "api_token": team.api_token,
-            "user_id": user_id,
-            "organization_id": str(team.organization_id),
-        }
-        return encode_jwt(
-            claims,
-            timedelta(days=7),
-            PosthogJwtAudience.LIVESTREAM,
-        )
+        return get_or_mint_live_events_token(team, user_id)
 
     @extend_schema_field(
         {

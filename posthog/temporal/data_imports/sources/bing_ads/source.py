@@ -79,6 +79,7 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="bing_ads_integration_id",
@@ -120,7 +121,12 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 
     def get_schemas(
-        self, config: BingAdsSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: BingAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         bing_ads_schemas = get_schemas()
         ads_incremental_fields = get_incremental_fields()

@@ -241,6 +241,124 @@ class TestProductTour(APIBaseTest):
         call_args = mock_report.call_args
         assert call_args[0][2]["creation_context"] == "toolbar"
 
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Onboarding tour", "Unrelated"],
+                "onbarding",
+                "Onboarding tour",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing tour", "Engineering tour"],
+                "Marke",
+                "Marketing tour",
+                ["Engineering tour"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["NPS Tour", "Engineering tour"],
+                "nps",
+                "NPS Tour",
+                ["Engineering tour"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["NPS Tour", "Engineering tour"],
+                "NPS",
+                "NPS Tour",
+                ["Engineering tour"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, tour_names, search, expected_first, excluded):
+        for name in tour_names:
+            ProductTour.objects.create(team=self.team, name=name, content={"steps": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
+
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        name_match = ProductTour.objects.create(team=self.team, name="revenue", content={"steps": []})
+        description_match = ProductTour.objects.create(
+            team=self.team,
+            name="Q4 review",
+            description="Quarterly revenue tour",
+            content={"steps": []},
+        )
+        ProductTour.objects.create(team=self.team, name="Unrelated", content={"steps": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/?search=revenue")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids[:2] == [str(name_match.id), str(description_match.id)]
+        assert all(r["name"] != "Unrelated" for r in response.json()["results"])
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a = ProductTour.objects.create(team=self.team, name="Alpha", content={"steps": []})
+        b = ProductTour.objects.create(team=self.team, name="Beta", content={"steps": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = {r["id"] for r in response.json()["results"]}
+
+        assert {str(a.id), str(b.id)}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        ProductTour.objects.create(team=self.team, name="Tour overview", content={"steps": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_list_filter_by_search_nul_bytes_do_not_500(self):
+        ProductTour.objects.create(team=self.team, name="Alpha", content={"steps": []})
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/", {"search": "\x00\x00\x00"})
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/", {"search": "a" * length})
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
+            assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
 
 class TestProductTourAnalyticsMetadata(APIBaseTest):
     @parameterized.expand(

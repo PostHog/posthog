@@ -20,7 +20,7 @@ import {
 import { Clickhouse } from '../../helpers/clickhouse'
 import { waitForExpect } from '../../helpers/expectations'
 import { ensureKafkaTopics } from '../../helpers/kafka'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
+import { createUserTeamAndOrganization } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
 
@@ -102,12 +102,12 @@ describe('postgres parity', () => {
     beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
 
-        // Generate unique teamId to avoid collisions across test files.
-        // This provides ClickHouse isolation without truncating tables,
-        // which would be redundant and risks disrupting Kafka consumers.
+        // Generate unique teamId to avoid collisions across test files and shards.
+        // This provides both PostgreSQL and ClickHouse isolation without truncating
+        // tables, which is redundant (unique teamId already isolates) and harmful
+        // (all 3 CI shards share the same DB, so global truncation corrupts
+        // in-flight state in other shards).
         teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
-
-        await resetTestDatabase()
 
         server = new IngestionGeneralServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
@@ -184,7 +184,7 @@ describe('postgres parity', () => {
         expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
         expect(clickHouseDistinctIds).toHaveLength(2)
 
-        const postgresPersons = await fetchPersons(postgres)
+        const postgresPersons = await fetchPersons(postgres, teamId)
         expect(postgresPersons).toEqual([
             {
                 id: expect.any(String),
@@ -282,7 +282,7 @@ describe('postgres parity', () => {
         )
 
         const clickHousePersons = await clickhouse.fetchPersons(teamId)
-        const postgresPersons = await fetchPersons(postgres)
+        const postgresPersons = await fetchPersons(postgres, teamId)
 
         expect(clickHousePersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
         expect(postgresPersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
@@ -319,7 +319,7 @@ describe('postgres parity', () => {
         )
 
         const clickHousePersons2 = await clickhouse.fetchPersons(teamId)
-        const postgresPersons2 = await fetchPersons(postgres)
+        const postgresPersons2 = await fetchPersons(postgres, teamId)
 
         expect(clickHousePersons2.length).toEqual(1)
         expect(postgresPersons2.length).toEqual(1)
@@ -385,7 +385,7 @@ describe('postgres parity', () => {
         await kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(teamId))
-        const [postgresPerson] = await fetchPersons(postgres)
+        const [postgresPerson] = await fetchPersons(postgres, teamId)
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(postgresPerson), 1)
         const clickHouseDistinctIdValues = await clickhouse.fetchDistinctIdValues(postgresPerson)
@@ -493,7 +493,7 @@ describe('postgres parity', () => {
         await kafkaProducer.flush()
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons(teamId))
-        const [postgresPerson] = await fetchPersons(postgres)
+        const [postgresPerson] = await fetchPersons(postgres, teamId)
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 1)
 
@@ -562,7 +562,7 @@ describe('postgres parity', () => {
             (await clickhouse.fetchPersons(teamId)).length === 1 ? ['deleted!'] : []
         )
         const clickHousePersons = await clickhouse.fetchPersons(teamId)
-        const postgresPersons = await fetchPersons(postgres)
+        const postgresPersons = await fetchPersons(postgres, teamId)
 
         expect(clickHousePersons.length).toEqual(1)
         expect(postgresPersons.length).toEqual(1)

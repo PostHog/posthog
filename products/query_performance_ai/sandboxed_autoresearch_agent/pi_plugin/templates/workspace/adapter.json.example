@@ -1,0 +1,6 @@
+{
+  "_comment": "Coordinator transport. The only supported `type` is 'coordinator' (see products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/scripts/transports.py). `url` is the coordinator's HTTP server (host.docker.internal from inside a Docker sandbox); `token` is the random per-run token the coordinator prints to its stdout at startup.",
+  "type": "coordinator",
+  "url": "http://host.docker.internal:8765",
+  "token": "<coordinator token>"
+}

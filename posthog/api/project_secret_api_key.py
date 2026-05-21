@@ -21,7 +21,12 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
-from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
+from posthog.scopes import (
+    API_SCOPE_ACTIONS,
+    API_SCOPE_OBJECTS,
+    INTERNAL_API_SCOPE_OBJECTS,
+    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+)
 
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 10
 
@@ -65,6 +70,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             if (
                 len(scope_parts) != 2
                 or scope_parts[0] not in API_SCOPE_OBJECTS
+                or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
                 or scope_parts[1] not in API_SCOPE_ACTIONS
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")

@@ -1,6 +1,7 @@
 pub mod cache_builder;
 pub mod feature_flag_list;
 pub mod flag_analytics;
+pub mod flag_definitions_cache;
 pub mod flag_filters;
 pub mod flag_group_type_mapping;
 pub mod flag_match_reason;
@@ -16,4 +17,4 @@ pub mod property_filter;
 #[cfg(test)]
 mod test_flag_matching;
 #[cfg(test)]
-mod test_helpers;
+pub(crate) mod test_helpers;

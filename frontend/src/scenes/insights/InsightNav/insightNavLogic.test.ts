@@ -19,6 +19,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    BaseMathType,
     ChartDisplayType,
     FunnelVizType,
     InsightLogicProps,
@@ -386,6 +387,48 @@ describe('insightNavLogic', () => {
                         trendsFilter: expect.objectContaining({
                             showTrendLines: true,
                         }),
+                    },
+                })
+            })
+
+            it.each([
+                ['switching away from trends and back', [InsightType.FUNNELS]],
+                ['switching through multiple tabs', [InsightType.FUNNELS, InsightType.LIFECYCLE]],
+            ] as const)('preserves series math when %s', async (_, intermediateViews) => {
+                const trendsQueryWithUniqueUsers: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                        ],
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithUniqueUsers)
+                })
+
+                for (const view of intermediateViews) {
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(view)
+                    }).toFinishAllListeners()
+                }
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [expect.objectContaining({ math: BaseMathType.UniqueUsers })],
                     },
                 })
             })

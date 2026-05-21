@@ -5,11 +5,12 @@ import collections.abc
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-import requests
+from requests import Response
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
@@ -62,13 +63,13 @@ def _strip_access_token(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(filtered), parts.fragment))
 
 
-def _fetch_paging_url(url: str, access_token: str) -> requests.Response:
+def _fetch_paging_url(url: str, access_token: str) -> Response:
     """Fetch a Meta ``paging.next``-style URL with a freshly injected access token.
 
     Saved URLs have ``access_token`` stripped; we pass it via ``params`` at
     request time so the token never persists in Redis or debug logs.
     """
-    return requests.get(url, params={"access_token": access_token})
+    return make_tracked_session().get(url, params={"access_token": access_token})
 
 
 def _clean_account_id(s: str | None) -> str | None:
@@ -150,7 +151,7 @@ META_TIMEOUT_ERROR_SUBCODES = {1504018, 1504038}
 TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 
 
-def _is_timeout_error(response: requests.Response) -> bool:
+def _is_timeout_error(response: Response) -> bool:
     """Check if the response is a Meta API timeout error that can be resolved with smaller date ranges."""
     try:
         error = response.json().get("error", {})
@@ -181,7 +182,7 @@ def _iter_simple_pagination(
     if resume_config is not None and resume_config.next_url and resume_config.end_date is None:
         response = _fetch_paging_url(resume_config.next_url, access_token)
     else:
-        response = requests.get(initial_url, params=params)
+        response = make_tracked_session().get(initial_url, params=params)
 
     while True:
         if response.status_code != 200:
@@ -258,7 +259,7 @@ def _iter_time_range_pagination(
                 "until": current_end.strftime("%Y-%m-%d"),
             }
             chunk_params = {**params, "time_range": json.dumps(chunk_time_range)}
-            response = requests.get(url, params=chunk_params)
+            response = make_tracked_session().get(url, params=chunk_params)
 
             if response.status_code != 200:
                 # Fallback only happens on the initial chunk request (before any data is yielded).

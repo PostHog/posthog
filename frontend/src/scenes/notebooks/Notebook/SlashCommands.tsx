@@ -8,6 +8,7 @@ import {
     IconCode,
     IconCursor,
     IconDatabase,
+    IconFlask,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -40,9 +41,9 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
+import { addExperimentsToNotebookModalLogic } from '../AddExperimentsToNotebookModal/addExperimentsToNotebookModalLogic'
 import { addInsightsToNotebookModalLogic } from '../AddInsightsToNotebookModal/addInsightsToNotebookModalLogic'
-import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
-import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
+import { buildInsightVizQueryContent, buildNodeEmbed, buildNodeQueryContent } from '../Nodes/nodeBuilders'
 import { NotebookNodeType } from '../types'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
@@ -402,6 +403,21 @@ order by count() desc
                 icon: <IconRewindPlay />,
                 command: (chain, pos) =>
                     chain.insertContentAt(pos, { type: NotebookNodeType.RecordingPlaylist, attrs: {} }),
+            },
+        ],
+    },
+    {
+        title: 'Experiments',
+        icon: <IconFlask />,
+        items: [
+            {
+                title: 'Experiment',
+                search: 'experiment ab test saved existing browse',
+                icon: <IconFlask />,
+                command: (chain, pos) => {
+                    addExperimentsToNotebookModalLogic.actions.openModal(typeof pos === 'number' ? pos : null)
+                    return chain
+                },
             },
         ],
     },

@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -100,6 +102,20 @@ class TestTraceReviewsApi(APIBaseTest):
         response = self.client.get(self._endpoint())
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_list_response_includes_absolute_trace_url(self):
+        self._create_review(trace_id="trace_link_check")
+
+        response = self.client.get(self._endpoint())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(
+            results[0]["trace_url"],
+            f"https://us.posthog.com/project/{self.team.id}/llm-analytics/traces/trace_link_check",
+        )
 
     def test_can_create_review_without_score_or_comment(self):
         response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")

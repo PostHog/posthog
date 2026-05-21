@@ -1,9 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React, { useMemo } from 'react'
 
-import { resolveVariableColor } from 'lib/charts/utils/color'
-
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 export type ReferenceLineOrientation = 'horizontal' | 'vertical'
 export type ReferenceLineVariant = 'goal' | 'alert' | 'marker'
@@ -43,6 +41,10 @@ export interface ReferenceLineProps {
     variant?: ReferenceLineVariant
     /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
     yAxisId?: string
+    /** Chart axis orientation. When `'horizontal'`, a `'horizontal'`-orientation reference
+     *  line at a numeric value is drawn as a vertical stripe at `scales.y(value)` — matching
+     *  the value axis of horizontal bar charts. Defaults to `'vertical'`. */
+    axisOrientation?: ReferenceLineOrientation
 }
 
 interface ResolvedStyle {
@@ -65,7 +67,7 @@ const LABEL_PADDING = 4
 function resolveStyle(variant: ReferenceLineVariant, style: ReferenceLineStyle | undefined): ResolvedStyle {
     const defaults = VARIANT_DEFAULTS[variant]
     return {
-        color: resolveVariableColor(style?.color) ?? resolveVariableColor(defaults.color) ?? defaults.color,
+        color: style?.color ?? defaults.color,
         stroke: style?.stroke ?? defaults.stroke,
         width: style?.width ?? defaults.width,
     }
@@ -86,7 +88,7 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  type narrowing, scale lookup, and bounds check, then hands pre-computed styles to
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
-    const { orientation = 'horizontal', variant = 'goal', style } = props
+    const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = 'vertical' } = props
     const resolved = useMemo(
         () => resolveStyle(variant, style),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,16 +98,20 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
     const common: ResolvedProps = {
         resolved,
         fillSide: props.fillSide,
-        fillColor: resolveVariableColor(style?.fillColor) ?? resolved.color,
+        fillColor: style?.fillColor ?? resolved.color,
         fillOpacity: style?.fillOpacity ?? 0.1,
         label: props.label,
         labelPosition: props.labelPosition ?? 'end',
     }
 
     if (orientation === 'horizontal') {
-        return typeof props.value === 'number' ? (
-            <HorizontalReferenceLine y={props.value} yAxisId={props.yAxisId} {...common} />
-        ) : null
+        if (typeof props.value !== 'number') {
+            return null
+        }
+        if (axisOrientation === 'horizontal') {
+            return <HorizontalAxisValueReferenceLine value={props.value} {...common} />
+        }
+        return <HorizontalReferenceLine y={props.value} yAxisId={props.yAxisId} {...common} />
     }
     return typeof props.value === 'string' ? <VerticalReferenceLine xLabel={props.value} {...common} /> : null
 }
@@ -129,7 +135,7 @@ function HorizontalReferenceLine({
     label,
     labelPosition,
 }: ResolvedProps & { y: number; yAxisId?: string }): React.ReactElement | null {
-    const { scales, dimensions } = useChart()
+    const { scales, dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width: containerWidth } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
@@ -145,7 +151,9 @@ function HorizontalReferenceLine({
         top: y - resolved.width / 2,
         width: plotWidth,
         height: 0,
-        borderTop: `${resolved.width}px ${resolved.stroke} ${resolved.color}`,
+        borderTopWidth: resolved.width,
+        borderTopStyle: resolved.stroke,
+        borderTopColor: resolved.color,
     }
     const labelStyle: React.CSSProperties = {
         top: y - LABEL_OFFSET,
@@ -174,22 +182,33 @@ function HorizontalReferenceLine({
     )
 }
 
-function VerticalReferenceLine({
-    xLabel,
+// Renders a vertical stripe at a resolved x-pixel — used by both the categorical-x
+// reference line (string xLabel) and the horizontal-axis-chart numeric variant
+// (scales.y(value) returns an x-pixel in horizontal bar charts).
+//
+// `fillBefore` / `fillAfter` are direction-neutral: callers translate their own
+// fillSide enum into these so we don't have to know whether the half-plane is
+// "left/right" (categorical) or "below/above value threshold" (horizontal-axis).
+function VerticalStripe({
+    x,
     resolved,
-    fillSide,
+    fillBefore,
+    fillAfter,
     fillColor,
     fillOpacity,
     label,
     labelPosition,
-}: ResolvedProps & { xLabel: string }): React.ReactElement | null {
-    const { scales, dimensions } = useChart()
+}: Omit<ResolvedProps, 'fillSide'> & {
+    x: number
+    fillBefore: boolean
+    fillAfter: boolean
+}): React.ReactElement | null {
+    const { dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, height: containerHeight } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
 
-    const x = scales.x(xLabel)
-    if (x == null || !isFinite(x) || x < plotLeft || x > plotRight) {
+    if (!isFinite(x) || x < plotLeft || x > plotRight) {
         return null
     }
 
@@ -198,7 +217,9 @@ function VerticalReferenceLine({
         top: plotTop,
         width: 0,
         height: plotHeight,
-        borderLeft: `${resolved.width}px ${resolved.stroke} ${resolved.color}`,
+        borderLeftWidth: resolved.width,
+        borderLeftStyle: resolved.stroke,
+        borderLeftColor: resolved.color,
     }
     const labelStyle: React.CSSProperties = {
         left: x + LABEL_PADDING,
@@ -209,9 +230,9 @@ function VerticalReferenceLine({
     }
 
     let fillRect: React.CSSProperties | null = null
-    if (fillSide === 'left') {
+    if (fillBefore) {
         fillRect = { left: plotLeft, top: plotTop, width: x - plotLeft, height: plotHeight }
-    } else if (fillSide === 'right') {
+    } else if (fillAfter) {
         fillRect = { left: x, top: plotTop, width: plotRight - x, height: plotHeight }
     }
 
@@ -223,6 +244,38 @@ function VerticalReferenceLine({
             lineStyle={lineStyle}
             label={label}
             labelStyle={labelStyle}
+        />
+    )
+}
+
+function VerticalReferenceLine({
+    xLabel,
+    fillSide,
+    ...rest
+}: ResolvedProps & { xLabel: string }): React.ReactElement | null {
+    const { scales } = useChartLayout()
+    const x = scales.x(xLabel)
+    if (x == null) {
+        return null
+    }
+    return <VerticalStripe x={x} fillBefore={fillSide === 'left'} fillAfter={fillSide === 'right'} {...rest} />
+}
+
+// Horizontal-axis chart variant: numeric value, mapped through scales.y because
+// in horizontal bar charts scales.y is the value scale producing x-pixels.
+// `'above'` (value above the threshold) → right half-plane, `'below'` → left.
+function HorizontalAxisValueReferenceLine({
+    value,
+    fillSide,
+    ...rest
+}: ResolvedProps & { value: number }): React.ReactElement | null {
+    const { scales } = useChartLayout()
+    return (
+        <VerticalStripe
+            x={scales.y(value)}
+            fillBefore={fillSide === 'below'}
+            fillAfter={fillSide === 'above'}
+            {...rest}
         />
     )
 }
@@ -252,9 +305,10 @@ function ReferenceLineView({
                     style={{ ...fillRect, backgroundColor: fillColor, opacity: fillOpacity }}
                 />
             )}
-            <div className="absolute pointer-events-none" style={lineStyle} />
+            <div data-attr="hog-chart-reference-line" className="absolute pointer-events-none" style={lineStyle} />
             {label && (
                 <div
+                    data-attr="hog-chart-reference-line-label"
                     className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px]"
                     style={labelStyle}
                 >

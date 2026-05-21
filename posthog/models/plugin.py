@@ -159,7 +159,7 @@ class Plugin(models.Model):
         related_query_name="plugin",
         null=True,
     )
-    plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType.choices, default=None)
+    plugin_type = models.CharField(max_length=200, null=True, blank=True, choices=PluginType, default=None)
     is_global = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
     is_preinstalled = models.BooleanField(default=False)
     is_stateless = models.BooleanField(
@@ -275,7 +275,7 @@ class PluginAttachment(models.Model):
     contents = models.BinaryField()
 
     def parse_contents(self) -> str | None:
-        contents: bytes | None = self.contents
+        contents: bytes | None = bytes(self.contents) if self.contents else None
         if not contents:
             return None
 
@@ -350,7 +350,8 @@ class PluginSourceFileManager(models.Manager):
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            archive = bytes(plugin.archive) if plugin.archive else None
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
 
@@ -465,7 +466,7 @@ class PluginSourceFile(UUIDTModel):
     filename = models.CharField(max_length=200, blank=False)
     # "source" can be null if we're only using this model to cache transpiled code from a ".zip"
     source = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=20, choices=Status.choices, null=True)
+    status = models.CharField(max_length=20, choices=Status, null=True)
     transpiled = models.TextField(blank=True, null=True)
     error = models.TextField(blank=True, null=True)
     updated_at = models.DateTimeField(null=True, blank=True)

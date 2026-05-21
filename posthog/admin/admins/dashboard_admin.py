@@ -15,6 +15,7 @@ class DashboardTileInline(admin.TabularInline):
     readonly_fields = ("filters_hash",)
 
 
+@admin.register(Dashboard)
 class DashboardAdmin(admin.ModelAdmin):
     list_display = (
         "id",

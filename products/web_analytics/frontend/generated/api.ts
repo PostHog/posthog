@@ -10,10 +10,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type { WebAnalyticsWeeklyDigestParams, WeeklyDigestResponseApi } from './api.schemas'
 
-/**
- * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
- * @summary Summarize web analytics
- */
 export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -30,6 +26,10 @@ export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAn
         : `/api/environments/${projectId}/web_analytics/weekly_digest/`
 }
 
+/**
+ * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
+ * @summary Summarize web analytics
+ */
 export const webAnalyticsWeeklyDigest = async (
     projectId: string,
     params?: WebAnalyticsWeeklyDigestParams,

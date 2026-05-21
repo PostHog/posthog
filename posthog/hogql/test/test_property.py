@@ -11,13 +11,18 @@ from posthog.schema import (
     EmptyPropertyFilter,
     FlagPropertyFilter,
     HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
     PropertyOperator,
     RetentionEntity,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
     entity_to_expr,
     has_aggregation,
@@ -936,6 +941,56 @@ class TestProperty(BaseTest):
             str(e.exception),
             "The 'event' property filter does not work in 'person' scope",
         )
+
+    @parameterized.expand(
+        [
+            ("event_scope", "event", "distinct_id = 'abc'"),
+            ("person_scope", "person", "pdi.distinct_id = 'abc'"),
+        ]
+    )
+    def test_person_distinct_id_property(self, _name, scope, expected_expr):
+        # distinct_id is not stored in person.properties — it's the events.distinct_id column
+        # in event scope, and reachable via the pdi lazy join in person scope.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person", "key": "distinct_id", "value": "abc", "operator": "exact"},
+                scope=scope,
+            ),
+            self._parse_expr(expected_expr),
+        )
+
+    @parameterized.expand(
+        [
+            ("disabled", PersonsOnEventsMode.DISABLED),
+            ("no_override_props_on_events", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("override_props_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("override_props_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        ]
+    )
+    def test_person_distinct_id_property_resolves_under_all_poe_modes(self, _name, mode):
+        # Regression test for "Field not found: pdi" — previously, the special case for
+        # {type: person, key: distinct_id} routed through events.person.pdi, which broke under
+        # person-on-events modes that rebind events.person to the `poe` virtual table.
+        expr = property_to_expr(
+            {"type": "person", "key": "distinct_id", "value": "abc", "operator": "is_not"},
+            team=self.team,
+            scope="event",
+        )
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=expr,
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team, HogQLQueryModifiers(personsOnEventsMode=mode)),
+        )
+        sql, _ = prepare_and_print_ast(query_ast, context=context, dialect="clickhouse")
+        # Used to raise QueryError("Field not found: pdi") under PoE modes that rebind
+        # events.person to the `poe` virtual table.
+        assert "distinct_id" in sql
+        assert "pdi" not in sql
 
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()

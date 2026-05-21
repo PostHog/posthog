@@ -8,7 +8,7 @@ use crate::v1::sinks::Destination;
 /// metadata, and serialization. The [`Sink`](super::sink::Sink) implementation
 /// resolves `destination()` to a concrete backend target using its own config.
 pub trait Event: Send + Sync {
-    /// Pre-parsed UUID for result correlation. Copy, zero alloc.
+    /// Pre-parsed UUID for result correlation.
     fn uuid(&self) -> Uuid;
 
     /// Whether this event should be published. Events returning false are
@@ -27,10 +27,10 @@ pub trait Event: Send + Sync {
     /// `common_types`).
     fn headers(&self, ctx: &Context) -> CapturedEventHeaders;
 
-    /// Resolve the partition key for this message, and write
-    /// to the supplied buffer. Called by Sinks that write to
-    /// event streams (Kafka, WarpStream etc.)
-    fn write_partition_key(&self, ctx: &Context, buf: &mut String);
+    /// Resolve the partition key for this message into the supplied buffer.
+    /// Returns `Some(key)` for consistent routing, `None` to let the
+    /// transport decide (e.g. round-robin across partitions).
+    fn partition_key<'buf>(&self, ctx: &Context, buf: &'buf mut String) -> Option<&'buf str>;
 
     /// Serialize the event payload into a caller-provided buffer.
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()>;
