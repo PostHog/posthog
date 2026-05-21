@@ -260,7 +260,7 @@ def _get_team(team_id: int) -> Team:
 
 def _resolve_config(team: Team) -> SignalScoutConfig:
     """Get-or-create the config row. Default is safe (enabled=False)."""
-    config, _ = SignalScoutConfig.objects.get_or_create(team=team)
+    config, _ = SignalScoutConfig.objects.unscoped().get_or_create(team=team)
     return config
 
 
@@ -269,12 +269,16 @@ def _has_running_run(*, team_id: int, config_id: str, skill_name: str) -> bool:
     # to fan out, which is the whole point of `runs_per_tick > 1`. `scout_config_id`
     # is included to keep the filter selective on the per-team index. Status flows
     # from the linked TaskRun now that SignalScoutRun is just a bridge.
-    return SignalScoutRun.objects.filter(
-        team_id=team_id,
-        scout_config_id=config_id,
-        skill_name=skill_name,
-        task_run__status=TaskRun.Status.IN_PROGRESS,
-    ).exists()
+    return (
+        SignalScoutRun.objects.unscoped()
+        .filter(
+            team_id=team_id,
+            scout_config_id=config_id,
+            skill_name=skill_name,
+            task_run__status=TaskRun.Status.IN_PROGRESS,
+        )
+        .exists()
+    )
 
 
 def _create_run_row(
@@ -285,7 +289,7 @@ def _create_run_row(
     config: SignalScoutConfig,
     skill: LoadedSkill,
 ) -> SignalScoutRun:
-    return SignalScoutRun.objects.create(
+    return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
         team=team,
