@@ -397,7 +397,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
@@ -537,7 +537,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version-file: 'pyproject.toml'
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -666,7 +666,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
@@ -1380,6 +1380,10 @@ jobs:
         outputs:
             include: ${{ steps.build.outputs.include }}
         steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+
             - name: Build matrix include list
               id: build
               env:
@@ -1388,11 +1392,12 @@ jobs:
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
-                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                  python_version=$(grep -E '^requires-python\s*=' pyproject.toml | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --arg pv "$python_version" '
                     [range(1; 39) | {
                       segment: "Core",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": $pv,
                       "clickhouse-server-image": $image,
                       concurrency: 38,
                       group: .,
@@ -1401,11 +1406,11 @@ jobs:
                     }]
                   ')
 
-                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --arg pv "$python_version" '
                     [range(1; 8) | {
                       segment: "Core",
                       "person-on-events": true,
-                      "python-version": "3.12.12",
+                      "python-version": $pv,
                       "clickhouse-server-image": $image,
                       concurrency: 7,
                       group: .,
@@ -1414,11 +1419,11 @@ jobs:
                     }]
                   ')
 
-                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --arg pv "$python_version" '
                     [range(1; 8) | {
                       segment: "Temporal",
                       "person-on-events": false,
-                      "python-version": "3.12.12",
+                      "python-version": $pv,
                       "clickhouse-server-image": $image,
                       concurrency: 7,
                       group: .,
@@ -1428,14 +1433,14 @@ jobs:
                   ')
 
                   compat_source="${COMPAT_MATRIX_JSON:-[]}"
-                  compat=$(jq -cn --argjson compat "$compat_source" '
+                  compat=$(jq -cn --argjson compat "$compat_source" --arg pv "$python_version" '
                     [
                       $compat
                       | to_entries[]
                       | .value + {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.12.12",
+                          "python-version": $pv,
                           compat: true,
                           artifact_key: ("compat-" + ((.key + 1)|tostring))
                         }

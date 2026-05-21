@@ -86,7 +86,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version-file: 'pyproject.toml'
 
             - name: Install uv
               id: setup-uv
@@ -149,9 +149,9 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: mypy-cache-${{ runner.os }}-3.13-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
                   restore-keys: |
-                      mypy-cache-${{ runner.os }}-3.12-mypy2-
+                      mypy-cache-${{ runner.os }}-3.13-mypy2-
 
             - name: Check static typing
               shell: bash -e {0}
@@ -165,7 +165,7 @@ jobs:
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: mypy-cache-${{ runner.os }}-3.13-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
 
             - name: Check if "schema.py" is up to date
               shell: bash
