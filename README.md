@@ -19,6 +19,8 @@
   </a>
 </p>
 
+> yolo
+
 ## PostHog is an all-in-one, open source platform for building successful products
 
 [PostHog](https://posthog.com/) provides every tool you need to build a successful product including:
