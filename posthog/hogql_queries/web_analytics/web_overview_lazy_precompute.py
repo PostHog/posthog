@@ -170,7 +170,7 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     # hit `/decide` and resolve the cohort server-side. The SDK swallows its
     # own exceptions and returns None (falsy) on failure, so a flag-service
     # outage fails-closed (gate raised, fall back to v2/raw) automatically.
-    distinct_id = runner.user.distinct_id if runner.user else str(runner.team.uuid)
+    distinct_id = (runner.user and runner.user.distinct_id) or str(runner.team.uuid)
     if not posthoganalytics.feature_enabled(
         "web-analytics-precompute-toggle",
         distinct_id,
