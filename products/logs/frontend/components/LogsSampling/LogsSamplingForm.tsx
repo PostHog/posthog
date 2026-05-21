@@ -67,12 +67,25 @@ function buildSparklineSeries(points: FilterPreviewPoint[] | null, metric: 'coun
     const labels = timeOrder.map((t) => dayjs(t).format('D MMM HH:mm'))
     const rankedServices = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
     const topServices = rankedServices.slice(0, TOP_SERVICES_LIMIT)
-    const truncatedServiceCount = Math.max(0, rankedServices.length - topServices.length)
-    const series = topServices.map(([service], index) => ({
+    const otherServices = rankedServices.slice(TOP_SERVICES_LIMIT)
+    const truncatedServiceCount = otherServices.length
+    const series: SparklineTimeSeries[] = topServices.map(([service], index) => ({
         name: service,
         color: dataColorVars[index % dataColorVars.length],
         values: timeOrder.map((t) => byService[service]?.get(t) ?? 0),
     }))
+    if (otherServices.length > 0) {
+        // Roll up the long tail into a single "Others" series so the chart still adds up to total volume,
+        // and the rate-limit reference line lines up against an honest stacked max.
+        const othersValues = timeOrder.map((t) =>
+            otherServices.reduce((sum, [service]) => sum + (byService[service]?.get(t) ?? 0), 0)
+        )
+        series.push({
+            name: `Others (${otherServices.length} services)`,
+            color: 'muted',
+            values: othersValues,
+        })
+    }
     const bucketSeconds = timeOrder.length >= 2 ? dayjs(timeOrder[1]).diff(dayjs(timeOrder[0]), 'second') : 0
     const chartMax = Math.max(0, ...Array.from(bucketTotals.values()))
     return { labels, series, total, truncatedServiceCount, bucketSeconds, chartMax }
@@ -200,10 +213,9 @@ export function LogsSamplingForm(): JSX.Element {
                 <div className="mt-3 flex flex-col gap-1">
                     <div className="flex items-center justify-between text-xs text-muted">
                         <span>
-                            {previewMetric === 'bytes' ? 'Volume preview' : 'Volume preview'} by service (last 24h, top{' '}
-                            {TOP_SERVICES_LIMIT}
+                            Volume preview by service (last 24h, top {TOP_SERVICES_LIMIT}
                             {previewMetric === 'bytes' ? ', uncompressed bytes' : ''})
-                            {truncatedServiceCount > 0 ? ` — ${truncatedServiceCount} more not shown` : ''}
+                            {truncatedServiceCount > 0 ? ` — others rolled up (${truncatedServiceCount})` : ''}
                         </span>
                         {hasFilters && !filterPreviewLoading ? <span>{formattedTotal}</span> : null}
                     </div>
