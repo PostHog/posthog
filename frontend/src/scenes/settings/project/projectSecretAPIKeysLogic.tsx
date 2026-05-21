@@ -241,7 +241,9 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 content: (
                     <>
                         <p>Copy your new project secret API key:</p>
-                        <CodeSnippet className="ph-no-capture" thing="project API key">{key.value}</CodeSnippet>
+                        <CodeSnippet className="ph-no-capture" thing="project API key">
+                            {key.value}
+                        </CodeSnippet>
                         <p className="text-warning mt-4">
                             <strong>Warning:</strong> This key will never be shown again. Copy it now.
                         </p>
