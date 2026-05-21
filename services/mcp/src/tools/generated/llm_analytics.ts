@@ -25,6 +25,7 @@ import {
     LlmAnalyticsEvaluationReportsRunsListQueryParams,
     LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
+    LlmAnalyticsPersonalSpendListQueryParams,
     LlmAnalyticsReviewQueueItemsCreateBody,
     LlmAnalyticsReviewQueueItemsDestroyParams,
     LlmAnalyticsReviewQueueItemsListQueryParams,
@@ -620,6 +621,27 @@ const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Sch
             method: 'PATCH',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
             body,
+        })
+        return result
+    },
+})
+
+const LlmaPersonalSpendSchema = LlmAnalyticsPersonalSpendListQueryParams
+
+const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.PersonalSpendAnalysisResponse[]> => ({
+    name: 'llma-personal-spend',
+    schema: LlmaPersonalSpendSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPersonalSpendSchema>) => {
+        const result = await context.api.request<Schemas.PersonalSpendAnalysisResponse[]>({
+            method: 'GET',
+            path: `/api/llm_analytics/@me/spend/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                product: params.product,
+                refresh: params.refresh,
+            },
         })
         return result
     },
@@ -1722,6 +1744,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-summary-create': llmaEvaluationSummaryCreate,
     'llma-evaluation-test-hog': llmaEvaluationTestHog,
     'llma-evaluation-update': llmaEvaluationUpdate,
+    'llma-personal-spend': llmaPersonalSpend,
     'llma-prompt-create': llmaPromptCreate,
     'llma-prompt-duplicate': llmaPromptDuplicate,
     'llma-prompt-get': llmaPromptGet,
