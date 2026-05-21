@@ -98,12 +98,15 @@ class PostHogConfig(AppConfig):
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
 
-        from posthog.async_migrations.setup import setup_async_migrations
+        # Async migrations: in-memory registry is safe to build now; DB-touching
+        # setup is deferred to post_migrate so we don't query tables that may not
+        # exist yet on a fresh DB. See posthog/async_migrations/setup.py.
+        from django.db.models.signals import post_migrate
 
-        if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
-            logger.warning("Skipping async migrations setup. This is unsafe in production!")
-        else:
-            setup_async_migrations()
+        from posthog.async_migrations.setup import run_async_migration_setup_post_migrate, setup_in_memory_state
+
+        setup_in_memory_state()
+        post_migrate.connect(run_async_migration_setup_post_migrate, sender=self)
 
         from posthog.api.file_system import registrations as file_system_registrations
         from posthog.tasks.hog_functions import queue_sync_hog_function_templates

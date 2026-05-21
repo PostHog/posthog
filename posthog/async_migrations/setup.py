@@ -31,6 +31,28 @@ all_migrations = import_submodules(ASYNC_MIGRATIONS_MODULE_PATH)
 reload_migration_definitions()
 
 
+def setup_in_memory_state():
+    """
+    Import-safe bootstrap: rebuild the in-memory migration registry and dependency
+    map. No DB access — safe to call from AppConfig.ready() before migrations have run.
+    """
+    reload_migration_definitions()
+    _set_up_dependency_constants()
+
+
+def run_async_migration_setup_post_migrate(sender, **kwargs):
+    """
+    Receiver for Django's post_migrate signal. Defers DB-touching async migration
+    setup until after migrations have run, instead of doing it in AppConfig.ready()
+    where the schema may not yet exist.
+    """
+    from django.conf import settings
+
+    if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
+        return
+    setup_async_migrations()
+
+
 def setup_async_migrations(ignore_posthog_version: bool = False):
     """
     Execute the necessary setup for async migrations to work:
