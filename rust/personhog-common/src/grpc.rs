@@ -425,9 +425,7 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.project() {
-            GrpcLoadShedFutureProj::Shed { response } => {
-                Poll::Ready(Ok(response.take().unwrap()))
-            }
+            GrpcLoadShedFutureProj::Shed { response } => Poll::Ready(Ok(response.take().unwrap())),
             GrpcLoadShedFutureProj::Inner { inner, .. } => inner.poll(cx),
         }
     }
@@ -540,10 +538,7 @@ mod tests {
 
         let mut svc = layer.layer(OkService);
 
-        let resp = svc
-            .call(grpc_request("/pkg.Svc/GetPerson"))
-            .await
-            .unwrap();
+        let resp = svc.call(grpc_request("/pkg.Svc/GetPerson")).await.unwrap();
         assert_eq!(resp.headers().get("grpc-status").unwrap(), "14");
         assert_eq!(
             resp.headers().get("grpc-message").unwrap(),
@@ -605,7 +600,10 @@ mod tests {
 
     #[test]
     fn extract_method_from_grpc_path() {
-        assert_eq!(extract_grpc_method("/package.Service/GetPerson"), "GetPerson");
+        assert_eq!(
+            extract_grpc_method("/package.Service/GetPerson"),
+            "GetPerson"
+        );
         assert_eq!(extract_grpc_method("/a.b.c/Method"), "Method");
         assert_eq!(extract_grpc_method("/"), "unknown");
         assert_eq!(extract_grpc_method(""), "unknown");
