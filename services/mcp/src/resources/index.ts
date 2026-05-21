@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { ReadResourceRequestSchema, type ReadResourceResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { Context } from '@/tools/types'
 
@@ -51,4 +52,42 @@ async function registerContextMillResources(server: McpServer, context: Context)
 
 export async function registerResources(server: McpServer, context: Context): Promise<void> {
     await registerContextMillResources(server, context)
+}
+
+/**
+ * Override `resources/read` so unknown URIs resolve to empty contents instead
+ * of an MCP "Resource not found" error. The Hono dispatcher already does this
+ * via its own catalog; mirror that on Cloudflare Workers so both transports
+ * agree on the protocol contract.
+ *
+ * Must be called after every `server.registerResource(...)` — once installed,
+ * the SDK's `assertCanSetRequestHandler` would reject any subsequent
+ * registration that tries to overwrite the same handler.
+ */
+export function installResourceReadFallback(server: McpServer): void {
+    type Handler = (request: unknown, extra: unknown) => Promise<unknown>
+    type InternalServer = { _requestHandlers: Map<string, Handler> }
+    const handlers = (server.server as unknown as InternalServer)._requestHandlers
+    const original = handlers.get('resources/read')
+    if (!original) {
+        // No resources were ever registered — install a pure empty handler.
+        server.server.registerCapabilities({ resources: { listChanged: false } })
+        server.server.setRequestHandler(
+            ReadResourceRequestSchema,
+            async (): Promise<ReadResourceResult> => ({ contents: [] })
+        )
+        return
+    }
+    handlers.set('resources/read', async (request, extra) => {
+        try {
+            return await original(request, extra)
+        } catch (error: unknown) {
+            const code = (error as { code?: number })?.code
+            const message = (error as { message?: string })?.message ?? ''
+            if (code === -32602 || /not found/i.test(message)) {
+                return { contents: [] }
+            }
+            throw error
+        }
+    })
 }
