@@ -10,17 +10,12 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import type { ResolvedState } from './request-state-resolver'
 
-// Use relative path — the @shared/* tsconfig alias isn't resolved by all test runners
-import guidelines from '../../shared/guidelines.md'
-
-const _guidelines = typeof guidelines === 'string' ? guidelines : ((guidelines as { default?: string })?.default ?? '')
-
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
     private readonly guidelines: string
 
-    constructor(guidelinesOverride?: string, formatter?: InstructionsFormatter) {
-        this.guidelines = guidelinesOverride ?? _guidelines
+    constructor(guidelines: string, formatter?: InstructionsFormatter) {
+        this.guidelines = guidelines
         this.formatter = formatter ?? new InstructionsFormatter()
     }
 

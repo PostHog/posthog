@@ -68,7 +68,7 @@ describe('ToolExecutor', () => {
     beforeAll(async () => {
         catalog = new ToolCatalog()
         await catalog.warmup()
-        executor = new ToolExecutor(catalog, new InstructionsBuilder())
+        executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
     describe('handleToolCall', () => {
