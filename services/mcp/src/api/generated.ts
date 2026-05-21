@@ -2281,6 +2281,8 @@ export namespace Schemas {
       aggregation_group_type_index?: number | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
+      /** Compare to date range */
+      compareFilter?: CompareFilter | null;
       /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
