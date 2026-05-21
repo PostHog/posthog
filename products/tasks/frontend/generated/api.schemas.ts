@@ -261,6 +261,10 @@ export interface TaskApi {
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
     internal?: boolean
+    /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+    archived?: boolean
+    /** @nullable */
+    readonly archived_at: string | null
     /**
      * Latest run details for this task
      * @nullable
@@ -323,6 +327,10 @@ export interface PatchedTaskApi {
     json_schema?: unknown
     /** If true, this task is for internal use and should not be exposed to end users. */
     internal?: boolean
+    /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+    archived?: boolean
+    /** @nullable */
+    readonly archived_at?: string | null
     /**
      * Latest run details for this task
      * @nullable
@@ -1475,6 +1483,15 @@ export type TaskAutomationsListParams = {
 
 export type TasksListParams = {
     /**
+ * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
+
+* `true` - true
+* `false` - false
+* `all` - all
+ * @minLength 1
+ */
+    archived?: TasksListArchived
+    /**
      * Filter by creator user ID
      */
     created_by?: number
@@ -1527,6 +1544,14 @@ export type TasksListParams = {
  */
     status?: TasksListStatus
 }
+
+export type TasksListArchived = (typeof TasksListArchived)[keyof typeof TasksListArchived]
+
+export const TasksListArchived = {
+    True: 'true',
+    False: 'false',
+    All: 'all',
+} as const
 
 export type TasksListStatus = (typeof TasksListStatus)[keyof typeof TasksListStatus]
 

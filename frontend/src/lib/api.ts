@@ -5471,7 +5471,11 @@ const api = {
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
-        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
+        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
+            added: number
+            deleted: number
+            total_tables_seen: number
+        }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
         async bulkUpdateSchemas(
