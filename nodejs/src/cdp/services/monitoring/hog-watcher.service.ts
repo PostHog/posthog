@@ -31,10 +31,6 @@ export interface HogWatcherConfig {
     stateLockTtl: number
     observeResultsBufferTimeMs: number
     observeResultsBufferMaxResults: number
-    // When true, dispatches the token-bucket pipeline call to checkRateLimitV3
-    // (optimized lua: HMGET, multi-field HSET, conditional EXPIRE refresh).
-    // Default: V2.
-    useV3?: boolean
 }
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher-2' : '@posthog/hog-watcher-2'
@@ -445,18 +441,13 @@ export class HogWatcherService {
                 return { states, locks }
             })
 
-        const useV3 = this.config.useV3 ?? false
         const requests = functionCostEntries.map((fc) => ({ id: fc.functionId, cost: fc.cost }))
         const [stateRes, rateLimitRes] = await Promise.all([
             readStates(this.redisReader).catch((err) => {
                 logger.warn('🔀', '[HogWatcher] reader readStatesForObserve failed, falling back to writer', { err })
                 return readStates(this.redis)
             }),
-            // Mirror path uses rateLimitGrouped (V3 lua, optimized + coalesced if any
-            // dups slip through); primary keeps rateLimitMany (V2). Inputs are already
-            // unique per functionId so coalescing is a no-op shape-wise — V3 lua is
-            // the actual change here.
-            useV3 ? this.rateLimiter.rateLimitGrouped(requests) : this.rateLimiter.rateLimitMany(requests),
+            this.rateLimiter.rateLimitGrouped(requests),
         ])
 
         if (!stateRes) {

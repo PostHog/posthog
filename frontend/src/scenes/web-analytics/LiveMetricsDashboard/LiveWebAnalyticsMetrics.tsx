@@ -534,7 +534,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 dismissKey="live-web-analytics-alpha-banner"
                 action={{ children: 'Send feedback', id: 'live-web-analytics-feedback-button' }}
             >
-                The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
+                We'd love to hear what you think about the live dashboard.
             </LemonBanner>
 
             <DndContext

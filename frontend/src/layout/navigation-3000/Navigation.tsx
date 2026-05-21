@@ -7,6 +7,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -34,6 +35,15 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(maxGlobalLogic)
+    const userInterviewsEnabled = useFeatureFlag('USER_INTERVIEWS')
+    // Register `create_user_interview_topic` globally so Max can create user interview
+    // topics from any page (including the homepage), not only from the user-interviews
+    // scene. The scene wires its own richer `useMaxTool` for the "New topic" button.
+    useMaxTool({
+        identifier: 'create_user_interview_topic',
+        active: userInterviewsEnabled,
+        context: {},
+    })
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)

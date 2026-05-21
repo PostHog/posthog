@@ -362,13 +362,11 @@ export function createCdpCoreServices(
     // Mirror HogWatcherService bound to the shadow Valkey pool. `sendEvents: false`
     // so it never emits duplicate billable team events on state transitions; the
     // Prom counter `cdp_hog_function_state_change` may double-emit when both pools
-    // detect the same transition — rare, accepted during dual-write mode. The
-    // mirror dispatches to the optimized V3 lua so we get full-load comparison
-    // data on the optimized path.
+    // detect the same transition — rare, accepted during dual-write mode.
     const hogWatcherMirror: HogWatcherService | null = valkeyShadow
         ? new HogWatcherService(
               deps.teamManager,
-              { ...hogWatcherConfig, sendEvents: false, useV3: true },
+              { ...hogWatcherConfig, sendEvents: false },
               valkeyShadow.writer,
               valkeyShadow.reader
           )

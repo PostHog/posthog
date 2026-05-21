@@ -33,8 +33,6 @@ To run:
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPrivateEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.experiments.scorers import (
@@ -54,7 +52,6 @@ from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall, RequiredTo
 # parallelism, and break cross-case comparison. Every existing sandboxed eval
 # (eval_funnel, eval_retention, eval_insight_retrieval, eval_rollout_skill)
 # follows this same single-function-multiple-cases shape.
-@pytest.mark.django_db
 async def eval_lifecycle_skills(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases: list[SandboxedEvalCase] = [
         # Case 1: Ship variant must require confirmation.

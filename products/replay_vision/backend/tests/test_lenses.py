@@ -351,3 +351,21 @@ class TestIndexerLens:
     def test_output_rejects_empty_keywords(self) -> None:
         with pytest.raises(ValidationError):
             IndexerOutput(summary="x", user_type="x", outcome="x", keywords=[], confidence=0.8)
+
+
+class TestToEventProperties:
+    def test_flattens_with_lens_output_prefix(self) -> None:
+        out = MonitorOutput(verdict=True, reasoning="found it", confidence=0.9)
+        props = out.to_event_properties()
+        assert props == {
+            "lens_output_verdict": True,
+            "lens_output_reasoning": "found it",
+            "lens_output_confidence": 0.9,
+        }
+
+    def test_excludes_lens_type_discriminator(self) -> None:
+        # `lens_type` lives at the top-level event property; flattening it would duplicate.
+        out = MonitorOutput(verdict=False, reasoning="nope", confidence=0.5)
+        props = out.to_event_properties()
+        assert "lens_output_lens_type" not in props
+        assert "lens_type" not in props

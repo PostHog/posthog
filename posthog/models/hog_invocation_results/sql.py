@@ -102,17 +102,17 @@ CREATE TABLE IF NOT EXISTS {HOG_INVOCATION_RESULTS_DATA_TABLE}
     finished_at Nullable(DateTime64(6, 'UTC')),
     duration_ms Nullable(UInt32),
     error_kind LowCardinality(String),
-    error_message String CODEC(ZSTD(3)),
+    error_message String,
     event_uuid String,
     distinct_id String,
     person_id String,
-    invocation_globals String CODEC(ZSTD(3)),
+    invocation_globals String,
     version UInt64,
     is_deleted UInt8 DEFAULT 0,
-    INDEX status_idx     status      TYPE set(8)             GRANULARITY 4,
-    INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX is_retry_idx   is_retry    TYPE set(2)             GRANULARITY 4
+    INDEX status_idx     status      TYPE set(8)             GRANULARITY 1,
+    INDEX function_idx   function_id TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX event_uuid_idx event_uuid  TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX is_retry_idx   is_retry    TYPE set(2)             GRANULARITY 1
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {HOG_INVOCATION_RESULTS_ENGINE()}

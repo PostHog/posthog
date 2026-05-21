@@ -363,7 +363,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -453,8 +459,13 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_annotation"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_annotation"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -955,7 +966,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1045,8 +1062,13 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_annotation"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_annotation"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1208,7 +1230,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))

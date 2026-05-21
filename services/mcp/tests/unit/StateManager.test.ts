@@ -335,6 +335,53 @@ describe('StateManager', () => {
 
             expect(result).toBeUndefined()
         })
+
+        it('skips the org fetch when the API key lacks organization:read', async () => {
+            // Pre-#58726 behaviour: every MCP session init with a project-scoped
+            // personal API key would 403 on `/api/organizations/{id}/` and
+            // dogpile error tracking. The scope guard short-circuits before the
+            // HTTP call so no exception is captured and the org is treated as
+            // best-effort missing.
+            await cache.set('orgId', 'org-1')
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                scopes: ['project:read', 'insight:read'],
+                scoped_organizations: [],
+                scoped_teams: [456],
+            })
+            const orgGet = vi.fn()
+            ;(stateManager as any)._api = {
+                organizations: () => ({ get: orgGet }),
+            }
+
+            const result = await stateManager.getCachedOrFetchOrg()
+
+            expect(result).toBeUndefined()
+            expect(orgGet).not.toHaveBeenCalled()
+        })
+
+        it.each([['organization:read'], ['organization:write'], ['*']])(
+            'fetches the org when the API key carries %s',
+            async (scope) => {
+                await cache.set('orgId', 'org-1')
+                vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
+                    scopes: [scope],
+                    scoped_organizations: [],
+                    scoped_teams: [],
+                })
+                const orgGet = vi.fn().mockResolvedValue({
+                    success: true,
+                    data: { id: 'org-1', name: 'Org 1' },
+                })
+                ;(stateManager as any)._api = {
+                    organizations: () => ({ get: orgGet }),
+                }
+
+                const result = await stateManager.getCachedOrFetchOrg()
+
+                expect(orgGet).toHaveBeenCalledWith({ orgId: 'org-1' })
+                expect(result).toMatchObject({ id: 'org-1', name: 'Org 1' })
+            }
+        )
     })
 
     describe('getProjectId', () => {

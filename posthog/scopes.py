@@ -16,6 +16,7 @@ from typing import Literal, get_args
 APIScopeObject = Literal[
     "action",
     "access_control",
+    "account",
     "activity_log",
     "alert",
     "annotation",

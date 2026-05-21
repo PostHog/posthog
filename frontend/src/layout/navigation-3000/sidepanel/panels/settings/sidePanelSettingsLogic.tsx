@@ -44,13 +44,18 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
                 closeSettingsPanel: () => ({}),
             },
         ],
-        /** Whether the current settings were explicitly set via openSettingsPanel */
+        /** Whether the current settings were explicitly set via openSettingsPanel.
+         *  Stays true while the user remains on the Settings tab so the explicit
+         *  section/setting is preserved (and so `sidePanelLogic.enabledTabs` keeps
+         *  Settings available on scenes without a `settings_section`). Resets when
+         *  the user switches to a different tab or closes the panel. */
         isExplicitSettings: [
             false,
             {
                 openSettingsPanel: () => true,
                 closeSettingsPanel: () => false,
-                openSidePanel: () => false,
+                closeSidePanel: () => false,
+                openSidePanel: (state, { tab }) => (tab === SidePanelTab.Settings ? state : false),
             },
         ],
         previousTab: [

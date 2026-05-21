@@ -1,6 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
 
-import { type DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
@@ -18,6 +17,7 @@ import {
     ChartOptions,
     ChartType,
     Color,
+    DeepPartial,
     GridLineOptions,
     InteractionItem,
     LegendOptions,

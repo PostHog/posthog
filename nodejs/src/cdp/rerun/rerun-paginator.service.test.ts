@@ -471,7 +471,7 @@ describe('RerunPaginatorService integration', () => {
             // we want the paginator to log + count it as a skip, not blow up
             // the page. Use the same re-export the paginator imports from so
             // `instanceof` matches.
-            const { CyclotronJobConflictError } = await import('../services/cyclotron-v2')
+            const { CyclotronJobConflictError } = await import('../services/cyclotron-v2/index.js')
             cyclotronJobQueue.queueInvocations.mockRejectedValueOnce(new CyclotronJobConflictError('inv-conflict'))
 
             const state = buildState({

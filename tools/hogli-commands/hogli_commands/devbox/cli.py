@@ -634,6 +634,7 @@ def devbox_setup(
     verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
+    click.echo(click.style("Configuring devbox CLI access...", bold=True))
     ensure_tailscale_connected("rerun `hogli devbox:setup`.")
     ensure_tailscale_routes_accepted()
     ensure_coder_reachable()

@@ -73,6 +73,8 @@ export interface ApiConfig {
     mcpProtocolVersion?: string | undefined
     mcpConsumer?: string | undefined
     oauthClientName?: string | undefined
+    mcpSessionId?: string | undefined
+    mcpConversationId?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -115,6 +117,15 @@ export class ApiClient {
                 : {}),
             ...(this.config.mcpConsumer ? { 'x-posthog-mcp-consumer': this.config.mcpConsumer } : {}),
             ...(this.config.oauthClientName ? { 'x-posthog-mcp-oauth-client-name': this.config.oauthClientName } : {}),
+            // Forward MCP session and conversation ids so backend logs and OTLP
+            // spans for downstream API hops can correlate with the same MCP context
+            // the events carry. This is attribute-based correlation only — we do
+            // not forward `traceparent` (the Worker emits no OTLP today), so the
+            // Django-rooted span is not a child of any Worker-side span.
+            ...(this.config.mcpSessionId ? { 'x-posthog-mcp-session-id': this.config.mcpSessionId } : {}),
+            ...(this.config.mcpConversationId
+                ? { 'x-posthog-mcp-conversation-id': this.config.mcpConversationId }
+                : {}),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {

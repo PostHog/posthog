@@ -1924,7 +1924,8 @@
          "customer_analytics_teamcustomeranalyticsconfig"."signup_pageview_event",
          "customer_analytics_teamcustomeranalyticsconfig"."signup_event",
          "customer_analytics_teamcustomeranalyticsconfig"."subscription_event",
-         "customer_analytics_teamcustomeranalyticsconfig"."payment_event"
+         "customer_analytics_teamcustomeranalyticsconfig"."payment_event",
+         "customer_analytics_teamcustomeranalyticsconfig"."account_group_type_index"
   FROM "customer_analytics_teamcustomeranalyticsconfig"
   WHERE "customer_analytics_teamcustomeranalyticsconfig"."team_id" = 99999
   LIMIT 21

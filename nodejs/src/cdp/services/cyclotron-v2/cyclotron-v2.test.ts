@@ -293,7 +293,7 @@ describe('Cyclotron V2', () => {
                 expect(jobs).toHaveLength(1)
                 expect((await queryJob(id)).status).toBe('running')
 
-                const { CyclotronJobConflictError } = await import('./manager')
+                const { CyclotronJobConflictError } = await import('./manager.js')
                 await expect(
                     manager.createJob({
                         id,
@@ -312,7 +312,7 @@ describe('Cyclotron V2', () => {
                 await manager.createJob({ id, teamId: 1, queueName: QUEUE })
                 expect((await queryJob(id)).status).toBe('available')
 
-                const { CyclotronJobConflictError } = await import('./manager')
+                const { CyclotronJobConflictError } = await import('./manager.js')
                 await expect(
                     manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
                 ).rejects.toBeInstanceOf(CyclotronJobConflictError)
@@ -379,7 +379,7 @@ describe('Cyclotron V2', () => {
                 await activeJob.reschedule()
                 expect((await queryJob(activeId)).status).toBe('available')
 
-                const { CyclotronJobConflictError } = await import('./manager')
+                const { CyclotronJobConflictError } = await import('./manager.js')
                 await expect(
                     manager.bulkCreateJobs([
                         {

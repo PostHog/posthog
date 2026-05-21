@@ -394,7 +394,7 @@ export function InsightVizDisplay({
             return null
         }
 
-        return <InsightAIAnalysis query={querySource} />
+        return <InsightAIAnalysis />
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor

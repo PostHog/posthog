@@ -270,7 +270,24 @@ UNDERSCORE: '_';
 MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
 SINGLE_LINE_COMMENT: ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
-WHITESPACE: [ \u000B\u000C\t\r\n] -> channel(HIDDEN);
+// The class is the full Unicode `White_Space` set, not just ASCII: a
+// NO-BREAK SPACE or other Unicode space (often pasted in from rich
+// editors or docs) is genuine whitespace and must keep separating
+// tokens. Recognising it here keeps such programs valid — otherwise it
+// would fall through to UNEXPECTED_CHARACTER below and fail the whole
+// parse. U+FEFF (BOM) is included too, so a file saved with a
+// byte-order mark still parses.
+WHITESPACE: [ \t\r\n\u000B\u000C\u0085\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF] -> channel(HIDDEN);
+
+// Catch-all for any character no rule above matched. Without this the
+// lexer raises a recoverable token-recognition error and DROPS the
+// character — so stray input (a JavaScript `!`, `&&`, …) silently
+// vanishes and the surrounding text parses as a different, valid-looking
+// program. Emitting an explicit token instead means the parser has no
+// rule for it and fails loudly with a SyntaxError. Listed last so it
+// only ever fires as a true fallback (maximal munch keeps `!=`, `!~`,
+// multi-character operators, comments, etc. intact).
+UNEXPECTED_CHARACTER: . ;
 
 // ───────── f' TEMPLATE STRING MODE ─────────
 mode IN_TEMPLATE_STRING;

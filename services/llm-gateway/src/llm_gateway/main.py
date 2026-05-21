@@ -31,6 +31,7 @@ from llm_gateway.rate_limiting.cost_throttles import (
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
 )
+from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.plan_resolver import PlanResolver
@@ -138,14 +139,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Redis connected")
 
     product_throttle = ProductCostThrottle(redis=app.state.redis)
+    denial_capturer: PosthogDenialCapturer | None = None
+    if settings.posthog_project_token:
+        denial_capturer = PosthogDenialCapturer(
+            api_key=settings.posthog_project_token,
+            host=settings.posthog_host,
+        )
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
             product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
-        ]
+        ],
+        denial_capturer=denial_capturer,
     )
-    logger.info("Throttle runner initialized")
+    logger.info("Throttle runner initialized", denial_capture_enabled=denial_capturer is not None)
 
     app.state.cost_gauge_task = asyncio.create_task(publish_product_cost_gauges_loop(product_throttle))
 

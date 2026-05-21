@@ -94,7 +94,7 @@ async def _send_bedrock_messages(
     data = dict(request_data)
     bedrock_model = map_to_bedrock_model(data["model"], region_name=bedrock_region_name)
     # litellm can't infer the bedrock provider from regional inference profile
-    # ids like "us.anthropic.claude-opus-4-7-v1", so prefix explicitly.
+    # ids like "us.anthropic.claude-opus-4-7", so prefix explicitly.
     data["model"] = f"bedrock/{bedrock_model}"
 
     anthropic_beta = request.headers.get("anthropic-beta")

@@ -22,7 +22,6 @@ statement      : returnStmt
                | forInStmt
                | forStmt
                | funcStmt
-               | varAssignment
                | block
                | exprStmt
                | emptyStmt
@@ -42,7 +41,9 @@ forStmt        : FOR LPAREN
 forInStmt      : FOR LPAREN LET identifier (COMMA identifier)? IN expression RPAREN statement SEMICOLON?;
 funcStmt       : (FN | FUN) identifier LPAREN identifierList? RPAREN block;
 varAssignment  : expression COLONEQUALS expression ;
-exprStmt       : expression SEMICOLON?;
+// Assignment folded in as an optional suffix: one expression-leading alternative in
+// `statement` means `declaration*` parses without unbounded lookahead. `varAssignment` is forStmt-only.
+exprStmt       : expression (COLONEQUALS expression)? SEMICOLON?;
 emptyStmt      : SEMICOLON ;
 block          : LBRACE declaration* RBRACE ;
 

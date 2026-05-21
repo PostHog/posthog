@@ -9,6 +9,7 @@ from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLe
 
 
 class MonitorOutput(BaseLensOutput, frozen=True):
+    lens_type: Literal[LensType.MONITOR] = LensType.MONITOR
     verdict: bool = Field(description="Did the condition described in the lens intent occur during the session?")
     reasoning: str = Field(
         description="One paragraph grounding the verdict in concrete moments from the video and events."

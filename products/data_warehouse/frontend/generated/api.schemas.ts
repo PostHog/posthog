@@ -557,6 +557,7 @@ export const CreatedViaEnumApi = {
  * `ClickHouse` - ClickHouse
  * `Plain` - Plain
  * `Resend` - Resend
+ * `PgAnalyze` - PgAnalyze
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -706,6 +707,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ClickHouse: 'ClickHouse',
     Plain: 'Plain',
     Resend: 'Resend',
+    PgAnalyze: 'PgAnalyze',
 } as const
 
 /**
@@ -750,7 +752,7 @@ export interface ExternalDataSourceSerializersApi {
   * `web` - web
   * `api` - api
   * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: CreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -946,7 +948,8 @@ export interface ExternalDataSourceCreateApi {
   * `Convex` - Convex
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
-  * `Resend` - Resend */
+  * `Resend` - Resend
+  * `PgAnalyze` - PgAnalyze */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -990,7 +993,7 @@ export interface PatchedExternalDataSourceSerializersApi {
   * `web` - web
   * `api` - api
   * `mcp` - mcp */
-    created_via?: CreatedViaEnumApi
+    created_via?: CreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -1245,7 +1248,8 @@ export interface DatabaseSchemaRequestApi {
   * `Convex` - Convex
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
-  * `Resend` - Resend */
+  * `Resend` - Resend
+  * `PgAnalyze` - PgAnalyze */
     source_type: ExternalDataSourceTypeEnumApi
 }
 

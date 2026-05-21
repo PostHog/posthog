@@ -1,3 +1,13 @@
+"""Data-modeling Temporal workflow v1 — FROZEN.
+
+Do not extend this module. v1 is being migrated to v2, which lives at
+`posthog/temporal/data_modeling/workflows/{materialize_view,execute_dag}.py`.
+New features, bug fixes for new behavior, and refactors belong in v2.
+
+Bug fixes that affect both versions can land here, but treat that as the
+exception.
+"""
+
 import gc
 import os
 import re

@@ -347,11 +347,6 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       return visit(func_stmt_ctx);
     }
 
-    auto var_assignment_ctx = ctx->varAssignment();
-    if (var_assignment_ctx) {
-      return visit(var_assignment_ctx);
-    }
-
     auto block_ctx = ctx->block();
     if (block_ctx) {
       return visit(block_ctx);
@@ -369,16 +364,39 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     throw ParsingError(
         "Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, "
-        "funcStmt, "
-        "varAssignment, block, exprStmt, or emptyStmt"
+        "funcStmt, block, exprStmt, or emptyStmt"
     );
   }
 
   VISIT(ExprStmt) {
     Json json = Json::object();
+    if (ctx->COLONEQUALS()) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["left"] = visitAsJSON(ctx->expression(0));
+      json["right"] = visitAsJSON(ctx->expression(1));
+      return json;
+    }
+    // `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+    // statement is a variable assignment. Checked on the parse tree, so parens are not
+    // unwrapped: `(x := 1)` stays an expression statement.
+    auto* named_arg = dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(ctx->expression(0)->columnExpr());
+    if (named_arg) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      Json left = Json::object();
+      left["node"] = "Field";
+      if (!is_internal) addPositionInfo(left, named_arg->identifier());
+      Json chain = Json::array();
+      chain.pushBack(visitAsString(named_arg->identifier()));
+      left["chain"] = std::move(chain);
+      json["left"] = std::move(left);
+      json["right"] = visitAsJSON(named_arg->columnExpr());
+      return json;
+    }
     json["node"] = "ExprStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->expression());
+    json["expr"] = visitAsJSON(ctx->expression(0));
     return json;
   }
 
@@ -634,7 +652,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     if (subsequent_clauses.empty()) {
       Json result = visitAsJSON(ctx->selectStmtWithParens());
-      if (limit_clause) {
+      // A set-level LIMIT/OFFSET clause only attaches to SelectQuery/SelectSetQuery nodes, not a bare placeholder body, matching the Python parser.
+      const std::string& result_node = result["node"].getString();
+      bool result_takes_limit = result_node == "SelectQuery" || result_node == "SelectSetQuery";
+      if (limit_clause && result_takes_limit) {
         auto exprs = limit_clause->columnExpr();
         if (limit_clause->OFFSET()) {
           if (limit_clause->LIMIT()) {

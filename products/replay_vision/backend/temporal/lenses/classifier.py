@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLe
 
 
 class ClassifierOutput(BaseLensOutput, frozen=True):
+    lens_type: Literal[LensType.CLASSIFIER] = LensType.CLASSIFIER
     tags: list[str] = Field(description="Subset of the lens's configured tag vocabulary.")
     reasoning: str = Field(description="One paragraph grounding the tag choice in concrete moments.")
 

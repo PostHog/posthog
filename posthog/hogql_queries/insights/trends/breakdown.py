@@ -24,6 +24,9 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.insights.utils.breakdowns import (
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
+    BREAKDOWN_OTHER_STRING_LABEL,
     has_breakdown_filter,
     has_multi_breakdown,
     strip_user_aliases,
@@ -31,12 +34,6 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-
-BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
-BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
-BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
-BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
-BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["",""]'
 
 
 def hogql_to_string(expr: ast.Expr) -> ast.Call:

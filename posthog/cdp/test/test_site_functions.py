@@ -253,7 +253,7 @@ class TestSiteFunctions(TestCase):
         )
 
         self.team.test_account_filters = [
-            {"key": "id", "type": "cohort", "value": cohort.id, "negation": True},
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
         ]
         self.team.save()
 
@@ -322,7 +322,7 @@ class TestSiteFunctions(TestCase):
         )
 
         self.team.test_account_filters = [
-            {"key": "id", "type": "cohort", "value": cohort.id, "negation": True},
+            {"key": "id", "type": "cohort", "value": cohort.id, "operator": "not_in"},
         ]
         self.team.save()
 

@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID
 
 
 class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
