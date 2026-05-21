@@ -368,16 +368,18 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 {!isThreadVisible ? (
                                     <div
                                         className={cn(
-                                            'flex justify-between flex-wrap gap-1',
-                                            handsFreeFlagEnabled ? 'items-end' : 'items-start'
+                                            'flex justify-between',
+                                            handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
                                         )}
                                     >
                                         <ContextDisplay size={contextDisplaySize} />
 
                                         <div
                                             className={cn(
-                                                'flex gap-1 mr-1',
-                                                handsFreeFlagEnabled ? 'items-end' : 'items-start h-full mt-1'
+                                                'flex mr-1',
+                                                handsFreeFlagEnabled
+                                                    ? 'items-end gap-1'
+                                                    : 'items-start gap-1 h-full mt-1'
                                             )}
                                         >
                                             {topActions}
