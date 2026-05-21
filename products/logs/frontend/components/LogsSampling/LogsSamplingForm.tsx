@@ -214,8 +214,7 @@ export function LogsSamplingForm(): JSX.Element {
                     <div className="flex items-center justify-between text-xs text-muted">
                         <span>
                             Volume preview by service (last 24h, top {TOP_SERVICES_LIMIT}
-                            {previewMetric === 'bytes' ? ', uncompressed bytes' : ''})
-                            {truncatedServiceCount > 0 ? ` — others rolled up (${truncatedServiceCount})` : ''}
+                            {previewMetric === 'bytes' ? ', bytes' : ''})
                         </span>
                         {hasFilters && !filterPreviewLoading ? <span>{formattedTotal}</span> : null}
                     </div>
