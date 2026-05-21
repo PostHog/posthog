@@ -124,7 +124,10 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise HandsFreeProviderError(f"Hands-free provider returned {upstream.status_code}.")
 
         try:
-            token: str = upstream.json().get("token", "")
+            body = upstream.json()
+            if not isinstance(body, dict):
+                raise ValueError("Expected JSON object")
+            token: str = body.get("token", "")
         except ValueError:
             HANDS_FREE_TOKEN_COUNTER.labels(outcome="provider_rejected").inc()
             logger.warning("max_hands_free_token_malformed_json", status_code=upstream.status_code)
