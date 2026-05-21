@@ -76,6 +76,14 @@ export function LogsSamplingForm(): JSX.Element {
     const isRateLimit = samplingForm.rule_type === RuleTypeEnumApi.RateLimit
     const hasFilters = samplingForm.filter_group.values.length > 0
 
+    const matchDescription = isRateLimit
+        ? `Drop logs matching these filters above ${
+              samplingForm.rate_limit_amount.trim()
+                  ? `${samplingForm.rate_limit_amount.trim()} ${samplingForm.rate_limit_unit}`
+                  : 'the configured rate limit'
+          }.`
+        : 'Drop logs matching these filters. Dropped lines are not stored — they will not appear in the UI, exports, or alerts. Already-dropped data cannot be recovered.'
+
     const { labels, series, total, truncatedServiceCount } = useMemo(
         () => buildSparklineSeries(filterPreview),
         [filterPreview]
@@ -128,11 +136,7 @@ export function LogsSamplingForm(): JSX.Element {
                 )}
             </SceneSection>
 
-            <SceneSection
-                title="Match"
-                titleSize="sm"
-                description="Drop logs matching these filters. Dropped lines are not stored — they will not appear in the UI, exports, or alerts. Already-dropped data cannot be recovered."
-            >
+            <SceneSection title="Match" titleSize="sm" description={matchDescription}>
                 <LemonField.Pure error={samplingFormErrors.filter_group as string | undefined}>
                     <DropRuleFilterEditor
                         filterGroup={samplingForm.filter_group}
