@@ -31,7 +31,7 @@ const LOG_RECORD_AVRO = avro.Type.forSchema({
 
 const logsSettings: LogsSettings = { json_parse_logs: false, pii_scrub_logs: false }
 
-function baseLog(uuid: string, serviceName: string, bytesUncompressed: number | null = 100): LogRecord {
+function baseLog(uuid: string, serviceName: string, bytesUncompressed: number | null = null): LogRecord {
     return {
         uuid,
         trace_id: null,
@@ -64,9 +64,9 @@ describe('LogsSamplingService', () => {
             },
         ])
         const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
-            baseLog('a', 'api'),
-            baseLog('b', 'api'),
-            baseLog('c', 'api'),
+            baseLog('a', 'api', 100),
+            baseLog('b', 'api', 100),
+            baseLog('c', 'api', 100),
         ])
 
         const mockRedis: RedisV2 = {
@@ -84,6 +84,7 @@ describe('LogsSamplingService', () => {
 
         expect(result.recordsDropped).toBe(1)
         expect(result.recordsDroppedByRuleId.get('rl-1')).toBe(1)
+        // Each row is fixtured at 100 bytes; the one dropped row contributes 100.
         expect(result.bytesDropped).toBe(100)
         expect(result.bytesDroppedByRuleId.get('rl-1')).toBe(100)
         expect(result.allDropped).toBe(false)
