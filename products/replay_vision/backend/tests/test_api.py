@@ -181,7 +181,7 @@ class TestReplayLensViewSet(_VisionAPITestCase):
             ("classifier", LensType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
             ("scorer", LensType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
             ("summarizer", LensType.SUMMARIZER, {"prompt": "p"}),
-            ("indexer", LensType.INDEXER, {"prompt": "p"}),
+            ("indexer", LensType.INDEXER, {}),
         ]
     )
     def test_create_accepts_valid_lens_config_per_type(

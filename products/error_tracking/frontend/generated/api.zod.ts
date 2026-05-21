@@ -134,32 +134,13 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional human-readable description of what this grouping rule is for.'),
 })
 
-export const errorTrackingGroupingRulesUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingGroupingRulesUpdateBodyOrderKeyMax = 2147483647
+export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
-export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    description: zod.string().nullish(),
-    order_key: zod
-        .number()
-        .min(errorTrackingGroupingRulesUpdateBodyOrderKeyMin)
-        .max(errorTrackingGroupingRulesUpdateBodyOrderKeyMax),
-    disabled_data: zod.unknown().optional(),
-})
-
-export const errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    description: zod.string().nullish(),
-    order_key: zod
-        .number()
-        .min(errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMax)
-        .optional(),
-    disabled_data: zod.unknown().optional(),
-})
+export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
