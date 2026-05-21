@@ -2442,6 +2442,10 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
+    # Other inheritors of the mixin don't extend write actions and so still
+    # reject PAT calls — keeps the scope local to this viewset.
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
     # Use the unfiltered manager so non-list actions (retrieve, update, etc.)
     # can access soft-deleted flags. The list action applies its own
     # deleted=False filter in safely_get_queryset.

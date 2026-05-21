@@ -28,7 +28,7 @@ from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from posthog.constants import AvailableFeature
 from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
-from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, Insight, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -7567,6 +7567,28 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+    # Lives in the feature-flag test file (instead of test_insight.py) so the
+    # full bulk-ops PAT regression story — positive feature-flag cases and the
+    # negative cross-resource block — stays adjacent for reviewers of #57885.
+    def test_feature_flag_write_pat_cannot_mutate_insight_tags(self):
+        """A feature_flag:write PAT must not reach Insight.bulk_update_tags via the shared mixin."""
+        insight = Insight.objects.create(team=self.team, name="x", created_by=self.user)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/bulk_update_tags/",
+            {"ids": [insight.id], "action": "add", "tags": ["foo"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_local_evaluation_caching_basic(self):
         """Test basic caching functionality for local_evaluation endpoint."""
