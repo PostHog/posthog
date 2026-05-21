@@ -118,6 +118,7 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
