@@ -349,7 +349,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         disabled={inputDisabled}
                                         minRows={1}
                                         maxRows={10}
-                                        className="!border-none !bg-transparent min-h-16 py-2 pl-2 pr-20 resize-none"
+                                        className={cn(
+                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
+                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12'
+                                        )}
                                         hideFocus
                                     />
                                 </div>
@@ -357,11 +360,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
 
                         {!isSharedThread && !handsFreeActive && (
-                            // pr-20 reserves ~80px on the right for the absolutely-positioned
-                            // mic + send buttons. The smaller pr-12 fit when only send was there,
-                            // but mic + gap + send + right-offset now totals ~75px and the chip
-                            // row would otherwise wrap UNDER the buttons.
-                            <div className="pb-2 pr-20">
+                            // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
+                            // row doesn't wrap under the absolutely-positioned mic + send pair.
+                            // Without the flag the row only has send and the legacy pr-12 is
+                            // enough — keep it so non-flagged users see the original layout.
+                            <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
                                 {!isThreadVisible ? (
                                     <div
                                         className={cn(
