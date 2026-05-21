@@ -291,10 +291,25 @@ class TestApplyEnvConfig:
     manifest also keeps existing PostHog tests in the same file unaffected.
     """
 
-    def _make_manifest(self, env_files=None, secrets_config=None) -> MagicMock:
+    def _make_manifest(
+        self,
+        env_files=None,
+        secrets_config=None,
+        needs_secrets_commands: set[str] | None = None,
+    ) -> MagicMock:
+        """Build a fake Manifest. ``needs_secrets_commands`` is the set of
+        invoked-subcommand names whose ``get_command_config`` lookup returns
+        ``needs_secrets: true``. Any name not in the set returns an empty
+        config (the realistic default for opted-out commands)."""
         m = MagicMock()
         m.env_files = env_files or []
         m.secrets_config = secrets_config
+        opted_in = needs_secrets_commands or set()
+
+        def get_command_config(name: str) -> dict:
+            return {"needs_secrets": True} if name in opted_in else {}
+
+        m.get_command_config.side_effect = get_command_config
         return m
 
     def test_no_env_config_is_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -308,7 +323,7 @@ class TestApplyEnvConfig:
         monkeypatch.delenv("UNRELATED_VAR", raising=False)
         before = dict(os.environ)
 
-        _apply_env_config()
+        _apply_env_config("start")
 
         assert os.environ == before
 
@@ -328,7 +343,7 @@ class TestApplyEnvConfig:
         for k in ("SHARED", "ONLY_FIRST", "ONLY_SECOND", "HOGLI_SECRETS_WRAPPED"):
             monkeypatch.delenv(k, raising=False)
 
-        _apply_env_config()
+        _apply_env_config("anything")
 
         assert os.environ["SHARED"] == "from_first"
         assert os.environ["ONLY_FIRST"] == "1"
@@ -348,7 +363,7 @@ class TestApplyEnvConfig:
         monkeypatch.setenv("OVERRIDE_ME", "from_shell")
         monkeypatch.delenv("HOGLI_SECRETS_WRAPPED", raising=False)
 
-        _apply_env_config()
+        _apply_env_config("anything")
 
         assert os.environ["OVERRIDE_ME"] == "from_shell"
 
@@ -368,13 +383,16 @@ class TestApplyEnvConfig:
         }
         monkeypatch.setattr(
             "hogli.cli.get_manifest",
-            lambda: self._make_manifest(secrets_config=secrets),
+            lambda: self._make_manifest(
+                secrets_config=secrets,
+                needs_secrets_commands={"start"},
+            ),
         )
         monkeypatch.delenv("PLAIN_KEY", raising=False)
         monkeypatch.delenv("HOGLI_SECRETS_WRAPPED", raising=False)
 
         with patch("os.execvp") as mock_exec:
-            _apply_env_config()
+            _apply_env_config("start")
 
         mock_exec.assert_not_called()
         assert os.environ["PLAIN_KEY"] == "plain_value"
@@ -399,13 +417,17 @@ class TestApplyEnvConfig:
         }
         monkeypatch.setattr(
             "hogli.cli.get_manifest",
-            lambda: self._make_manifest(env_files=[env_file], secrets_config=secrets),
+            lambda: self._make_manifest(
+                env_files=[env_file],
+                secrets_config=secrets,
+                needs_secrets_commands={"start"},
+            ),
         )
         for k in ("SHARED_KEY", "DEV_ONLY", "HOGLI_SECRETS_WRAPPED"):
             monkeypatch.delenv(k, raising=False)
 
         with patch("os.execvp") as mock_exec:
-            _apply_env_config()
+            _apply_env_config("start")
 
         mock_exec.assert_not_called()
         assert os.environ["SHARED_KEY"] == "local_wins"
@@ -426,19 +448,24 @@ class TestApplyEnvConfig:
         }
         monkeypatch.setattr(
             "hogli.cli.get_manifest",
-            lambda: self._make_manifest(env_files=[env_file], secrets_config=secrets),
+            lambda: self._make_manifest(
+                env_files=[env_file],
+                secrets_config=secrets,
+                needs_secrets_commands={"start"},
+            ),
         )
         for k in ("DEV_ONLY", "HOGLI_SECRETS_WRAPPED"):
             monkeypatch.delenv(k, raising=False)
 
         with patch("os.execvp") as mock_exec:
-            _apply_env_config()
+            _apply_env_config("start")
 
         mock_exec.assert_not_called()
         assert os.environ["DEV_ONLY"] == "ok"
 
     def test_marker_hit_with_wrap_binary_present_reexecs(self, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When marker matches and wrap binary is on PATH, hogli re-execs under it.
+        """When marker matches AND the invoked command opts into needs_secrets
+        AND the wrap binary is on PATH, hogli re-execs under the wrap.
 
         Verifies the wrap command is built with `{file}` substituted, the
         sentinel is set so the child won't loop, and pre-existing env_files
@@ -458,7 +485,11 @@ class TestApplyEnvConfig:
         }
         monkeypatch.setattr(
             "hogli.cli.get_manifest",
-            lambda: self._make_manifest(env_files=[env_file], secrets_config=secrets),
+            lambda: self._make_manifest(
+                env_files=[env_file],
+                secrets_config=secrets,
+                needs_secrets_commands={"start"},
+            ),
         )
         for k in ("PRELOADED", "HOGLI_SECRETS_WRAPPED"):
             monkeypatch.delenv(k, raising=False)
@@ -467,7 +498,7 @@ class TestApplyEnvConfig:
             patch("shutil.which", return_value="/usr/local/bin/op"),
             patch("os.execvp") as mock_exec,
         ):
-            _apply_env_config()
+            _apply_env_config("start")
 
         mock_exec.assert_called_once()
         args, _kwargs = mock_exec.call_args
@@ -504,7 +535,10 @@ class TestApplyEnvConfig:
         }
         monkeypatch.setattr(
             "hogli.cli.get_manifest",
-            lambda: self._make_manifest(secrets_config=secrets),
+            lambda: self._make_manifest(
+                secrets_config=secrets,
+                needs_secrets_commands={"start"},
+            ),
         )
         for k in ("OPENAI_API_KEY", "LITERAL", "HOGLI_SECRETS_WRAPPED"):
             monkeypatch.delenv(k, raising=False)
@@ -513,7 +547,7 @@ class TestApplyEnvConfig:
             patch("shutil.which", return_value=None),
             patch("os.execvp") as mock_exec,
         ):
-            _apply_env_config()
+            _apply_env_config("start")
 
         mock_exec.assert_not_called()
         assert "OPENAI_API_KEY" not in os.environ
@@ -526,6 +560,11 @@ class TestApplyEnvConfig:
         """After wrap re-execs hogli, the child sees HOGLI_SECRETS_WRAPPED and skips wrap.
 
         Without this, the wrap binary would re-exec hogli forever.
+
+        Also verifies the sentinel PERSISTS in env after the wrap-child runs,
+        so subprocesses spawned by composite/steps commands inherit it and
+        also skip their own wrap (no cascading auth prompts on chained
+        invocations like `dev:reset`).
         """
         from hogli.cli import _apply_env_config
 
@@ -539,7 +578,10 @@ class TestApplyEnvConfig:
         }
         monkeypatch.setattr(
             "hogli.cli.get_manifest",
-            lambda: self._make_manifest(secrets_config=secrets),
+            lambda: self._make_manifest(
+                secrets_config=secrets,
+                needs_secrets_commands={"start"},
+            ),
         )
         # Simulate being the child of a wrap re-exec: sentinel set, wrap already
         # populated the env via op run (so OPENAI_API_KEY would be in env).
@@ -547,10 +589,55 @@ class TestApplyEnvConfig:
         monkeypatch.setenv("API_KEY", "resolved_by_op")
 
         with patch("os.execvp") as mock_exec:
-            _apply_env_config()
+            _apply_env_config("start")
 
         mock_exec.assert_not_called()
         # Wrap binary's resolved value wins; the file isn't sourced over it
         assert os.environ["API_KEY"] == "resolved_by_op"
-        # Sentinel is consumed so subsequent in-process calls behave normally
-        assert "HOGLI_SECRETS_WRAPPED" not in os.environ
+        # Sentinel must STAY in env so subprocesses spawned by this wrap-child
+        # inherit it and skip re-wrapping. Popping would re-trigger auth
+        # prompts for every step in a composite chain.
+        assert os.environ["HOGLI_SECRETS_WRAPPED"] == "1"
+
+    @pytest.mark.parametrize(
+        "invoked_subcommand,opted_in,expect_wrap",
+        [
+            (None, {"start"}, False),
+            ("lint", {"start"}, False),
+            ("run", set(), True),
+        ],
+        ids=["no-subcommand", "manifest-opted-out", "builtin-run"],
+    )
+    def test_gate_controls_wrap_reexec(
+        self,
+        tmp_path,
+        monkeypatch: pytest.MonkeyPatch,
+        invoked_subcommand: str | None,
+        opted_in: set[str],
+        expect_wrap: bool,
+    ) -> None:
+        from hogli.cli import _apply_env_config
+
+        secrets_file = tmp_path / ".env.local"
+        secrets_file.write_text("API_KEY=op://vault/item/credential\n")
+        secrets = {
+            "file": secrets_file,
+            "marker": "op://",
+            "wrap": ["op", "run", "--env-file", "{file}", "--"],
+        }
+        monkeypatch.setattr(
+            "hogli.cli.get_manifest",
+            lambda: self._make_manifest(secrets_config=secrets, needs_secrets_commands=opted_in),
+        )
+        monkeypatch.delenv("HOGLI_SECRETS_WRAPPED", raising=False)
+
+        with (
+            patch("shutil.which", return_value="/usr/local/bin/op"),
+            patch("os.execvp") as mock_exec,
+        ):
+            _apply_env_config(invoked_subcommand)
+
+        if expect_wrap:
+            mock_exec.assert_called_once()
+        else:
+            mock_exec.assert_not_called()

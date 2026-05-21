@@ -57,7 +57,7 @@ def _string_cases():
         yield pytest.param(case, id=f"string_cases::{case['name']}")
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestCoercionParity:
     @pytest.mark.parametrize("case", list(_string_cases()))
     def test_extraction_sql_matches_fixture(self, team, case):
@@ -123,7 +123,7 @@ def _dict_backed_dispatch_sql(column_index: int, fallback_value: str = "NULL") -
     )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestDictBackedDispatchCoercion:
     """The dict-based mutation reads property names out of `dmat_slot_assignments_dict`
     via `dictGetString` instead of a query parameter. Same wrapper, different way of

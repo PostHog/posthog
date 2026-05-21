@@ -48,7 +48,9 @@ Even 1Password's own docs don't recommend a "task runner integration" — they j
 **In core (generic):**
 
 - `config.env.files: [...]` — list of dotenv files, loaded in order, first wins, shell env always wins.
-- `config.env.secrets.{file, marker, wrap}` — optional generic wrapper hook. When the secrets file contains the marker substring AND the wrap binary is on PATH, hogli re-execs the whole invocation under the wrap command. When the binary isn't installed, hogli loads the file directly with marker-matching lines skipped (so literals don't leak as garbage strings). A `HOGLI_SECRETS_WRAPPED=1` sentinel prevents re-exec loops.
+- `config.env.secrets.{file, marker, wrap}` — optional generic wrapper hook. Re-execs the invocation under `wrap` when (1) the invoked subcommand opts in via `needs_secrets: true`, (2) the file contains `marker`, and (3) `wrap[0]` is on PATH. Otherwise loads the file directly with marker-matching lines skipped, so literals don't leak as garbage strings.
+- `HOGLI_SECRETS_WRAPPED=1` sentinel — set before the wrap re-exec, inherited by subprocesses so composite/steps chains don't re-prompt for auth on every step.
+- Per-command `needs_secrets: true` — opt-in gate for the wrap. Without it the wrap never fires; the built-in `hogli run` is the one framework command that always opts in.
 
 **Not in core:**
 

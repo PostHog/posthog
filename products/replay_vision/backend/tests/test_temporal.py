@@ -378,14 +378,12 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert stored.session_id == "sess-1"
         assert stored.team_id == lens.team_id
-        assert stored.events.columns == ["event_id", "event_index", "event", "timestamp", "$session_id"]
+        assert stored.events.columns == ["event_id", "event", "timestamp", "$session_id"]
         assert stored.metadata.start_time == start
         assert stored.metadata.end_time == end
         assert stored.metadata.duration_seconds == 300.0
         assert len(stored.events.rows) == 1
-        # Row is prepended with [event_id (hash), event_index (0), ...original values]
-        assert stored.events.rows[0][1] == 0
-        assert stored.events.rows[0][2:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
+        assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
 
     @pytest.mark.asyncio
     async def test_paginates_through_get_events_until_short_page(self) -> None:
@@ -614,6 +612,48 @@ class TestFetchSessionEventsActivity:
         stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
         assert stored is not None
         assert len(stored.events.rows) == 2  # rageclick collapsed, plus the $pageview
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_identical_content_despite_distinct_uuids(self) -> None:
+        # `uuid` is fetched per event but excluded from the dedup hash — otherwise identical events never collapse.
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [
+                (
+                    ["event", "timestamp", "uuid"],
+                    [
+                        ("rageclick", start, "00000000-0000-0000-0000-000000000001"),
+                        ("rageclick", start, "00000000-0000-0000-0000-000000000002"),  # distinct uuid, same content
+                        ("rageclick", start, "00000000-0000-0000-0000-000000000003"),
+                        ("$pageview", start, "00000000-0000-0000-0000-000000000004"),
+                    ],
+                )
+            ],
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        assert len(stored.events.rows) == 2  # rageclick collapsed, $pageview kept
+        assert "uuid" not in stored.events.columns  # not surfaced to the LLM
+        # The mapping records the FIRST uuid seen for each unique event_id.
+        assert len(stored.event_id_mapping) == 2
+        uuids = {c.uuid for c in stored.event_id_mapping.values()}
+        assert "00000000-0000-0000-0000-000000000001" in uuids
+        assert "00000000-0000-0000-0000-000000000004" in uuids
 
     @pytest.mark.asyncio
     async def test_session_metadata_round_trips_to_payload(self) -> None:

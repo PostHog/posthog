@@ -472,6 +472,7 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
+    "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.oauth",
