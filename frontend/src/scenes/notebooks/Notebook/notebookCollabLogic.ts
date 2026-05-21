@@ -119,6 +119,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
             {
                 connectStream: () => true,
                 streamOpened: () => false,
+                streamClosed: () => false,
                 disconnectStream: () => false,
             },
         ],
@@ -279,7 +280,6 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 }
                 actions.streamClosed(e instanceof Error ? e.message : String(e))
                 posthog.captureException(e as Error, { action: 'notebook collab stream open' })
-                actions.connectStream()
             }
         },
 
