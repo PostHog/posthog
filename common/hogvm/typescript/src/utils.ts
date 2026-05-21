@@ -60,7 +60,7 @@ export function getNestedValue(obj: any, chain: any[], nullish = false): any {
                     obj = obj[obj.length + key] ?? null
                 }
             } else {
-                obj = obj[key] ?? null
+                obj = Object.prototype.hasOwnProperty.call(obj, key) ? (obj[key] ?? null) : null
             }
         }
         return obj

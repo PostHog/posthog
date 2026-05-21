@@ -636,22 +636,40 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
             refreshSchemas: async () => {
                 try {
-                    const { added = 0, deleted = 0 } = await api.externalDataSources.refreshSchemas(values.sourceId)
+                    const {
+                        added = 0,
+                        deleted = 0,
+                        total_tables_seen = 0,
+                    } = await api.externalDataSources.refreshSchemas(values.sourceId)
                     actions.loadSource()
                     posthog.capture('schemas refreshed', {
                         sourceType: values.source?.source_type,
                         added,
                         deleted,
+                        total_tables_seen,
                     })
-                    const parts = ['Schemas refreshed']
-                    if (added > 0 || deleted > 0) {
-                        parts.push(
-                            [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
-                                .filter(Boolean)
-                                .join(' / ')
+                    // Connected and got an empty table list — almost always a permissions
+                    // or configuration issue on the source. Warn rather than silently succeed.
+                    // If we also just removed previously-tracked schemas, call that out
+                    // explicitly so the user knows their tracking list changed.
+                    if (total_tables_seen === 0) {
+                        const deletedSuffix =
+                            deleted > 0
+                                ? ` ${deleted} previously tracked table(s) were removed from the tracking list.`
+                                : ''
+                        lemonToast.warning(
+                            `No tables found. Check the source credentials, permissions, and configuration.${deletedSuffix}`
                         )
+                        return
                     }
-                    lemonToast.success(parts.join(', '))
+                    if (added === 0 && deleted === 0) {
+                        lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
+                        return
+                    }
+                    const counts = [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]
+                        .filter(Boolean)
+                        .join(' / ')
+                    lemonToast.success(`Schemas refreshed: ${counts}`)
                 } catch (e: any) {
                     if (e.message) {
                         lemonToast.error(e.message)

@@ -17,6 +17,7 @@ logger = structlog.get_logger(__name__)
 # still bounding Redis growth for streams with a one-hour TTL.
 TASK_RUN_STREAM_MAX_LENGTH = 20_000
 TASK_RUN_STREAM_TIMEOUT = 60 * 60  # 60 minutes
+TASK_RUN_STREAM_SEQUENCE_TIMEOUT = 24 * 60 * 60  # match sandbox event-ingest token lifetime
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
 TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05
@@ -39,8 +40,39 @@ class TaskRunStreamError(Exception):
     pass
 
 
+class TaskRunStreamSequenceGap(Exception):
+    def __init__(self, *, expected_sequence: int, received_sequence: int, last_accepted_seq: int):
+        self.expected_sequence = expected_sequence
+        self.received_sequence = received_sequence
+        self.last_accepted_seq = last_accepted_seq
+        super().__init__(f"Expected sequence {expected_sequence}, got {received_sequence}")
+
+
+class TaskRunStreamCompletionSequenceMismatch(Exception):
+    def __init__(self, *, final_sequence: int, last_accepted_seq: int):
+        self.final_sequence = final_sequence
+        self.last_accepted_seq = last_accepted_seq
+        super().__init__(
+            f"Cannot complete stream at sequence {final_sequence}; last accepted sequence is {last_accepted_seq}"
+        )
+
+
+class TaskRunStreamAlreadyCompleted(Exception):
+    def __init__(self, *, last_accepted_seq: int):
+        self.last_accepted_seq = last_accepted_seq
+        super().__init__("Task run stream is already complete")
+
+
 def get_task_run_stream_key(run_id: str) -> str:
     return f"{TASK_RUN_STREAM_PREFIX}{run_id}"
+
+
+def get_task_run_stream_sequence_key(stream_key: str) -> str:
+    return f"{stream_key}:last-seq"
+
+
+def get_task_run_stream_completed_key(stream_key: str) -> str:
+    return f"{stream_key}:completed"
 
 
 class TaskRunRedisStream:
@@ -58,6 +90,7 @@ class TaskRunRedisStream:
         self._stream_key = stream_key
         self._redis_client = get_async_client(settings.REDIS_URL)
         self._timeout = timeout
+        self._sequence_timeout = max(timeout, TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
         self._max_length = max_length
 
     async def initialize(self) -> None:
@@ -202,9 +235,120 @@ class TaskRunRedisStream:
         await self._redis_client.expire(self._stream_key, self._timeout)
         return _normalize_stream_id(stream_id)
 
+    async def get_last_sequence(self) -> int:
+        sequence_key = get_task_run_stream_sequence_key(self._stream_key)
+        last_sequence_raw = await self._redis_client.get(sequence_key)
+        if last_sequence_raw is not None:
+            await self._redis_client.expire(sequence_key, self._sequence_timeout)
+        return int(last_sequence_raw or 0)
+
+    async def write_event_with_sequence(self, event: dict, sequence: int) -> str | None:
+        """Write an event if it is the next unseen sequence number.
+
+        Sequences must start at 1; sequence 0 is the initial sentinel and is
+        treated as already accepted.
+        Returns the Redis stream ID for newly accepted events, or None for a
+        duplicate sequence that was already accepted on an earlier connection.
+        """
+        sequence_key = get_task_run_stream_sequence_key(self._stream_key)
+        completed_key = get_task_run_stream_completed_key(self._stream_key)
+        raw = json.dumps(event)
+
+        while True:
+            async with self._redis_client.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(sequence_key, completed_key)
+                    last_sequence_raw = await pipe.get(sequence_key)
+                    last_sequence = int(last_sequence_raw or 0)
+                    if await pipe.exists(completed_key):
+                        raise TaskRunStreamAlreadyCompleted(last_accepted_seq=last_sequence)
+
+                    if sequence <= last_sequence:
+                        return None
+
+                    if sequence != last_sequence + 1:
+                        raise TaskRunStreamSequenceGap(
+                            expected_sequence=last_sequence + 1,
+                            received_sequence=sequence,
+                            last_accepted_seq=last_sequence,
+                        )
+
+                    pipe.multi()
+                    pipe.xadd(
+                        self._stream_key,
+                        {DATA_KEY: raw},
+                        maxlen=self._max_length,
+                        approximate=True,
+                    )
+                    pipe.expire(self._stream_key, self._timeout)
+                    pipe.set(sequence_key, sequence, ex=self._sequence_timeout)
+                    results = await pipe.execute()
+                    return _normalize_stream_id(results[0])
+                except redis_exceptions.WatchError:
+                    continue
+
     async def mark_complete(self) -> None:
         """Write a completion sentinel to signal end of stream."""
-        await self.write_event({"type": "STREAM_STATUS", "status": "complete"})
+        completed_key = get_task_run_stream_completed_key(self._stream_key)
+        raw = json.dumps({"type": "STREAM_STATUS", "status": "complete"})
+
+        while True:
+            async with self._redis_client.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(completed_key)
+                    if await pipe.exists(completed_key):
+                        return
+
+                    pipe.multi()
+                    pipe.xadd(
+                        self._stream_key,
+                        {DATA_KEY: raw},
+                        maxlen=self._max_length,
+                        approximate=True,
+                    )
+                    pipe.expire(self._stream_key, self._timeout)
+                    pipe.set(completed_key, "1", ex=self._sequence_timeout)
+                    await pipe.execute()
+                    return
+                except redis_exceptions.WatchError:
+                    continue
+
+    async def mark_complete_after_sequence(self, final_sequence: int) -> None:
+        """Write a completion sentinel only after the expected final sequence is accepted."""
+        sequence_key = get_task_run_stream_sequence_key(self._stream_key)
+        completed_key = get_task_run_stream_completed_key(self._stream_key)
+        raw = json.dumps({"type": "STREAM_STATUS", "status": "complete"})
+
+        while True:
+            async with self._redis_client.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(sequence_key, completed_key)
+                    last_sequence_raw = await pipe.get(sequence_key)
+                    last_sequence = int(last_sequence_raw or 0)
+                    if await pipe.exists(completed_key):
+                        return
+
+                    if last_sequence != final_sequence:
+                        raise TaskRunStreamCompletionSequenceMismatch(
+                            final_sequence=final_sequence,
+                            last_accepted_seq=last_sequence,
+                        )
+
+                    pipe.multi()
+                    pipe.xadd(
+                        self._stream_key,
+                        {DATA_KEY: raw},
+                        maxlen=self._max_length,
+                        approximate=True,
+                    )
+                    pipe.expire(self._stream_key, self._timeout)
+                    if last_sequence_raw is not None:
+                        pipe.expire(sequence_key, self._sequence_timeout)
+                    pipe.set(completed_key, "1", ex=self._sequence_timeout)
+                    await pipe.execute()
+                    return
+                except redis_exceptions.WatchError:
+                    continue
 
     async def mark_error(self, error: str) -> None:
         """Write an error sentinel to signal stream failure."""
@@ -213,7 +357,9 @@ class TaskRunRedisStream:
     async def delete_stream(self) -> bool:
         """Delete the Redis stream. Returns True if deleted."""
         try:
-            return await self._redis_client.delete(self._stream_key) > 0
+            sequence_key = get_task_run_stream_sequence_key(self._stream_key)
+            completed_key = get_task_run_stream_completed_key(self._stream_key)
+            return await self._redis_client.delete(self._stream_key, sequence_key, completed_key) > 0
         except Exception:
             logger.exception("task_run_stream_delete_failed", stream_key=self._stream_key)
             return False
@@ -235,3 +381,16 @@ def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
     except Exception:
         logger.exception("task_run_stream_publish_failed", run_id=run_id)
         return None
+
+
+def publish_task_run_stream_complete(run_id: str) -> None:
+    """Synchronously publish a completion sentinel for a task-run stream."""
+
+    async def _publish() -> None:
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
+        await redis_stream.mark_complete()
+
+    try:
+        async_to_sync(_publish)()
+    except Exception:
+        logger.exception("task_run_stream_complete_publish_failed", run_id=run_id)

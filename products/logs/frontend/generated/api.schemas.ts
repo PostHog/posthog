@@ -1160,14 +1160,14 @@ export interface LogsSamplingRuleApi {
      * @nullable
      */
     priority?: number | null
-    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
   * `severity_sampling` - Severity-based reduction
   * `path_drop` - Path exclusion
   * `rate_limit` - Rate limit */
     rule_type: RuleTypeEnumApi
     /**
-     * If set, the rule applies only to this service name; null means all services.
+     * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
      * @nullable
      */
@@ -1180,7 +1180,7 @@ export interface LogsSamplingRuleApi {
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
     scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
-    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
     config: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
@@ -1217,14 +1217,14 @@ export interface PatchedLogsSamplingRuleApi {
      * @nullable
      */
     priority?: number | null
-    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+    /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
   * `severity_sampling` - Severity-based reduction
   * `path_drop` - Path exclusion
   * `rate_limit` - Rate limit */
     rule_type?: RuleTypeEnumApi
     /**
-     * If set, the rule applies only to this service name; null means all services.
+     * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
      * @maxLength 512
      * @nullable
      */
@@ -1237,7 +1237,7 @@ export interface PatchedLogsSamplingRuleApi {
     scope_path_pattern?: string | null
     /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
     scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
-    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+    /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
     config?: unknown
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
@@ -1372,6 +1372,8 @@ export interface _LogsSparklineBucketApi {
     /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
     service?: string
     count: number
+    /** Sum of uncompressed bytes for the bucket. */
+    bytes_uncompressed?: number
 }
 
 export interface _LogsSparklineResponseApi {
