@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import Count, QuerySet
 
 import posthoganalytics
+from celery import current_app
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.cohort.cohort import Cohort
@@ -17,7 +18,6 @@ from posthog.models.integration import (
     LinearIntegration,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
@@ -197,6 +197,13 @@ def _serialize_assignment(assignment: ErrorTrackingIssueAssignment | None) -> di
     }
 
 
+def enqueue_issue_assigned_email(assignment_id: UUID, assigner_id: int) -> None:
+    current_app.send_task(
+        "posthog.tasks.email.send_error_tracking_issue_assigned",
+        args=(str(assignment_id), assigner_id),
+    )
+
+
 def assign_issue(
     *,
     team_id: int,
@@ -228,7 +235,7 @@ def assign_issue(
             },
         )
 
-        send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
+        enqueue_issue_assigned_email(assignment_after.id, user.id)
         dispatch_issue_assigned_realtime(assignment=assignment_after, assignee=assignee, assigner=user)
         serialized_assignment_after = _serialize_assignment(assignment_after)
     else:
