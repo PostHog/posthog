@@ -975,28 +975,28 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.28
   '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT "posthog_sharingconfiguration"."recording_id" AS "recording__session_id"
-     FROM "posthog_sharingconfiguration"
-     WHERE ("posthog_sharingconfiguration"."enabled"
-            AND "posthog_sharingconfiguration"."team_id" = 99999
-            AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))) subquery
+  SELECT "posthog_sharingconfiguration"."recording_id" AS "recording_id"
+  FROM "posthog_sharingconfiguration"
+  WHERE ("posthog_sharingconfiguration"."enabled"
+         AND "posthog_sharingconfiguration"."recording_id" IS NOT NULL
+         AND "posthog_sharingconfiguration"."team_id" = 99999)
+  LIMIT 4000
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.29
   '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
-     FROM "posthog_exportedasset"
-     WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
-             OR "posthog_exportedasset"."expires_after" IS NULL)
-            AND "posthog_exportedasset"."team_id" = 99999
-            AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
-            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
-            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
-                     AND "posthog_exportedasset"."export_context" IS NOT NULL))) subquery
+  SELECT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
+  FROM "posthog_exportedasset"
+  WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
+          OR "posthog_exportedasset"."expires_after" IS NULL)
+         AND "posthog_exportedasset"."team_id" = 99999
+         AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
+         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
+         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
+                  AND "posthog_exportedasset"."export_context" IS NOT NULL))
+  GROUP BY 1
+  ORDER BY MAX("posthog_exportedasset"."created_at") DESC
+  LIMIT 1000
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.3
@@ -2128,28 +2128,28 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.52
   '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT "posthog_sharingconfiguration"."recording_id" AS "recording__session_id"
-     FROM "posthog_sharingconfiguration"
-     WHERE ("posthog_sharingconfiguration"."enabled"
-            AND "posthog_sharingconfiguration"."team_id" = 99999
-            AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))) subquery
+  SELECT "posthog_sharingconfiguration"."recording_id" AS "recording_id"
+  FROM "posthog_sharingconfiguration"
+  WHERE ("posthog_sharingconfiguration"."enabled"
+         AND "posthog_sharingconfiguration"."recording_id" IS NOT NULL
+         AND "posthog_sharingconfiguration"."team_id" = 99999)
+  LIMIT 4000
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.53
   '''
-  SELECT COUNT(*)
-  FROM
-    (SELECT DISTINCT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
-     FROM "posthog_exportedasset"
-     WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
-             OR "posthog_exportedasset"."expires_after" IS NULL)
-            AND "posthog_exportedasset"."team_id" = 99999
-            AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
-            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
-            AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
-                     AND "posthog_exportedasset"."export_context" IS NOT NULL))) subquery
+  SELECT ("posthog_exportedasset"."export_context" -> 'session_recording_id') AS "export_context__session_recording_id"
+  FROM "posthog_exportedasset"
+  WHERE (("posthog_exportedasset"."expires_after" >= '2025-01-01 12:00:00+00:00'::timestamptz
+          OR "posthog_exportedasset"."expires_after" IS NULL)
+         AND "posthog_exportedasset"."team_id" = 99999
+         AND "posthog_exportedasset"."export_context" ? 'session_recording_id'
+         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') IS NULL)
+         AND NOT (("posthog_exportedasset"."export_context" -> 'session_recording_id') = '""'::jsonb
+                  AND "posthog_exportedasset"."export_context" IS NOT NULL))
+  GROUP BY 1
+  ORDER BY MAX("posthog_exportedasset"."created_at") DESC
+  LIMIT 1000
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.54

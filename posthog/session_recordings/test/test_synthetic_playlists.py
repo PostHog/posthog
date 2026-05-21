@@ -181,55 +181,15 @@ class TestSyntheticPlaylists(APIBaseTest):
         assert session_ids == ["exported-session-1"]
         assert source.count_session_ids(self.team, self.user) == 1
 
-    def test_exported_playlist_caches_session_ids(self) -> None:
-        ExportedAsset.objects.create(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.GIF,
-            export_context={"session_recording_id": "exported-session-1"},
-            created_by=self.user,
-        )
-
-        cache_key = ExportedPlaylistSource._cache_key(self.team.pk)
-        assert cache.get(cache_key) is None
-
-        source = ExportedPlaylistSource()
-        assert source.count_session_ids(self.team, self.user) == 1
-
-        cached = cache.get(cache_key)
-        assert cached == ["exported-session-1"]
-
-        # A second call with the cache primed but new DB rows should still see only
-        # the cached value, proving the cache is being consulted.
-        ExportedAsset.objects.create(
-            team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            export_context={"session_recording_id": "exported-session-2"},
-            created_by=self.user,
-        )
-        assert source.count_session_ids(self.team, self.user) == 1
-
-    def test_shared_playlist_caches_session_ids(self) -> None:
-        from posthog.models import SessionRecording
-
-        recording = SessionRecording.objects.create(team=self.team, session_id="shared-session-1")
-        SharingConfiguration.objects.create(
-            team=self.team, recording=recording, enabled=True, access_token="test-token-1"
-        )
-
-        cache_key = SharedPlaylistSource._cache_key(self.team.pk)
-        assert cache.get(cache_key) is None
-
-        source = SharedPlaylistSource()
-        assert source.count_session_ids(self.team, self.user) == 1
-        assert cache.get(cache_key) == ["shared-session-1"]
-
     @parameterized.expand(
         [
             ("exported", ExportedPlaylistSource),
             ("shared", SharedPlaylistSource),
         ]
     )
-    def test_synthetic_playlist_handles_db_errors_gracefully(self, _name: str, source_cls: type) -> None:
+    def test_synthetic_playlist_handles_db_errors_gracefully(
+        self, _name: str, source_cls: type[ExportedPlaylistSource] | type[SharedPlaylistSource]
+    ) -> None:
         from django.db import OperationalError
 
         source = source_cls()
@@ -240,10 +200,6 @@ class TestSyntheticPlaylists(APIBaseTest):
             # so the Replay list endpoint stays available even when these queries fail.
             assert source.count_session_ids(self.team, self.user) == 0
             assert source.get_session_ids(self.team, self.user) == []
-
-        # The empty result is cached, so the next call is a cache hit (not a retry).
-        cache_key = source_cls._cache_key(self.team.pk)
-        assert cache.get(cache_key) == []
 
     @parameterized.expand(
         [
