@@ -116,7 +116,14 @@ impl<F> Saving<F> {
         };
 
         self.s3_client.put(&self.bucket, &key, data).await?;
-        record.save(&self.pool).await?;
+        if !record.save_data_if_missing(&self.pool).await? {
+            warn!(
+                "Not overwriting existing symbol set data for {} after dynamic fetch",
+                record.set_ref
+            );
+            start.label("outcome", "skipped_existing_data").fin();
+            return Ok(key);
+        }
         // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
         // so delete them
         let deleted: u64 = sqlx::query_scalar!(
@@ -148,7 +155,7 @@ impl<F> Saving<F> {
     ) -> Result<(), UnhandledError> {
         info!("Saving symbol set error for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "false");
-        SymbolSetRecord {
+        let mut record = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
@@ -157,9 +164,8 @@ impl<F> Saving<F> {
             created_at: Utc::now(),
             content_hash: None,
             last_used: Some(Utc::now()),
-        }
-        .save(&self.pool)
-        .await?;
+        };
+        record.save_failure(&self.pool).await?;
         start.label("outcome", "success").fin();
         Ok(())
     }
@@ -293,8 +299,11 @@ where
             }
             Err(ResolveError::ResolutionError(e)) => {
                 info!("Failed to parse symbol set data for {}", set_ref);
-                // We save the no-data case here, to prevent us from fetching again for a day
-                self.save_no_data(team_id, set_ref, &e).await?;
+                if storage_ptr.is_none() {
+                    // Save fresh parse failures to prevent refetching for a day, but never
+                    // replace an existing uploaded blob with a parser error.
+                    self.save_no_data(team_id, set_ref, &e).await?;
+                }
                 Err(ResolveError::ResolutionError(e))
             }
             Err(e) => Err(e),
@@ -389,6 +398,72 @@ impl SymbolSetRecord {
         Ok(())
     }
 
+    pub async fn save_data_if_missing<'c, E>(&mut self, e: E) -> Result<bool, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let truncated_ref = truncate_ref(&self.set_ref);
+        let id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (team_id, ref) DO UPDATE
+            SET storage_ptr = $4, content_hash = $7, failure_reason = $5, last_used = $8
+            WHERE posthog_errortrackingsymbolset.storage_ptr IS NULL
+            RETURNING id
+            "#,
+        )
+        .bind(self.id)
+        .bind(self.team_id)
+        .bind(truncated_ref)
+        .bind(&self.storage_ptr)
+        .bind(&self.failure_reason)
+        .bind(self.created_at)
+        .bind(&self.content_hash)
+        .bind(self.last_used)
+        .fetch_optional(e)
+        .await?;
+
+        if let Some(id) = id {
+            self.id = id;
+            metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    pub async fn save_failure<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let truncated_ref = truncate_ref(&self.set_ref);
+        if let Some(id) = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
+            VALUES ($1, $2, $3, NULL, $4, $5, NULL, $6)
+            ON CONFLICT (team_id, ref) DO UPDATE
+            SET failure_reason = $4, last_used = $6
+            WHERE posthog_errortrackingsymbolset.storage_ptr IS NULL
+            RETURNING id
+            "#,
+        )
+        .bind(self.id)
+        .bind(self.team_id)
+        .bind(truncated_ref)
+        .bind(&self.failure_reason)
+        .bind(self.created_at)
+        .bind(self.last_used)
+        .fetch_optional(e)
+        .await?
+        {
+            self.id = id;
+            metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+        }
+
+        Ok(())
+    }
+
     pub async fn delete<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -413,11 +488,13 @@ mod test {
     use std::sync::Arc;
 
     use bytes::Bytes;
+    use chrono::Utc;
     use httpmock::MockServer;
     use mockall::predicate;
     use posthog_symbol_data::write_symbol_data;
     use reqwest::Url;
     use sqlx::PgPool;
+    use uuid::Uuid;
 
     use crate::{
         config::Config,
@@ -627,5 +704,58 @@ mod test {
             .unwrap();
 
         assert!(record.storage_ptr.is_none());
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_parse_failure_does_not_overwrite_existing_blob(db: PgPool) {
+        let server = MockServer::start();
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+        config.allow_internal_ips = true;
+
+        let test_url = Url::parse(&server.url(CHUNK_PATH.to_string())).unwrap();
+        let storage_ptr = "symbolsets/existing".to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 0,
+            set_ref: test_url.to_string(),
+            storage_ptr: Some(storage_ptr.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(storage_ptr.clone()),
+            )
+            .returning(|_, _| Ok(Some(Bytes::from_static(b"not a sourcemap"))));
+
+        let smp = SourcemapProvider::new(&config);
+        let saving_smp = Saving::new(
+            smp,
+            db.clone(),
+            Arc::new(client),
+            config.object_storage_bucket.clone(),
+            config.ss_prefix.clone(),
+        );
+
+        saving_smp.lookup(0, test_url.clone()).await.unwrap_err();
+
+        let record = SymbolSetRecord::load(&db, 0, test_url.as_ref())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.storage_ptr.as_deref(), Some(storage_ptr.as_str()));
+        assert!(record.failure_reason.is_none());
     }
 }
