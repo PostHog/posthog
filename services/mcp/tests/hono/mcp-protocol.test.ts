@@ -40,10 +40,13 @@ function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
 
 let app: ReturnType<typeof createApp>['app']
 
-beforeAll(() => {
+beforeAll(async () => {
     process.env.TEST = '1'
+    process.env.MCP_APPS_BASE_URL = 'https://apps.test'
     mswServer.listen({ onUnhandledRequest: 'bypass' })
-    app = createApp(createInMemoryRedis()).app
+    const created = createApp(createInMemoryRedis())
+    app = created.app
+    await created.warmup()
 })
 
 afterAll(() => {
