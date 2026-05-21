@@ -166,6 +166,10 @@ The LangGraph endpoint stays at `/stream/` byte-for-byte. The new sandbox endpoi
 
 ## 4. The sandbox message endpoint — `POST /sandbox/` [I1]
 
+> **⚠ Auth confirmation pending.** Does `/api/projects/{tid}/tasks/.../stream/` accept PostHog session-cookie auth (default for DRF endpoints under `/api/projects/...`), or only PostHog Code's OAuth bearer? Awaiting cloud-agents team. **If YES** → this section ships as written. **If NO** → `POST /sandbox/`'s response includes a short-lived bearer in `auth.bearer` for the browser to use; `sandboxStreamLogic.openSseForRun` sets `Authorization: Bearer <…>` instead of relying on cookies. Half a day of extra work either way, no design change.
+
+> For the cloud-agent REST + SSE wire format consumed by `posthog_api.py` and `sandboxStreamLogic.ts`, see [`cloud_implementation.md`](./cloud_implementation.md) — the reverse-engineered upstream spec.
+
 **Non-streaming.** Reads the request body, wraps + dedupes, creates the Run or sends a follow-up command, returns the IDs the frontend needs to open SSE.
 
 ```http
@@ -699,7 +703,21 @@ Race when two tabs send a follow-up to the same conversation simultaneously whil
 
 ## 10. Telemetry continuity [I2]
 
-Existing analytics events (`PROMPT_SENT`, `TASK_RUN_CANCELLED`, `PERMISSION_RESPONDED`, etc.) fire from the same code paths as today. The sandbox path adds an `execution_type: 'sandbox'` property to each event — a new property on existing events, not a new event type. All dashboards that filter on event name keep working.
+Existing analytics events fire from the same code paths as today. The sandbox path adds an `execution_type: 'sandbox'` property to each event — a new property on existing events, not a new event type. All dashboards that filter on event name keep working.
+
+**Sandbox-path event inventory** (PR I2.8 must emit all of these with parity to today's LangGraph emission):
+
+| Event name | Fires when | Fields | Emitted from |
+|---|---|---|---|
+| `PROMPT_SENT` | User submits a message (first or follow-up) | `conversation_id`, `trace_id`, `execution_type: 'sandbox'`, `agent_runtime: 'sandbox'`, `has_attached_context`, `attached_context_count` | `message_view.py` after successful Run-create / `POST /command/` |
+| `TASK_RUN_STARTED` | Cloud-agent emits `_posthog/run_started` (new — replaces nothing on LangGraph side) | `conversation_id`, `trace_id`, `run_id`, `task_id`, `execution_type: 'sandbox'`, `cold_start: bool` (true unless pre-warmed) | `sandboxStreamLogic` on first `_posthog/run_started` frame |
+| `TASK_RUN_CANCELLED` | User clicks cancel | `conversation_id`, `trace_id`, `run_id`, `execution_type: 'sandbox'`, `cancel_source: 'user' \| 'sandbox_idle'` | `POST /cancel/` handler |
+| `TASK_RUN_TERMINATED` | Cloud-agent emits `task_run_state` with terminal status | `conversation_id`, `trace_id`, `run_id`, `status` (∈ completed/failed/cancelled), `error_message?`, `execution_type: 'sandbox'`, `duration_ms` (from `_posthog/run_started`) | `sandboxStreamLogic.handleTerminalStatus` |
+| `PERMISSION_REQUESTED` | Cloud-agent surfaces `permission_request` | `conversation_id`, `trace_id`, `request_id`, `tool_call_name`, `execution_type: 'sandbox'` | `sandboxStreamLogic.ingestPermissionRequest` |
+| `PERMISSION_RESPONDED` | User clicks an option on `DangerousOperationApprovalCard` | `conversation_id`, `trace_id`, `request_id`, `option_id`, `execution_type: 'sandbox'` | `POST /permission/` handler |
+| `TOOL_CALL_COMPLETED` | Optional — captures per-tool timing and outcome | `conversation_id`, `trace_id`, `tool_call_id`, `tool_qualified_name`, `status`, `duration_ms`, `execution_type: 'sandbox'` | `sandboxStreamLogic` on `tool_call_update` with terminal status |
+
+LangGraph fires equivalents for the first six rows (without `execution_type` today); confirm parity by side-by-side comparison before flipping the default-on flag.
 
 `trace_id` is generated either client-side or server-side at message create. Since the SSE bypasses Django, **no server-side trace_id stamping is needed** — the frontend already knows the `trace_id` it associated with the current `POST /sandbox/` request and correlates incoming SSE frames with it locally. (Verified in Twig that the agent-server does not propagate inbound `_meta.trace_id` through to outbound notifications — `claude-agent.ts:1593-1605`, `agent-server.ts:602` — so the agent-server-side path would not have surfaced it anyway. Client-side correlation is the simpler answer.) The `{ runId → traceId }` map that Option A would have needed in Django disappears entirely.
 
@@ -709,50 +727,38 @@ Existing analytics events (`PROMPT_SENT`, `TASK_RUN_CANCELLED`, `PERMISSION_RESP
 
 Each PR ships behind `posthog-ai-sandbox` for internal users. Grouped by iteration per the table in the **Iteration plan** section.
 
-### Iteration 1 — vertical slice
+PRs are bundled by coherent slice — each ships a useful surface together rather than one file at a time. Atomic-per-file would mean ~25 PRs; bundling gets us to ~10 without bloating any single review.
 
-1. **Conversation model migration.** Add `agent_runtime` column with default `'langgraph'`. Add fresh `sandbox_task` FK against `tasks.Task` per § 2.2. Drop the legacy `sandbox_task_id` and `sandbox_run_id` UUID columns outright — both were tied to the unshipped Redis-relay flow, no backfill needed. Single migration, no `SeparateDatabaseAndState` rename.
-2. **`ee/hogai/sandbox/posthog_api.py`.** Typed HTTP client for `/api/projects/{tid}/tasks/*` endpoints (POST `/tasks/`, POST `/tasks/{id}/run/`, POST `/runs/{id}/command/`, GET `/runs/{id}/`, GET `/runs/{id}/session_logs/`) with sandbox JWT.
-3. **`ee/hogai/sandbox/context_wrapper.py`.** Per [`01_CONTEXT.md`](./01_CONTEXT.md) § 4.3.
-4. **`ee/hogai/sandbox/system_prompt.py`.** Per [`04_PROMPTS.md`](./04_PROMPTS.md) § 6.
-5. **`ee/hogai/sandbox/message_view.py` — `POST /sandbox/` handler.** First-message path only (fresh-conversation fast path). Wraps + creates Task + Run; returns `{task_id, run_id, trace_id, run_status, just_created_run: true}`. Confirm `/api/projects/{tid}/tasks/.../stream/` accepts session-cookie auth before testing E2E (cloud-agents team ping — see § 12).
-6. **View registration.** New `POST /api/environments/{tid}/conversations/{id}/sandbox/` route; LangGraph `/stream/` route unchanged.
-7. **Frontend `sandboxStreamLogic.ts` (skeleton).** Owns the `EventSource` against `/api/projects/{tid}/tasks/{taskId}/runs/{runId}/stream/`. Parses `data.type === 'notification'`. Dispatches `agent_message_chunk`, `agent_message`, placeholders for `tool_call` / `tool_call_update`. No reconnect/backoff/dedup at I1; fixture-driven unit tests.
-8. **`maxThreadLogic.tsx` send-message branch.** Sandbox runtime: POST `/sandbox/` → hand off to `sandboxStreamLogic.openSseForRun`. Existing LangGraph send-message path untouched.
-9. **Smoke MCP server.** A trivial heartbeat / echo MCP for end-to-end testing. Real tool surface follows in parallel via `03_RICH_UI.md` and `04_PROMPTS.md`.
+### Iteration 1 — vertical slice (~3 PRs)
 
-End-to-end happy path testable after PR 8 (first message of fresh conversation streams through cleanly).
+1. **Model migration.** Add `agent_runtime` column with default `'langgraph'`. Add fresh `sandbox_task` FK against `tasks.Task` per § 2.2. Drop the legacy `sandbox_task_id` and `sandbox_run_id` UUID columns outright — both were tied to the unshipped Redis-relay flow, no backfill needed. Single migration, no `SeparateDatabaseAndState` rename. Standalone; nothing reads the new column yet.
+2. **Backend sandbox foundations.** Six related files in `ee/hogai/sandbox/`, ship as one PR: `context_wrapper.py` (per [`01_CONTEXT.md`](./01_CONTEXT.md) § 4.3) · `system_prompt.py` (per [`04_PROMPTS.md`](./04_PROMPTS.md) § 6) · `posthog_api.py` (typed HTTP client: POST `/tasks/`, POST `/tasks/{id}/run/`, POST `/runs/{id}/command/`, GET `/runs/{id}/`, GET `/runs/{id}/session_logs/`; sandbox JWT) · `message_view.py` first-message branch only (fresh-conversation fast path; returns `{task_id, run_id, trace_id, run_status, just_created_run: true}`) · view registration for `POST /api/environments/{tid}/conversations/{id}/sandbox/` · `executor.py` confirmation (grep callers; if unused, no-op or strip — see § 12 #1). All six are coupled by shared types; reviewing them together is faster than sequentially.
+3. **Frontend sandbox foundations.** Six related surfaces in `frontend/src/scenes/max/`, ship as one PR: `posthogAiContextLogic.ts` (per [`01_CONTEXT.md`](./01_CONTEXT.md) § 3) · `sandboxStreamLogic.ts` skeleton (owns `EventSource` against `/api/projects/{tid}/tasks/{taskId}/runs/{runId}/stream/`, basic `data.type === 'notification'` dispatch, no reconnect/dedup yet) · `mcpToolRegistry.tsx` skeleton + `FallbackMcpToolRenderer.tsx` (per [`03_RICH_UI.md`](./03_RICH_UI.md) §§ 2–3) · `Context.tsx` runtime branch · `maxThreadLogic.sendMessage` runtime branch (POST `/sandbox/` → `sandboxStreamLogic.openSseForRun`) · `Thread.tsx` runtime branch to read `sandboxStreamLogic.values.threadItems`. Fixture-driven unit tests for `sandboxStreamLogic`.
 
-### Iteration 2 — sustained conversations
+**E2E happy path testable after PR 3** + the first slice of MCP-A (one real tool from `posthog-data`, e.g. `read_dashboard` or `read_taxonomy`). No throwaway smoke MCP — the first real tool from `posthog-data` doubles as the wire-format validator, and the fallback renderer covers the UI side until per-tool adapters land. Internal devs flip `posthog-ai-sandbox` + `posthog-ai-sandbox-server-data` and chat.
 
-10. **`POST /sandbox/` follow-up branches.** In-progress Run → `POST /runs/{id}/command/ user_message`; terminal Run → `POST /tasks/{id}/run/` with `resume_from_run_id`. Both branches return `{task_id, run_id, just_created_run}` for the frontend.
-11. **`ee/hogai/sandbox/log_assembler.py`.** Multi-Run chain walker: enumerate Runs on the Task, paginate each Run's `session_logs/`, concat chronologically.
-12. **`GET /conversations/{id}/log/` endpoint.** Calls `log_assembler.assemble(conversation)`; returns `{entries: StoredLogEntry[], has_more, current_run_status}` JSON.
-13. **Detail endpoint `messages` shape.** Empty array (or absent) for sandbox-runtime conversations; populated for LangGraph (unchanged).
-14. **`POST /conversations/{id}/cancel/` sandbox branch.** Dispatches `POST /command/ cancel`; returns new `run_status`.
-15. **`sandboxStreamLogic` reconnect / backoff / dedup.** 5 attempts / 2s base / 30s cap; refetch run via REST on disconnect; content-dedup against `/log/`-ingested entries. Ports `Twig/apps/code/src/main/services/cloud-task/service.ts:440-690`.
-16. **`sandboxStreamLogic` error class mapping.** 401/403/404/406/other → user-visible envelope per § 4.4.
-17. **`sandboxStreamLogic` terminal-status handling.** `data.type === 'task_run_state'` → drive Idle/Error transition on `maxThreadLogic`.
-18. **Frontend `maxLogic` history-load branching.** LangGraph reads `detail.messages`; sandbox calls `GET /log/` and feeds entries through `sandboxStreamLogic.ingestAcpFrame`, then opens SSE if non-terminal.
-19. **Telemetry parity.** `PROMPT_SENT`, `TASK_RUN_CANCELLED`, `PERMISSION_RESPONDED` events emitted from the sandbox branch with `execution_type: 'sandbox'` property.
+### Iteration 2 — sustained conversations (~4 PRs)
 
-End-to-end sustained-conversation experience testable after PR 18.
+5. **Multi-Run history.** `ee/hogai/sandbox/log_assembler.py` (enumerate Runs on the Task, paginate each Run's `session_logs/`, concat chronologically) + `GET /conversations/{id}/log/` endpoint (returns `{entries: StoredLogEntry[], has_more, current_run_status}`) + detail-endpoint `messages` shape (empty for sandbox, populated for LangGraph). Three coupled pieces; ship as one PR.
+6. **Backend follow-up routing.** `message_view.py` in-progress branch (`POST /command/ user_message`) + terminal-then-resume branch (new Run with `resume_from_run_id`) + `POST /conversations/{id}/cancel/` sandbox branch (`POST /command/ cancel`). Three coupled additions to the same handler.
+7. **Frontend SSE resilience.** `sandboxStreamLogic` reconnect/backoff/dedup (port `Twig/apps/code/src/main/services/cloud-task/service.ts:440-690` directly) + error class mapping (§ 4.4) + terminal-status handling (`data.type === 'task_run_state'` → Idle/Error transition). Three coupled additions to the same logic.
+8. **History-load + telemetry.** `maxLogic` history-load branching (LangGraph reads `detail.messages`; sandbox calls `GET /log/` then opens SSE if non-terminal) + telemetry parity (emit every event in § 10's inventory table with `execution_type: 'sandbox'`).
 
-### Iteration 3 — production-ready
+**Sustained-conversation experience testable after PR 8.**
 
-20. **`sandboxStreamLogic` `permission_request` ingest.** Wire `data.type === 'permission_request'` to `ingestPermissionRequest` + surface `pendingPermissionRequest` to the approval card.
-21. **`POST /conversations/{id}/permission/` sandbox branch.** Routes to `POST /command/ permission_response`; returns confirmation. Per § 5.5.
-22. **`DangerousOperationApprovalCard` variant prop.** Cross-spec into `03_RICH_UI.md` § 5.
-23. **Slash command runtime filter.** Per § 8 — `/init` and `/remember` show "not supported yet" for sandbox runtime; `/usage`, `/feedback`, `/ticket` unchanged.
-24. **Concurrent terminal-then-resume race handling.** Confirm cloud-agent's duplicate `POST /tasks/{id}/run/` behavior first (idempotent vs. allow-both vs. error). If non-idempotent, add `SELECT FOR UPDATE` on the `Conversation` row inside the `POST /sandbox/` follow-up branch to serialize the create.
-25. **Pre-warming integration.** `POST /conversations/{id}/prewarm/` + `DELETE` endpoints per `05_SANDBOX.md` § 8.
+### Iteration 3 — production-ready (~2 PRs)
 
-Ready for broader internal release after PR 25.
+9. **Approvals + race-handling.** `sandboxStreamLogic` `permission_request` ingest (`data.type === 'permission_request'` → `ingestPermissionRequest`) + `POST /conversations/{id}/permission/` sandbox endpoint (routes to `POST /command/ permission_response`, per § 5.5) + `DangerousOperationApprovalCard` variant prop (cross-spec into [`03_RICH_UI.md`](./03_RICH_UI.md) § 5) + concurrent terminal-then-resume race handling (after cloud-agents confirm dup-create behavior; `SELECT FOR UPDATE` on `Conversation` in `POST /sandbox/` follow-up branch if non-idempotent). Four coupled approval-flow pieces.
+10. **UX polish.** Slash command runtime filter (§ 8 — `/init` and `/remember` "not supported yet" for sandbox; `/usage`, `/feedback`, `/ticket` unchanged) + pre-warming endpoints (`POST /conversations/{id}/prewarm/` + `DELETE` per [`05_SANDBOX.md`](./05_SANDBOX.md) § 8) + frontend pre-warm hook in the message input.
 
-### Parallel work (don't block on this checklist)
+**Ready for broader internal release after PR 10.**
 
-- **`03_RICH_UI.md`** registry skeleton + per-tool adapters — ships per-tool behind `posthog-ai-sandbox-tool-{slug}` flags. Can start as soon as I1 PR 5 is merged.
-- **`04_PROMPTS.md`** MCP servers — `posthog-data`, `posthog-notebook`, etc. — independent stream.
+### Parallel streams (don't serialize behind this checklist)
+
+- **MCP servers** — ship **one PR per server** behind `posthog-ai-sandbox-server-{name}` flags. Each server ships all its tools at once, not one PR per tool: `posthog-data` (the big one) · `posthog-notebook` · `posthog-code`. Drives [`04_PROMPTS.md`](./04_PROMPTS.md) § 5. See [`MCP_TOOLS.md`](./MCP_TOOLS.md) for per-tool shapes.
+- **Renderer adapters** in [`03_RICH_UI.md`](./03_RICH_UI.md) — grouped into ~3 thematic PRs (data-tool adapters; notebook + tasks; approval card + special UI), not one-per-tool. Per-tool feature flags (`posthog-ai-sandbox-tool-{slug}`) still apply at runtime but the adapter code ships in bundles.
+
+Total: ~9 core PRs + ~3 MCP-server PRs + ~3 renderer-adapter PRs = **~15 PRs** to default-on, vs ~25 if every file were its own PR.
 
 ---
 
