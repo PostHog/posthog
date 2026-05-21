@@ -68,9 +68,9 @@ This does the host-side setup only:
 - installs the `coder` CLI at the version matching the server
 - logs you into the Coder deployment
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
-- prompts for Git identity, an optional dotfiles repo, and an optional Claude OAuth token (cached in macOS Keychain)
+- prompts for Git identity, an optional dotfiles repo, and an optional Claude OAuth token (stored as a Coder user secret)
 
-To reconfigure individual settings later, pass `--configure-git-identity`, `--configure-dotfiles`, or `--configure-claude`.
+To reconfigure individual settings later, pass `--configure-git-identity`, `--configure-dotfiles`, or `--configure-claude`. The `--configure-claude` flag manages the `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret and will offer to migrate any existing macOS Keychain token.
 
 ## Available commands
 
@@ -79,10 +79,23 @@ Run `hogli devbox` to see all available commands, and `hogli <command> --help` f
 Runtime commands assume setup is already complete.
 If they fail with `Run hogli devbox:setup`, rerun setup on your laptop first.
 
+## Managing Coder user secrets
+
+hogli provides commands to manage Coder user secrets (requires Coder 2.33+):
+
+```bash
+hogli devbox:secret:list                           # list all user secrets
+hogli devbox:secret:set NAME --description "..."   # create or replace a secret
+hogli devbox:secret:set NAME --file PATH           # set secret value from file
+hogli devbox:secret:rm NAME                        # delete a secret
+```
+
+Common secrets include `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, and `OP_SERVICE_ACCOUNT_TOKEN`.
+
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
 - Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
-- Claude auth is passed through the `claude_oauth_token` Coder parameter, not AI Bridge. On macOS, the token is cached in Keychain.
+- Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it. `devbox:task` warns when the secret is unset.
 
 `go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.

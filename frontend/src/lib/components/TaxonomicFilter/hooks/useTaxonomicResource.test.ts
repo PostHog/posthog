@@ -151,6 +151,37 @@ describe('useTaxonomicResource', () => {
         expect(seenSignals[0].aborted).toBe(true)
     })
 
+    it('does not poison the cache key when an in-flight request is aborted', async () => {
+        // First call rejects with an AbortError when its signal aborts;
+        // second call (after re-mount) resolves normally.
+        const fn = jest
+            .fn()
+            .mockImplementationOnce(
+                ({ signal }: { signal: AbortSignal }) =>
+                    new Promise<string>((_resolve, reject) => {
+                        signal.addEventListener('abort', () =>
+                            reject(new DOMException('The operation was aborted.', 'AbortError'))
+                        )
+                    })
+            )
+            .mockResolvedValueOnce('second')
+
+        // Mount, then unmount before the request settles → aborts it.
+        const { unmount } = renderHook(() => useTaxonomicResource(['poison'], fn))
+        unmount()
+        // Let the abort rejection settle.
+        await act(async () => {
+            await Promise.resolve()
+        })
+
+        // Re-mounting the same key must re-fetch — the aborted request must
+        // not have stored an error that halts auto-fetch forever.
+        const r2 = renderHook(() => useTaxonomicResource(['poison'], fn))
+        await waitFor(() => expect(r2.result.current.data).toBe('second'))
+        expect(r2.result.current.error).toBeUndefined()
+        expect(fn).toHaveBeenCalledTimes(2)
+    })
+
     it('passes a fresh AbortSignal that is not aborted while a subscriber is mounted', async () => {
         const seen: AbortSignal[] = []
         const fn = jest.fn().mockImplementation(({ signal }: { signal: AbortSignal }) => {

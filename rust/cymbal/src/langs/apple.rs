@@ -709,7 +709,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_dsym_bytes()))));
 
         let client = Arc::new(client);
 
@@ -870,7 +870,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_inline_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_inline_dsym_bytes()))));
         let client = Arc::new(client);
 
         let catalog = Catalog::new(

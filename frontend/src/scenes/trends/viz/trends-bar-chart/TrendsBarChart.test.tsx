@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { setupJsdom } from 'lib/hog-charts/testing'
+import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
@@ -11,13 +11,16 @@ import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope, ChartDisplayType } from '~/types'
 
 let cleanupJsdom: () => void
+let cleanupRaf: () => void
 
 beforeEach(() => {
     cleanupJsdom = setupJsdom()
+    cleanupRaf = setupSyncRaf()
 })
 
 afterEach(() => {
     personsModal.cleanupAll()
+    cleanupRaf()
     cleanupJsdom()
     cleanup()
 })
@@ -52,6 +55,13 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
         const tooltip = await chart.hoverTooltip(2)
         expect(tooltip.row('Pageview')).toContain('134')
+    })
+
+    it('shows a date header in the tooltip', async () => {
+        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(2)
+        expect(tooltip.title()).toMatch(/Jun/)
     })
 
     it('opens the persons modal on click for a single series', async () => {
@@ -140,6 +150,13 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
     })
 
+    it('omits the header from the tooltip', async () => {
+        renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(0)
+        expect(tooltip.title()).toBe('')
+    })
+
     it('opens the persons modal on click without resolving a day', async () => {
         renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
 
@@ -150,6 +167,19 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
         // Aggregated mode has no DateDisplay in the title.
         expect(personsModal.title()).not.toMatch(/Wednesday/)
+    })
+
+    it('opens the persons modal on click in compare mode instead of pinning the tooltip', async () => {
+        renderInsight({
+            query: aggregatedBar({ compareFilter: { compare: true } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(() => {
+            expect(personsModal.get()).toBeInTheDocument()
+        })
     })
 
     it('fires context.onDataPointClick without a day argument', async () => {

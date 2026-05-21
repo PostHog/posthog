@@ -485,8 +485,9 @@ def send_email_reply(
         txt_body = content
         html_body = f"<p>{html_mod.escape(content)}</p>"
 
-    subject = ticket.email_subject or "Re: Your support request"
-    if not subject.lower().startswith("re:"):
+    subject = ticket.email_subject or "Your support request"
+    is_reply = latest_mapping is not None
+    if is_reply and not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
 
     from_email = formataddr((config.from_name or author_name, config.from_email))

@@ -100,6 +100,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:

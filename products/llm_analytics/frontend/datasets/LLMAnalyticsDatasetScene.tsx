@@ -9,16 +9,25 @@ import { LemonButton, LemonDivider, LemonTab, LemonTabs, Link, ProfilePicture } 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { NotFound } from 'lib/components/NotFound'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { createdAtColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -72,6 +81,8 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
         onUnmount,
     } = useActions(llmAnalyticsDatasetLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     const displayEditForm = isNewDataset || isEditingDataset
 
@@ -177,6 +188,47 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                     }
                 />
 
+                {isDataset(dataset) && sceneMenuBarEnabled && (
+                    <SceneMenuBar>
+                        <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
+                            <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                            <SceneMenuBarSeparator />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                {({ disabledReason }) => (
+                                    <SceneMenuBarItem
+                                        variant="destructive"
+                                        opensFloatingUi
+                                        disabled={!!disabledReason || datasetLoading || isDeletingDataset}
+                                        onClick={() => {
+                                            LemonDialog.open({
+                                                title: 'Permanently delete dataset?',
+                                                description: 'This action cannot be undone.',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    type: 'primary',
+                                                    status: 'danger',
+                                                    'data-attr': 'confirm-delete-dataset',
+                                                    onClick: deleteDataset,
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Close',
+                                                    type: 'secondary',
+                                                },
+                                            })
+                                        }}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                                    >
+                                        <IconTrash />
+                                        Delete
+                                    </SceneMenuBarItem>
+                                )}
+                            </AccessControlAction>
+                        </SceneMenuBarMenu>
+                    </SceneMenuBar>
+                )}
                 {isDataset(dataset) && (
                     <ScenePanel>
                         <ScenePanelInfoSection>

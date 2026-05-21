@@ -4,7 +4,7 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -31,6 +31,7 @@ import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
+import { AdLevelInfoBanner } from './AdLevelInfoBanner'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
@@ -46,7 +47,7 @@ export const MarketingAnalyticsTable = ({
 }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
-    const { drillDownLevel } = useValues(marketingAnalyticsLogic)
+    const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
@@ -202,11 +203,10 @@ export const MarketingAnalyticsTable = ({
             {(drillDownLevel === MarketingAnalyticsDrillDownLevel.AdGroup ||
                 drillDownLevel === MarketingAnalyticsDrillDownLevel.Ad) && (
                 <div className="pt-2 px-2">
-                    <LemonBanner type="info" dismissKey="marketing-analytics-ad-level-info">
-                        Ad group and ad metrics come directly from your ad platform. Conversion goals aren't shown at
-                        this level because events can't be attributed to a specific ad. Make sure the ad group and ad
-                        tables are enabled in your source sync settings to see data here.
-                    </LemonBanner>
+                    <AdLevelInfoBanner
+                        drillDownLevel={drillDownLevel}
+                        sourcesHierarchyStatus={nativeSourcesHierarchyStatus}
+                    />
                 </div>
             )}
             <div className="relative marketing-analytics-table-container">

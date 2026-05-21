@@ -144,6 +144,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `flags` - flags
  * `llm_analytics` - llm_analytics
  * `sandbox` - sandbox
+ * `user_interview` - user_interview
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -159,6 +160,7 @@ export const AgentModeEnumApi = {
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',
     Sandbox: 'sandbox',
+    UserInterview: 'user_interview',
 } as const
 
 /**
@@ -609,6 +611,37 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface ComposeTicketApi {
+    /** Recipient email address. */
+    recipient_email: string
+    /**
+     * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
+     * @maxLength 400
+     */
+    recipient_distinct_id?: string
+    /**
+     * Email subject line.
+     * @maxLength 500
+     */
+    email_subject?: string
+    /** ID of the EmailChannel to send from. */
+    email_config_id: string
+    /**
+     * Message content in markdown.
+     * @maxLength 5000
+     */
+    message: string
+    /** TipTap rich content JSON for formatted messages. */
+    rich_content?: unknown
+}
+
+export interface ComposeTicketResponseApi {
+    /** Created ticket UUID. */
+    id: string
+    /** Human-readable ticket number. */
+    ticket_number: number
 }
 
 export type ConversationsListParams = {

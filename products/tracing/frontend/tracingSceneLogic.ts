@@ -66,7 +66,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     actions({
         openTraceModal: (traceId: string) => ({ traceId }),
         closeTraceModal: true,
-        openCompareFlame: (spanName: string) => ({ spanName }),
+        openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
         closeCompareFlame: true,
         syncUrlAndRunQuery: true,
     }),
@@ -83,6 +83,13 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             null as string | null,
             {
                 openCompareFlame: (_, { spanName }) => spanName,
+                closeCompareFlame: () => null,
+            },
+        ],
+        compareFlameServiceName: [
+            null as string | null,
+            {
+                openCompareFlame: (_, { serviceName }) => serviceName,
                 closeCompareFlame: () => null,
             },
         ],
@@ -126,8 +133,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 actions.loadTraceSpans(traceId)
             }
         },
-        openCompareFlame: ({ spanName }) => {
-            actions.fetchSpanTree({ spanName })
+        openCompareFlame: ({ spanName, serviceName }) => {
+            actions.fetchSpanTree({ spanName, serviceName })
         },
         setDateRange: () => {
             actions.syncUrlAndRunQuery()
@@ -149,8 +156,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // stays fixed while the user moves windows around within it. If the compare-flame
             // modal is open we also refetch its tree so it doesn't display stale windows.
             actions.fetchAggregation()
-            if (values.compareFlameSpanName) {
-                actions.fetchSpanTree({ spanName: values.compareFlameSpanName })
+            if (values.compareFlameSpanName && values.compareFlameServiceName) {
+                actions.fetchSpanTree({
+                    spanName: values.compareFlameSpanName,
+                    serviceName: values.compareFlameServiceName,
+                })
             }
         },
         setFilters: () => {

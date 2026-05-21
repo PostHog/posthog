@@ -59,7 +59,6 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.alert import AlertConfiguration
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -72,6 +71,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
@@ -79,6 +79,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
+from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -1037,7 +1038,10 @@ class DashboardsViewSet(
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
-    TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
+    TEMPLATE_MAP = {
+        "llm-analytics": get_llm_analytics_default_template,
+        "mcp-analytics": get_mcp_analytics_default_template,
+    }
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:

@@ -1180,7 +1180,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             tileId: TileId.WEB_VITALS,
                             layout: {
                                 colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                orderWhenLargeClassName: '2xl:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsQuery,
@@ -1210,7 +1210,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
                             layout: {
                                 colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: 'xxl:order-0',
+                                orderWhenLargeClassName: '2xl:order-0',
                             },
                             query: {
                                 kind: NodeKind.WebVitalsPathBreakdownQuery,
@@ -1244,7 +1244,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.OVERVIEW,
                         layout: {
                             colSpanClassName: 'md:col-span-full',
-                            orderWhenLargeClassName: 'xxl:order-0',
+                            orderWhenLargeClassName: '2xl:order-0',
                             className: '-mt-2',
                         },
                         query: {
@@ -1266,7 +1266,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.GRAPHS,
                         layout: {
                             colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-1',
+                            orderWhenLargeClassName: '2xl:order-1',
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -1340,7 +1340,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.PATHS,
                         layout: {
                             colSpanClassName: `md:col-span-2`,
-                            orderWhenLargeClassName: 'xxl:order-4',
+                            orderWhenLargeClassName: '2xl:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -1512,7 +1512,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.SOURCES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-2',
+                            orderWhenLargeClassName: '2xl:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -1734,7 +1734,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         tileId: TileId.DEVICES,
                         layout: {
                             colSpanClassName: `md:col-span-1`,
-                            orderWhenLargeClassName: 'xxl:order-3',
+                            orderWhenLargeClassName: '2xl:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,

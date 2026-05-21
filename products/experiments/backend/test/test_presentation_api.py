@@ -12,7 +12,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
-from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
@@ -20,6 +19,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -4351,9 +4351,10 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_ship_variant_endpoint(self):
+    def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
         experiment_id = data["id"]
+        original_groups = data["feature_flag"]["filters"].get("groups", [])
 
         ship_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
@@ -4366,7 +4367,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(ship_response.json()["conclusion"], "won")
         self.assertEqual(ship_response.json()["conclusion_comment"], "Test won")
 
-        # Verify flag filters were rewritten
+        # Variant distribution was flipped
         flag_filters = ship_response.json()["feature_flag"]["filters"]
         variants = flag_filters["multivariate"]["variants"]
         test_variant = next(v for v in variants if v["key"] == "test")
@@ -4374,9 +4375,29 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(test_variant["rollout_percentage"], 100)
         self.assertEqual(control_variant["rollout_percentage"], 0)
 
-        # Verify catch-all group prepended
+        # Default behavior: existing groups preserved, no catch-all prepended
+        self.assertEqual(flag_filters["groups"], original_groups)
+
+    def test_ship_variant_endpoint_release_to_everyone_prepends_catch_all(self):
+        data = self._create_running_experiment(name="Ship Everyone", flag_key="ship-everyone-flag")
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "release_to_everyone": True, "conclusion": "won"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_200_OK)
+
+        flag_filters = ship_response.json()["feature_flag"]["filters"]
+        variants = flag_filters["multivariate"]["variants"]
+        test_variant = next(v for v in variants if v["key"] == "test")
+        self.assertEqual(test_variant["rollout_percentage"], 100)
+
+        # release_to_everyone: catch-all prepended
         self.assertEqual(flag_filters["groups"][0]["rollout_percentage"], 100)
         self.assertEqual(flag_filters["groups"][0]["properties"], [])
+        self.assertIn("Added automatically", flag_filters["groups"][0].get("description", ""))
 
     def test_ship_variant_on_stopped_experiment(self):
         data = self._create_running_experiment(name="Ship Stopped Endpoint", flag_key="ship-stopped-endpoint-flag")

@@ -12,8 +12,6 @@ from posthog.schema import NativeMarketingSource, SourceMap
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
-from posthog.temporal.data_imports.sources.meta_ads.schemas import MetaAdsResource
-
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
@@ -24,6 +22,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads im
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 from ..constants import (
+    NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES,
     TABLE_PATTERNS,
     VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
@@ -34,6 +33,7 @@ from .base import (
     BingAdsConfig,
     ExternalConfig,
     GoogleAdsConfig,
+    HierarchicalNativeAdsConfig,
     LinkedinAdsConfig,
     MarketingSourceAdapter,
     MetaAdsConfig,
@@ -88,16 +88,17 @@ class MarketingSourceFactory:
         "azure": AzureAdapter,
     }
 
-    # Config builders for native sources
-    _config_builders = {
-        "GoogleAds": "_create_googleads_config",
-        "LinkedinAds": "_create_linkedinads_config",
-        "RedditAds": "_create_redditads_config",
-        "MetaAds": "_create_metaads_config",
-        "TikTokAds": "_create_tiktokads_config",
-        "BingAds": "_create_bingads_config",
-        "SnapchatAds": "_create_snapchatads_config",
-        "PinterestAds": "_create_pinterestads_config",
+    # A new native source needs an entry here, in TABLE_PATTERNS (constants.py), and
+    # optionally in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if it has ad-group / ad tables.
+    _native_source_specs: dict[str, tuple[NativeMarketingSource, type[HierarchicalNativeAdsConfig]]] = {
+        "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
+        "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
+        "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),
+        "MetaAds": (NativeMarketingSource.META_ADS, MetaAdsConfig),
+        "TikTokAds": (NativeMarketingSource.TIK_TOK_ADS, TikTokAdsConfig),
+        "BingAds": (NativeMarketingSource.BING_ADS, BingAdsConfig),
+        "SnapchatAds": (NativeMarketingSource.SNAPCHAT_ADS, SnapchatAdsConfig),
+        "PinterestAds": (NativeMarketingSource.PINTEREST_ADS, PinterestAdsConfig),
     }
 
     @classmethod
@@ -189,173 +190,85 @@ class MarketingSourceFactory:
             adapter_class = self._adapter_registry.get(source.source_type)
             if not adapter_class:
                 continue
-            config_method_name = self._config_builders.get(source.source_type)
-            if not config_method_name:
+            spec = self._native_source_specs.get(source.source_type)
+            if spec is None:
                 continue
-            config_method = getattr(self, config_method_name, None)
-            if not config_method:
-                continue
-            config = config_method(source, tables)
+            native_source, config_class = spec
+            config = self._create_native_config(source, tables, native_source, config_class)
             if config is None:
                 continue
             adapters.append(adapter_class(config=config, context=self.context))
 
         return adapters
 
-    def _create_googleads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[GoogleAdsConfig]:
-        """Create Google Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS[NativeMarketingSource.GOOGLE_ADS]
-        campaign_table = None
-        campaign_stats_table = None
+    def _create_native_config(
+        self,
+        source: ExternalDataSource,
+        tables: list[DataWarehouseTable],
+        native_source: NativeMarketingSource,
+        config_class: type[HierarchicalNativeAdsConfig],
+    ) -> Optional[HierarchicalNativeAdsConfig]:
+        """Build the config for a native source: detect campaign + stats tables (always
+        required), plus optional adset / ad entity + stats tables when the source has
+        a hierarchy entry in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES.
+
+        Returns None if the campaign + stats pair isn't present — without those there's
+        nothing to query.
+        """
+        patterns = TABLE_PATTERNS[native_source]
+        hierarchy_names = NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES.get(native_source, {})
+        campaign_table: Optional[DataWarehouseTable] = None
+        campaign_stats_table: Optional[DataWarehouseTable] = None
+        adset_table: Optional[DataWarehouseTable] = None
+        adset_stats_table: Optional[DataWarehouseTable] = None
+        ad_table: Optional[DataWarehouseTable] = None
+        ad_stats_table: Optional[DataWarehouseTable] = None
+
+        # Bing maps the same schema name to both `*_table` and `*_stats_table` (the
+        # report embeds entity columns) — wire one table into both slots so the
+        # adapter detects unified entity+stats mode.
+        adset_table_name = hierarchy_names.get("adset_table")
+        adset_unified = adset_table_name is not None and adset_table_name == hierarchy_names.get("adset_stats_table")
+        ad_table_name = hierarchy_names.get("ad_table")
+        ad_unified = ad_table_name is not None and ad_table_name == hierarchy_names.get("ad_stats_table")
 
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
-
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
             if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
                 ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
-            # Check for stats table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
+            # Exact schema-name match (not keyword) so ad-group / ad tables don't
+            # collide with the campaign keyword.
+            elif schema_name == hierarchy_names.get("adset_table"):
+                adset_table = table
+                if adset_unified:
+                    adset_stats_table = table
+            elif schema_name == hierarchy_names.get("adset_stats_table"):
+                adset_stats_table = table
+            elif schema_name == hierarchy_names.get("ad_table"):
+                ad_table = table
+                if ad_unified:
+                    ad_stats_table = table
+            elif schema_name == hierarchy_names.get("ad_stats_table"):
+                ad_stats_table = table
 
-        # Fallback: if campaign_overview_stats not found, try legacy campaign_stats
-        if not campaign_stats_table:
+        # Legacy Google Ads users may have `campaign_stats` synced instead of the
+        # newer registered `campaign_overview_stats` — same shape, accept either.
+        if not campaign_stats_table and native_source == NativeMarketingSource.GOOGLE_ADS:
             for table in tables:
-                table_suffix = table.name.split(".")[-1].lower()
-                if "campaign_stats" in table_suffix:
+                if "campaign_stats" in table.name.split(".")[-1].lower():
                     campaign_stats_table = table
                     break
 
         if not (campaign_table and campaign_stats_table):
             return None
 
-        config = GoogleAdsConfig(
-            source_type=source.source_type,
-            campaign_table=campaign_table,
-            stats_table=campaign_stats_table,
-            source_id=str(source.id),
-        )
-
-        return config
-
-    def _create_linkedinads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[LinkedinAdsConfig]:
-        """Create LinkedIn Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS[NativeMarketingSource.LINKEDIN_ADS]
-        campaign_table = None
-        campaign_stats_table = None
-
-        for table in tables:
-            table_suffix = table.name.split(".")[-1].lower()
-
-            schema_name = _extract_schema_name(table_suffix, source.source_type)
-
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_table = table
-            # Check for stats table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                campaign_stats_table = table
-
-        if not (campaign_table and campaign_stats_table):
-            return None
-
-        config = LinkedinAdsConfig(
-            source_type=source.source_type,
-            campaign_table=campaign_table,
-            stats_table=campaign_stats_table,
-            source_id=str(source.id),
-        )
-
-        return config
-
-    def _create_redditads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[RedditAdsConfig]:
-        """Create Reddit Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS[NativeMarketingSource.REDDIT_ADS]
-        campaign_table = None
-        campaign_stats_table = None
-
-        for table in tables:
-            table_suffix = table.name.split(".")[-1].lower()
-
-            schema_name = _extract_schema_name(table_suffix, source.source_type)
-
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_table = table
-            # Check for stats table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                campaign_stats_table = table
-
-        if not (campaign_table and campaign_stats_table):
-            return None
-
-        config = RedditAdsConfig(
-            source_type=source.source_type,
-            campaign_table=campaign_table,
-            stats_table=campaign_stats_table,
-            source_id=str(source.id),
-        )
-
-        return config
-
-    def _create_metaads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[MetaAdsConfig]:
-        """Create Meta Ads adapter config with campaign, adset, ad and their stats tables.
-
-        The ad-group (adset) and ad tables are optional — picked up when the user has
-        those schemas enabled for sync. When absent, AD_GROUP / AD drill-down levels
-        simply show no data for this source.
-        """
-        patterns = TABLE_PATTERNS[NativeMarketingSource.META_ADS]
-        campaign_table = None
-        campaign_stats_table = None
-        adset_table = None
-        adset_stats_table = None
-        ad_table = None
-        ad_stats_table = None
-
-        for table in tables:
-            table_suffix = table.name.split(".")[-1].lower()
-            schema_name = _extract_schema_name(table_suffix, source.source_type)
-
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_table = table
-            # Check for campaign stats table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                campaign_stats_table = table
-            # Ad-group / ad tables — match against MetaAdsResource enum values so the
-            # mapping survives schema renames (rather than hardcoded string literals).
-            elif schema_name == MetaAdsResource.Adsets.value:
-                adset_table = table
-            elif schema_name == MetaAdsResource.AdsetStats.value:
-                adset_stats_table = table
-            elif schema_name == MetaAdsResource.Ads.value:
-                ad_table = table
-            elif schema_name == MetaAdsResource.AdStats.value:
-                ad_stats_table = table
-
-        if not (campaign_table and campaign_stats_table):
-            return None
-
-        return MetaAdsConfig(
+        return config_class(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,
@@ -365,142 +278,6 @@ class MarketingSourceFactory:
             ad_stats_table=ad_stats_table,
             source_id=str(source.id),
         )
-
-    def _create_tiktokads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[TikTokAdsConfig]:
-        """Create TikTok Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS[NativeMarketingSource.TIK_TOK_ADS]
-        campaign_table = None
-        campaign_stats_table = None
-
-        for table in tables:
-            table_suffix = table.name.split(".")[-1].lower()
-
-            schema_name = _extract_schema_name(table_suffix, source.source_type)
-
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_table = table
-            # Check for stats table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                campaign_stats_table = table
-
-        if not (campaign_table and campaign_stats_table):
-            return None
-
-        config = TikTokAdsConfig(
-            source_type=source.source_type,
-            campaign_table=campaign_table,
-            stats_table=campaign_stats_table,
-            source_id=str(source.id),
-        )
-
-        return config
-
-    def _create_bingads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[BingAdsConfig]:
-        """Create Bing Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS[NativeMarketingSource.BING_ADS]
-        campaign_table = None
-        campaign_stats_table = None
-
-        for table in tables:
-            table_suffix = table.name.split(".")[-1].lower()
-
-            schema_name = _extract_schema_name(table_suffix, source.source_type)
-
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_table = table
-            # Check for stats table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                campaign_stats_table = table
-
-        if not (campaign_table and campaign_stats_table):
-            return None
-
-        config = BingAdsConfig(
-            source_type=source.source_type,
-            campaign_table=campaign_table,
-            stats_table=campaign_stats_table,
-            source_id=str(source.id),
-        )
-
-        return config
-
-    def _create_snapchatads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[SnapchatAdsConfig]:
-        """Create Snapchat Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS[NativeMarketingSource.SNAPCHAT_ADS]
-        campaign_table = None
-        campaign_stats_table = None
-
-        for table in tables:
-            table_suffix = table.name.split(".")[-1].lower()
-
-            schema_name = _extract_schema_name(table_suffix, source.source_type)
-
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_table = table
-            # Check for stats table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                campaign_stats_table = table
-
-        if not (campaign_table and campaign_stats_table):
-            return None
-
-        config = SnapchatAdsConfig(
-            source_type=source.source_type,
-            campaign_table=campaign_table,
-            stats_table=campaign_stats_table,
-            source_id=str(source.id),
-        )
-
-        return config
-
-    def _create_pinterestads_config(
-        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
-    ) -> Optional[PinterestAdsConfig]:
-        """Create Pinterest Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS[NativeMarketingSource.PINTEREST_ADS]
-        campaign_table = None
-        campaign_stats_table = None
-
-        for table in tables:
-            table_suffix = table.name.split(".")[-1].lower()
-
-            schema_name = _extract_schema_name(table_suffix, source.source_type)
-
-            # Check for campaign table (exclusions apply to schema name only, not user prefix)
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
-                campaign_table = table
-            # Check for stats table
-            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
-                campaign_stats_table = table
-
-        if not (campaign_table and campaign_stats_table):
-            return None
-
-        config = PinterestAdsConfig(
-            source_type=source.source_type,
-            campaign_table=campaign_table,
-            stats_table=campaign_stats_table,
-            source_id=str(source.id),
-        )
-
-        return config
 
     def _create_external_adapters(self) -> list[MarketingSourceAdapter]:
         """Create adapters for non-native marketing sources"""
