@@ -11,7 +11,7 @@ import { captureException } from '../../utils/posthog'
 import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
@@ -46,10 +46,6 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
         })
     }
 
-    private filterHogFunction(hogFunction: HogFunctionType): boolean {
-        return (hogFunction.filters?.source ?? 'events') === 'data-warehouse-table'
-    }
-
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
@@ -61,7 +57,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
         const invocationsToBeQueued = await this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
             hogTypes: this.hogTypes,
-            filterFn: this.filterHogFunction.bind(this),
+            filterFn: (fn) => (fn.filters?.source ?? 'events') === 'data-warehouse-table',
         })
 
         return {

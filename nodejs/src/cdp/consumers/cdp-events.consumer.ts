@@ -12,7 +12,7 @@ import { captureException } from '../../utils/posthog'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
@@ -73,7 +73,7 @@ export class CdpEventsConsumer<
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
-                filterFn: this.filterHogFunction.bind(this),
+                filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals),
         ])
@@ -97,11 +97,6 @@ export class CdpEventsConsumer<
             ]),
             invocations: invocationsToBeQueued,
         }
-    }
-
-    protected filterHogFunction(hogFunction: HogFunctionType): boolean {
-        // By default we filter for those with no filters or filters specifically for events
-        return (hogFunction.filters?.source ?? 'events') === 'events'
     }
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')

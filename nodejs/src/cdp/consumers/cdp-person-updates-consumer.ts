@@ -11,13 +11,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
-import {
-    CyclotronJobInvocation,
-    CyclotronPerson,
-    HogFunctionInvocationGlobals,
-    HogFunctionType,
-    HogFunctionTypeType,
-} from '../types'
+import { CyclotronJobInvocation, CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
@@ -50,10 +44,6 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
         })
     }
 
-    private filterHogFunction(hogFunction: HogFunctionType): boolean {
-        return hogFunction.filters?.source === 'person-updates'
-    }
-
     public async processBatch(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
@@ -65,7 +55,7 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
 
         const invocationsToBeQueued = await this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
             hogTypes: this.hogTypes,
-            filterFn: this.filterHogFunction.bind(this),
+            filterFn: (fn) => fn.filters?.source === 'person-updates',
         })
 
         return {
@@ -99,7 +89,9 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
                         this.deps.teamManager.getTeam(data.team_id),
                     ])
 
-                    const filteredHogFunctions = teamHogFunctions.filter(this.filterHogFunction)
+                    const filteredHogFunctions = teamHogFunctions.filter(
+                        (fn) => fn.filters?.source === 'person-updates'
+                    )
 
                     if (!filteredHogFunctions.length || !team) {
                         return
