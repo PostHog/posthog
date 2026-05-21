@@ -1,6 +1,6 @@
 # 04 — Prompts migration
 
-This spec covers the **Prompts** slice of the migration described in [`00_OVERVIEW.md`](./00_OVERVIEW.md). Read that document first — it establishes the Task/Run/SSE target architecture, the `origin_product = "posthog_ai"` discriminator, the "no repository / no PR" posture, and the phasing order. This spec assumes you've also skimmed [`01_CONTEXT.md`](./01_CONTEXT.md), which locks the contract that **dynamic per-turn context is prepended to `pending_user_message`, not the system prompt** — this document owns everything *else* in the prompt.
+This spec covers the **Prompts** slice of the migration described in [`00_OVERVIEW.md`](./00_OVERVIEW.md). Read that document first — it establishes the adapter-mediated architecture (`Conversation.agent_runtime === 'sandbox'` routes through the Django adapter at `ee/hogai/sandbox/` to a cloud-agent Task/Run), the "no repository / no PR" posture, and the phasing order. This spec assumes you've also skimmed [`01_CONTEXT.md`](./01_CONTEXT.md), which locks the contract that **dynamic per-turn context is prepended to the user message as a `<posthog_context>` block (by the adapter), not the system prompt** — this document owns everything *else* in the prompt.
 
 Scope of this document: how every prompt segment in `posthog/ee/hogai/chat_agent/prompts/` (and the mode-specific siblings) maps onto the sandbox's `systemPrompt` slot, where the dynamic `{{{var}}}` variables get resolved server-side at Run-create, what happens to "modes" when the agent runtime no longer has a graph-level mode concept, which MCP servers replace the LangGraph `toolkit.py`, and how `APPENDED_INSTRUCTIONS` collides with PostHog AI. Out of scope: the dynamic context payload (`01_CONTEXT.md`), tool-call rendering (`03_RICH_UI.md`), the Task/Run wire (`02_CORE.md`).
 
@@ -173,11 +173,12 @@ For PostHog AI we want the **No Repository Mode, `createPr === false`** branch �
 
 ### 2.3 No-repository / no-git posture
 
-PostHog AI Tasks are created with:
+When the adapter creates a Task for a sandbox-runtime conversation, it sets:
 
 ```
 {
-  origin_product: "posthog_ai",
+  // Conversation row carries agent_runtime === 'sandbox' + task_run_id FK back to the Run created below.
+  // Task itself:
   repository: null,           // null repo
   github_integration: null,   // null GH integration
   config: {
@@ -258,7 +259,7 @@ The "target" column names the slot in the new prompt (see § 6.2 for ordering) o
 | `PRODUCT_ADVOCACY_PROMPT` | Keep | New prompt § 8 (Product advocacy). | Verbatim. Keep the explicit competitor list. |
 | `TOOL_USAGE_POLICY_PROMPT` | Edit | New prompt § 9 (Tool usage policy). | Drop the `web_search` standalone clause — in the sandbox model, `web_search` is just another tool (Claude SDK exposes it as `WebSearch`); the "standalone" treatment was an artifact of the LangGraph executor. Keep the docs-pre-check line. |
 | `AGENT_PROMPT` (the wrapper) | Drop | — | Replaced by `build_posthog_ai_system_prompt` (§ 6). The Mustache wrapper is now a Python f-string concatenation in the build function. |
-| `AGENT_CORE_MEMORY_PROMPT` | Edit | New prompt § 12 (Core memory). | The "second system message" pattern collapses — sandbox takes one `systemPrompt` string. Embed core memory as a labeled `<core_memory>{{core_memory}}</core_memory>` block inside the unified prompt. Resolved server-side (§ 6.3). |
+| `AGENT_CORE_MEMORY_PROMPT` | **Drop** | — | Core memory is dropped entirely from the sandbox runtime (per `00_OVERVIEW.md` § 3). No core-memory block in the unified prompt; no `{{core_memory}}` resolution. See `TODO.md` for the backfill conversation. |
 | `CONTEXTUAL_TOOLS_REMINDER_PROMPT` | Drop | — | Replaced by `01_CONTEXT.md`'s active-context manifest + the MCP server tool surface. The model learns "what tools are available" by reading the tool list, not a system-reminder block; the model learns "what's pinned" from the per-turn `<attached_context>` block. |
 | `CHAT_PLAN_AGENT_PROMPT` (wrapper) | Drop | — | Plan mode reconciliation (§ 4) decides whether this content survives and in what form. With the recommended option C, only `CHAT_PLAN_MODE_PROMPT`, `CHAT_ONBOARDING_TASK_PROMPT`, `PLANNING_TASK_PROMPT` survive — and they're gated behind `permission_mode === "plan"`. |
 | `CHAT_PLAN_MODE_PROMPT` | Keep (gated) | New prompt § 10 (Plan-mode addendum), only emitted when `permission_mode === "plan"`. | Conditional segment. The "three tasks" enumeration (clarify → plan → switch to execution) still applies. |
@@ -392,7 +393,7 @@ Every tool in [`ee/hogai/chat_agent/toolkit.py`](../../posthog/ee/hogai/chat_age
 | `UpsertAlertTool` (alerts product) | `products/alerts/backend/max_tools.py` | `posthog-data` | `posthog_data_upsert_alert` | Write tool. |
 | `CreateNotebookTool` | [`tools/create_notebook/`](../../posthog/ee/hogai/tools/create_notebook/) | **`posthog-notebook`** | `posthog_notebook_create` | Write tool. |
 | `TodoWriteTool` | [`tools/todo_write.py`](../../posthog/ee/hogai/tools/todo_write.py) | Claude Code built-in **OR** **`posthog-tasks`** | `TodoWrite` (built-in) or `posthog_tasks_todo_write` | Decision in § 5.2 below. Claude Code already ships a `TodoWrite` tool; if its semantics match (they do — same status enum, same description shape), use it and skip building our own. Otherwise build `posthog-tasks`. |
-| `ManageMemoriesTool` | [`tools/manage_memories.py`](../../posthog/ee/hogai/tools/manage_memories.py) | **`posthog-memory`** | `posthog_memory_manage` | Persists into the team's `CoreMemory` model. Used by `/remember` slash command + agent-initiated saves. |
+| `ManageMemoriesTool` | [`tools/manage_memories.py`](../../posthog/ee/hogai/tools/manage_memories.py) | **DROP** | — | Core memory is dropped entirely for the sandbox runtime (per `00_OVERVIEW.md` § 3). `/remember` becomes a no-op for the new runtime — see `02_CORE.md` § 7 and `TODO.md` for the backfill question. |
 | `CallMCPServerTool` | [`tools/call_mcp_server/`](../../posthog/ee/hogai/tools/call_mcp_server/) | n/a — **user-installed MCPs pass through directly** | — | Today this tool was a meta-tool that proxied calls to the user's MCP installations. In the sandbox model, those installations are just MCP servers in `--mcpServers` — no proxy needed. |
 | `TaskTool` (PostHog Code integration) | [`tools/task.py`](../../posthog/ee/hogai/tools/task.py) | **`posthog-code`** | `posthog_code_create_task`, `posthog_code_get_task`, etc. | Routes PostHog AI → PostHog Code. The team-flag `task_tool` already gates today; carry forward. |
 | `CreateTaskTool`, `RunTaskTool`, `GetTaskRunTool`, `GetTaskRunLogsTool`, `ListTasksTool`, `ListTaskRunsTool`, `ListRepositoriesTool` | `products/tasks/backend/max_tools.py` | `posthog-code` (same server as `TaskTool`) | `posthog_code_*` | All seven — grouped under `posthog-code`. Behind the `has_phai_tasks` flag today. |
@@ -400,16 +401,14 @@ Every tool in [`ee/hogai/chat_agent/toolkit.py`](../../posthog/ee/hogai/chat_age
 | `FinalizePlanTool` | [`tools/finalize_plan/`](../../posthog/ee/hogai/tools/finalize_plan/) | Built-in: `ExitPlanMode` (Claude Code) | — | With option C (§ 4), Claude Code's built-in `ExitPlanMode` does the job. Drop our custom tool. The plan body it would have written goes via a notebook the agent creates (per `PLANNING_TASK_PROMPT`'s template). |
 | `SwitchModeTool` | [`tools/switch_mode.py`](../../posthog/ee/hogai/tools/switch_mode.py) | n/a (drop) | — | With option C (§ 4), drop entirely. The mode concept is gone; the permission-mode toggle is via `set_config_option`. |
 | Contextual tools (`useMaxTool`-registered) | various (e.g. `UpsertFlagFilterTool` lives next to the scene logic) | Frontend dispatched, see `03_RICH_UI.md` § 4 | — | Owned by `03_RICH_UI.md`. They're not backend MCP tools; they're browser-rendered actions the model calls. |
-| `posthog-context` (new) | new | **`posthog-context`** | `posthog_context_*` (see `01_CONTEXT.md` § 4) | New server introduced by `01_CONTEXT.md` for on-demand context details. |
+So we end up with **four new MCP servers** (down from six in the prior iteration):
 
-So we end up with **six new MCP servers**:
-
-1. `posthog-data` — taxonomy, search, list, read_data, execute_sql, create_insight, upsert_dashboard, upsert_alert (plus their per-mode siblings: error tracking, session replay, surveys, flags, llm analytics).
+1. `posthog-data` — taxonomy, search, list, read_data, execute_sql, create_insight, upsert_dashboard, upsert_alert (plus per-domain reads: error tracking, session replay, surveys, flags, llm analytics, and the new `read_dashboard` / `read_insight` / `read_event_definition` / `read_action` / `read_evaluation` entity reads referenced from `<posthog_context>` wrappers per `01_CONTEXT.md`).
 2. `posthog-notebook` — `posthog_notebook_create`, `posthog_notebook_update`, `posthog_notebook_get`, `posthog_notebook_list`.
-3. `posthog-memory` — `posthog_memory_manage` (and read-side `posthog_memory_get`).
-4. `posthog-context` — owned by `01_CONTEXT.md`.
-5. `posthog-tasks` — only if Claude Code's built-in `TodoWrite` doesn't fit; otherwise skip.
-6. `posthog-code` — gated by `has_phai_tasks` flag; surfaces the PostHog Code integration.
+3. `posthog-tasks` — only if Claude Code's built-in `TodoWrite` doesn't fit; otherwise skip.
+4. `posthog-code` — gated by `has_phai_tasks` flag; surfaces the PostHog Code integration.
+
+`posthog-memory` (was: dedicated memory MCP) and `posthog-context` (was: on-demand entity-detail MCP) are **gone** — core memory is dropped (per `00_OVERVIEW.md`) and entity-detail fetch happens via the existing `posthog-data` reads triggered by the `<posthog_context>` wrapper (per `01_CONTEXT.md`).
 
 Plus zero-to-many **user-installed MCP servers** — those go straight into `--mcpServers` without a proxy.
 
@@ -429,8 +428,6 @@ Three deployment choices for each MCP server:
 |---|---|---|
 | `posthog-data` | **Remote HTTP MCP at `https://{region}.posthog.com/mcp/posthog-data/`** | Wraps existing DRF viewsets — code already lives in Django. Centralized rate limiting matters here (these tools issue ClickHouse queries). The MCP framework under `services/mcp/` already serves this pattern. |
 | `posthog-notebook` | **Remote HTTP MCP** | Same reasoning. Notebook CRUD is in Django. |
-| `posthog-memory` | **Remote HTTP MCP** | Writes to `posthog_corememory` (PG). |
-| `posthog-context` | **Remote HTTP MCP** | Per `01_CONTEXT.md` § 4.2 — same reasoning. |
 | `posthog-tasks` | Skip (use Claude Code's built-in `TodoWrite`) — confirmed in § 5.1. | The built-in matches our semantics. |
 | `posthog-code` | **Remote HTTP MCP** at the PostHog Code service. | Routes through the existing PostHog Code backend. |
 | User-installed MCPs | Whatever URL the user supplied. | Pass through directly. |
@@ -476,7 +473,7 @@ POST /command/
   params: {
     mcpServers: [
       { type: "http", name: "github-issues", url: "https://...", headers: [...] },
-      // ...the existing posthog-data, posthog-notebook, posthog-memory, posthog-context entries...
+      // ...the existing posthog-data, posthog-notebook entries...
     ],
   },
 }
@@ -484,7 +481,7 @@ POST /command/
 
 The agent-server reinitializes the ACP session with the new MCP-server list, keeping conversation history. No new Run. No new `systemPrompt`. The model sees the new tools on the next turn.
 
-This is also how we surface contextual tools registered via `usePostHogAiTool` mid-conversation (`03_RICH_UI.md` § 4). When the user navigates into a scene that registers, say, a `posthog_session_replay_filter_recordings` contextual tool, the frontend issues a `refresh_session` with the augmented MCP list. The user can now ask "filter these recordings" and the model has the tool.
+Dynamic tool injection is gone (per `00_OVERVIEW.md` § 3 and `01_CONTEXT.md` § 2) — scenes can no longer register tools the agent invokes. `_posthog/refresh_session` is reserved for user actions that genuinely add or remove an MCP server at the project level (e.g., installing a new user MCP), not for scene navigation.
 
 **The systemPrompt does NOT change across `refresh_session`.** This is structural — the systemPrompt was baked at `newSession()` time. The model learns about the new tools purely from the tool list. This means: every per-team consideration that goes in the system prompt must be Run-stable. Anything that may change mid-Run must go through `set_config_option` + tool-list refresh, not the system prompt.
 
@@ -516,7 +513,7 @@ async def build_posthog_ai_system_prompt(
 
 Inputs:
 
-- **`team`** — for `core_memory` lookup, `groups_prompt` (group type names), `billing_context` (subscription state).
+- **`team`** — for `groups_prompt` (group type names), `billing_context` (subscription state).
 - **`user`** — for `billing_context` (admin role), feature-flag evaluation.
 - **`permission_mode`** — drives whether the plan-mode section is included. Run-create takes `state.initial_permission_mode` if specified, else the default (`"default"` for Claude, `"auto"` for Codex — `CLOUD_AGENTS_FRONTEND_SPEC.md` § 10.5).
 - **`context_summary`** — *optional* small static slice of context that's truly per-Run-immutable (e.g. project name, default timezone). Anything that may change scene-by-scene goes via `01_CONTEXT.md`'s per-turn channel, not here.
@@ -588,13 +585,11 @@ Default timezone: {project_timezone}.
 Region: {region}.                                # us / eu
 </project_context>
 
-<core_memory>
-{core_memory}                                   # the team's CoreMemory.formatted_text or empty
-</core_memory>
-New memories will automatically be added to the core memory as the conversation progresses. If users ask to save, update, or delete the core memory, say you have done it. If the '/remember [information]' command is used, the information gets appended verbatim to core memory.
 ```
 
-Total composed size with all sections present: ~9-11 KB. Without plan-mode and SQL-tool-description prose (which lives on the tool, not in the prompt): ~7-9 KB. This compares to today's ~13 KB system prompt; a meaningful reduction, mostly from dropping the modes / contextual-tools-reminder / execution-capabilities blocks.
+(No `<core_memory>` block — core memory is dropped for the sandbox runtime. See `TODO.md`.)
+
+Total composed size with all sections present: ~8-10 KB. Without plan-mode and SQL-tool-description prose (which lives on the tool, not in the prompt): ~6-8 KB. This compares to today's ~13 KB system prompt; a meaningful reduction, from dropping core memory + modes + contextual-tools-reminder + execution-capabilities blocks.
 
 ### 6.3 Pre-interpolation of dynamic variables
 
@@ -618,7 +613,7 @@ All Mustache `{{{var}}}` placeholders get resolved at Run-create time and concat
 | `{{{project_name}}}` | dynamic | `team.name` |
 | `{{{project_timezone}}}` | dynamic | `team.timezone` |
 | `{{{region}}}` | dynamic | from settings (`SITE_URL` derivation) |
-| `{{{core_memory}}}` | dynamic | `await context_manager._aget_core_memory_text()` — same as today's `AssistantContextMixin`. Empty string if `is_core_memory_disabled(team, user)`. |
+| ~~`{{{core_memory}}}`~~ | **dropped** | n/a — core memory is removed from the sandbox runtime. |
 
 The resolution pattern in the function body:
 
@@ -627,9 +622,8 @@ async def build_posthog_ai_system_prompt(team, user, *, permission_mode, context
     flags = feature_flag_snapshot or await _snapshot_flags(team, user)
     context_manager = AssistantContextManager(team=team, user=user)
 
-    billing_prompt, core_memory, group_names = await asyncio.gather(
+    billing_prompt, group_names = await asyncio.gather(
         _resolve_billing_context(team, user, context_manager),
-        context_manager._aget_core_memory_text(),
         context_manager.get_group_names(),
     )
 
@@ -662,7 +656,7 @@ async def build_posthog_ai_system_prompt(team, user, *, permission_mode, context
 
     parts.append(f"<billing_context>\n{billing_prompt}\n</billing_context>")
     parts.append(_build_project_context_block(team, context_summary))
-    parts.append(f"<core_memory>\n{core_memory}\n</core_memory>\n<core_memory_note>...</core_memory_note>")
+    # No <core_memory> block — dropped from the sandbox runtime.
 
     return "\n\n".join(p.strip() for p in parts if p.strip())
 ```
@@ -701,12 +695,13 @@ Snapshot the full composed string. Use `pytest-snapshot` or `syrupy`. Snapshots 
 
 ### 7.1 Feature flag
 
-Reuse the `posthog-ai-sandbox` flag from `00_OVERVIEW.md` § 8 — boolean, per-user, default `false`. When the user has the flag:
+Reuse the `posthog-ai-sandbox` flag from `00_OVERVIEW.md` § 9 — boolean, per-user, default `false`. When the user has the flag:
 
-1. Task creation routes through the new `Task` + `TaskRun` pipeline (`02_CORE.md` § 3).
-2. The Run-create code path calls `build_posthog_ai_system_prompt(...)` to build `systemPrompt`.
-3. `--mcpServers` includes the new `posthog-data`, `posthog-notebook`, `posthog-memory`, `posthog-context` URLs (+ `posthog-code` if `has_phai_tasks`).
-4. The frontend mounts `scenes/posthog-ai/` instead of `scenes/max/`.
+1. Conversation create stamps `agent_runtime = 'sandbox'` on the row (`02_CORE.md` § 2).
+2. `/conversations/stream/` branches into the sandbox adapter (`02_CORE.md` § 3) which creates Task + Run.
+3. The adapter calls `build_posthog_ai_system_prompt(...)` to build `systemPrompt` for the `POST /tasks/{id}/run/` body.
+4. `--mcpServers` includes `posthog-data`, `posthog-notebook` (+ optional `posthog-tasks`, `posthog-code` if their per-tool flags are on).
+5. **The frontend is unchanged** — `scenes/max/` renders both runtimes; the adapter difference is invisible above `/conversations/*`.
 
 When the user doesn't have the flag: today's LangGraph stack is unchanged.
 
