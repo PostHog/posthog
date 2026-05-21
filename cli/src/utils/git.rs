@@ -117,9 +117,10 @@ fn find_git_dirs(dir: Option<PathBuf>) -> Option<GitDirs> {
     loop {
         let git_path = current_dir.join(".git");
         if git_path.is_dir() {
+            let git_dir = normalize_existing_path(git_path);
             return Some(GitDirs {
-                git_dir: git_path.clone(),
-                common_dir: git_path,
+                common_dir: git_dir.clone(),
+                git_dir,
                 worktree_dir: current_dir,
             });
         }
@@ -145,11 +146,13 @@ fn parse_git_dir_file(git_path: &Path) -> Option<PathBuf> {
     let git_dir = content.trim().strip_prefix("gitdir:")?.trim();
     let git_dir = PathBuf::from(git_dir);
 
-    if git_dir.is_absolute() {
-        Some(git_dir)
+    let git_dir = if git_dir.is_absolute() {
+        git_dir
     } else {
-        Some(git_path.parent()?.join(git_dir))
-    }
+        git_path.parent()?.join(git_dir)
+    };
+
+    Some(normalize_existing_path(git_dir))
 }
 
 fn get_common_dir(git_dir: &Path) -> PathBuf {
@@ -159,11 +162,17 @@ fn get_common_dir(git_dir: &Path) -> PathBuf {
     };
 
     let commondir = PathBuf::from(commondir.trim());
-    if commondir.is_absolute() {
+    let common_dir = if commondir.is_absolute() {
         commondir
     } else {
         git_dir.join(commondir)
-    }
+    };
+
+    normalize_existing_path(common_dir)
+}
+
+fn normalize_existing_path(path: PathBuf) -> PathBuf {
+    fs::canonicalize(&path).unwrap_or(path)
 }
 
 fn config_paths(git_dir: &Path, common_dir: &Path) -> Vec<PathBuf> {
