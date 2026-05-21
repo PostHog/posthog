@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -322,6 +323,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
 
                 lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
+                if (alert.id === undefined) {
+                    tryShowMCPHint('alerts.create')
+                }
 
                 return updatedAlert
             },

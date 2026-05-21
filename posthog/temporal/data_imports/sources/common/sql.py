@@ -8,6 +8,23 @@ import collections.abc
 import pyarrow as pa
 
 
+def resolve_detected_primary_keys(
+    discovered_pk_columns: list[str] | None,
+    columns: collections.abc.Iterable[tuple[str, str, bool]],
+) -> list[str] | None:
+    """Pick the per-table primary key columns to advertise on a `SourceSchema`.
+
+    Returns the discovered list when present, otherwise falls back to `["id"]` if any column is
+    literally named `id` (the convention every SQL source we ingest from happens to follow), else
+    None. Used by Postgres / MySQL / MSSQL / Redshift discovery.
+    """
+    if discovered_pk_columns:
+        return discovered_pk_columns
+    if any(column[0] == "id" for column in columns):
+        return ["id"]
+    return None
+
+
 @typing.runtime_checkable
 class Column(typing.Protocol):
     """Protocol for `SQLSource` columns.

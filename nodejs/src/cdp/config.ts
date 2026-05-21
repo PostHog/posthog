@@ -202,7 +202,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         HOG_INVOCATION_RESULTS_TOPIC: KAFKA_HOG_INVOCATION_RESULTS,
-        HOG_INVOCATION_RESULTS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        // Cyclotron Warpstream cluster — ClickHouse consumes hog_invocation_results
+        // from the warpstream_cyclotron named collection, so the producer must
+        // target the same cluster.
+        HOG_INVOCATION_RESULTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         // Off by default — flip to true once the table is migrated and we want to start writing.
         // Per-team rollout still happens at the call site.
         HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
