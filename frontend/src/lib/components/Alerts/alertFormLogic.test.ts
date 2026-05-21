@@ -136,7 +136,6 @@ describe('alertFormLogic', () => {
             onEditSuccess,
             insightVizDataLogicProps: insightLogicProps,
             insightInterval: 'day',
-            historyChartEnabled: false,
         })
         logic.mount()
         logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
@@ -217,7 +216,6 @@ describe('alertFormLogic', () => {
             onEditSuccess,
             insightVizDataLogicProps: insightLogicProps,
             insightInterval: 'day',
-            historyChartEnabled: false,
         })
         logic.mount()
         logic.actions.setAlertFormValues({ ...makeFormDefaults({ id: existingAlert.id }), checks: undefined })

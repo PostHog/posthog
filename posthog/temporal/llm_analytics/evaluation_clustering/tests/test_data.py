@@ -46,7 +46,7 @@ class TestCoerceBool:
 
 
 class TestFetchEvaluationEmbeddings:
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_filters_by_doc_type_and_job_suffix(self, mock_team):
         with patch("posthog.temporal.llm_analytics.evaluation_clustering.data.execute_hogql_query") as mock_execute:
             mock_execute.return_value.results = [
@@ -69,7 +69,7 @@ class TestFetchEvaluationEmbeddings:
             assert placeholders["job_id_suffix"].value == "_job-abc"
             assert placeholders["max_samples"].value == 100
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_empty_results(self, mock_team):
         with patch("posthog.temporal.llm_analytics.evaluation_clustering.data.execute_hogql_query") as mock_execute:
             mock_execute.return_value.results = []
@@ -79,7 +79,7 @@ class TestFetchEvaluationEmbeddings:
 
 
 class TestFetchEvaluationMetadata:
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_empty_input_returns_empty(self, mock_team):
         from datetime import datetime
 
@@ -91,7 +91,7 @@ class TestFetchEvaluationMetadata:
         )
         assert result == {}
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_populates_all_fields_when_generation_present(self, mock_team):
         """Two-query metadata fetch: eval rows, then a second query for linked generations."""
         from datetime import datetime
@@ -141,7 +141,7 @@ class TestFetchEvaluationMetadata:
             assert meta.generation_model == "gpt-4o"
             assert meta.generation_is_error is False
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_degrades_when_linked_generation_missing(self, mock_team):
         """Missing generation (second query returns no rows) → None operational fields."""
         from datetime import datetime

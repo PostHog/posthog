@@ -570,10 +570,7 @@ export const AvailableSetupTaskIdsEnumApi = {
 } as const
 
 /**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
+ * Mixin for serializers to add user access control fields
  */
 export interface ProjectBackwardCompatApi {
     readonly id: number
@@ -1366,10 +1363,7 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
 }
 
 /**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
+ * Mixin for serializers to add user access control fields
  */
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
@@ -2909,6 +2903,23 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown: boolean | null
+    /** @nullable */
+    readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
 
   * `bayesian` - Bayesian
@@ -3099,6 +3110,8 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+    hide_mcp_hints?: boolean
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3197,6 +3210,8 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+    hide_mcp_hints?: boolean
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null

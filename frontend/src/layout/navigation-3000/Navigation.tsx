@@ -3,13 +3,14 @@ import './Navigation.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
+import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneConfig } from 'scenes/sceneTypes'
+import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -35,15 +36,8 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(maxGlobalLogic)
-    const userInterviewsEnabled = useFeatureFlag('USER_INTERVIEWS')
-    // Register `create_user_interview_topic` globally so Max can create user interview
-    // topics from any page (including the homepage), not only from the user-interviews
-    // scene. The scene wires its own richer `useMaxTool` for the "New topic" button.
-    useMaxTool({
-        identifier: 'create_user_interview_topic',
-        active: userInterviewsEnabled,
-        context: {},
-    })
+    useMountedLogic(mcpHintLogic)
+
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
@@ -51,13 +45,13 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId } = useValues(sceneLogic)
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
@@ -97,6 +91,18 @@ export function Navigation({
             setMainContentRect(mainRef.current.getBoundingClientRect())
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
+
+    // Register `create_user_interview_topic` globally so Max can create user interview
+    // topics from any page (including the homepage), not only from the user-interviews
+    // scene. The scene wires its own richer `useMaxTool` for the "New topic" button.
+    const userInterviewsEnabled = useFeatureFlag('USER_INTERVIEWS')
+    useMaxTool({
+        identifier: 'create_user_interview_topic',
+        active: userInterviewsEnabled,
+        context: {},
+    })
+
+    const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
 
     if (mode !== 'full') {
         return (
@@ -181,6 +187,11 @@ export function Navigation({
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                            // Settings scene's nav is viewport-fixed on desktop, so the
+                                            // banner needs to clear it (nav width + column gap) to align
+                                            // with the settings content column.
+                                            'md:ml-[calc(var(--settings-nav-width)+2rem)]':
+                                                activeSceneId === Scene.Settings,
                                         })}
                                     >
                                         <ProjectNotice

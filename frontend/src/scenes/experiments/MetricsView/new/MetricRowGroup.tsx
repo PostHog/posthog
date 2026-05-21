@@ -9,7 +9,7 @@ import { IconTrending } from '@posthog/icons'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 

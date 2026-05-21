@@ -11,8 +11,9 @@ from posthog.schema import (
     MaxUIContext,
 )
 
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

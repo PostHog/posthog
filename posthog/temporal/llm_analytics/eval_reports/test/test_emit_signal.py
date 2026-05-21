@@ -138,7 +138,7 @@ async def _setup_org_not_ai_approved(ateam):
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestEmitEvalReportSignalActivity:
     @pytest.mark.parametrize(
         "setup_fn",

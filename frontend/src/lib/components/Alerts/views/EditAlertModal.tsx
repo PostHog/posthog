@@ -52,6 +52,7 @@ import { SimulationSummary } from './SimulationSummary'
 
 function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {
     switch (interval) {
+        case AlertCalculationInterval.EVERY_15_MINUTES:
         case AlertCalculationInterval.HOURLY:
             return [
                 { label: 'Last 24h', value: '-24h' },
@@ -84,6 +85,8 @@ function getSimulationRangeOptions(interval: AlertCalculationInterval): { label:
 
 function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return '15 minutes'
         case AlertCalculationInterval.HOURLY:
             return 'hour'
         case AlertCalculationInterval.DAILY:
@@ -114,9 +117,9 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
-    const alertsHistoryChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
+    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
 
-    const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
+    const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
@@ -142,7 +145,6 @@ export function EditAlertModal({
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
-        historyChartEnabled: alertsHistoryChartEnabled,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -161,7 +163,6 @@ export function EditAlertModal({
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
-    const quietHoursEnabled = useFeatureFlag('ALERTS_QUIET_HOURS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
@@ -209,13 +210,14 @@ export function EditAlertModal({
             n += 1
         }
         if (
-            (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
+            (alertForm.calculation_interval === AlertCalculationInterval.EVERY_15_MINUTES ||
+                alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
                 alertForm.calculation_interval === AlertCalculationInterval.HOURLY) &&
             alertForm.skip_weekend
         ) {
             n += 1
         }
-        if (quietHoursEnabled && (alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
+        if ((alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
             n += 1
         }
         return n
@@ -225,7 +227,6 @@ export function EditAlertModal({
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
-        quietHoursEnabled,
     ])
 
     return (
@@ -620,6 +621,9 @@ export function EditAlertModal({
                                                 options={Object.values(AlertCalculationInterval).map((interval) => ({
                                                     label: alertCalculationIntervalToLabel(interval),
                                                     value: interval,
+                                                    hidden:
+                                                        interval === AlertCalculationInterval.EVERY_15_MINUTES &&
+                                                        !alerts15MinuteIntervalEnabled,
                                                 }))}
                                             />
                                         </LemonField>
@@ -769,7 +773,9 @@ export function EditAlertModal({
                                                         <LemonCheckbox
                                                             checked={
                                                                 (alertForm?.calculation_interval ===
-                                                                    AlertCalculationInterval.DAILY ||
+                                                                    AlertCalculationInterval.EVERY_15_MINUTES ||
+                                                                    alertForm?.calculation_interval ===
+                                                                        AlertCalculationInterval.DAILY ||
                                                                     alertForm?.calculation_interval ===
                                                                         AlertCalculationInterval.HOURLY) &&
                                                                 alertForm?.skip_weekend
@@ -779,23 +785,23 @@ export function EditAlertModal({
                                                             label="Skip checking on weekends"
                                                             disabledReason={
                                                                 alertForm?.calculation_interval !==
+                                                                    AlertCalculationInterval.EVERY_15_MINUTES &&
+                                                                alertForm?.calculation_interval !==
                                                                     AlertCalculationInterval.DAILY &&
                                                                 alertForm?.calculation_interval !==
                                                                     AlertCalculationInterval.HOURLY &&
-                                                                'Can only skip weekend checking for hourly/daily alerts'
+                                                                'Can only skip weekend checking for 15-minute, hourly, or daily alerts'
                                                             }
                                                         />
                                                     </LemonField>
-                                                    {quietHoursEnabled ? (
-                                                        <QuietHoursFields
-                                                            scheduleRestriction={alertForm.schedule_restriction}
-                                                            calculationInterval={alertForm.calculation_interval}
-                                                            teamTimezone={projectTimezone}
-                                                            onChange={(next) =>
-                                                                setAlertFormValue('schedule_restriction', next)
-                                                            }
-                                                        />
-                                                    ) : null}
+                                                    <QuietHoursFields
+                                                        scheduleRestriction={alertForm.schedule_restriction}
+                                                        calculationInterval={alertForm.calculation_interval}
+                                                        teamTimezone={projectTimezone}
+                                                        onChange={(next) =>
+                                                            setAlertFormValue('schedule_restriction', next)
+                                                        }
+                                                    />
                                                 </div>
                                             ),
                                         },
@@ -808,7 +814,7 @@ export function EditAlertModal({
                             alert ? (
                                 <AlertHistorySection alertId={alert.id} />
                             ) : alertLoading ? (
-                                <AlertHistorySectionSkeleton showChartArea={alertsHistoryChartEnabled} />
+                                <AlertHistorySectionSkeleton />
                             ) : null
                         ) : null}
                     </LemonModal.Content>
