@@ -421,6 +421,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -452,6 +453,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
                 {
                     uuid: 'test-uuid-2',
@@ -468,6 +470,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -504,6 +507,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -534,6 +538,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -569,6 +574,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: { note: 'only-attr@example.com' },
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -600,6 +606,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: { note: 'c@d.co' },
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -635,6 +642,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -666,6 +674,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
                 {
                     uuid: 'test-uuid-2',
@@ -682,6 +691,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -712,6 +722,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -763,6 +774,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 

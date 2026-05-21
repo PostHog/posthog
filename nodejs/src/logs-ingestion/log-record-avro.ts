@@ -132,12 +132,7 @@ export async function encodeLogRecords(logRecordType: avro.Type, codec: string, 
             })
 
             for (const record of records) {
-                // avsc rejects missing keys for `["null", T]` unions; backfill nullable optional
-                // fields so callers (including tests) can omit them safely. Decoded records
-                // already have these populated, so this is a no-op on the hot path.
-                const avroRecord =
-                    record.bytes_uncompressed === undefined ? { ...record, bytes_uncompressed: null } : record
-                encoder.write(avroRecord)
+                encoder.write(record)
             }
 
             encoder.end()
