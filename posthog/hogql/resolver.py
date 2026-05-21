@@ -1084,7 +1084,7 @@ class Resolver(CloningVisitor):
                 node_table_type = ast.TableType(table=database_table)
 
             if isinstance(database_table, HogQLDataWarehouseTable) and database_table.table_id is not None:
-                self._emit_warehouse_sync_warnings(database_table.table_id)
+                self._record_warehouse_sync_warnings(database_table.table_id)
 
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
@@ -2063,7 +2063,7 @@ class Resolver(CloningVisitor):
 
         return False
 
-    def _emit_warehouse_sync_warnings(self, table_id: str) -> None:
+    def _record_warehouse_sync_warnings(self, table_id: str) -> None:
         if self.database is None:
             return
         warnings = getattr(self.database, "_data_warehouse_sync_warnings", {}).get(table_id)

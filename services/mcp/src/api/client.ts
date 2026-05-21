@@ -69,6 +69,21 @@ export interface SearchResponse {
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
+export interface DataWarehouseSyncWarning {
+    table_name: string
+    schema_name: string
+    source_type: string
+    status: string
+    message: string
+}
+
+export interface QueryEndpointResponse {
+    results: unknown
+    columns?: unknown
+    formatted_results?: string
+    warnings?: DataWarehouseSyncWarning[]
+}
+
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
@@ -982,38 +997,10 @@ export class ApiClient {
                 }
             },
 
-            query: async ({
-                query,
-            }: {
-                query: Record<string, any>
-            }): Promise<
-                Result<{
-                    results: unknown
-                    columns?: unknown
-                    formatted_results?: string
-                    warnings?: Array<{
-                        table_name: string
-                        schema_name: string
-                        source_type: string
-                        status: string
-                        message: string
-                    }>
-                }>
-            > => {
+            query: async ({ query }: { query: Record<string, any> }): Promise<Result<QueryEndpointResponse>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{
-                    results: unknown
-                    columns?: unknown
-                    formatted_results?: string
-                    warnings?: Array<{
-                        table_name: string
-                        schema_name: string
-                        source_type: string
-                        status: string
-                        message: string
-                    }>
-                }>(url, {
+                return this.fetchJson<QueryEndpointResponse>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })

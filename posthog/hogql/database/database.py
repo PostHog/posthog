@@ -1,6 +1,7 @@
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -1168,6 +1169,7 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
+            sync_warnings_now = datetime.now(UTC)
             for table in tables:
                 if (
                     not database._is_direct_query()
@@ -1179,7 +1181,7 @@ class Database(BaseModel):
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
 
-                    sync_warnings = get_warehouse_sync_warnings(table)
+                    sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
                     if sync_warnings:
                         database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
                     primary_table = s3_table
@@ -1681,7 +1683,9 @@ def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehou
         return
 
     schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
-    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids):
+    # select_related("source"): warning rendering reads schema.source.source_type, so avoid a
+    # per-schema lazy fetch when any of these tables turns out to be unhealthy.
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids).select_related("source"):
         schemas_by_table_id[str(schema.table_id)].append(schema)
 
     for warehouse_table in warehouse_tables:

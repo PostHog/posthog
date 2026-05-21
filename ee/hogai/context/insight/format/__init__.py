@@ -59,8 +59,11 @@ def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
 
 
 def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
-    """Render data warehouse sync warnings as a leading block for LLM-facing output."""
-    warnings = response.get("warnings")
+    """Render data warehouse sync warnings as a leading block for LLM-facing output.
+
+    Returns empty string when the response has no warnings.
+    """
+    warnings = response.get("warnings") or []
     if not warnings:
         return ""
     lines = ["[Data warehouse sync warnings — results may not reflect current source data]"]
@@ -93,8 +96,6 @@ def format_query_results_for_llm(
     if isinstance(query, InsightVizNode | DataVisualizationNode | DataTableNode):
         query = query.source
 
-    warning_prefix = format_warehouse_sync_warnings(response)
-
     formatted: str | None = None
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
         if is_boxplot_query(query):
@@ -124,6 +125,7 @@ def format_query_results_for_llm(
 
     if formatted is None:
         return None
+    warning_prefix = format_warehouse_sync_warnings(response)
     return warning_prefix + formatted if warning_prefix else formatted
 
 

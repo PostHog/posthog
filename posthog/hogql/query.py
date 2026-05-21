@@ -389,6 +389,11 @@ class HogQLQueryExecutor:
                 connection_id=self.connection_id,
             )
 
+        # Reset between executions: the resolver appends per query, and dataclasses.replace below
+        # shares this dict by reference. Without reset, callers reusing a HogQLContext across
+        # executors would see warnings from prior runs.
+        self.context.data_warehouse_sync_warnings.clear()
+
         self.hogql_context = dataclasses.replace(
             self.context,
             team_id=self.team.pk,
