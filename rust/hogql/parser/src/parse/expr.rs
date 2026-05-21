@@ -3889,16 +3889,17 @@ impl<'a> Parser<'a> {
         ) {
             // The select-set-stmt arg must be complete here. If an infix
             // or postfix operator follows, the `{…}` placeholder or
-            // `(…)` was only the operand of a larger columnExpr
-            // (`f({x} = 1)`, `f((select 1) + 2)`, `f({x}[0])`) — fail so
-            // try_alt falls back to the columnExpr parse. `infix_bp`
-            // covers the symbolic / AND / OR infixes; the keyword
-            // infixes (`IN`, `LIKE`, `ILIKE`, `IS`, `BETWEEN`, plus the
-            // `NOT <kw>` shapes) are dispatched directly out of the
-            // Pratt loop, so call them out here too.
+            // `(…)` was only the operand of a larger columnExpr (e.g.
+            // `f({x} = 1)`, `f((select 1) + 2)`, `f({x}[0])`, `f({x} as a)`),
+            // so fail and let try_alt fall back to the columnExpr parse.
+            // `infix_bp` covers the symbolic / AND / OR infixes; the
+            // keyword infixes (`IN`, `LIKE`, `ILIKE`, `IS`, `BETWEEN`,
+            // plus the `NOT <kw>` shapes) and the `AS alias` postfix
+            // are dispatched directly out of the Pratt loop, so call
+            // them out here too.
             let starts_kw_infix = matches!(
                 self.peek(),
-                TokenKind::Keyword(Kw::In | Kw::Like | Kw::Ilike | Kw::Is | Kw::Between)
+                TokenKind::Keyword(Kw::In | Kw::Like | Kw::Ilike | Kw::Is | Kw::Between | Kw::As)
             ) || (matches!(self.peek(), TokenKind::Keyword(Kw::Not))
                 && matches!(
                     self.peek_next(),
@@ -4193,18 +4194,31 @@ impl<'a> Parser<'a> {
             // bounded lookahead (peek past an optional NOT for DISTINCT)
             // so each shape uses its own BP for the `< min_bp` gate.
             TokenKind::Keyword(Kw::Is) => {
-                let is_distinct_form = match self.peek_next() {
-                    TokenKind::Keyword(Kw::Distinct) => true,
+                // cpp's grammar admits IS only in two shapes: `x IS [NOT] NULL`
+                // (ColumnExprIsNull) and `x IS [NOT] DISTINCT FROM y`. When
+                // neither follows (e.g. Hog program source like `this is a
+                // string`, where `is` is a bare identifier-statement),
+                // ANTLR's ALL(*) lookahead backs off and lets each token
+                // start its own ExprStatement. Mirror that: only commit
+                // when the next-two tokens form a known IS-tail, otherwise
+                // return None so the caller can stop the Pratt loop.
+                let (is_distinct_form, is_null_form) = match self.peek_next() {
+                    TokenKind::Keyword(Kw::Null) => (false, true),
+                    TokenKind::Keyword(Kw::Distinct) => (true, false),
                     TokenKind::Keyword(Kw::Not) => {
-                        // Look one further for `NOT DISTINCT`.
+                        // Look one further for `NOT NULL` / `NOT DISTINCT`.
                         let mut probe = Lexer::with_pos(self.src, self.peek1.end);
-                        matches!(
-                            probe.next_token().ok().map(|t| t.kind),
-                            Some(TokenKind::Keyword(Kw::Distinct))
-                        )
+                        match probe.next_token().ok().map(|t| t.kind) {
+                            Some(TokenKind::Keyword(Kw::Null)) => (false, true),
+                            Some(TokenKind::Keyword(Kw::Distinct)) => (true, false),
+                            _ => (false, false),
+                        }
                     }
-                    _ => false,
+                    _ => (false, false),
                 };
+                if !is_distinct_form && !is_null_form {
+                    return Ok(None);
+                }
                 let op_bp = if is_distinct_form {
                     BP_IS_DISTINCT_FROM
                 } else {

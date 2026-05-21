@@ -5174,6 +5174,39 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
         @no_memory_leak_check
+        def test_placeholder_as_alias_inside_call_args(self):
+            # `f({placeholder} AS alias, …)` — the placeholder is a columnExpr admitting a trailing `AS alias`, just like any other expression.
+            # Caught by the retention query builder emitting `has({start_event_timestamps} as _start_event_timestamps, {min_timestamp})`.
+            cases = (
+                "has({x} as a)",
+                "has({x} as a, y)",
+                "f({x} as a, {y} as b)",
+                "if(has({x} as _x, {y}), _x, [])",
+            )
+            for src in cases:
+                oracle = parse_expr(src, backend="cpp-json")
+                got = parse_expr(src, backend=backend)
+                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+
+        @no_memory_leak_check
+        def test_is_only_consumes_known_tails(self):
+            # `IS` is only `IS [NOT] NULL` / `IS [NOT] DISTINCT FROM y` per cpp's grammar; in Hog program mode anything else falls back to per-token ExprStatements (e.g. `this is a string` parses as four bare identifier statements).
+            # Caught by `test_metadata.py::test_string_template` parsing `"this is a {event} string"` as `HogLanguage.HOG`.
+            cases = (
+                "this is a string",
+                "this is a {event} string",
+                "this is a {NONO()} string",
+                "x is null",
+                "x is not null",
+                "x is distinct from y",
+                "x is not distinct from y",
+            )
+            for src in cases:
+                oracle = parse_program(src, backend="cpp-json")
+                got = parse_program(src, backend=backend)
+                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+
+        @no_memory_leak_check
         def test_window_frame_bound_low_precedence_value(self):
             # Window frame bound is a full `columnExpr` — admits comparison / AND / OR (BETWEEN still splits on its own AND).
             cases = (
