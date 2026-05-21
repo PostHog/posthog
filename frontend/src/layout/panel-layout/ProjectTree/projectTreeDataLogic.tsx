@@ -48,6 +48,9 @@ import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 export const PAGINATION_LIMIT = 100
+const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
+    'LLM analytics': ['MCP analytics'],
+}
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
@@ -1101,14 +1104,29 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const allProducts = getDefaultTreeProducts()
                     const productMap = new Map<string, FileSystemImport>(allProducts.map((p) => [p.path, p]))
                     const customProductMap = new Map(customProducts.map((item) => [item.product_path, item]))
+                    const selectedProductPaths = new Set<string>()
+                    const orderedSelectedProductPaths: string[] = []
 
-                    const selectedProducts = customProducts
-                        .map((item) => {
-                            const product = productMap.get(item.product_path)
+                    for (const item of customProducts) {
+                        for (const productPath of [
+                            item.product_path,
+                            ...(PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path] ?? []),
+                        ]) {
+                            if (selectedProductPaths.has(productPath)) {
+                                continue
+                            }
+                            selectedProductPaths.add(productPath)
+                            orderedSelectedProductPaths.push(productPath)
+                        }
+                    }
+
+                    const selectedProducts = orderedSelectedProductPaths
+                        .map((productPath) => {
+                            const product = productMap.get(productPath)
                             if (!product) {
                                 return null
                             }
-                            const customProduct = customProductMap.get(item.product_path)
+                            const customProduct = customProductMap.get(productPath)
                             return {
                                 ...product,
                                 reason: customProduct?.reason,

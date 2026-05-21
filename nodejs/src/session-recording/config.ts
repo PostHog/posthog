@@ -1,3 +1,4 @@
+import { getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
@@ -88,15 +89,11 @@ export type SessionRecordingConfig = {
 
 export function getDefaultSessionRecordingApiConfig(): SessionRecordingApiConfig {
     return {
+        ...getDefaultClickhouseConfig(),
         SESSION_RECORDING_API_REDIS_HOST: '127.0.0.1',
         SESSION_RECORDING_API_REDIS_PORT: 6379,
         SESSION_RECORDING_KMS_ENDPOINT: undefined,
         SESSION_RECORDING_DYNAMODB_ENDPOINT: undefined,
-        CLICKHOUSE_HOST: 'localhost',
-        CLICKHOUSE_DATABASE: 'default',
-        CLICKHOUSE_USER: 'default',
-        CLICKHOUSE_PASSWORD: undefined,
-        CLICKHOUSE_SECURE: false,
     }
 }
 

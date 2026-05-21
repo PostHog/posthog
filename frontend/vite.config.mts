@@ -44,7 +44,9 @@ export default defineConfig(({ mode }) => {
             },
         ],
         resolve: {
+            dedupe: ['@base-ui/react'],
             alias: {
+                '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
                 '~': fileURLToPath(new URL('./src', import.meta.url)),
                 '@': fileURLToPath(new URL('./src', import.meta.url)),
                 // Add direct mappings for PostHog's import structure from tsconfig.json

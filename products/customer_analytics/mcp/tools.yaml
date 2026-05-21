@@ -22,12 +22,15 @@ tools:
         description: >
             Create a new Customer Analytics account. An account is a logical container for assigning ownership across
             the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and
-            optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`).
+            optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external
+            system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`).
         param_overrides:
             properties:
                 description: >
                     Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each
-                    takes `{id, email}` of an existing user. All three are optional.
+                    takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`,
+                    `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All
+                    fields are optional.
         feature_flag: customer-analytics-csp
     accounts-destroy:
         operation: accounts_destroy
@@ -55,8 +58,9 @@ tools:
         title: List accounts
         description: >
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
-            account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), and
-            creation/update metadata. Use `accounts-retrieve` for a single account by id.
+            account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive,
+            account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
+            zendesk_id), and creation/update metadata. Use `accounts-retrieve` for a single account by id.
         feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
@@ -75,8 +79,9 @@ tools:
             properties:
                 description: >
                     Typed account properties. The server replaces the `properties` object as a whole, so include any
-                    existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`,
-                    each taking `{id, email}` of an existing user.
+                    existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`
+                    (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`,
+                    `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).
         feature_flag: customer-analytics-csp
     accounts-retrieve:
         operation: accounts_retrieve
@@ -90,7 +95,8 @@ tools:
         title: Get account
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
-            account_executive, account_owner assignments).
+            account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
+            zendesk_id external identifiers).
         feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
