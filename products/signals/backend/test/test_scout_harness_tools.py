@@ -13,13 +13,10 @@ import pytest_asyncio
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.tools import (
-    DEFAULT_SCRATCHPAD_TTL_DAYS,
     MAX_EVIDENCE_ENTRIES,
-    MAX_SCRATCHPAD_TTL_DAYS,
     EvidenceEntry,
-    HumanConfirmedScratchpadError,
     InvalidEmitError,
     InvalidScratchpadError,
     emit_finding,
@@ -33,21 +30,39 @@ from products.signals.backend.scout_harness.tools.emit import (
     SOURCE_PRODUCT,
     SOURCE_TYPE,
     _build_extra,
-    _mark_finding_emitted,
-    _record_finding_pre_emit,
     _validate_inputs,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_SEARCH_LIMIT
+from products.tasks.backend.models import Task, TaskRun
+
+
+def _make_task_run(team, *, status: str | None = None) -> TaskRun:
+    task = Task.objects.create(
+        team=team,
+        title="scout run",
+        description="scout run",
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+    )
+    task_run = TaskRun.objects.create(task=task, team=team)
+    if status is not None:
+        TaskRun.objects.filter(id=task_run.id).update(status=status)
+        task_run.refresh_from_db()
+    return task_run
 
 
 def _create_run(team, **overrides) -> SignalScoutRun:
+    """Build a SignalScoutRun bridge row with a backing TaskRun.
+
+    Default TaskRun status is COMPLETED so summary/detail surface a terminal
+    state — tests that need IN_PROGRESS pass `task_run_status` explicitly.
+    """
+    task_run_status = overrides.pop("task_run_status", TaskRun.Status.COMPLETED)
+    task_run = _make_task_run(team, status=task_run_status)
     defaults: dict = {
+        "task_run": task_run,
         "skill_name": "signals-scout-errors",
         "skill_version": 1,
-        "status": SignalScoutRun.Status.COMPLETED,
-        "summary": "found a checkout 500 spike on /api/checkout",
-        "findings": [{"id": "f1"}],
     }
     defaults.update(overrides)
     return SignalScoutRun.objects.create(team=team, **defaults)
@@ -55,81 +70,65 @@ def _create_run(team, **overrides) -> SignalScoutRun:
 
 class TestSearchRecentRuns(BaseTest):
     def test_returns_runs_for_team_in_reverse_chronological_order(self) -> None:
-        first = _create_run(self.team, summary="older finding")
-        second = _create_run(self.team, summary="newer finding")
-        # Force ordering by tweaking started_at because auto_now_add resolution can collide.
-        SignalScoutRun.objects.filter(id=first.id).update(started_at=timezone.now() - timedelta(hours=2))
-        SignalScoutRun.objects.filter(id=second.id).update(started_at=timezone.now() - timedelta(hours=1))
+        first = _create_run(self.team)
+        second = _create_run(self.team)
+        # Force ordering by tweaking the bridge `created_at` (auto_now_add can collide).
+        SignalScoutRun.objects.filter(id=first.id).update(created_at=timezone.now() - timedelta(hours=2))
+        SignalScoutRun.objects.filter(id=second.id).update(created_at=timezone.now() - timedelta(hours=1))
 
         results = search_recent_runs(team_id=self.team.id)
 
         assert [r.run_id for r in results] == [str(second.id), str(first.id)]
 
-    def test_filters_by_text_via_ilike(self) -> None:
-        _create_run(self.team, summary="checkout funnel got worse")
-        _create_run(self.team, summary="image-load p99 spiked")
-
-        hits = search_recent_runs(team_id=self.team.id, text="checkout")
-
-        assert len(hits) == 1
-        assert "checkout" in hits[0].summary
-
     def test_filters_by_since(self) -> None:
-        old = _create_run(self.team, summary="ancient")
-        recent = _create_run(self.team, summary="fresh")
-        SignalScoutRun.objects.filter(id=old.id).update(started_at=timezone.now() - timedelta(days=10))
-        SignalScoutRun.objects.filter(id=recent.id).update(started_at=timezone.now() - timedelta(hours=1))
+        old = _create_run(self.team)
+        recent = _create_run(self.team)
+        SignalScoutRun.objects.filter(id=old.id).update(created_at=timezone.now() - timedelta(days=10))
+        SignalScoutRun.objects.filter(id=recent.id).update(created_at=timezone.now() - timedelta(hours=1))
 
         hits = search_recent_runs(team_id=self.team.id, since=timezone.now() - timedelta(days=1))
 
         assert [r.run_id for r in hits] == [str(recent.id)]
 
     def test_does_not_leak_runs_from_other_teams(self) -> None:
-        # `BaseTest` only seeds one team. Create a sibling team in the same org for isolation.
         from posthog.models import Team
 
         other = Team.objects.create(organization=self.organization, name="other")
-        _create_run(self.team, summary="mine")
-        _create_run(other, summary="not mine")
+        mine = _create_run(self.team)
+        _create_run(other)
 
         hits = search_recent_runs(team_id=self.team.id)
 
-        assert all(r.summary == "mine" for r in hits)
+        assert [r.run_id for r in hits] == [str(mine.id)]
 
     def test_limit_clamped_to_max(self) -> None:
-        for i in range(MAX_RUN_SEARCH_LIMIT + 5):
-            _create_run(self.team, summary=f"r{i}")
+        for _ in range(MAX_RUN_SEARCH_LIMIT + 5):
+            _create_run(self.team)
 
         hits = search_recent_runs(team_id=self.team.id, limit=MAX_RUN_SEARCH_LIMIT + 50)
 
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
-    def test_findings_count_reflects_findings_array_length(self) -> None:
-        _create_run(self.team, findings=[{"id": "a"}, {"id": "b"}, {"id": "c"}])
+    def test_summary_surfaces_status_from_linked_task_run(self) -> None:
+        run = _create_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
 
         hits = search_recent_runs(team_id=self.team.id, limit=1)
 
-        assert hits[0].findings_count == 3
+        assert hits[0].run_id == str(run.id)
+        assert hits[0].status == TaskRun.Status.COMPLETED
 
 
 class TestGetRun(BaseTest):
     def test_returns_full_run_payload(self) -> None:
-        run = _create_run(
-            self.team,
-            findings=[{"id": "f1"}],
-            hypotheses_considered=[{"text": "thought about it"}],
-            run_metrics={"runtime_s": 3.2},
-            metadata={"skill_id": "abc"},
-        )
+        run = _create_run(self.team)
 
         detail = get_run(team_id=self.team.id, run_id=str(run.id))
 
         assert detail is not None
         assert detail.run_id == str(run.id)
-        assert detail.findings == [{"id": "f1"}]
-        assert detail.hypotheses_considered == [{"text": "thought about it"}]
-        assert detail.run_metrics == {"runtime_s": 3.2}
-        assert detail.metadata == {"skill_id": "abc"}
+        assert detail.skill_name == "signals-scout-errors"
+        assert detail.skill_version == 1
+        assert detail.task_run_id == str(run.task_run_id)
 
     def test_returns_none_for_unknown_id(self) -> None:
         detail = get_run(team_id=self.team.id, run_id="00000000-0000-0000-0000-000000000000")
@@ -147,53 +146,35 @@ class TestGetRun(BaseTest):
 
 
 class TestRemember(BaseTest):
-    def test_creates_agent_inference_entry_with_default_ttl(self) -> None:
-        before = timezone.now()
+    def test_creates_entry_with_default_lineage(self) -> None:
         entry = remember(team_id=self.team.id, key="known-noise", content="ignore /favicon 404s")
 
         row = SignalScratchpad.objects.get(team_id=self.team.id, key="known-noise")
-        assert row.authority == SignalScratchpad.Authority.SCOUT_INFERENCE
         assert row.content == "ignore /favicon 404s"
-        assert row.expires_at is not None
-        elapsed = (row.expires_at - before).total_seconds()
-        # Default 7-day TTL: allow ±10s of slack for query execution.
-        assert abs(elapsed - timedelta(days=DEFAULT_SCRATCHPAD_TTL_DAYS).total_seconds()) < 10
+        assert row.created_by_run_id is None
         assert entry.key == "known-noise"
-        assert entry.authority == SignalScratchpad.Authority.SCOUT_INFERENCE
 
     def test_idempotent_upsert_on_team_key(self) -> None:
         first = remember(team_id=self.team.id, key="k", content="v1")
-        second = remember(team_id=self.team.id, key="k", content="v2", tags=["new"])
+        second = remember(team_id=self.team.id, key="k", content="v2")
 
         assert first.key == second.key
         rows = SignalScratchpad.objects.filter(team_id=self.team.id, key="k")
         assert rows.count() == 1
-        assert rows.first().content == "v2"
-        assert rows.first().tags == ["new"]
+        row = rows.first()
+        assert row is not None
+        assert row.content == "v2"
 
-    def test_clamps_ttl_to_max(self) -> None:
-        before = timezone.now()
-        remember(team_id=self.team.id, key="k", content="v", ttl_days=MAX_SCRATCHPAD_TTL_DAYS + 1000)
+    def test_upsert_preserves_original_creator_lineage(self) -> None:
+        run = _create_run(self.team)
+        # First write attributed to a run.
+        remember(team_id=self.team.id, key="k", content="v1", run_id=str(run.id))
+        # Second write has no run_id — must not overwrite the original creator.
+        remember(team_id=self.team.id, key="k", content="v2")
 
         row = SignalScratchpad.objects.get(team_id=self.team.id, key="k")
-        assert (row.expires_at - before).days >= MAX_SCRATCHPAD_TTL_DAYS - 1
-        assert (row.expires_at - before).days <= MAX_SCRATCHPAD_TTL_DAYS + 1
-
-    def test_rejects_overwrite_of_human_confirmed(self) -> None:
-        # Human-authored row, never expires.
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="locked",
-            content="human said so",
-            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
-        )
-
-        with pytest.raises(HumanConfirmedScratchpadError):
-            remember(team_id=self.team.id, key="locked", content="agent override")
-
-        row = SignalScratchpad.objects.get(team_id=self.team.id, key="locked")
-        assert row.content == "human said so"
-        assert row.authority == SignalScratchpad.Authority.HUMAN_CONFIRMED
+        assert row.content == "v2"
+        assert str(row.created_by_run_id) == str(run.id)
 
     def test_rejects_empty_key_or_content(self) -> None:
         with pytest.raises(InvalidScratchpadError):
@@ -215,7 +196,7 @@ class TestRemember(BaseTest):
 
 
 class TestForget(BaseTest):
-    def test_deletes_agent_inference_entry(self) -> None:
+    def test_deletes_entry(self) -> None:
         remember(team_id=self.team.id, key="k", content="v")
 
         result = forget(team_id=self.team.id, key="k")
@@ -226,87 +207,27 @@ class TestForget(BaseTest):
     def test_returns_false_when_key_missing(self) -> None:
         assert forget(team_id=self.team.id, key="never-existed") is False
 
-    def test_refuses_to_delete_human_confirmed(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="locked",
-            content="human said so",
-            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
-        )
 
-        with pytest.raises(HumanConfirmedScratchpadError):
-            forget(team_id=self.team.id, key="locked")
-
-        assert SignalScratchpad.objects.filter(team_id=self.team.id, key="locked").exists()
-
-
-class TestSearchMemory(BaseTest):
-    def test_returns_only_unexpired_by_default(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="active",
-            content="active",
-            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
-            expires_at=timezone.now() + timedelta(days=1),
-        )
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="expired",
-            content="expired",
-            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
-            expires_at=timezone.now() - timedelta(days=1),
-        )
+class TestSearchScratchpad(BaseTest):
+    def test_returns_all_team_entries(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="a", content="alpha")
+        SignalScratchpad.objects.create(team=self.team, key="b", content="beta")
 
         results = search_scratchpad(team_id=self.team.id)
 
         keys = {e.key for e in results}
-        assert "active" in keys
-        assert "expired" not in keys
+        assert keys == {"a", "b"}
 
-    def test_include_expired_surfaces_them(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="expired",
-            content="expired",
-            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
-            expires_at=timezone.now() - timedelta(days=1),
-        )
-
-        results = search_scratchpad(team_id=self.team.id, include_expired=True)
-
-        assert any(e.key == "expired" for e in results)
-
-    def test_human_confirmed_with_no_expiry_visible(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="forever",
-            content="permanent",
-            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
-            expires_at=None,
-        )
-
-        results = search_scratchpad(team_id=self.team.id)
-
-        assert any(e.key == "forever" and e.authority == SignalScratchpad.Authority.HUMAN_CONFIRMED for e in results)
-
-    def test_text_filter_uses_ilike(self) -> None:
+    def test_text_filter_uses_ilike_on_content_and_key(self) -> None:
         remember(team_id=self.team.id, key="k1", content="The CHECKOUT funnel is broken")
+        remember(team_id=self.team.id, key="checkout-key", content="unrelated")
         remember(team_id=self.team.id, key="k2", content="Image loading is slow")
 
         results = search_scratchpad(team_id=self.team.id, text="checkout")
 
-        assert len(results) == 1
-        assert results[0].key == "k1"
-
-    def test_tags_filter_uses_array_overlap(self) -> None:
-        remember(team_id=self.team.id, key="k1", content="x", tags=["errors", "checkout"])
-        remember(team_id=self.team.id, key="k2", content="y", tags=["llm"])
-        remember(team_id=self.team.id, key="k3", content="z", tags=["replay", "errors"])
-
-        results = search_scratchpad(team_id=self.team.id, tags=["errors"])
-
         keys = {e.key for e in results}
-        assert keys == {"k1", "k3"}
+        # Matches on both content ('CHECKOUT' in k1) and key ('checkout-key').
+        assert keys == {"k1", "checkout-key"}
 
     def test_does_not_leak_memories_from_other_teams(self) -> None:
         from posthog.models import Team
@@ -328,7 +249,7 @@ class TestSearchMemory(BaseTest):
         assert len(results) == MAX_SCRATCHPAD_SEARCH_LIMIT
 
 
-# --- emit adapter tests --- (Phase 3c)
+# --- emit adapter tests ---
 
 
 class TestValidateEmitInputs:
@@ -353,7 +274,6 @@ class TestValidateEmitInputs:
             _validate_inputs("ok", 0.5, confidence, [])
 
     def test_too_many_evidence_entries_raises(self) -> None:
-        # +1 over the cap so the boundary is exact.
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES + 1)]
         with pytest.raises(InvalidEmitError, match="evidence"):
             _validate_inputs("ok", 0.5, 0.5, many)
@@ -429,7 +349,6 @@ class TestBuildEmitExtra:
         from posthog.schema import SignalsScoutSignalInput
 
         extra = self._minimal()
-        # The full top-level signal — same shape `_SIGNAL_VARIANT_LOOKUP` validates.
         SignalsScoutSignalInput.model_validate(
             {
                 "source_product": SOURCE_PRODUCT,
@@ -440,139 +359,6 @@ class TestBuildEmitExtra:
                 "extra": extra,
             }
         )
-
-
-class TestRecordFindingPreEmit(BaseTest):
-    def test_inserts_new_finding_with_emitted_false(self) -> None:
-        run = _create_run(self.team, findings=[])
-
-        already = _record_finding_pre_emit(
-            run_id=str(run.id),
-            finding_id="f-new",
-            description="d",
-            weight=0.5,
-            extra={"scout_run_id": str(run.id), "finding_id": "f-new"},
-        )
-
-        assert already is False
-        run.refresh_from_db()
-        assert len(run.findings) == 1
-        entry = run.findings[0]
-        assert entry["finding_id"] == "f-new"
-        assert entry["emitted"] is False
-        assert "first_attempt_at" in entry
-        assert "last_attempt_at" in entry
-        assert "emitted_at" not in entry
-
-    def test_overwrites_unemitted_finding_on_retry(self) -> None:
-        run = _create_run(
-            self.team,
-            findings=[
-                {
-                    "finding_id": "f-retry",
-                    "description": "first",
-                    "weight": 0.3,
-                    "extra": {},
-                    "emitted": False,
-                    "first_attempt_at": "2026-04-29T10:00:00+00:00",
-                    "last_attempt_at": "2026-04-29T10:00:00+00:00",
-                }
-            ],
-        )
-
-        already = _record_finding_pre_emit(
-            run_id=str(run.id),
-            finding_id="f-retry",
-            description="second",
-            weight=0.7,
-            extra={"scout_run_id": str(run.id), "finding_id": "f-retry"},
-        )
-
-        assert already is False
-        run.refresh_from_db()
-        assert len(run.findings) == 1
-        entry = run.findings[0]
-        assert entry["description"] == "second"
-        assert entry["weight"] == 0.7
-        # Original first_attempt_at preserved; last_attempt_at refreshed.
-        assert entry["first_attempt_at"] == "2026-04-29T10:00:00+00:00"
-        assert entry["last_attempt_at"] != "2026-04-29T10:00:00+00:00"
-
-    def test_returns_true_when_already_emitted(self) -> None:
-        run = _create_run(
-            self.team,
-            findings=[
-                {
-                    "finding_id": "f-done",
-                    "description": "already done",
-                    "weight": 0.5,
-                    "extra": {},
-                    "emitted": True,
-                    "first_attempt_at": "2026-04-29T10:00:00+00:00",
-                    "last_attempt_at": "2026-04-29T10:00:00+00:00",
-                    "emitted_at": "2026-04-29T10:00:01+00:00",
-                }
-            ],
-        )
-
-        already = _record_finding_pre_emit(
-            run_id=str(run.id),
-            finding_id="f-done",
-            description="changed",
-            weight=0.99,
-            extra={"scout_run_id": str(run.id), "finding_id": "f-done"},
-        )
-
-        assert already is True
-        run.refresh_from_db()
-        # The emitted entry is left untouched (no overwrite of a successful emit).
-        assert run.findings[0]["description"] == "already done"
-        assert run.findings[0]["weight"] == 0.5
-
-
-class TestMarkFindingEmitted(BaseTest):
-    def test_marks_finding_with_emitted_at_timestamp(self) -> None:
-        run = _create_run(
-            self.team,
-            findings=[
-                {
-                    "finding_id": "f-1",
-                    "description": "d",
-                    "weight": 0.5,
-                    "extra": {},
-                    "emitted": False,
-                    "first_attempt_at": "2026-04-29T10:00:00+00:00",
-                    "last_attempt_at": "2026-04-29T10:00:00+00:00",
-                }
-            ],
-        )
-
-        _mark_finding_emitted(run_id=str(run.id), finding_id="f-1")
-
-        run.refresh_from_db()
-        entry = run.findings[0]
-        assert entry["emitted"] is True
-        assert "emitted_at" in entry
-
-    def test_no_op_for_unknown_finding_id(self) -> None:
-        run = _create_run(
-            self.team,
-            findings=[
-                {
-                    "finding_id": "f-1",
-                    "description": "d",
-                    "weight": 0.5,
-                    "extra": {},
-                    "emitted": False,
-                }
-            ],
-        )
-
-        # Should not raise.
-        _mark_finding_emitted(run_id=str(run.id), finding_id="nope")
-
-        run.refresh_from_db()
-        assert run.findings[0]["emitted"] is False
 
 
 # --- emit_finding async tests ---
@@ -597,14 +383,6 @@ async def ateam_emit(aorganization_emit):
     team = await database_sync_to_async(Team.objects.create)(organization=aorganization_emit, name="emit-team")
     # The signals_scout source must be explicitly enabled per-team — emit_signal()
     # silently no-ops without it, and the harness preflight mirrors that gate.
-    # Default to enabled in tests so the existing happy-path / failure-path emit
-    # tests stay focused on what they actually exercise. Tests that exercise the
-    # gates themselves create their own SignalSourceConfig overrides.
-    # `yield` inside `team_scope` so dependent fixtures (arun_emit) and the test
-    # body run with team context — scout models use TeamScopedRootMixin and
-    # `Model.objects.X()` raises TeamScopeError without it. `canonical=True`
-    # skips the sync DB resolution lookup (illegal from async fixtures); the
-    # freshly-created team has no parent so the id is already canonical.
     with team_scope(team.id, canonical=True):
         await database_sync_to_async(SignalSourceConfig.objects.create)(
             team=team,
@@ -612,23 +390,28 @@ async def ateam_emit(aorganization_emit):
             source_type="cross_source_issue",
             enabled=True,
         )
+        # Seed a SignalScoutConfig so the run row's FK is valid.
+        await database_sync_to_async(SignalScoutConfig.objects.create)(team=team)
         yield team
 
 
 @pytest_asyncio.fixture
 async def arun_emit(ateam_emit):
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam_emit)
+    task_run = await database_sync_to_async(_make_task_run)(ateam_emit, status=TaskRun.Status.IN_PROGRESS)
     run = await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
         team=ateam_emit,
+        scout_config=config,
         skill_name="signals-scout-errors",
         skill_version=3,
-        status=SignalScoutRun.Status.RUNNING,
     )
     return run
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_emit_finding_happy_path_calls_emit_signal_and_marks_emitted(ateam_emit, arun_emit):
+async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_source_id(ateam_emit, arun_emit):
     evidence = [EvidenceEntry(source_product="error_tracking", summary="500s spike on /checkout")]
 
     with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
@@ -659,69 +442,10 @@ async def test_emit_finding_happy_path_calls_emit_signal_and_marks_emitted(ateam
     assert call_kwargs["extra"]["skill_name"] == "signals-scout-errors"
     assert call_kwargs["extra"]["skill_version"] == 3.0
 
-    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
-    assert len(refreshed.findings) == 1
-    assert refreshed.findings[0]["emitted"] is True
-    assert "emitted_at" in refreshed.findings[0]
-
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_emit_finding_shadow_mode_skips_external_emit(ateam_emit, arun_emit):
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
-        result = await emit_finding(
-            team=ateam_emit,
-            run=arun_emit,
-            description="d",
-            weight=0.5,
-            confidence=0.5,
-            evidence=[EvidenceEntry(source_product="logs", summary="x")],
-            shadow_mode=True,
-            finding_id="f-shadow",
-        )
-
-    assert result.emitted is False
-    assert result.skipped_reason == "shadow_mode"
-    mock_emit.assert_not_awaited()
-    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
-    assert refreshed.findings[0]["emitted"] is False
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_emit_finding_idempotent_on_repeat_finding_id(ateam_emit, arun_emit):
-    evidence = [EvidenceEntry(source_product="logs", summary="x")]
-
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
-        first = await emit_finding(
-            team=ateam_emit,
-            run=arun_emit,
-            description="d",
-            weight=0.5,
-            confidence=0.5,
-            evidence=evidence,
-            finding_id="f-dup",
-        )
-        second = await emit_finding(
-            team=ateam_emit,
-            run=arun_emit,
-            description="d",
-            weight=0.5,
-            confidence=0.5,
-            evidence=evidence,
-            finding_id="f-dup",
-        )
-
-    assert first.skipped_reason is None
-    assert second.emitted is True
-    assert second.skipped_reason == "already_emitted"
-    # External emit fired exactly once across both calls.
-    assert mock_emit.await_count == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_emit_finding_validation_error_does_not_persist_or_emit(ateam_emit, arun_emit):
+async def test_emit_finding_validation_error_does_not_emit(ateam_emit, arun_emit):
     with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
         with pytest.raises(InvalidEmitError):
             await emit_finding(
@@ -734,13 +458,14 @@ async def test_emit_finding_validation_error_does_not_persist_or_emit(ateam_emit
             )
 
     mock_emit.assert_not_awaited()
-    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
-    assert refreshed.findings == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_emit_finding_emit_signal_raises_leaves_finding_unemitted(ateam_emit, arun_emit):
+async def test_emit_finding_propagates_emit_signal_exception(ateam_emit, arun_emit):
+    # Scout-side idempotency was dropped in PR 2 review — a failed downstream emit
+    # surfaces back to the caller; the next call with the same finding_id will
+    # re-fire and downstream dedupes on source_id.
     boom = AsyncMock(side_effect=RuntimeError("temporal exploded"))
     with patch("products.signals.backend.api.emit_signal", new=boom):
         with pytest.raises(RuntimeError, match="temporal"):
@@ -753,12 +478,6 @@ async def test_emit_finding_emit_signal_raises_leaves_finding_unemitted(ateam_em
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
                 finding_id="f-fails",
             )
-
-    refreshed = await database_sync_to_async(SignalScoutRun.objects.get)(id=arun_emit.id)
-    assert len(refreshed.findings) == 1
-    # Pre-emit row recorded but NOT marked emitted, so a later run can spot the gap.
-    assert refreshed.findings[0]["finding_id"] == "f-fails"
-    assert refreshed.findings[0]["emitted"] is False
 
 
 @pytest.mark.asyncio
@@ -785,7 +504,7 @@ async def test_emit_finding_auto_generates_finding_id_when_not_provided(ateam_em
 async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun_emit, ateam_emit):
     # Flip the org gate that emit_signal() checks. Without the harness preflight, the
     # emit_signal call would silently no-op and we'd report emitted=True; with the
-    # preflight, we surface the truth on the run row.
+    # preflight, we surface the truth.
     org = await database_sync_to_async(lambda: ateam_emit.organization)()
     org.is_ai_data_processing_approved = False
     await database_sync_to_async(org.save)()
@@ -831,31 +550,4 @@ async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, atea
 
     assert result.emitted is False
     assert result.skipped_reason == "source_disabled"
-    mock_emit.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_emit_finding_shadow_mode_short_circuits_before_preflight(arun_emit, ateam_emit):
-    # Shadow_mode wins over preflight: the agent's intent is "don't fire externally,
-    # just persist", which we honor regardless of org/source gates so shadow runs
-    # produce predictable observability data even on misconfigured teams.
-    org = await database_sync_to_async(lambda: ateam_emit.organization)()
-    org.is_ai_data_processing_approved = False
-    await database_sync_to_async(org.save)()
-
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
-        result = await emit_finding(
-            team=ateam_emit,
-            run=arun_emit,
-            description="d",
-            weight=0.5,
-            confidence=0.5,
-            evidence=[EvidenceEntry(source_product="logs", summary="x")],
-            shadow_mode=True,
-            finding_id="f-shadow-vs-preflight",
-        )
-
-    assert result.emitted is False
-    assert result.skipped_reason == "shadow_mode"
     mock_emit.assert_not_called()

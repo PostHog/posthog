@@ -117,23 +117,6 @@ async def test_explicit_skill_list_filters_to_existing_only(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_limit_overrides_propagate_to_planned_run(ateam):
-    await database_sync_to_async(SignalScoutConfig.objects.create)(
-        team=ateam,
-        enabled=True,
-        limit_overrides={"max_runtime_s": 900},
-    )
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
-
-    env = ActivityEnvironment()
-    output = await env.run(fetch_enabled_signals_scout_runs_activity, FetchEnabledRunsInput())
-
-    assert len(output.planned_runs) == 1
-    assert output.planned_runs[0].limit_overrides == {"max_runtime_s": 900}
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 async def test_planned_runs_sort_by_team_then_skill(ateam, aother_team):
     # Insert in the "wrong" order to verify sort behavior.
     await database_sync_to_async(SignalScoutConfig.objects.create)(team=aother_team, enabled=True)

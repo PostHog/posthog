@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -19,13 +19,7 @@ from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.limits import DEFAULT_LIMITS, RunLimits, resolve_limits
 from products.signals.backend.scout_harness.prompt import build_run_prompt
-from products.signals.backend.scout_harness.runner import (
-    RunResult,
-    _finalize_failed,
-    _limits_for_run,
-    _record_task_linkage,
-    arun_signals_scout,
-)
+from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_scout_skill,
@@ -33,6 +27,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.tasks.backend.models import Task, TaskRun
 
 
 @pytest_asyncio.fixture
@@ -70,6 +65,17 @@ async def aerrors_skill(ateam):
     yield skill
 
 
+def _make_task_run(team: Team) -> TaskRun:
+    """Minimal Task + TaskRun pair scoped to the given team."""
+    task = Task.objects.create(
+        team=team,
+        title="scout run",
+        description="scout run",
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+    )
+    return TaskRun.objects.create(task=task, team=team)
+
+
 class TestLimitsResolution(BaseTest):
     def test_default_limits_when_no_overrides(self) -> None:
         assert resolve_limits(None) == DEFAULT_LIMITS
@@ -85,28 +91,6 @@ class TestLimitsResolution(BaseTest):
         # or removed (e.g. the historical max_tool_calls / max_cost_usd we cut).
         limits = resolve_limits({"max_runtime_s": 120, "obsolete_field": "ignore_me"})
         assert limits == RunLimits(max_runtime_s=120)
-
-    def test_limits_for_run_merges_config_and_overrides(self) -> None:
-        # `_limits_for_run` is the three-level merge point: defaults < config row <
-        # caller overrides. A caller-supplied key must not silently drop unrelated
-        # config-row keys (the bug a previous short-circuit would introduce).
-        config = SignalScoutConfig(team=self.team, limit_overrides={"max_findings": 3})
-        limits = _limits_for_run(config, overrides={"max_runtime_s": 900})
-        # Caller's max_runtime_s wins, but the team's max_findings is preserved.
-        assert limits.max_runtime_s == 900
-        assert limits.max_findings == 3
-
-    def test_limits_for_run_overrides_win_on_conflict(self) -> None:
-        # When config and overrides set the same key, the caller wins.
-        config = SignalScoutConfig(team=self.team, limit_overrides={"max_runtime_s": 600})
-        limits = _limits_for_run(config, overrides={"max_runtime_s": 120})
-        assert limits.max_runtime_s == 120
-
-    def test_limits_for_run_falls_back_to_config_when_no_overrides(self) -> None:
-        config = SignalScoutConfig(team=self.team, limit_overrides={"max_findings": 2})
-        limits = _limits_for_run(config, overrides=None)
-        assert limits.max_findings == 2
-        assert limits.max_runtime_s == DEFAULT_LIMITS.max_runtime_s
 
 
 class TestSkillLoader(BaseTest):
@@ -198,47 +182,90 @@ class TestPromptBuilder(BaseTest):
 # The fixture-based pattern (matching test_agentic_report_activity.py) gives us that.
 
 
+def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock, object]:
+    """Build a (session, summary_result) pair to return from `MultiTurnSession.start`.
+
+    The session must carry a saved `task_run` so the bridge insert succeeds
+    (FK requirement) and the runner's `session.task_run.id` access works.
+    """
+    task_run = _make_task_run(team)
+    session = MagicMock()
+    session.task_run = task_run
+    session.end = AsyncMock()
+    result = MagicMock()
+    result.summary = summary_text
+    return session, result
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_successful_run_persists_completed_row(ateam, aerrors_skill):
-    async def fake_spawn(**_kwargs):
-        return "I would investigate /checkout 500s next."
+async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aerrors_skill):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
+        ateam, "I would investigate /checkout 500s next."
+    )
 
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+    with patch(
+        "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+        new_callable=AsyncMock,
+        return_value=(session, result),
+    ):
+        # `_spawn_and_run` reaches for sandbox env + user-id resolution; stub the helpers.
+        with (
+            patch(
+                "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+                return_value="env-id",
+            ),
+            patch(
+                "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+                return_value=42,
+            ),
+        ):
+            run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    assert result.status == SignalScoutRun.Status.COMPLETED
-    assert result.skill_name == "signals-scout-errors"
-    assert result.skill_version == 1
-    assert result.last_message and "checkout" in result.last_message
+    assert run_result.status == TaskRun.Status.COMPLETED.value
+    assert run_result.skill_name == "signals-scout-errors"
+    assert run_result.skill_version == 1
+    assert run_result.last_message and "checkout" in run_result.last_message
+    assert run_result.task_run_id == str(session.task_run.id)
 
-    run_row = await database_sync_to_async(SignalScoutRun.objects.get)(id=result.run_id)
-    assert run_row.status == SignalScoutRun.Status.COMPLETED
-    assert run_row.completed_at is not None
-    assert run_row.summary == "I would investigate /checkout 500s next."
-    assert "runtime_s" in run_row.run_metrics
+    bridge = await database_sync_to_async(SignalScoutRun.objects.select_related("task_run", "scout_config").get)(
+        id=run_result.run_id
+    )
+    assert str(bridge.task_run_id) == str(session.task_run.id)
+    assert bridge.skill_name == "signals-scout-errors"
+    assert bridge.skill_version == 1
     config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam)
     assert config.enabled is False
-    assert config.shadow_mode is True
-    assert run_row.scout_config_id == config.id
+    assert bridge.scout_config_id == config.id
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_failed_run_persists_failure_metadata(ateam, aerrors_skill):
-    async def fake_spawn(**_kwargs):
-        raise RuntimeError("sandbox refused to start")
+async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, aerrors_skill):
+    # Failure inside MultiTurnSession.start means we never get a session.task_run
+    # to bridge to — the runner's except path returns FAILED without persisting.
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("sandbox refused to start"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    assert result.status == SignalScoutRun.Status.FAILED
-    assert result.last_message is None
-    run_row = await database_sync_to_async(SignalScoutRun.objects.get)(id=result.run_id)
-    assert run_row.status == SignalScoutRun.Status.FAILED
-    assert run_row.completed_at is not None
-    assert "sandbox refused to start" in run_row.summary
-    assert run_row.metadata.get("error_type") == "RuntimeError"
+    assert run_result.status == TaskRun.Status.FAILED.value
+    assert run_result.last_message is None
+    # No bridge row persisted on the failure path (TaskRun was never created).
+    has_runs = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).exists)()
+    assert not has_runs
 
 
 @pytest.mark.asyncio
@@ -252,42 +279,30 @@ async def test_missing_skill_does_not_create_run_row(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_limit_overrides_propagate_into_run_metadata(ateam, aerrors_skill):
-    async def fake_spawn(**_kwargs):
-        return "ok"
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(
-            team_id=ateam.id,
-            skill_name="signals-scout-errors",
-            limit_overrides={"max_runtime_s": 120},
-        )
-
-    run_row = await database_sync_to_async(SignalScoutRun.objects.get)(id=result.run_id)
-    assert run_row.metadata["limits"]["max_runtime_s"] == 120
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
+    # Seed an in-progress run for the same (team, skill) so the skip-if-running guard fires.
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
+    task_run = await database_sync_to_async(_make_task_run)(ateam)
+    # Force the TaskRun into IN_PROGRESS so the running-check returns True.
+    await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(status=TaskRun.Status.IN_PROGRESS)
     await database_sync_to_async(SignalScoutRun.objects.create)(
+        task_run=task_run,
         team=ateam,
         scout_config=config,
         skill_name="signals-scout-errors",
         skill_version=1,
-        status=SignalScoutRun.Status.RUNNING,
     )
 
-    async def fake_spawn(**_kwargs):
-        raise AssertionError("spawn should not run while a prior run is RUNNING")
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
+    with patch(
+        "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+        new_callable=AsyncMock,
+        side_effect=AssertionError("session.start should not run while a prior run is IN_PROGRESS"),
+    ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert result.run_id is None
     assert result.status is None
-    assert result.skip_reason and "RUNNING" in result.skip_reason
+    assert result.skip_reason is not None
     count = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)()
     assert count == 1
 
@@ -298,7 +313,8 @@ async def test_activity_returns_completed_outcome(ateam):
     async def fake_arun(**_kwargs):
         return RunResult(
             run_id="abc",
-            status=SignalScoutRun.Status.COMPLETED,
+            task_run_id="def",
+            status=TaskRun.Status.COMPLETED.value,
             last_message="ok",
             runtime_s=1.5,
             skill_name="signals-scout-errors",
@@ -316,6 +332,7 @@ async def test_activity_returns_completed_outcome(ateam):
         )
 
     assert output.run_id == "abc"
+    assert output.task_run_id == "def"
     assert output.status == "completed"
     assert output.skill_version == 2
     assert output.skip_reason is None
@@ -327,12 +344,13 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
     async def fake_arun(**_kwargs):
         return RunResult(
             run_id=None,
+            task_run_id=None,
             status=None,
             last_message=None,
             runtime_s=0.0,
             skill_name="signals-scout-errors",
             skill_version=1,
-            skip_reason="prior run still in RUNNING status",
+            skip_reason="prior run still in progress",
         )
 
     with patch(
@@ -346,109 +364,16 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
         )
 
     assert output.run_id is None
+    assert output.task_run_id is None
     assert output.status is None
-    assert output.skip_reason and "RUNNING" in output.skip_reason
+    assert output.skip_reason is not None
 
 
-# ── Tasks-UI cross-link: SignalScoutRun.metadata.task_id / task_run_id ────────
+# ── Tasks-UI cross-link: SignalScoutRun ─→ TaskRun ────────────────────────────
 #
-# The runner spawns a sandbox via `MultiTurnSession.start()` which itself creates
-# a `(Task, TaskRun)` row in the Tasks product. The IDs of that pair are needed
-# both for the `task_url` deep-link surfaced on the run serializers and for the
-# future LLM-analytics token/cost join. These tests lock in the persistence path
-# without standing up the real sandbox.
-
-
-@pytest.mark.django_db
-def test_record_task_linkage_persists_both_ids_into_metadata():
-    team = Team.objects.create(
-        organization=Organization.objects.create(
-            name=f"link-test-org-{random.randint(1, 99999)}",
-            is_ai_data_processing_approved=True,
-        ),
-        name=f"link-test-team-{random.randint(1, 99999)}",
-    )
-    with team_scope(team.id, canonical=True):
-        config = SignalScoutConfig.objects.create(team=team)
-        run = SignalScoutRun.objects.create(
-            team=team,
-            scout_config=config,
-            skill_name="signals-scout-errors",
-            skill_version=1,
-            status=SignalScoutRun.Status.RUNNING,
-            metadata={
-                "limits": {"max_runtime_s": 1800},
-                "skill_id": "skill-uuid",
-                "allowed_tools": {"declared": False},
-            },
-        )
-
-        _record_task_linkage(
-            run_id=str(run.id),
-            task_id="11111111-1111-1111-1111-111111111111",
-            task_run_id="22222222-2222-2222-2222-222222222222",
-        )
-
-        run.refresh_from_db()
-        assert run.metadata["task_id"] == "11111111-1111-1111-1111-111111111111"
-        assert run.metadata["task_run_id"] == "22222222-2222-2222-2222-222222222222"
-        # Pre-existing keys must survive the merge — the run row is created with
-        # limits / skill_id / allowed_tools and clobbering them would lose the
-        # snapshot the rest of the harness reads back.
-        assert run.metadata["limits"] == {"max_runtime_s": 1800}
-        assert run.metadata["skill_id"] == "skill-uuid"
-        assert run.metadata["allowed_tools"] == {"declared": False}
-
-
-@pytest.mark.django_db
-def test_finalize_failed_preserves_task_linkage():
-    team = Team.objects.create(
-        organization=Organization.objects.create(
-            name=f"fail-link-org-{random.randint(1, 99999)}",
-            is_ai_data_processing_approved=True,
-        ),
-        name=f"fail-link-team-{random.randint(1, 99999)}",
-    )
-    with team_scope(team.id, canonical=True):
-        skill = LLMSkill.objects.create(team=team, name="signals-scout-errors", description="x", body="x")
-        config = SignalScoutConfig.objects.create(team=team)
-        run = SignalScoutRun.objects.create(
-            team=team,
-            scout_config=config,
-            skill_name="signals-scout-errors",
-            skill_version=1,
-            status=SignalScoutRun.Status.RUNNING,
-            metadata={
-                "limits": {"max_runtime_s": 1800},
-                "skill_id": str(skill.id),
-                "allowed_tools": {"declared": False},
-            },
-        )
-        # Linkage was recorded mid-run (between session start and the failure).
-        _record_task_linkage(
-            run_id=str(run.id),
-            task_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-            task_run_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-        )
-
-        loaded = load_skill_for_run(team=team, skill_name="signals-scout-errors", version=None)
-        _finalize_failed(
-            run_id=str(run.id),
-            exc=RuntimeError("sandbox died"),
-            runtime_s=12.5,
-            limits=DEFAULT_LIMITS,
-            skill=loaded,
-        )
-
-        run.refresh_from_db()
-        assert run.status == SignalScoutRun.Status.FAILED
-        # Failure annotation lands.
-        assert run.metadata["error_type"] == "RuntimeError"
-        # Task linkage survives — without the merge in `_finalize_failed`, the
-        # deep-link to the sandbox that actually died would be lost on the row a
-        # debugger needs to land on.
-        assert run.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        assert run.metadata["task_run_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+# Status, timestamps, and the task-id pair all live on the linked `TaskRun` now.
+# The summary/detail projections join through it; `_build_task_url` produces the
+# deep-link from the team + task ids.
 
 
 def test_build_task_url_renders_relative_path_when_both_ids_present():
@@ -476,7 +401,7 @@ def test_build_task_url_returns_none_when_either_id_missing(task_id, task_run_id
 
 
 @pytest.mark.django_db
-def test_to_summary_and_detail_surface_task_url_when_linkage_present():
+def test_to_summary_and_detail_surface_task_url_from_bridge():
     team = Team.objects.create(
         organization=Organization.objects.create(
             name=f"surface-org-{random.randint(1, 99999)}",
@@ -486,62 +411,23 @@ def test_to_summary_and_detail_surface_task_url_when_linkage_present():
     )
     with team_scope(team.id, canonical=True):
         config = SignalScoutConfig.objects.create(team=team)
+        task_run = _make_task_run(team)
         run = SignalScoutRun.objects.create(
+            task_run=task_run,
             team=team,
             scout_config=config,
             skill_name="signals-scout-errors",
             skill_version=1,
-            status=SignalScoutRun.Status.COMPLETED,
-            summary="ok",
-            metadata={
-                "limits": {"max_runtime_s": 1800},
-                "skill_id": "skill-uuid",
-                "allowed_tools": {"declared": False},
-                "task_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-                "task_run_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-            },
         )
 
         summary = _to_summary(run, team_id=team.id)
-        assert summary.task_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        assert summary.task_run_id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-        assert (
-            summary.task_url
-            == f"/project/{team.id}/tasks/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?runId=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-        )
+        assert summary.task_id == str(task_run.task_id)
+        assert summary.task_run_id == str(task_run.id)
+        assert summary.task_url == f"/project/{team.id}/tasks/{task_run.task_id}?runId={task_run.id}"
+        # Status flows from the linked TaskRun.
+        assert summary.status == task_run.status
 
         detail = _to_detail(run, team_id=team.id)
         assert detail.task_id == summary.task_id
         assert detail.task_run_id == summary.task_run_id
         assert detail.task_url == summary.task_url
-        # Detail still carries the raw metadata blob (the IDs are duplicated as
-        # top-level fields for callers that want them without dict access).
-        assert detail.metadata["task_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-
-
-@pytest.mark.django_db
-def test_to_summary_and_detail_emit_null_task_url_when_linkage_missing():
-    team = Team.objects.create(
-        organization=Organization.objects.create(
-            name=f"missing-org-{random.randint(1, 99999)}",
-            is_ai_data_processing_approved=True,
-        ),
-        name=f"missing-team-{random.randint(1, 99999)}",
-    )
-    with team_scope(team.id, canonical=True):
-        config = SignalScoutConfig.objects.create(team=team)
-        run = SignalScoutRun.objects.create(
-            team=team,
-            scout_config=config,
-            skill_name="signals-scout-errors",
-            skill_version=1,
-            status=SignalScoutRun.Status.COMPLETED,
-            summary="ok",
-            # No task_id / task_run_id — represents either a row predating the
-            # linkage capture or a run that aborted before `MultiTurnSession.start()`
-            # returned (e.g. sandbox provisioning failure).
-            metadata={"limits": {"max_runtime_s": 1800}, "skill_id": "skill-uuid"},
-        )
-
-        assert _to_summary(run, team_id=team.id).task_url is None
-        assert _to_detail(run, team_id=team.id).task_url is None

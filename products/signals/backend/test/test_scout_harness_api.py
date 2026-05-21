@@ -1,33 +1,45 @@
 from __future__ import annotations
 
-from datetime import timedelta
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
-
-from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.tasks.backend.models import Task, TaskRun
 
 
-def _make_run(team, **overrides) -> SignalScoutRun:
+def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
+    task = Task.objects.create(
+        team=team,
+        title="scout run",
+        description="scout run",
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+    )
+    task_run = TaskRun.objects.create(task=task, team=team)
+    if status is not None:
+        TaskRun.objects.filter(id=task_run.id).update(status=status)
+        task_run.refresh_from_db()
+    return task_run
+
+
+def _make_run(team: Team, *, task_run_status: str = TaskRun.Status.IN_PROGRESS, **overrides) -> SignalScoutRun:
+    """Build a SignalScoutRun bridge row whose TaskRun is in the given status."""
     config, _ = SignalScoutConfig.objects.get_or_create(team=team)
+    task_run = _make_task_run(team, status=task_run_status)
     defaults: dict = {
+        "task_run": task_run,
         "scout_config": config,
         "skill_name": "signals-scout-general",
         "skill_version": 1,
-        "status": SignalScoutRun.Status.RUNNING,
-        "summary": "investigating checkout 500s",
     }
     defaults.update(overrides)
     return SignalScoutRun.objects.create(team=team, **defaults)
 
 
-class TestAgentHarnessRunsAPI(APIBaseTest):
+class TestScoutHarnessRunsAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/"
 
@@ -35,27 +47,18 @@ class TestAgentHarnessRunsAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/"
 
     def test_list_returns_runs_for_team_newest_first(self) -> None:
-        older = _make_run(self.team, summary="old work")
-        SignalScoutRun.objects.filter(id=older.id).update(started_at=timezone.now() - timedelta(hours=2))
-        newer = _make_run(self.team, summary="new work")
+        older = _make_run(self.team)
+        newer = _make_run(self.team)
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         ids = [row["run_id"] for row in response.json()]
+        # newer first (created_at desc).
         assert ids == [str(newer.id), str(older.id)]
-
-    def test_list_text_filter_uses_ilike(self) -> None:
-        match = _make_run(self.team, summary="checkout flow regressing")
-        _make_run(self.team, summary="unrelated topic")
-        response = self.client.get(f"{self._list_url()}?text=checkout")
-        assert response.status_code == status.HTTP_200_OK
-        rows = response.json()
-        assert len(rows) == 1
-        assert rows[0]["run_id"] == str(match.id)
 
     def test_list_does_not_leak_runs_from_another_team(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
-        _make_run(other, summary="other-team work")
-        own = _make_run(self.team, summary="own work")
+        _make_run(other)
+        own = _make_run(self.team)
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         ids = [row["run_id"] for row in response.json()]
@@ -68,16 +71,16 @@ class TestAgentHarnessRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 2
 
-    def test_retrieve_returns_full_payload(self) -> None:
-        run = _make_run(
-            self.team,
-            findings=[{"finding_id": "f1", "emitted": True}],
-        )
+    def test_retrieve_returns_bridge_projection(self) -> None:
+        run = _make_run(self.team)
         response = self.client.get(self._detail_url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["run_id"] == str(run.id)
-        assert body["findings"] == [{"finding_id": "f1", "emitted": True}]
+        assert body["skill_name"] == "signals-scout-general"
+        assert body["task_run_id"] == str(run.task_run_id)
+        # Status flows from the linked TaskRun (default fixture sets IN_PROGRESS).
+        assert body["status"] == TaskRun.Status.IN_PROGRESS
 
     def test_retrieve_unknown_id_returns_404(self) -> None:
         response = self.client.get(self._detail_url("00000000-0000-0000-0000-000000000000"))
@@ -90,14 +93,13 @@ class TestAgentHarnessRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-class TestAgentHarnessEmitFindingAPI(APIBaseTest):
+class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         # The harness preflight mirrors `emit_signal()`'s downstream gates: the org
         # must have AI processing approved and the team must have an enabled
         # SignalSourceConfig for the signals_scout source. Without this setup, the
-        # preflight short-circuits before `emit_signal` runs and the non-shadow
-        # tests assert against the wrong state.
+        # preflight short-circuits before `emit_signal` runs.
         from products.signals.backend.models import SignalSourceConfig
 
         self.organization.is_ai_data_processing_approved = True
@@ -129,47 +131,21 @@ class TestAgentHarnessEmitFindingAPI(APIBaseTest):
         body.update(overrides)
         return body
 
-    def test_emit_finding_in_shadow_mode_persists_without_firing_pipeline(self) -> None:
+    def test_emit_finding_calls_emit_signal_with_deterministic_source_id(self) -> None:
         run = _make_run(self.team)
-        # Default config rows are shadow_mode=True per model default.
-        with patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit:
-            response = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body == {"finding_id": "f-1", "emitted": False, "skipped_reason": "shadow_mode"}
-        mock_emit.assert_not_called()
-        run.refresh_from_db()
-        assert len(run.findings) == 1
-        assert run.findings[0]["finding_id"] == "f-1"
-        assert run.findings[0]["emitted"] is False
-
-    def test_emit_finding_outside_shadow_mode_calls_emit_signal(self) -> None:
-        run = _make_run(self.team)
-        SignalScoutConfig.objects.filter(team=self.team).update(shadow_mode=False)
         with patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit:
             response = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["emitted"] is True
+        assert body["finding_id"] == "f-1"
         assert body["skipped_reason"] is None
         mock_emit.assert_awaited_once()
-        run.refresh_from_db()
-        assert run.findings[0]["emitted"] is True
+        # Idempotency is via the deterministic `source_id` keyed on (run, finding).
+        assert mock_emit.await_args.kwargs["source_id"] == f"run:{run.id}:finding:f-1"
 
-    def test_emit_finding_idempotent_on_finding_id(self) -> None:
-        run = _make_run(self.team)
-        SignalScoutConfig.objects.filter(team=self.team).update(shadow_mode=False)
-        with patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit:
-            first = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
-            second = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
-        assert first.status_code == status.HTTP_200_OK
-        assert second.status_code == status.HTTP_200_OK
-        assert second.json()["skipped_reason"] == "already_emitted"
-        # Pipeline only ever fires once for the same finding_id.
-        mock_emit.assert_awaited_once()
-
-    def test_emit_finding_rejects_non_running_run(self) -> None:
-        run = _make_run(self.team, status=SignalScoutRun.Status.COMPLETED)
+    def test_emit_finding_rejects_non_in_progress_run(self) -> None:
+        run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
         response = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -191,23 +167,20 @@ class TestAgentHarnessEmitFindingAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-class TestAgentHarnessMemoryAPI(APIBaseTest):
+class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
 
     def _delete_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/"
 
-    def test_remember_creates_agent_inference_entry(self) -> None:
-        body = {"key": "k1", "content": "checkout regression noise — already tracked", "tags": ["checkout"]}
+    def test_remember_creates_entry(self) -> None:
+        body = {"key": "k1", "content": "checkout regression noise — already tracked"}
         response = self.client.post(self._list_url(), data=body, format="json")
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["key"] == "k1"
-        assert data["authority"] == SignalScratchpad.Authority.SCOUT_INFERENCE
-        assert data["tags"] == ["checkout"]
-        # Default 7-day TTL applied — exact value not asserted, but expires_at must be set.
-        assert data["expires_at"] is not None
+        assert data["content"] == "checkout regression noise — already tracked"
 
     def test_remember_idempotent_upsert_on_team_key(self) -> None:
         first = self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
@@ -217,50 +190,21 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
 
-    def test_remember_rejects_overwrite_of_human_confirmed(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="locked",
-            content="human-curated",
-            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
-        )
-        response = self.client.post(
-            self._list_url(), data={"key": "locked", "content": "agent override"}, format="json"
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_search_returns_unexpired_only_by_default(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="active",
-            content="still relevant",
-            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
-            expires_at=timezone.now() + timedelta(days=1),
-        )
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="stale",
-            content="aged out",
-            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
-            expires_at=timezone.now() - timedelta(days=1),
-        )
+    def test_search_returns_team_entries(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
+        SignalScratchpad.objects.create(team=self.team, key="another", content="more memory")
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
-        keys = [row["key"] for row in response.json()]
-        assert keys == ["active"]
+        keys = {row["key"] for row in response.json()}
+        assert keys == {"active", "another"}
 
-    def test_search_include_expired_surfaces_them(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="stale",
-            content="aged out",
-            authority=SignalScratchpad.Authority.SCOUT_INFERENCE,
-            expires_at=timezone.now() - timedelta(days=1),
-        )
-        response = self.client.get(f"{self._list_url()}?include_expired=true")
+    def test_search_text_filter_uses_ilike(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="match", content="The CHECKOUT funnel is broken")
+        SignalScratchpad.objects.create(team=self.team, key="miss", content="image loading is slow")
+        response = self.client.get(f"{self._list_url()}?text=checkout")
         assert response.status_code == status.HTTP_200_OK
         keys = [row["key"] for row in response.json()]
-        assert "stale" in keys
+        assert keys == ["match"]
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -270,7 +214,7 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
         keys = [row["key"] for row in response.json()]
         assert keys == ["ours"]
 
-    def test_forget_removes_agent_entry(self) -> None:
+    def test_forget_removes_entry(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="v")
         response = self.client.post(self._delete_url(), data={"key": "k1"}, format="json")
         assert response.status_code == status.HTTP_200_OK
@@ -281,16 +225,6 @@ class TestAgentHarnessMemoryAPI(APIBaseTest):
         response = self.client.post(self._delete_url(), data={"key": "ghost"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": False}
-
-    def test_forget_refuses_human_confirmed(self) -> None:
-        SignalScratchpad.objects.create(
-            team=self.team,
-            key="locked",
-            content="curated",
-            authority=SignalScratchpad.Authority.HUMAN_CONFIRMED,
-        )
-        response = self.client.post(self._delete_url(), data={"key": "locked"}, format="json")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_remember_accepts_run_id_belonging_to_same_team(self) -> None:
         run = _make_run(self.team)
