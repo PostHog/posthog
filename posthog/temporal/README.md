@@ -517,34 +517,13 @@ def test_my_pure_function(team):
     assert build_query(source) == "..."
 ```
 
-### Share `WorkflowEnvironment` + `Worker` across tests in the file
+### Sharing `WorkflowEnvironment` + `Worker` across tests is tempting but brittle
 
-`WorkflowEnvironment.start_time_skipping()` spawns a real `temporal-test-server` process; `Worker(...)` registers every workflow + activity. Booting them per-test compounds into minutes of CI cost. Use a module-scoped autouse fixture instead:
+`WorkflowEnvironment.start_time_skipping()` spawns a real `temporal-test-server` process; `Worker(...)` registers every workflow + activity. Booting them per-test is expensive and the obvious optimization is a module-scoped autouse fixture that boots once and yields a shared client.
 
-```python
-_shared_workflow_env: Any = None
+**We tried this on `test_end_to_end.py` and reverted it (PR #59405).** The savings were real on most tests (~8s per invocation) but specific tests interact with process-wide state — mocking `ShutdownMonitor.raise_if_is_worker_shutdown`, patching `ee.api.billing.requests.get` and `posthog.cloud_utils.is_instance_licensed_cached` — in ways that, once applied to the shared Worker's activity-executor threads, take minutes to recover from after the test's mock context exits. The worker-shutdown tests were the obvious case; the billing-limits tests surfaced next; the pattern was likely not exhaustive. The CI cost regression outweighed the saving.
 
-
-@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")
-async def _shared_workflow_environment_and_worker():
-    global _shared_workflow_env
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=settings.MY_TASK_QUEUE,
-            workflows=[MyWorkflow, ...],
-            activities=ACTIVITIES,
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=50),
-            max_concurrent_activities=50,
-            debug_mode=True,
-        ):
-            _shared_workflow_env = env
-            yield env
-            _shared_workflow_env = None
-```
-
-Each test then runs `await _shared_workflow_env.client.execute_workflow(...)` without nesting its own context managers. Workflow execution is stateless across runs (each call gets its own `workflow_id`), so the same Worker can service every test serially. See `posthog/temporal/tests/data_imports/test_end_to_end.py` for a real example.
+If you want to try sharing again, the safe pre-condition is: **no test in the file mocks or patches a target the shared Worker's threads can reach during workflow execution.** That's hard to verify by inspection, so escape hatches end up necessary. The pattern works fine in principle but needs per-file judgement, not a blanket optimization.
 
 ### Watch for production code that calls `connection.connect()`
 
