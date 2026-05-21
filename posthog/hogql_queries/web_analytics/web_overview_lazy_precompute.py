@@ -159,9 +159,16 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     #     release condition on the flag to enable rollout.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
     #     "Allow precompute" toggle).
+    # When invoked from a user request the runner has `user` set — pass the
+    # user's distinct_id so the flag's user-level cohort condition (e.g. the
+    # PostHog Team cohort the existing toggle uses) can actually match. For
+    # cache-warmer / Celery / unauthenticated paths `user` is None; fall back
+    # to the team UUID so the call still has a stable distinct_id, and rely on
+    # the org-group condition to gate those requests.
+    distinct_id = runner.user.distinct_id if runner.user else str(runner.team.uuid)
     if not posthoganalytics.feature_enabled(
         "web-analytics-precompute-toggle",
-        str(runner.team.id),
+        distinct_id,
         groups={"organization": str(runner.team.organization_id)},
         group_properties={"organization": {"id": str(runner.team.organization_id)}},
         send_feature_flag_events=False,
