@@ -4125,10 +4125,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_materialized_column_optimized_range_comparison_non_nullable(self, op: str, ch_fn: str) -> None:
-        # Non-nullable mat cols store JSON nulls / missing keys as the sentinel strings ``''``
-        # and ``'null'``. The rewrite drops the ``nullIf(nullIf(..., ''), 'null')`` wrapper
-        # (which is opaque to minmax) and replaces it with explicit ``notEquals`` checks so
-        # the bare comparison can use the skip index.
+        # Non-nullable: drop the ``nullIf(nullIf(..., ''), 'null')`` wrapper (opaque to minmax) and inline the sentinel exclusion as ``notEquals`` clauses so the bare comparison can use the index.
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 f"properties.test_prop {op} 'some_value'",
@@ -4147,9 +4144,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_materialized_column_optimized_range_comparison_nullable(self, op: str, ch_fn: str) -> None:
-        # Nullable mat cols normally print as ``ifNull(less(col, x), 0)``; the ``ifNull``
-        # blocks minmax. Rewrite to ``(less(col, x) AND col IS NOT NULL)`` — same WHERE
-        # semantics (NULL AND FALSE = FALSE) but minmax-friendly.
+        # Nullable: replace ``ifNull(less(col, x), 0)`` (opaque to minmax) with ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``), minmax-friendly.
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 f"properties.test_prop {op} 'some_value'",
@@ -4158,10 +4153,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_materialized_column_range_comparison_not_optimized_for_null_constant(self) -> None:
-        # ``col < null`` is semantically NULL for every row, which falsifies the WHERE clause —
-        # the printer constant-folds it to ``'0'``. Our range rewrite has to bail out for the
-        # null constant so the folding path is reached; if we naively emitted
-        # ``(less(col, NULL) AND col IS NOT NULL)`` we'd hide the short-circuit.
+        # ``col < null`` is NULL for every row → false in WHERE; the printer constant-folds to ``'0'``. The rewrite bails on the null constant so the fold path is reached — a naive ``(less(col, NULL) AND col IS NOT NULL)`` would hide it.
         with materialized("events", "test_prop", is_nullable=True):
             self._test_materialized_column_comparison(
                 "properties.test_prop < null",
@@ -4169,8 +4161,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_materialized_column_range_comparison_only_when_property_on_left(self) -> None:
-        # property_to_expr always puts the column on the left, so we only optimize that side.
-        # The reverse form falls back to the default ifNull wrap rather than guessing a flipped op.
+        # property_to_expr always puts the column on the left; the reverse form falls back to the default ``ifNull`` wrap rather than guessing a flipped op.
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 "'some_value' < properties.test_prop",
@@ -4180,14 +4171,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # Nullable mat cols only treat actual JSON null / missing keys as SQL NULL — the
-            # empty string and the literal string ``'null'`` are real values that compare
-            # lexically. ``'' < 'mango'`` is true (empty sorts first), so ``d_empty`` matches.
-            # ``'null' >= 'mango'`` is true (``'n' > 'm'``), so ``d_null_str`` matches.
+            # Nullable: only actual JSON null / missing keys are SQL NULL — ``''`` and ``'null'`` are real values that compare lexically (``'' < 'mango'`` matches ``d_empty``, ``'null' >= 'mango'`` matches ``d_null_str`` since ``'n' > 'm'``).
             ("nullable", True, [("d_empty",), ("d_low",)], [("d_high",), ("d_mid",), ("d_null_str",)]),
-            # Non-nullable mat cols additionally treat ``''`` and ``'null'`` as NULL sentinels.
-            # The range rewrite's inline ``notEquals(col, '')`` / ``notEquals(col, 'null')``
-            # excludes them from both LT and GTE results.
+            # Non-nullable: ``''`` and ``'null'`` are also NULL sentinels; the rewrite's inline ``notEquals`` clauses exclude them from both LT and GTE results.
             ("not nullable", False, [("d_low",)], [("d_high",), ("d_mid",)]),
         ]
     )
@@ -4198,9 +4184,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         expected_lt_mango: list[tuple[str]],
         expected_gte_mango: list[tuple[str]],
     ) -> None:
-        # End-to-end check: the rewrite preserves the printer's prior semantics for both
-        # nullability flavors AND ClickHouse actually picks up the minmax skip index.
-        # Companion to ``test_materialized_column_optimization_returns_correct_results`` below.
+        # End-to-end: rewrite preserves the printer's prior semantics for both nullability flavors AND ClickHouse picks up the minmax index. Companion to ``test_materialized_column_optimization_returns_correct_results`` below.
         with materialized("events", "test_prop", create_minmax_index=True, is_nullable=is_nullable) as mat_col:
             _create_event(team=self.team, distinct_id="d_low", event="test_event", properties={"test_prop": "apple"})
             _create_event(team=self.team, distinct_id="d_mid", event="test_event", properties={"test_prop": "mango"})

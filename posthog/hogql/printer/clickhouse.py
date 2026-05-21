@@ -255,7 +255,7 @@ class ClickHousePrinter(BasePrinter):
             # Build rate lookup expressions
             from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
             to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
-            # Use if() around divisor for compatibility with legacy ClickHouse analyzer behavior.
+            # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
             safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
             return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
 
@@ -637,39 +637,10 @@ class ClickHousePrinter(BasePrinter):
     }
 
     def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
-        """
-        Returns an optimized printed expression for range comparisons (``<``, ``<=``, ``>``, ``>=``)
-        on individually materialized string columns.
+        """Rewrite ``<``, ``<=``, ``>``, ``>=`` on materialized string columns so minmax can fire.
 
-        Nullable variant
-        ~~~~~~~~~~~~~~~~
-        Without this rewrite, ``properties.foo < 'x'`` on a nullable mat column prints as:
-            ifNull(less(events.mat_foo, 'x'), 0)
-        The ``ifNull`` wrapper is opaque to the planner and defeats the minmax skip index. We
-        rewrite to:
-            (less(events.mat_foo, 'x') AND (events.mat_foo IS NOT NULL))
-        which is semantically identical in a WHERE clause (NULL AND FALSE = FALSE) but lets
-        ClickHouse use the minmax index — both for range pruning on ``less`` and for skipping
-        granules that are entirely NULL via ``IS NOT NULL``.
-
-        Non-nullable variant
-        ~~~~~~~~~~~~~~~~~~~~
-        Non-nullable mat columns store JSON nulls and missing keys as the sentinel strings
-        ``''`` and ``'null'``. PropertySwapper wraps the column in ``nullIf(nullIf(col, ''), 'null')``
-        to scrub them, but that wrapper hides the column from the minmax index. Range comparisons
-        can't bail like equality does (an EXACT against a non-sentinel constant doesn't need the
-        wrapper at all — ``equals('', 'real')`` is just false), because ``less('', 'real')`` IS
-        true and a naive rewrite would let the sentinel match the user's range.
-
-        Solution: inline the sentinel exclusion as explicit AND clauses, leaving the comparison
-        side of the expression bare so minmax can prune::
-
-            (less(events.mat_foo, 'x')
-             AND notEquals(events.mat_foo, '')
-             AND notEquals(events.mat_foo, 'null'))
-
-        ClickHouse evaluates each AND-ed clause against the index independently — ``less`` keeps
-        its minmax pruning, while the two ``notEquals`` clauses act as row-level filters.
+        Nullable: ``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``) but minmax-friendly.
+        Non-nullable: PropertySwapper wraps in ``nullIf(nullIf(col, ''), 'null')`` to scrub ``''`` / ``'null'`` sentinels, hiding the column from minmax. Inline the sentinel exclusion as ``AND notEquals(col, '') AND notEquals(col, 'null')`` so the comparison stays bare; ClickHouse evaluates each AND-ed clause against the index independently.
         """
         if node.op not in self._RANGE_OP_TO_CH_NAME:
             return None

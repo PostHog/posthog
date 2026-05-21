@@ -1,22 +1,6 @@
 """Verify property_to_expr emits SQL that uses ClickHouse skip indexes.
 
-For each combination of:
-  - comparison operator (=, !=, <, <=, >, >=, BETWEEN, ILIKE, IS_SET, IN, regex)
-  - skip index type (minmax, bloom_filter, ngrambf_v1 lower, property-group keys_bf/values_bf)
-  - materialization strategy (raw JSON, mat col nullable, mat col non-nullable, dmat, property group map)
-  - property scope (event, person-on-events, person)
-
-verify whether ClickHouse's EXPLAIN PLAN actually selects the expected skip indexes.
-
-We check the plan instead of just diffing the printed SQL because the SQL can look fine but
-still defeat index selection — wrapping the column in a non-monotonic function, an ``ifNull(...)``
-that the planner can't see through, or a ``nullIf(nullIf(col, ''), 'null')`` sentinel scrub for
-non-nullable mat columns.
-
-Each row in the matrix below carries an explicit ``expected_used`` flag. Where the current behavior
-is sub-optimal (an index that *could* fire doesn't, because of how property_to_expr or the printer
-wraps the comparison), the row's docstring/comment calls it out so future fixes can flip the flag
-rather than discover the gap from scratch.
+Cross product of (operator) × (skip index type) × (materialization strategy) × (property scope), checked via ``EXPLAIN PLAN indexes=1``. We assert on the plan instead of diffing the printed SQL because the SQL can look fine but still defeat index selection — function wraps the planner can't see through, an ``ifNull(...)``, or the ``nullIf(nullIf(col, ''), 'null')`` sentinel scrub for non-nullable mat columns.
 """
 
 import json
@@ -63,15 +47,11 @@ from ee.clickhouse.materialized_columns.columns import (
     materialize,
 )
 
-# A property key that:
-#  - does NOT start with `$` (so it falls into `properties_group_custom`, not feature_flags/ai)
-#  - is not in `ignore_custom_properties` (token, distinct_id, utm_*, ...)
-# These two together place the key in the ``custom`` property group.
+# Property key chosen to land in ``properties_group_custom`` — no ``$`` prefix and not in ``ignore_custom_properties`` (``token``, ``distinct_id``, ``utm_*``, ...).
 EVENT_PROP_KEY = "test_prop"
 PERSON_PROP_KEY = "test_prop"
 
-# Seed values. Numeric strings let us reuse the same key for BETWEEN, which
-# validates operands with ``float()``.
+# Numeric strings let us reuse the same key for BETWEEN, which validates operands with ``float()``.
 SEED_VALUES = [str(i) for i in range(10)]
 LONG_STRING_VALUE = "value_that_is_long_enough"
 
@@ -97,30 +77,17 @@ def _find_all_skip_indexes(plan_json: Any) -> set[str]:
 
 
 def _extract_persons_where_optimization_subquery(sql: str) -> str | None:
-    """Pull the ``where_optimization`` IN-subquery out of a ``FROM persons`` HogQL query.
+    """Pull the ``where_optimization`` IN-subquery out of a ``FROM persons`` query so we can EXPLAIN it standalone.
 
-    The HogQL ``persons`` lazy table wraps every read in an argMax + IN-subquery for
-    version dedup, producing SQL shaped like::
+    The HogQL ``persons`` lazy table wraps reads in an argMax + ``IN (SELECT where_optimization.id ... WHERE <predicate>)`` dedup pattern. ClickHouse precomputes that IN-subquery as a separate ``CreatingSets`` pipeline whose index usage doesn't surface in the outer ``EXPLAIN PLAN`` — so to check predicate-level skip indexes we EXPLAIN the subquery body directly.
 
-        FROM person WHERE id IN (
-            SELECT where_optimization.id AS id FROM person AS where_optimization
-            WHERE <our property predicate>
-        )
-
-    ClickHouse's ``EXPLAIN PLAN indexes=1`` precomputes the IN-subquery as a separate
-    pipeline (``CreatingSets``) and does not surface its index usage in the outer
-    plan. To see whether the predicate actually triggers a skip index, we have to
-    EXPLAIN that subquery on its own. This helper finds and returns it as a
-    standalone SELECT, balancing parens to handle nested ``and(...)`` expressions.
-
-    Returns the inner ``SELECT where_optimization.id ...`` body, or ``None`` if
-    the marker isn't present (event-scope queries don't have it).
+    Returns the subquery body or ``None`` for event-scope queries (no marker present).
     """
     marker = "SELECT where_optimization."
     start = sql.find(marker)
     if start == -1:
         return None
-    # We're already past the IN(...) subquery's opening paren, so paren depth starts at 1.
+    # Already past the IN(...) subquery's opening paren, so paren depth starts at 1.
     depth = 1
     for i in range(start, len(sql)):
         c = sql[i]
@@ -134,13 +101,11 @@ def _extract_persons_where_optimization_subquery(sql: str) -> str | None:
 
 
 def _run_explain_and_get_skip_indexes(query: str, values: dict[str, Any]) -> set[str]:
-    # If the query is a ``FROM persons`` HogQL wrapper, EXPLAIN the inner
-    # ``where_optimization`` subquery instead — see helper docstring for why.
+    # For ``FROM persons`` queries, EXPLAIN the inner ``where_optimization`` subquery instead — see helper docstring for why.
     inner = _extract_persons_where_optimization_subquery(query)
     if inner is not None:
         query = inner
-    # Apply the same ClickHouse settings the runtime uses (transform_null_in etc.).
-    # Skip index selection diverges from real queries without these.
+    # Apply the runtime ClickHouse settings (``transform_null_in`` etc.) — skip index selection diverges from real queries without them.
     settings = {
         k: "1" if v is True else "0" if v is False else str(v)
         for k, v in HogQLGlobalSettings().model_dump().items()
@@ -168,11 +133,7 @@ class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
         self.addCleanup(cleanup_materialized_columns)
 
     def _seed(self) -> None:
-        """Seed rows so ClickHouse doesn't compile the read to NullSource.
-
-        EXPLAIN PLAN won't show index info if the planner already concluded
-        the scan reads nothing.
-        """
+        """Seed rows so ClickHouse doesn't compile the read to NullSource — EXPLAIN PLAN won't show index info if the planner already concluded the scan reads nothing."""
         if self.SCOPE == "event":
             for i, v in enumerate(SEED_VALUES):
                 _create_event(team=self.team, distinct_id=f"d{i}", event="test_event", properties={EVENT_PROP_KEY: v})
@@ -252,10 +213,7 @@ class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
             property_groups_mode=property_groups_mode,
             materialization_mode=materialization_mode,
         )
-        # Execute the actual SELECT so the @snapshot_clickhouse_queries class decorator picks it
-        # up via capture_select_queries. EXPLAIN below doesn't match that filter, so only the
-        # real SELECT lands in the snapshot. Result is discarded; we only care about the printed
-        # SQL and the EXPLAIN plan.
+        # Execute so ``@snapshot_clickhouse_queries`` captures this SELECT (EXPLAIN below doesn't match the SELECT/WITH-prefix filter). Result discarded.
         sync_execute(query, values)
         used = _run_explain_and_get_skip_indexes(query, values)
         expected_used_set = set(expected_used)
@@ -352,10 +310,6 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
     # ----- mat col, NULLABLE, minmax index ----------------------------------
-    # Cases marked "current limitation" are gaps where property_to_expr emits
-    # an ``ifNull(less(col, x), 0)`` wrapper that defeats the minmax index.
-    # Lifting that wrapper (or letting the printer unwrap it on minmax-friendly
-    # ops) would let these fire.
 
     @parameterized.expand(
         [
@@ -363,26 +317,20 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("eq", PropertyOperator.EXACT, "5", True),
             # ``notEquals`` can't be range-pruned by minmax.
             ("neq", PropertyOperator.IS_NOT, "5", False),
-            # Range ops fire minmax via the printer's
-            # ``_get_optimized_materialized_column_range_operation`` rewrite, which replaces
-            # ``ifNull(less(col, x), 0)`` with ``(less(col, x) AND col IS NOT NULL)``.
+            # Range ops fire minmax via the printer's range-comparison rewrite (``ifNull(less(col, x), 0)`` → ``(less(col, x) AND col IS NOT NULL)``).
             ("lt", PropertyOperator.LT, "5", True),
             ("gt", PropertyOperator.GT, "5", True),
             ("lte", PropertyOperator.LTE, "5", True),
             ("gte", PropertyOperator.GTE, "5", True),
-            # Multi-value IN goes through the printer's optimized path which uses
-            # ``has([values], col)`` — minmax can prune granules where no value is in range.
+            # Multi-value IN uses the printer's ``has([values], col)`` optimized path — minmax prunes granules out of range.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
-            # icontains itself can't use minmax, but the optimized printer path
-            # adds ``col IS NOT NULL`` next to the ILIKE, which minmax CAN prune
-            # (granules that are entirely NULL).
+            # ILIKE can't use minmax, but the printer's ``col IS NOT NULL`` companion can — prunes entirely-NULL granules.
             ("icontains_with_isnotnull", PropertyOperator.ICONTAINS, "5", True),
             # Regex stays wrapped in ``ifNull(match(...), 0)`` — no minmax.
             ("regex", PropertyOperator.REGEX, "[0-9]", False),
             # is_set lowers to ``col IS NOT NULL``, which minmax prunes.
             ("is_set", PropertyOperator.IS_SET, None, True),
-            # is_not_set lowers to ``col IS NULL``. ClickHouse can pick up the minmax
-            # for the inverse, marking granules where the value is always set as skippable.
+            # is_not_set → ``col IS NULL``; ClickHouse uses minmax on the inverse to skip granules where the value is always set.
             ("is_not_set", PropertyOperator.IS_NOT_SET, None, True),
         ]
     )
@@ -399,23 +347,17 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
     # ----- mat col, NON-NULLABLE, minmax index ------------------------------
-    # Non-nullable mat columns store JSON ``null`` and missing values as the
-    # string ``'null'`` / ``''``. The printer scrubs both via
-    # ``nullIf(nullIf(col, ''), 'null')``, which makes the planner unable to
-    # see through to the underlying column for range ops.
+    # Non-nullable mat cols store JSON ``null`` / missing values as sentinel strings ``''`` / ``'null'``; the printer normally scrubs them via ``nullIf(nullIf(col, ''), 'null')``, which hides the column from minmax.
 
     @parameterized.expand(
         [
             ("eq", PropertyOperator.EXACT, "5", True),
-            # Range ops use minmax via the printer's range-comparison rewrite. For non-nullable
-            # mat cols the sentinel exclusion is inlined as extra AND clauses so the comparison
-            # itself stays bare and minmax-friendly.
+            # Range ops use minmax via the rewrite — sentinel exclusion is inlined as extra ``notEquals`` clauses so the comparison itself stays bare.
             ("lt", PropertyOperator.LT, "5", True),
             ("gt", PropertyOperator.GT, "5", True),
-            # Multi-value IN goes through the optimized printer path: ``has([...], col)``.
+            # Multi-value IN: ``has([...], col)`` via the printer's optimized path.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
-            # Unlike the nullable case the printer doesn't emit an ``IS NOT NULL`` companion
-            # clause here (the column type is already non-nullable), so minmax has no leverage.
+            # No ``IS NOT NULL`` companion clause here (column is already non-nullable), so minmax has no leverage.
             ("icontains_no_isnotnull", PropertyOperator.ICONTAINS, "5", False),
             ("regex", PropertyOperator.REGEX, "[0-9]", False),
         ]
@@ -433,16 +375,11 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
     # ----- mat col, NULLABLE, minmax index — `<` against various constant TYPES ----
-    # Documents what happens when the filter value's Python type doesn't line up
-    # with the materialized column's String storage. Mat columns are typed
-    # ``Nullable(String)`` (or ``String``); the printer hands the constant to
-    # ClickHouse as-is. There's no type coercion in our rewrite — that's left
-    # to ClickHouse, which refuses to compare mismatched types.
+    # Mat columns are ``Nullable(String)`` / ``String``; the rewrite doesn't coerce — ClickHouse decides whether to accept the comparison.
 
     @parameterized.expand(
         [
-            # String constants — compared lexically against the String column.
-            # All flavors of string (alphabetic, digit-like, datetime-like) work and minmax fires.
+            # String constants — lexical compare against the String column; minmax fires for every flavor.
             ("string_pure_alpha", "apple"),
             ("string_numeric_looking", "5"),
             ("string_date_looking", "2024-01-15"),
@@ -459,17 +396,8 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
     def test_mat_col_nullable_minmax_lt_numeric_looking_strings_compare_lexically(self) -> None:
-        # String columns compare byte-by-byte. ``'1000' < '500'`` is TRUE (``'1' < '5'``),
-        # even though numerically 1000 > 500. ``'200' < '500'`` is also TRUE (``'2' < '5'``),
-        # but ``'900'`` is excluded (``'9' > '5'``).
-        #
-        # If this were a numeric comparison, the result would be just ``'200'`` — '1000'
-        # would NOT match and '900' WOULD match. Verifying both rows return makes the
-        # lexical behavior load-bearing for the test rather than incidental.
-        #
-        # The fix in real code is to declare the property's ``property_type=Numeric``
-        # in a PropertyDefinition (PropertySwapper then wraps the column in ``toFloat``),
-        # at the cost of the minmax index — see ``test_mat_col_lt_typed_numeric_property``.
+        # Byte-wise: ``'1000' < '500'`` is true (``'1' < '5'``), ``'200' < '500'`` is true (``'2' < '5'``), ``'900' < '500'`` is false (``'9' > '5'``). Numeric compare would match only ``'200'``, so seeding ``d_1000`` makes the lexical behavior load-bearing.
+        # Fix in production: declare ``property_type=Numeric`` (PropertySwapper then wraps in ``toFloat``, but the wrap hides the column from minmax — see ``test_mat_col_lt_typed_numeric_property``).
         _create_event(team=self.team, distinct_id="d_200", event="test_event", properties={EVENT_PROP_KEY: "200"})
         _create_event(team=self.team, distinct_id="d_900", event="test_event", properties={EVENT_PROP_KEY: "900"})
         _create_event(team=self.team, distinct_id="d_1000", event="test_event", properties={EVENT_PROP_KEY: "1000"})
@@ -481,20 +409,12 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             team=self.team,
             query="SELECT distinct_id FROM events WHERE properties.test_prop < '500' ORDER BY distinct_id",
         )
-        # Lexical: '1000' (1 < 5) and '200' (2 < 5) both match; '900' (9 > 5) is excluded.
-        # If numeric: only '200' would match.
+        # Lexical: ``'1000'`` (1 < 5) and ``'200'`` (2 < 5) both match; ``'900'`` (9 > 5) is excluded. Numeric would match only ``'200'``.
         self.assertEqual(result.results, [("d_1000",), ("d_200",)])
 
     @parameterized.expand(
         [
-            # Numeric and datetime Python constants — the printer emits the constant raw
-            # (e.g. ``less(events.mat_test_prop, 5)`` or
-            # ``less(events.mat_test_prop, toDateTime64('2024-01-15 ...'))``).
-            # ClickHouse refuses to compare String to UInt8 / Float64 / DateTime64 and the
-            # query fails to execute. The rewrite is what the existing equality / IN rewrites
-            # do too — none of them gate on constant type. If you mean a numeric/datetime
-            # comparison, define the property's ``property_type`` so PropertySwapper coerces
-            # the column appropriately (see ``test_mat_col_lt_typed_*`` below).
+            # Non-string Python constants — printer emits the constant raw (``less(col, 5)`` or ``less(col, toDateTime64('2024-01-15 ...'))``) and ClickHouse refuses ``String < UInt8 / Float64 / DateTime64`` at execution. (Same behavior as the existing equality / IN rewrites — none of them gate on constant type. For numeric/datetime compare, declare ``property_type`` on the PropertyDefinition; see ``test_mat_col_lt_typed_*``.)
             ("int", 5),
             ("float", 5.5),
             ("datetime", datetime(2024, 1, 15, 10, 30)),
@@ -508,18 +428,14 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         query, values = self._filter_to_sql(self._filter(PropertyOperator.LT, value))
         with self.assertRaises(Exception) as ctx:
             sync_execute(query, values)
-        # ClickHouse: ``No supertype for types String, UInt8`` or
-        # ``No operation less between String and DateTime64``.
+        # ClickHouse: ``No supertype for types String, UInt8`` or ``No operation less between String and DateTime64``.
         message = str(ctx.exception).lower()
         assert "supertype" in message or "no operation" in message, (
             f"Expected a type-mismatch error from ClickHouse, got: {ctx.exception}"
         )
 
     def test_mat_col_lt_typed_numeric_property(self) -> None:
-        # PropertyDefinition.property_type=Numeric tells PropertySwapper to wrap the
-        # column in ``toFloat(...)``. That coerces the stored String to a Float and lets
-        # ``less(toFloat(col), 5)`` evaluate, but the ``toFloat`` Call hides the column
-        # from minmax — the index doesn't fire.
+        # ``property_type=Numeric`` → PropertySwapper wraps in ``toFloat(col)`` — comparison works (``less(toFloat(col), 5)``) but the Call hides the column from minmax.
         self._seed()
         PropertyDefinition.objects.create(
             team=self.team,
@@ -537,10 +453,7 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
     def test_mat_col_lt_typed_datetime_property(self) -> None:
-        # PropertyDefinition.property_type=DateTime triggers a ``toDateTime(col)`` wrap.
-        # Same shape as the Numeric case — the column is hidden behind a Call so minmax
-        # never fires. We don't execute the query here because the seed values aren't
-        # datetime-parsable; the EXPLAIN plan still tells us what we need.
+        # ``property_type=DateTime`` → ``toDateTime(col)`` wrap, same minmax-hiding shape as the Numeric case above. Seed with datetime-parsable strings so execution succeeds.
         DT_PROP = "lt_datetime_prop"
         for i in range(10):
             _create_event(
@@ -605,15 +518,9 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         [
             ("eq", PropertyOperator.EXACT, "5", True),
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
-            # The sentinel-aware optimized path bails for empty-string/null in the value set
-            # (non-nullable mat columns store both as the string ``''`` or ``'null'``), so the
-            # bloom filter doesn't fire here.
+            # Sentinel-aware IN path bails when ``''`` / ``'null'`` is in the value set (non-nullable mat cols store both as sentinels), so the bloom filter doesn't fire.
             ("in_with_sentinel", PropertyOperator.IN_, ["5", ""], False),
-            # The range-comparison rewrite emits ``less(col, '5') AND notEquals(col, '')
-            # AND notEquals(col, 'null')``. ClickHouse considers each AND-ed clause against
-            # every applicable index — minmax fires on the ``less`` half (range pruning),
-            # and the bloom filter fires on the ``notEquals`` halves (granules with no ``''``
-            # / ``'null'`` rows trivially satisfy the sentinel checks).
+            # Range rewrite emits ``less(col, '5') AND notEquals(col, '') AND notEquals(col, 'null')``; ClickHouse considers each AND-ed clause against every applicable index — minmax fires on ``less``, bloom filter fires on the sentinel ``notEquals`` clauses (granules with no ``''`` / ``'null'`` rows trivially satisfy them).
             ("lt", PropertyOperator.LT, "5", True),
         ]
     )
@@ -635,12 +542,11 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
     @parameterized.expand(
         [
             ("icontains_long", PropertyOperator.ICONTAINS, LONG_STRING_VALUE, True),
-            # NOT_ICONTAINS can't be pruned by an ngram bloom filter — absence
-            # of an n-gram is what we'd need, and bloom filters can't prove that.
+            # NOT_ICONTAINS can't be pruned by an ngram bloom filter — proving n-gram absence is what we'd need, and bloom filters can't.
             ("not_icontains", PropertyOperator.NOT_ICONTAINS, "abc", False),
             ("eq", PropertyOperator.EXACT, "5", False),
             ("lt", PropertyOperator.LT, "5", False),
-            # Regex isn't decomposed into n-gram probes by property_to_expr / the printer.
+            # property_to_expr / the printer don't decompose regex into n-gram probes.
             ("regex", PropertyOperator.REGEX, LONG_STRING_VALUE, False),
         ]
     )
@@ -661,9 +567,7 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
     @parameterized.expand(
         [
             ("icontains_long", PropertyOperator.ICONTAINS, LONG_STRING_VALUE, True),
-            # Sentinel patterns (matching '' or 'null') bail out of the ILIKE
-            # optimization on non-nullable columns to preserve null semantics,
-            # so the ngram index doesn't fire.
+            # Sentinel patterns (matching ``''`` / ``'null'``) bail out of the ILIKE optimization on non-nullable cols to preserve null semantics, so the ngram index doesn't fire.
             ("icontains_null_sentinel", PropertyOperator.ICONTAINS, "null", False),
         ]
     )
@@ -680,8 +584,7 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
     # ----- property group map column ----------------------------------------
-    # ``properties_group_custom`` is a ``Map(String, String)`` with bloom filters on
-    # ``mapKeys`` (``..._keys_bf``) and ``mapValues`` (``..._values_bf``).
+    # ``properties_group_custom`` is a ``Map(String, String)`` with bloom filters on ``mapKeys`` (``..._keys_bf``) and ``mapValues`` (``..._values_bf``).
 
     PG_KEYS_INDEX = "properties_group_custom_keys_bf"
     PG_VALUES_INDEX = "properties_group_custom_values_bf"
@@ -692,14 +595,11 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("eq_string", PropertyOperator.EXACT, "5", {PG_KEYS_INDEX, PG_VALUES_INDEX}, set()),
             # is_set → ``has(map, key)`` — keys bloom filter applies.
             ("is_set", PropertyOperator.IS_SET, None, {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
-            # is_not_set → ``not(has(map, key))``. ClickHouse still picks up the keys bloom filter
-            # here (the planner can use it to confirm granules where the key is definitely absent).
+            # is_not_set → ``not(has(map, key))`` — keys bloom filter still applies (proves granules where the key is definitely absent).
             ("is_not_set", PropertyOperator.IS_NOT_SET, None, {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
-            # Multi-value IN → ``and(has(map, key), in(map[key], tuple(...)))`` — keys only;
-            # transform_null_in defaults break a direct values-bloom probe.
+            # Multi-value IN → ``and(has(map, key), in(map[key], tuple(...)))`` — keys only; ``transform_null_in`` defaults break a direct values-bloom probe.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], {PG_KEYS_INDEX}, {PG_VALUES_INDEX}),
-            # Range ops fall back to the unoptimized path (``has(map, key) ? map[key] : null``
-            # compared with a constant) and the bloom filters don't apply.
+            # Range ops fall back to the unoptimized ``has(map, key) ? map[key] : null`` form — no bloom filter applies.
             ("lt", PropertyOperator.LT, "5", set(), {PG_KEYS_INDEX, PG_VALUES_INDEX}),
             # ILIKE on a map value isn't decomposed into ngram or key probes.
             ("icontains", PropertyOperator.ICONTAINS, "5", set(), {PG_KEYS_INDEX, PG_VALUES_INDEX}),
@@ -722,8 +622,7 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
         )
 
     # ----- dmat (dynamic materialized column) -------------------------------
-    # dmat columns have no skip indexes attached today, but the printer should
-    # route the property to the dmat column instead of JSON extraction.
+    # dmat columns have no skip indexes today; we only check that the printer routes the property to the dmat column instead of JSON extraction.
 
     def test_dmat_string_no_skip_indexes(self) -> None:
         self._seed()
@@ -857,12 +756,7 @@ class TestPersonOnEventsPropertySkipIndexes(_PropertySkipIndexTestBase):
 
 @snapshot_clickhouse_queries
 class TestPersonPropertySkipIndexes(_PropertySkipIndexTestBase):
-    """Person properties on the persons table, queried via ``FROM persons``.
-
-    The persons table has no built-in property-group map columns, so the only
-    way to get a skip index here is by materializing a column on the persons
-    table directly.
-    """
+    """Person properties via ``FROM persons``. The persons table has no built-in property-group map columns, so the only way to get a skip index is by materializing a column on the persons table directly."""
 
     SCOPE = "person"
     PROPERTY_TO_EXPR_SCOPE = "person"
