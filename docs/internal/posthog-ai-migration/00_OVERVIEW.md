@@ -12,6 +12,7 @@ This shifts the migration from "rewrite the chat UI" to "build the relay + a fro
 | 2 | Core functionality (the SSE relay + frontend stream processor) | [`02_CORE.md`](./02_CORE.md) |
 | 3 | Rich UI (MCP tool dispatch → existing renderers) | [`03_RICH_UI.md`](./03_RICH_UI.md) |
 | 4 | Prompts (`ee/hogai/chat_agent/prompts/` → sandbox `systemPrompt`) | [`04_PROMPTS.md`](./04_PROMPTS.md) |
+| 5 | Sandbox sizing + Task model adjustments (constrained profile for PostHog AI) | [`05_SANDBOX.md`](./05_SANDBOX.md) |
 | — | **Backward-compatibility audit** (read before any spec) | [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) |
 | — | Open backfill items | [`TODO.md`](./TODO.md) |
 
@@ -56,7 +57,7 @@ Wins:
 │  - Conversation.agent_runtime: 'langgraph'   │
 │       | 'sandbox'   ◀── routing decision     │
 │  - Conversation.sandbox_task (FK)            │
-│  - Conversation.sandbox_run  (FK)            │
+│  - current_sandbox_run (derived from Task)   │
 │  - sandbox-route only:                       │
 │    - creates Task + Run on first message     │
 │    - opens upstream SSE to cloud-agent       │
