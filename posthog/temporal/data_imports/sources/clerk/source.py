@@ -58,7 +58,12 @@ The secret key starts with `sk_live_`.
         )
 
     def get_schemas(
-        self, config: ClerkSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ClerkSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Clerk only supports full refresh - the API doesn't support filtering by updated_at
         schemas = [

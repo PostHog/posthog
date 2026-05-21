@@ -639,6 +639,11 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(dashboard.team, user.team)
         self.assertEqual(dashboard.tiles.count(), 6)
         self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(
+            dashboard.description,
+            "A starter view of how people use your app: how many visit, whether they come back, "
+            "where traffic comes from, and how they move through your pages.",
+        )
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -2115,7 +2120,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
 
@@ -2146,7 +2151,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # Create a separate organization with advanced permissions enabled
         organization = Organization.objects.create(name="Test Organization")
         organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         organization.save()
 
@@ -2178,7 +2183,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_invite_has_private_project_access(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         private_project = Team.objects.create(name="Private project", organization=self.organization)
@@ -2218,7 +2223,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         private_project = Team.objects.create(name="Private project", organization=self.organization)

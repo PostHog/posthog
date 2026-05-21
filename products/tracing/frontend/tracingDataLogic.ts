@@ -241,7 +241,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 previous: null as SpanTreeNode[] | null,
             },
             {
-                fetchSpanTree: async (params: { spanName: string }) => {
+                fetchSpanTree: async (params: { spanName: string; serviceName: string }) => {
                     // Abort any in-flight tree fetch so rapid row-clicks can't deliver a stale
                     // response that overwrites the newer one — matches the pattern used by
                     // fetchSpans / fetchSparkline / fetchAggregation.
@@ -260,6 +260,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const response = await api.tracing.tree(
                         {
                             spanName: params.spanName,
+                            serviceName: params.serviceName,
                             dateRange: {
                                 date_from: new Date(currentStartMs).toISOString(),
                                 date_to: new Date(currentEndMs).toISOString(),

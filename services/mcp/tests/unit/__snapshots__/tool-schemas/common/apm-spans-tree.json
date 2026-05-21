@@ -93,6 +93,10 @@
                     },
                     "type": "array"
                 },
+                "serviceName": {
+                    "description": "Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.",
+                    "type": "string"
+                },
                 "serviceNames": {
                     "description": "Filter by service names.",
                     "items": {
@@ -105,7 +109,7 @@
                     "type": "string"
                 }
             },
-            "required": ["spanName"],
+            "required": ["spanName", "serviceName"],
             "type": "object"
         }
     },

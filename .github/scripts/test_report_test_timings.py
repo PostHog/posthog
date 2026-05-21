@@ -27,7 +27,7 @@ def _testcase(
     duration: float = 1.0,
     start: datetime | None = None,
     name: str = "t",
-) -> report_test_timings.TestCase:
+) -> report_test_timings.TestCase:  # type: ignore[name-defined]
     test_start = start if start is not None else datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     return report_test_timings.TestCase(
         nodeid=f"m::{name}",

@@ -75,11 +75,17 @@ PRODUCTS_APPS = [
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.deployments.backend.apps.DeploymentsConfig",
+    "products.alerts.backend.apps.AlertsConfig",
+    "products.actions.backend.apps.ActionsConfig",
 ]
 
 INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",  # makes sure that whitenoise handles static files in development
-    "django.contrib.admin",
+    # `SimpleAdminConfig` skips Django's eager `autodiscover_modules('admin')` at
+    # startup. We invoke autodiscover ourselves from `register_all_admin()` (called
+    # lazily via `LazyAdminRegistry` on first `admin.site._registry` access), which
+    # keeps every product/admin import out of `django.setup()`.
+    "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -395,18 +401,42 @@ SPECTACULAR_SETTINGS = {
         "posthog.api.documentation.lint_spec_consistency_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        # Overrides fall into two categories depending on how drf-spectacular hashes them:
+        # If CI is failing with "enum naming encountered a non-optimally resolvable
+        # collision" / "Format5eaEnum"-style warnings from `hogli build:openapi-schema`,
+        # this is the dict you need to add an entry to. The warning fails CI because
+        # `--fail-on-warn` is set on the `spectacular` invocation in hogli.yaml.
         #
-        # 1. Model class paths — used for ChoiceField-backed enums where drf-spectacular
-        #    injects x-spec-enum-id from (value, label) tuples.  The override must point
-        #    to the same Choices/Enum class so _load_enum_name_overrides hashes identically.
+        # Workflow to resolve a collision:
+        #   1. Run `python manage.py find_enum_collisions` — it prints the field name,
+        #      the auto-generated name (e.g. `Format5eaEnum`), the enum values, which
+        #      components share the hash, and a suggested override entry. The suggestion
+        #      is pastable as-is for inline-list collisions (type-hint enums and
+        #      ChoiceFields with plain `choices=["A", "B"]`); only ChoiceFields with
+        #      custom labels (TextChoices where labels differ from values) need the
+        #      Choices/Enum class path filled in.
+        #   2. Add the suggested entry below (pick the right category — see "hash trap"
+        #      note below). Optionally rename the key from the auto-generated name to a
+        #      more semantic one to improve the generated schema type's name.
+        #   3. Re-run `hogli build:openapi-schema` locally to confirm the warning is gone.
+        #
+        # Full guide (when to use which pattern, anti-patterns, MCP/typegen implications):
+        #   /improving-drf-endpoints  (skill — invoke it for the walkthrough)
+        #
+        # Hash trap — overrides fall into two categories depending on how drf-spectacular
+        # hashes them, and using the wrong format silently fails (the override is ignored
+        # and the warning persists):
+        #
+        # 1. Model class paths — used for ChoiceField-backed enums whose labels differ
+        #    from their values (typical `TextChoices` with explicit labels). The override
+        #    must point to the same Choices/Enum class so _load_enum_name_overrides hashes
+        #    identically to the x-spec-enum-id.
         #
         # 2. Inline value lists — used for Enum type-hint enums (SerializerMethodField
-        #    return types) where there is NO x-spec-enum-id.  Postprocessing hashes these
-        #    as (value, value) tuples, so the override must also be a plain value list
-        #    (which _load_enum_name_overrides normalizes to (value, value)).
-        #
-        # Getting this wrong means the override hash doesn't match and the warning persists.
+        #    return types) AND ChoiceFields whose choices are plain lists (labels equal
+        #    values). The override must be a plain value list, which
+        #    _load_enum_name_overrides normalizes to (value, value) tuples — matching
+        #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
+        #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
@@ -434,7 +464,7 @@ SPECTACULAR_SETTINGS = {
         "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
-        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.api.SEARCH_DOCUMENT_TYPES",
+        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -679,6 +709,9 @@ PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop"
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly
 DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)
+
+# one-click passwordless login on the login page (also requires DEBUG)
+ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 
 ####
 # Random/temporary

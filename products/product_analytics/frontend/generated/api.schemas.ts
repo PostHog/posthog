@@ -6549,10 +6549,17 @@ export interface ChartAxisApi {
     settings?: SettingsApi | null
 }
 
+/**
+ * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+ */
+export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
+
 export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+    resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null

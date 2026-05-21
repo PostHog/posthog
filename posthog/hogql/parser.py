@@ -408,6 +408,31 @@ def get_parser(query: str) -> HogQLParser:
     return parser
 
 
+def _first_unexpected_character(query: str) -> tuple[str, int] | None:
+    """The first character outside the HogQL token set, with its offset.
+    Such a character lexes as an `UNEXPECTED_CHARACTER` token and makes the
+    program unparseable, so naming it pinpoints the real failure."""
+    try:
+        lexer = HogQLLexer(InputStream(data=query))
+        lexer.removeErrorListeners()
+        for token in lexer.getAllTokens():
+            if token.type == HogQLLexer.UNEXPECTED_CHARACTER:
+                return token.text, token.start
+    except Exception:
+        pass
+    return None
+
+
+def _describe_unexpected_character(char: str) -> str:
+    """Name an unexpected character by Unicode code point — essential when
+    it is invisible (a zero-width space, a control character, …). The
+    glyph is shown too for printable ASCII."""
+    code_point = f"U+{ord(char):04X}"
+    if 0x21 <= ord(char) <= 0x7E:
+        return f"Unexpected character {char!r} ({code_point})"
+    return f"Unexpected character {code_point}"
+
+
 class HogQLErrorListener(ErrorListener):
     query: str
 
@@ -427,6 +452,14 @@ class HogQLErrorListener(ErrorListener):
 
     def syntaxError(self, recognizer, offendingType, line, column, msg, e):
         start = max(self.get_position(line, column), 0)
+        # A character outside the HogQL token set dooms the parse. The
+        # default message quotes the raw character, which is unactionable
+        # when it is invisible — report the code point and point at the
+        # character itself.
+        unexpected = _first_unexpected_character(self.query)
+        if unexpected is not None:
+            char, offset = unexpected
+            raise SyntaxError(_describe_unexpected_character(char), start=offset, end=len(self.query))
         raise SyntaxError(msg, start=start, end=len(self.query))
 
 
@@ -466,7 +499,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitVarDecl(self, ctx: HogQLParser.VarDeclContext):
         return ast.VariableDeclaration(
-            name=ctx.identifier().getText(),
+            name=self.visit(ctx.identifier()),
             expr=self.visit(ctx.expression()) if ctx.expression() else None,
         )
 
@@ -480,16 +513,30 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitExprStmt(self, ctx: HogQLParser.ExprStmtContext):
-        return ast.ExprStatement(expr=self.visit(ctx.expression()))
+        if ctx.COLONEQUALS():
+            return ast.VariableAssignment(
+                left=self.visit(ctx.expression(0)),
+                right=self.visit(ctx.expression(1)),
+            )
+        column_expr = ctx.expression(0).columnExpr()
+        # `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+        # statement is a variable assignment. Checked on the parse tree, not the visited node,
+        # so parens are not unwrapped: `(x := 1)` stays an expression statement, matching C++.
+        if isinstance(column_expr, HogQLParser.ColumnExprNamedArgContext):
+            named_arg = self.visit(column_expr)
+            left = ast.Field(chain=[named_arg.name])
+            identifier = column_expr.identifier()
+            if self.start is not None and identifier.start and identifier.stop:
+                left.start = identifier.start.start
+                left.end = identifier.stop.stop + 1
+            return ast.VariableAssignment(left=left, right=named_arg.value)
+        return ast.ExprStatement(expr=self.visit(ctx.expression(0)))
 
     def visitReturnStmt(self, ctx: HogQLParser.ReturnStmtContext):
         return ast.ReturnStatement(expr=self.visit(ctx.expression()) if ctx.expression() else None)
 
     def visitThrowStmt(self, ctx: HogQLParser.ThrowStmtContext):
-        expression = ctx.expression()
-        if expression is None:
-            raise SyntaxError("THROW requires an expression")
-        return ast.ThrowStatement(expr=self.visit(expression))
+        return ast.ThrowStatement(expr=self.visit(ctx.expression()))
 
     def visitCatchBlock(self, ctx: HogQLParser.CatchBlockContext):
         return (
@@ -519,8 +566,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.WhileStatement(expr=self.visit(ctx.expression()), body=self.visit(statement))
 
     def visitForInStmt(self, ctx: HogQLParser.ForInStmtContext):
-        first_identifier = ctx.identifier(0).getText()
-        second_identifier = ctx.identifier(1).getText() if ctx.identifier(1) else None
+        first_identifier = self.visit(ctx.identifier(0))
+        second_identifier = self.visit(ctx.identifier(1)) if ctx.identifier(1) else None
         return ast.ForInStatement(
             valueVar=second_identifier if second_identifier is not None else first_identifier,
             keyVar=first_identifier if second_identifier is not None else None,
@@ -541,7 +588,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitFuncStmt(self, ctx: HogQLParser.FuncStmtContext):
         return ast.Function(
-            name=ctx.identifier().getText(),
+            name=self.visit(ctx.identifier()),
             params=self.visit(ctx.identifierList()) if ctx.identifierList() else [],
             body=self.visit(ctx.block()),
         )
@@ -554,7 +601,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return (self.visit(k), self.visit(v))
 
     def visitIdentifierList(self, ctx: HogQLParser.IdentifierListContext):
-        return [ident.getText() for ident in ctx.nestedIdentifier()]
+        return [".".join(self.visit(nested)) for nested in ctx.nestedIdentifier()]
 
     def visitEmptyStmt(self, ctx: HogQLParser.EmptyStmtContext):
         return ast.ExprStatement(expr=None)
@@ -629,9 +676,18 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 else:
                     limit = self.visit(exprs[0]) if exprs else None
                     offset = None
-                if isinstance(initial_query, ast.SelectQuery):
+                # Apply set-level limit/offset to the initial query —
+                # SelectSetQuery too (not just SelectQuery), and don't
+                # let a bare `LIMIT n` clobber an existing offset. Both
+                # match C++.
+                if isinstance(initial_query, (ast.SelectQuery, ast.SelectSetQuery)):
                     initial_query.limit = limit
-                    initial_query.offset = offset
+                    if offset is not None:
+                        initial_query.offset = offset
+                    if limit_clause.PERCENT():
+                        initial_query.limit_percent = True
+                    if limit_clause.TIES():
+                        initial_query.limit_with_ties = True
                     return initial_query
             return initial_query
 
@@ -1835,16 +1891,27 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if abs_text.startswith("-"):
             sign = -1
             abs_text = abs_text[1:]
-        # Hex must be dispatched BEFORE the float guard: hex digits include 'e', so
-        # "0xfe" would otherwise route through float() and raise ValueError.
+        # Hex before the float guard: hex digits include 'e', so "0xfe" would route through float().
         if abs_text.startswith("0x"):
             return ast.Constant(value=sign * int(abs_text, 16))
-        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "nan":
+        # `0b…` (BINARY_LITERAL): ClickHouse caps binary literals at 64 bits — magnitude
+        # must fit UInt64 (positive) or Int64 (negative); wider literals are rejected.
+        if abs_text.startswith("0b"):
+            magnitude = int(abs_text[2:], 2)
+            if magnitude > (2**63 if sign < 0 else 2**64 - 1):
+                raise SyntaxError(f"HogQL binary integer literals are limited to 64 bits; got {text!r}.")
+            return ast.Constant(value=sign * magnitude)
+        # `0o…` (OCTAL_PREFIX_LITERAL): rejected — ClickHouse and pre-pg16 Postgres reject it too.
+        if abs_text.startswith("0o"):
+            raise SyntaxError(
+                f"HogQL does not support `0o`-prefixed octal integer literals; got {text!r}. "
+                f"Use a plain decimal literal instead."
+            )
+        # INF/NAN_SQL tokens: `float()` handles both "inf"/"infinity" spellings.
+        if "." in abs_text or "e" in abs_text or abs_text == "inf" or abs_text == "infinity" or abs_text == "nan":
             return ast.Constant(value=float(text))
-        # Octal literals (leading '0' followed by more digits) must use base 8.
-        if len(abs_text) > 1 and abs_text[0] == "0":
-            return ast.Constant(value=sign * int(abs_text, 8))
-        return ast.Constant(value=sign * int(abs_text))
+        # Leading zeros are no-ops, never octal — "017" → 17, "09" → 9 — matching ClickHouse/Postgres.
+        return ast.Constant(value=sign * int(abs_text, 10))
 
     def visitLiteral(self, ctx: HogQLParser.LiteralContext):
         if ctx.NULL_SQL():

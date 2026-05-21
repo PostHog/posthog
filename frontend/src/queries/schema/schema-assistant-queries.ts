@@ -173,14 +173,17 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
 export interface AssistantCohortPropertyFilter {
     /**
      * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
-     * Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them.
+     * Examples:
+     * - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`
      */
     type: PropertyFilterType.Cohort
     key: 'id'
     /** The cohort ID to filter by. */
     value: integer
     /** @default in */
-    operator: PropertyOperator.In
+    operator: PropertyOperator.In | PropertyOperator.NotIn
 }
 
 export type AssistantElementPropertyFilter = AssistantBasePropertyFilter & {

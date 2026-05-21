@@ -33,6 +33,7 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
+    CONVERSATIONS = "conversations"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"

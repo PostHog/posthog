@@ -26,6 +26,7 @@ import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { PropertyOperator } from '~/types'
 
@@ -55,7 +56,8 @@ import {
 } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
-const LIVE_FEED_COLUMNS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
+const LIVE_FEED_COLUMNS_WITH_RECORDINGS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'recording', 'timestamp']
+const LIVE_FEED_COLUMNS_WITHOUT_RECORDINGS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
 const STATS_POLL_INTERVAL_MS = 1000
 
 const renderBrowserIcon = (d: BrowserBreakdownItem): JSX.Element => {
@@ -291,8 +293,12 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     const { setStatOrder, setCardOrder, setEditing, resetLayout } = useActions(liveWebAnalyticsLayoutLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
     const canEditLayout = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_EDIT_LAYOUT]
     const drillDownEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN]
+    const liveFeedColumns = currentTeam?.session_recording_opt_in
+        ? LIVE_FEED_COLUMNS_WITH_RECORDINGS
+        : LIVE_FEED_COLUMNS_WITHOUT_RECORDINGS
     const { openDrillDown } = useActions(livePersonDrillDownDrawerLogic)
     const isEditing = canEditLayout && isEditingRaw
 
@@ -493,7 +499,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             case 'live_events':
                 return (
                     <LiveChartCard title="Live events" isLoading={false} contentClassName="max-h-80 overflow-y-auto">
-                        <LiveEventsFeed events={recentEvents} columns={LIVE_FEED_COLUMNS} />
+                        <LiveEventsFeed events={recentEvents} columns={liveFeedColumns} />
                     </LiveChartCard>
                 )
         }
@@ -534,7 +540,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                 dismissKey="live-web-analytics-alpha-banner"
                 action={{ children: 'Send feedback', id: 'live-web-analytics-feedback-button' }}
             >
-                The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
+                We'd love to hear what you think about the live dashboard.
             </LemonBanner>
 
             <DndContext
