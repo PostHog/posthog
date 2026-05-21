@@ -51,6 +51,18 @@ const STATUS_CODE_OPTIONS: { key: number; label: string }[] = [
     { key: 2, label: 'Error' },
 ]
 
+// OTel severity level (https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber).
+// Ordered low → high so range operators (>, <) yield expected semantics; the backend maps to
+// severity_number for ordered comparisons.
+const SEVERITY_LEVEL_OPTIONS: { key: string; label: string }[] = [
+    { key: 'trace', label: 'trace' },
+    { key: 'debug', label: 'debug' },
+    { key: 'info', label: 'info' },
+    { key: 'warn', label: 'warn' },
+    { key: 'error', label: 'error' },
+    { key: 'fatal', label: 'fatal' },
+]
+
 function SpanEnumValueSelect({
     options,
     value,
@@ -58,7 +70,7 @@ function SpanEnumValueSelect({
     isMultiSelect,
     size,
 }: {
-    options: { key: number; label: string }[]
+    options: { key: string | number; label: string }[]
     value?: PropertyFilterValue
     onChange: (value: PropertyFilterValue) => void
     isMultiSelect: boolean
@@ -261,6 +273,16 @@ export function OperatorValueSelect({
             operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
+        // Restrict log trace_id and span_id to only equals/not equals
+        if ((propertyKey === 'trace_id' || propertyKey === 'span_id') && type === PropertyFilterType.Log) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
+        // Restrict log severity_level to equality only
+        if (propertyKey === 'severity_level' && type === PropertyFilterType.Log) {
+            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
+        }
+
         // Restrict duration to equals, not equals, and numeric comparisons
         if (propertyKey === 'duration' && type === PropertyFilterType.Span) {
             operators = operators.filter((op) =>
@@ -362,10 +384,17 @@ export function OperatorValueSelect({
                     className="shrink grow-[1000] min-w-[10rem] overflow-hidden"
                     data-attr="taxonomic-value-select"
                 >
-                    {type === PropertyFilterType.Span && (propertyKey === 'kind' || propertyKey === 'status_code') ? (
+                    {(type === PropertyFilterType.Span && (propertyKey === 'kind' || propertyKey === 'status_code')) ||
+                    (type === PropertyFilterType.Log && propertyKey === 'severity_level') ? (
                         editable ? (
                             <SpanEnumValueSelect
-                                options={propertyKey === 'kind' ? SPAN_KIND_OPTIONS : STATUS_CODE_OPTIONS}
+                                options={
+                                    propertyKey === 'kind'
+                                        ? SPAN_KIND_OPTIONS
+                                        : propertyKey === 'status_code'
+                                          ? STATUS_CODE_OPTIONS
+                                          : SEVERITY_LEVEL_OPTIONS
+                                }
                                 value={value}
                                 isMultiSelect={
                                     forceSingleSelect
