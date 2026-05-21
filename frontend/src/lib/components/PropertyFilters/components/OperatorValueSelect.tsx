@@ -52,8 +52,7 @@ const STATUS_CODE_OPTIONS: { key: number; label: string }[] = [
 ]
 
 // OTel severity level (https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber).
-// Ordered low → high so range operators (>, <) yield expected semantics; the backend maps to
-// severity_number for ordered comparisons.
+// Ordered low → high for display; only equals / not-equals operators are supported.
 const SEVERITY_LEVEL_OPTIONS: { key: string; label: string }[] = [
     { key: 'trace', label: 'trace' },
     { key: 'debug', label: 'debug' },
