@@ -421,13 +421,6 @@ module = "posthog.hogql.grammar.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-# Parity-regression tests in the parser factory touch `parse_expr` / `parse_select` results as concrete subclasses
-# (`ast.Constant.value`, `SelectQuery.select`, …) without `assert isinstance(...)` narrowing on every assertion.
-# Each test runs against all 3 backends; a runtime AttributeError would surface as a test failure anyway.
-module = "posthog.hogql.test._test_parser"
-disable_error_code = ["arg-type", "union-attr", "attr-defined", "assignment"]
-
-[[tool.mypy.overrides]]
 module = "posthog.tasks.*"
 disallow_untyped_defs = true
 check_untyped_defs = true
