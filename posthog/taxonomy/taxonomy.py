@@ -868,12 +868,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception_type": {
             "label": "Exception type",
-            "description": "Exception categorized into types.",
+            "description": "The type of the first exception in $exception_list. Derived server-side from $exception_list[0].type — see also the plural $exception_types for the full list when an exception has a cause chain.",
             "examples": ["Error"],
         },
         "$exception_message": {
             "label": "Exception message",
-            "description": "The message detected on the error.",
+            "description": "The message of the first exception in $exception_list. Derived server-side from $exception_list[0].value — see also the plural $exception_values for the full list when an exception has a cause chain.",
         },
         "$exception_fingerprint": {
             "label": "Exception fingerprint",
