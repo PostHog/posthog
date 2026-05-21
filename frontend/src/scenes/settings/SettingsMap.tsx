@@ -706,7 +706,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Add and manage provider API keys for AI observability features, including evaluations and playground.',
                 component: <LLMProviderKeysSettings />,
-                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
             },
         ],

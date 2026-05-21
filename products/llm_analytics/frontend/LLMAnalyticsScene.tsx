@@ -399,15 +399,15 @@ function LLMAnalyticsGenerations(): JSX.Element {
     )
 }
 
-const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
+const DEFAULT_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
-    traces: 'https://posthog.com/docs/llm-analytics/traces',
-    reviews: 'https://posthog.com/docs/llm-analytics/trace-reviews',
-    generations: 'https://posthog.com/docs/llm-analytics/generations',
-    sessions: 'https://posthog.com/docs/llm-analytics/sessions',
-    errors: 'https://posthog.com/docs/llm-analytics/errors',
-    tools: 'https://posthog.com/docs/llm-analytics',
-    sentiment: 'https://posthog.com/docs/llm-analytics',
+    traces: 'https://posthog.com/docs/ai-observability/traces',
+    reviews: 'https://posthog.com/docs/ai-observability/trace-reviews',
+    generations: 'https://posthog.com/docs/ai-observability/generations',
+    sessions: 'https://posthog.com/docs/ai-observability/sessions',
+    errors: 'https://posthog.com/docs/ai-observability/errors',
+    tools: 'https://posthog.com/docs/ai-observability',
+    sentiment: 'https://posthog.com/docs/ai-observability',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {

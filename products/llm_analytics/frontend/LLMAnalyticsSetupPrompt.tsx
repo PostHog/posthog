@@ -42,7 +42,7 @@ function IngestionStatusCheck({ className, thing }: { className?: string; thing:
             isEmpty={true}
             productKey={ProductKey.LLM_ANALYTICS}
             className={className}
-            docsURL="https://posthog.com/docs/llm-analytics/installation"
+            docsURL="https://posthog.com/docs/ai-observability/installation"
         />
     )
 }

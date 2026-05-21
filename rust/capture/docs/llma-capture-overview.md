@@ -108,7 +108,7 @@ These events are lightweight and processed through the regular pipeline:
 
 Properties that can contain large payloads (marked as "can be stored as blob" above) should be sent as separate multipart parts with names like `event.properties.$ai_input` or `event.properties.$ai_output_choices`. This keeps the event JSON small while allowing arbitrarily large context data to be stored efficiently in S3.
 
-**Reference:** [PostHog AI observability manual capture documentation](https://posthog.com/docs/llm-analytics/manual-capture)
+**Reference:** [PostHog AI observability manual capture documentation](https://posthog.com/docs/ai-observability/installation/manual-capture)
 
 ## General Architecture
 

@@ -435,7 +435,7 @@ export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX
                         }}
                         actions={
                             <LemonButton
-                                to="https://posthog.com/docs/llm-analytics/evaluations"
+                                to="https://posthog.com/docs/ai-evals/evaluations"
                                 type="secondary"
                                 targetBlank
                                 size="small"
