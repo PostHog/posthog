@@ -1273,6 +1273,26 @@ export const InsightVariablesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Manage tables promoted from a customer's managed DuckLake warehouse to PostHog.
+ */
+export const managedWarehousePromotedTablesCreateBodySourceSchemaNameMax = 255
+
+export const managedWarehousePromotedTablesCreateBodySourceTableNameMax = 255
+
+export const ManagedWarehousePromotedTablesCreateBody = /* @__PURE__ */ zod
+    .object({
+        source_schema_name: zod
+            .string()
+            .max(managedWarehousePromotedTablesCreateBodySourceSchemaNameMax)
+            .describe("Schema name of the source table in the customer's DuckLake catalog."),
+        source_table_name: zod
+            .string()
+            .max(managedWarehousePromotedTablesCreateBodySourceTableNameMax)
+            .describe("Table name of the source table in the customer's DuckLake catalog."),
+    })
+    .describe('Mixin for serializers to add user access control fields')
+
+/**
  * Create, Read, Update and Delete Query Tab State.
  */
 export const QueryTabStateCreateBody = /* @__PURE__ */ zod.object({
@@ -1758,9 +1778,9 @@ export const WarehouseTablesCreateBody = /* @__PURE__ */ zod
         deleted: zod.boolean().nullish(),
         name: zod.string().max(warehouseTablesCreateBodyNameMax),
         format: zod
-            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper', 'ManagedWarehouse'])
             .describe(
-                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper\n\* `ManagedWarehouse` - ManagedWarehouse'
             ),
         url_pattern: zod.string().max(warehouseTablesCreateBodyUrlPatternMax),
         credential: zod.object({
@@ -1827,9 +1847,9 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
         deleted: zod.boolean().nullish(),
         name: zod.string().max(warehouseTablesFileCreateBodyNameMax),
         format: zod
-            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper'])
+            .enum(['CSV', 'CSVWithNames', 'Parquet', 'JSONEachRow', 'Delta', 'DeltaS3Wrapper', 'ManagedWarehouse'])
             .describe(
-                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper'
+                '\* `CSV` - CSV\n\* `CSVWithNames` - CSVWithNames\n\* `Parquet` - Parquet\n\* `JSONEachRow` - JSON\n\* `Delta` - Delta\n\* `DeltaS3Wrapper` - DeltaS3Wrapper\n\* `ManagedWarehouse` - ManagedWarehouse'
             ),
         url_pattern: zod.string().max(warehouseTablesFileCreateBodyUrlPatternMax),
         credential: zod.object({

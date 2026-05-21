@@ -13973,6 +13973,7 @@
                 "batch_export",
                 "materialized_view",
                 "managed_view",
+                "managed_warehouse",
                 "endpoint"
             ],
             "type": "string"

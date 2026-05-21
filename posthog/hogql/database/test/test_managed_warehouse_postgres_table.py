@@ -16,7 +16,7 @@ class TestManagedWarehousePostgresTable(TestCase):
             "database": "ducklake",
             "user": "warehouse_user",
             "password": "s3cret",
-            "schema": "public",
+            "postgres_schema": "public",
             "postgres_table_name": "users",
         }
         defaults.update(overrides)
@@ -84,7 +84,7 @@ class TestManagedWarehousePostgresTable(TestCase):
     def test_to_printed_clickhouse_requires_context(self):
         table = self._build_table()
         try:
-            table.to_printed_clickhouse(None)  # type: ignore[arg-type]
+            table.to_printed_clickhouse(None)
         except ValueError as exc:
             assert "HogQLContext" in str(exc)
         else:

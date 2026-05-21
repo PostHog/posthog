@@ -504,6 +504,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 raise QueryError(f"No DuckgresServer configured for team {self.team_id}")
 
             promoted = self.managed_warehouse_promoted_table
+            if promoted is None:
+                raise QueryError(
+                    f"Data warehouse table {self.name} has ManagedWarehouse format but no promoted table linked"
+                )
             return ManagedWarehousePostgresTable(
                 name=self.name,
                 fields=fields,
@@ -512,7 +516,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 database=server.database,
                 user=server.username,
                 password=server.password,
-                schema=promoted.source_schema_name,
+                postgres_schema=promoted.source_schema_name,
                 postgres_table_name=promoted.source_table_name,
             )
 

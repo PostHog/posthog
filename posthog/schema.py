@@ -1391,6 +1391,7 @@ class DatabaseSchemaTableType(StrEnum):
     BATCH_EXPORT = "batch_export"
     MATERIALIZED_VIEW = "materialized_view"
     MANAGED_VIEW = "managed_view"
+    MANAGED_WAREHOUSE = "managed_warehouse"
     ENDPOINT = "endpoint"
 
 

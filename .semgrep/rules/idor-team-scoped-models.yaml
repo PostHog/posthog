@@ -93,6 +93,7 @@ rules:
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
+                              |ManagedWarehousePromotedTable
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
@@ -318,6 +319,7 @@ rules:
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
+                        |ManagedWarehousePromotedTable
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject

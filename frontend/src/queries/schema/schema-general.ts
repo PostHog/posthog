@@ -4093,6 +4093,7 @@ export type DatabaseSchemaTableType =
     | 'batch_export'
     | 'materialized_view'
     | 'managed_view'
+    | 'managed_warehouse'
     | 'endpoint'
 
 export interface DatabaseSchemaTableCommon {

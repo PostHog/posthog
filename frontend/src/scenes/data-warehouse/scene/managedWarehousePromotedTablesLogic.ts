@@ -28,6 +28,8 @@ export const managedWarehousePromotedTablesLogic = kea<managedWarehousePromotedT
 
     actions({
         promoteTable: (form: PromoteTableForm) => form,
+        promoteTableSuccess: true,
+        promoteTableFailure: true,
         deletePromotion: (id: string) => ({ id }),
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
     }),
@@ -41,9 +43,7 @@ export const managedWarehousePromotedTablesLogic = kea<managedWarehousePromotedT
                     if (teamId === null) {
                         return []
                     }
-                    const result: PaginatedListResponse<ManagedWarehousePromotedTable> = await api.get(
-                        endpoint(teamId)
-                    )
+                    const result: PaginatedListResponse<ManagedWarehousePromotedTable> = await api.get(endpoint(teamId))
                     return result.results
                 },
             },

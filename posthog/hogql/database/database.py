@@ -766,6 +766,8 @@ class Database(BaseModel):
                         and warehouse_table.managed_warehouse_promoted_table_id is not None
                     ):
                         promoted = warehouse_table.managed_warehouse_promoted_table
+                        if promoted is None:
+                            continue
                         tables[table_key] = DatabaseSchemaManagedWarehousePromotedTable(
                             fields=fields_dict,
                             id=str(warehouse_table.id),
@@ -1198,8 +1200,12 @@ class Database(BaseModel):
                     if is_managed_warehouse_table:
                         # Names like "schema.table" — nest the chain so queries can
                         # reference them via dotted paths and `database.get_table` resolves them.
-                        chain = table.name.split(".") if "." in table.name else [table.name]
-                        managed_warehouse_tables.add_child(TableNode.create_nested_for_chain(chain, s3_table))
+                        managed_warehouse_chain = (
+                            table.name.split(".") if "." in table.name else [table.name]
+                        )
+                        managed_warehouse_tables.add_child(
+                            TableNode.create_nested_for_chain(managed_warehouse_chain, s3_table)
+                        )
                     elif table.external_data_source:
                         if not database._is_direct_query():
                             warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))

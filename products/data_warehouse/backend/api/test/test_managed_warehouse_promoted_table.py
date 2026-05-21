@@ -71,6 +71,7 @@ class TestManagedWarehousePromotedTableAPI(APIBaseTest):
         table = DataWarehouseTable.objects.get(managed_warehouse_promoted_table=promoted)
         assert table.format == "ManagedWarehouse"
         assert table.url_pattern == ""
+        assert table.columns is not None
         assert "id" in table.columns
         assert table.columns["id"]["clickhouse"] == "Int64"
 

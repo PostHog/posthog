@@ -23,7 +23,7 @@ class ManagedWarehousePostgresTable(FunctionCallTable):
     database: str
     user: str
     password: str
-    schema: str
+    postgres_schema: str
     postgres_table_name: str
 
     def to_printed_hogql(self) -> str:
@@ -38,6 +38,6 @@ class ManagedWarehousePostgresTable(FunctionCallTable):
         table = context.add_sensitive_value(self.postgres_table_name)
         user = context.add_sensitive_value(self.user)
         password = context.add_sensitive_value(self.password)
-        schema = context.add_sensitive_value(self.schema)
+        schema = context.add_sensitive_value(self.postgres_schema)
 
         return f"postgresql({address}, {database}, {table}, {user}, {password}, {schema})"
