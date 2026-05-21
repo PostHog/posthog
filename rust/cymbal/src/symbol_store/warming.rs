@@ -36,6 +36,52 @@ struct WarmingParsers {
     apple: AppleProvider,
 }
 
+#[derive(Debug)]
+struct WarmingBudget {
+    max_bytes: usize,
+    loaded_bytes: usize,
+    reserved_bytes: usize,
+}
+
+impl WarmingBudget {
+    fn new(max_bytes: usize, loaded_bytes: usize) -> Self {
+        Self {
+            max_bytes,
+            loaded_bytes,
+            reserved_bytes: 0,
+        }
+    }
+
+    fn remaining_bytes(&self) -> usize {
+        self.max_bytes
+            .saturating_sub(self.loaded_bytes)
+            .saturating_sub(self.reserved_bytes)
+    }
+
+    fn reserve(&mut self, bytes: usize) -> bool {
+        if bytes > self.remaining_bytes() {
+            return false;
+        }
+
+        self.reserved_bytes += bytes;
+        true
+    }
+
+    fn release(&mut self, bytes: usize) {
+        self.reserved_bytes = self.reserved_bytes.saturating_sub(bytes);
+    }
+
+    fn commit(&mut self, reserved_bytes: usize, loaded_bytes: usize) -> bool {
+        self.release(reserved_bytes);
+        if loaded_bytes > self.remaining_bytes() {
+            return false;
+        }
+
+        self.loaded_bytes += loaded_bytes;
+        true
+    }
+}
+
 /// Pre-populates the symbol set cache from DB + S3 on startup.
 ///
 /// We warm recently used symbol sets across all teams. Each pod warms the same global top-N set:
@@ -59,6 +105,11 @@ pub async fn warm_cache(
         return Ok(());
     }
 
+    let initial_loaded_bytes = ss_cache.lock().await.held_bytes();
+    let budget = Arc::new(Mutex::new(WarmingBudget::new(
+        byte_budget,
+        initial_loaded_bytes,
+    )));
     let semaphore = Arc::new(Semaphore::new(config.cache_warming_concurrency.max(1)));
     let parsers = Arc::new(WarmingParsers {
         sourcemap: SourcemapProvider::new(config),
@@ -76,21 +127,15 @@ pub async fn warm_cache(
         let bucket = bucket.to_string();
         let ss_cache = ss_cache.clone();
         let parsers = parsers.clone();
+        let budget = budget.clone();
 
         let handle = tokio::spawn(async move {
             let _permit = semaphore
                 .acquire_owned()
                 .await
                 .expect("warming semaphore open");
-            let result = warm_single_entry(
-                &s3_client,
-                &bucket,
-                &ss_cache,
-                &parsers,
-                &record,
-                byte_budget,
-            )
-            .await;
+            let result =
+                warm_single_entry(&s3_client, &bucket, &ss_cache, &parsers, &record, &budget).await;
             (record.set_ref, result)
         });
         abort_handles.push(handle.abort_handle());
@@ -194,71 +239,126 @@ async fn warm_single_entry(
     cache: &Arc<Mutex<SymbolSetCache>>,
     parsers: &WarmingParsers,
     record: &SymbolSetRecord,
-    byte_budget: usize,
+    budget: &Arc<Mutex<WarmingBudget>>,
 ) -> Result<Option<usize>, UnhandledError> {
-    if cache.lock().await.held_bytes() >= byte_budget {
-        return Ok(None);
-    }
-
     let storage_ptr = record
         .storage_ptr
         .as_ref()
         .ok_or_else(|| UnhandledError::Other("missing storage_ptr".to_string()))?;
 
-    let data = s3_client
-        .get(bucket, storage_ptr)
+    if budget.lock().await.remaining_bytes() == 0 {
+        return Ok(None);
+    }
+
+    let object_size = s3_client
+        .get_size(bucket, storage_ptr)
         .await?
         .ok_or_else(|| UnhandledError::Other("S3 object not found".to_string()))?;
 
-    let data_type = sniff_data_type(&data).map_err(|error| {
-        UnhandledError::Other(format!("failed to sniff symbol data type: {error}"))
-    })?;
+    if !budget.lock().await.reserve(object_size) {
+        return Ok(None);
+    }
+
+    let data = match s3_client.get(bucket, storage_ptr).await? {
+        Some(data) => data,
+        None => {
+            budget.lock().await.release(object_size);
+            return Err(UnhandledError::Other("S3 object not found".to_string()));
+        }
+    };
+
+    let data_type = match sniff_data_type(&data) {
+        Ok(data_type) => data_type,
+        Err(error) => {
+            budget.lock().await.release(object_size);
+            return Err(UnhandledError::Other(format!(
+                "failed to sniff symbol data type: {error}"
+            )));
+        }
+    };
     let cache_key = format!("{}:{}", record.team_id, record.set_ref);
 
     match data_type {
         SymbolDataType::SourceAndMap => {
-            let parsed = parsers.sourcemap.parse(data).await.map_err(|error| {
-                UnhandledError::Other(format!("sourcemap parse failed: {error}"))
-            })?;
-            insert_warmed_entry::<OwnedSourceMapCache>(cache, cache_key, parsed, byte_budget).await
+            let parsed = match parsers.sourcemap.parse(data).await {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    budget.lock().await.release(object_size);
+                    return Err(UnhandledError::Other(format!(
+                        "sourcemap parse failed: {error}"
+                    )));
+                }
+            };
+            insert_warmed_entry::<OwnedSourceMapCache>(
+                cache,
+                budget,
+                object_size,
+                cache_key,
+                parsed,
+            )
+            .await
         }
         SymbolDataType::HermesMap => {
-            let parsed = parsers.hermes.parse(data).await.map_err(|error| {
-                UnhandledError::Other(format!("hermes map parse failed: {error}"))
-            })?;
-            insert_warmed_entry::<ParsedHermesMap>(cache, cache_key, parsed, byte_budget).await
+            let parsed = match parsers.hermes.parse(data).await {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    budget.lock().await.release(object_size);
+                    return Err(UnhandledError::Other(format!(
+                        "hermes map parse failed: {error}"
+                    )));
+                }
+            };
+            insert_warmed_entry::<ParsedHermesMap>(cache, budget, object_size, cache_key, parsed)
+                .await
         }
         SymbolDataType::ProguardMapping => {
-            let parsed = parsers.proguard.parse(data).await.map_err(|error| {
-                UnhandledError::Other(format!("proguard mapping parse failed: {error}"))
-            })?;
-            insert_warmed_entry::<FetchedMapping>(cache, cache_key, parsed, byte_budget).await
+            let parsed = match parsers.proguard.parse(data).await {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    budget.lock().await.release(object_size);
+                    return Err(UnhandledError::Other(format!(
+                        "proguard mapping parse failed: {error}"
+                    )));
+                }
+            };
+            insert_warmed_entry::<FetchedMapping>(cache, budget, object_size, cache_key, parsed)
+                .await
         }
         SymbolDataType::AppleDsym => {
-            let parsed = parsers.apple.parse(data).await.map_err(|error| {
-                UnhandledError::Other(format!("apple symbols parse failed: {error}"))
-            })?;
-            insert_warmed_entry::<ParsedAppleSymbols>(cache, cache_key, parsed, byte_budget).await
+            let parsed = match parsers.apple.parse(data).await {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    budget.lock().await.release(object_size);
+                    return Err(UnhandledError::Other(format!(
+                        "apple symbols parse failed: {error}"
+                    )));
+                }
+            };
+            insert_warmed_entry::<ParsedAppleSymbols>(cache, budget, object_size, cache_key, parsed)
+                .await
         }
     }
 }
 
 async fn insert_warmed_entry<T>(
     cache: &Arc<Mutex<SymbolSetCache>>,
+    budget: &Arc<Mutex<WarmingBudget>>,
+    reserved_bytes: usize,
     cache_key: String,
     parsed: T,
-    byte_budget: usize,
 ) -> Result<Option<usize>, UnhandledError>
 where
     T: Countable + Send + Sync + 'static,
 {
     let bytes = parsed.byte_count();
-    let mut cache_guard = cache.lock().await;
-    if cache_guard.held_bytes() >= byte_budget {
+    if !budget.lock().await.commit(reserved_bytes, bytes) {
         return Ok(None);
     }
 
-    cache_guard.insert::<T>(cache_key, Arc::new(parsed), bytes);
+    cache
+        .lock()
+        .await
+        .insert::<T>(cache_key, Arc::new(parsed), bytes);
     Ok(Some(bytes))
 }
 
@@ -318,10 +418,32 @@ mod tests {
         let s3_client: Arc<dyn BlobClient> = Arc::new(MockS3Client::new());
         let record = make_record("test-key");
 
-        let result = warm_single_entry(&s3_client, "bucket", &cache, &parsers, &record, 100).await;
+        let budget = Arc::new(Mutex::new(WarmingBudget::new(100, 500)));
+
+        let result =
+            warm_single_entry(&s3_client, "bucket", &cache, &parsers, &record, &budget).await;
 
         assert!(result.unwrap().is_none());
         assert_eq!(cache.lock().await.held_bytes(), 500);
+    }
+
+    #[tokio::test]
+    async fn skips_entry_when_object_size_exceeds_remaining_budget() {
+        let parsers = make_parsers();
+        let cache = Arc::new(Mutex::new(SymbolSetCache::new(1000)));
+
+        let mut s3_client = MockS3Client::new();
+        s3_client.expect_get_size().returning(|_, _| Ok(Some(500)));
+
+        let s3_client: Arc<dyn BlobClient> = Arc::new(s3_client);
+        let record = make_record("test-key");
+        let budget = Arc::new(Mutex::new(WarmingBudget::new(100, 0)));
+
+        let result =
+            warm_single_entry(&s3_client, "bucket", &cache, &parsers, &record, &budget).await;
+
+        assert!(result.unwrap().is_none());
+        assert_eq!(cache.lock().await.held_bytes(), 0);
     }
 
     #[tokio::test]
@@ -330,16 +452,21 @@ mod tests {
         let cache = Arc::new(Mutex::new(SymbolSetCache::new(100_000_000)));
 
         let data = test_symbol_data();
+        let data_size = data.len();
         let mut s3_client = MockS3Client::new();
+        s3_client
+            .expect_get_size()
+            .returning(move |_, _| Ok(Some(data_size)));
         s3_client
             .expect_get()
             .returning(move |_, _| Ok(Some(data.clone())));
 
         let s3_client: Arc<dyn BlobClient> = Arc::new(s3_client);
         let record = make_record("test-key");
+        let budget = Arc::new(Mutex::new(WarmingBudget::new(100_000_000, 0)));
 
         let result =
-            warm_single_entry(&s3_client, "bucket", &cache, &parsers, &record, 100_000_000).await;
+            warm_single_entry(&s3_client, "bucket", &cache, &parsers, &record, &budget).await;
 
         let bytes = result.unwrap().unwrap();
         assert!(bytes > 0);

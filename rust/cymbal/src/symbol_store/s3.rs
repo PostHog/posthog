@@ -14,6 +14,7 @@ use crate::{
 #[async_trait]
 pub trait BlobClient: Send + Sync {
     async fn get(&self, bucket: &str, key: &str) -> Result<Option<Bytes>, UnhandledError>;
+    async fn get_size(&self, bucket: &str, key: &str) -> Result<Option<usize>, UnhandledError>;
     async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError>;
     async fn ping_bucket(&self, bucket: &str) -> Result<(), UnhandledError>;
 }
@@ -60,6 +61,28 @@ impl BlobClient for S3Impl {
                 // If we simply failed to talk to s3, return an error
                 start.label("outcome", "failure").fin();
                 error!("Failed to fetch object {} from S3: {:?}", key, err);
+                Err(S3Error::from(err).into())
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    async fn get_size(&self, bucket: &str, key: &str) -> Result<Option<usize>, UnhandledError> {
+        let res = self
+            .inner
+            .head_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await;
+
+        match res {
+            Ok(res) => Ok(res
+                .content_length()
+                .and_then(|len| usize::try_from(len).ok())),
+            Err(SdkError::ServiceError(err)) if err.err().is_not_found() => Ok(None),
+            Err(err) => {
+                error!("Failed to fetch object metadata {} from S3: {:?}", key, err);
                 Err(S3Error::from(err).into())
             }
         }

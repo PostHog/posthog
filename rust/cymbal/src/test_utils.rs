@@ -19,6 +19,7 @@ mock! {
     #[async_trait]
     impl BlobClient for S3Client {
         async fn get(&self, bucket: &str, key: &str) -> Result<Option<Bytes>, UnhandledError>;
+        async fn get_size(&self, bucket: &str, key: &str) -> Result<Option<usize>, UnhandledError>;
         async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError>;
         async fn ping_bucket(&self, bucket: &str) -> Result<(), UnhandledError>;
     }
