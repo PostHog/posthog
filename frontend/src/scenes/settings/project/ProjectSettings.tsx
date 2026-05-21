@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
@@ -17,14 +17,31 @@ export function ProjectDisplayName(): JSX.Element {
 
     const [name, setName] = useState(currentProject?.name || '')
 
+    useEffect(() => {
+        setName(currentProject?.name || '')
+    }, [currentProject?.name])
+
+    const renameDisabledReason = restrictedReason
+        ? restrictedReason
+        : currentProjectLoading
+          ? 'Loading project…'
+          : !name
+            ? 'Enter a name to rename the project'
+            : currentProject && name === currentProject.name
+              ? 'Enter a different name to rename the project'
+              : null
+
     return (
         <div className="deprecated-space-y-4 max-w-160">
-            <LemonInput value={name} onChange={setName} disabled={currentProjectLoading} />
+            <LemonInput
+                value={name}
+                onChange={setName}
+                disabledReason={currentProjectLoading ? 'Loading project…' : restrictedReason}
+            />
             <LemonButton
                 type="primary"
                 onClick={() => updateCurrentProject({ name })}
-                disabled={!name || !currentProject || name === currentProject.name || !!restrictedReason}
-                disabledReason={restrictedReason}
+                disabledReason={renameDisabledReason}
                 loading={currentProjectLoading}
             >
                 Rename project

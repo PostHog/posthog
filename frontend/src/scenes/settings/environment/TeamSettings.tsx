@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
@@ -34,6 +34,10 @@ export function TeamDisplayName({ updateInline = false }: { updateInline?: boole
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
+    useEffect(() => {
+        setName(currentTeam?.name || '')
+    }, [currentTeam?.name])
+
     const debouncedUpdateCurrentTeam = useMemo(() => debounce(updateCurrentTeam, 500), [updateCurrentTeam])
     const handleChange = (value: string): void => {
         setName(value)
@@ -42,6 +46,16 @@ export function TeamDisplayName({ updateInline = false }: { updateInline?: boole
         }
     }
 
+    const renameDisabledReason = restrictedReason
+        ? restrictedReason
+        : currentTeamLoading && !currentTeam
+          ? 'Loading project…'
+          : !name
+            ? 'Enter a name to rename the project'
+            : currentTeam && name === currentTeam.name
+              ? 'Enter a different name to rename the project'
+              : null
+
     return (
         <div className="deprecated-space-y-4 max-w-160">
             <LemonInput value={name} onChange={handleChange} disabledReason={restrictedReason} />
@@ -49,7 +63,7 @@ export function TeamDisplayName({ updateInline = false }: { updateInline?: boole
                 <LemonButton
                     type="primary"
                     onClick={() => updateCurrentTeam({ name })}
-                    disabled={!name || !currentTeam || name === currentTeam.name || !!restrictedReason}
+                    disabledReason={renameDisabledReason}
                     loading={currentTeamLoading}
                 >
                     Rename project
