@@ -4,7 +4,6 @@ from typing import Optional
 
 from django.utils import timezone
 
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem, escape_path, split_path
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
@@ -14,6 +13,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment

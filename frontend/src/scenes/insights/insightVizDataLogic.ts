@@ -812,7 +812,7 @@ const handleQuerySourceUpdateSideEffects = (
         maybeChangedSeries.some((series) => isLifecycleDataWarehouseNode(series))
     ) {
         ;(mergedUpdate as LifecycleQuery).properties = undefined
-        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = undefined
+        ;(mergedUpdate as LifecycleQuery).filterTestAccounts = false
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
     }
 
@@ -828,7 +828,7 @@ const handleQuerySourceUpdateSideEffects = (
         )
 
         ;(mergedUpdate as TrendsQuery).properties = undefined
-        ;(mergedUpdate as TrendsQuery).filterTestAccounts = undefined
+        ;(mergedUpdate as TrendsQuery).filterTestAccounts = false
         ;(mergedUpdate as TrendsQuery).samplingFactor = undefined
     }
 

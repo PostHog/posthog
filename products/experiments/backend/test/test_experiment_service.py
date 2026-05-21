@@ -17,10 +17,10 @@ from rest_framework.test import APIRequestFactory
 from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (

@@ -9,12 +9,10 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-
-from posthog.models.action.action import Action
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
-
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.actions.backend.models.action import Action
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6

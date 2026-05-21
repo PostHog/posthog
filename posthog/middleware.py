@@ -40,7 +40,7 @@ from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_h
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Action, Cohort, Insight, Team, User
+from posthog.models import Cohort, Insight, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -52,6 +52,7 @@ from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import _is_valid_ip_address
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook

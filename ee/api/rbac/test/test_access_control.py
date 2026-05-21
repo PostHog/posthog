@@ -150,8 +150,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
         """Test that action access level cannot be set below minimum 'viewer'"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 
@@ -165,8 +164,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_accepts_viewer_and_above(self):
         """Test that action access level accepts viewer, editor, and manager"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 

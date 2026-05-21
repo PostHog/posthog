@@ -6,7 +6,7 @@ use tracing::info;
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     dsym::{find_dsym_bundles, DsymFile, PlistInfo},
-    sourcemaps::args::{pack_version, ReleaseArgs},
+    sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
 };
 
@@ -20,6 +20,9 @@ pub struct Args {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
+
     /// The main dSYM file name (e.g., MyApp.app.dSYM).
     /// Used to extract version info from the correct dSYM when multiple are present.
     /// This is typically $DWARF_DSYM_FILE_NAME in Xcode build phases.
@@ -29,29 +32,18 @@ pub struct Args {
     /// Include source code files in the dSYM upload.
     /// When enabled, source files referenced by DWARF debug info are bundled into the upload,
     /// allowing PostHog to display source code context around crash locations.
+    /// Implies --force unless --skip-on-conflict is set.
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
-
-    /// Allow overwriting an existing symbol set that has already been uploaded.
-    ///
-    /// By default, if a symbol set with the same UUID already exists on the server
-    /// its content is left unchanged. Use this flag to replace it — for example
-    /// after adding source files to a previously source-less upload.
-    ///
-    /// Without this flag a re-upload whose content differs from the stored copy is
-    /// silently skipped, preventing accidental overwrites of production symbol sets
-    /// from a local development machine.
-    #[arg(long, default_value_t = false)]
-    pub force: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
     let Args {
         directory,
         release,
+        conflict,
         main_dsym,
         include_source,
-        force,
     } = args;
     let release_args = release;
 
@@ -206,14 +198,15 @@ pub fn upload(args: &Args) -> Result<()> {
     }
 
     info!("Uploading {} dSYM(s)...", uploads.len());
-    // --include-source implies force: uploading with source replaces an existing
-    // source-less upload, so we always want the new content to win.
-    let effective_force = *force || *include_source;
+    // --include-source implies force unless the user explicitly asked to keep
+    // existing symbol sets with --skip-on-conflict.
+    let effective_force = conflict.force || (*include_source && !conflict.skip_on_conflict);
     api::symbol_sets::upload_with_retry(
         uploads,
         10,
         release_args.skip_release_on_fail,
         effective_force,
+        conflict.skip_on_conflict,
     )?;
     info!("dSYM upload complete");
 

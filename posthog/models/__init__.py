@@ -14,11 +14,8 @@ from ..session_recordings.models.session_recording_playlist import SessionRecord
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from products.data_warehouse.backend.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
-from .action import Action
-from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
-from .alert import AlertConfiguration
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
@@ -114,9 +111,6 @@ __all__ = [
     "Approval",
     "ApprovalPolicy",
     "ChangeRequest",
-    "AlertConfiguration",
-    "Action",
-    "ActionStep",
     "ActivityLog",
     "Annotation",
     "AsyncDeletion",

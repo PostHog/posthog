@@ -12,13 +12,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
-from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig

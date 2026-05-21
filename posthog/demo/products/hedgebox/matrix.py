@@ -50,11 +50,12 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Cohort, Insight, InsightViewed
+from posthog.models import Cohort, Insight, InsightViewed
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential

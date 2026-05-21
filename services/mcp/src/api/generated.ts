@@ -14706,6 +14706,8 @@ export namespace Schemas {
       symbol_sets?: ErrorTrackingSymbolSetUpload[];
       /** Whether to overwrite uploaded symbol sets whose content hash changed. */
       force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
     }
 
     export interface ErrorTrackingSymbolSetFinishUpload {
