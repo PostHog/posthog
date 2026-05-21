@@ -42,11 +42,21 @@ class LensSnapshot(BaseModel, frozen=True):
             ) from exc
 
 
+class EventCitation(BaseModel, frozen=True):
+    """One entry in `event_id_mapping`: enough metadata for a UI to render a deep-link to the cited event."""
+
+    uuid: str = Field(description="Real PostHog event UUID; use with `/api/.../events/{uuid}` to fetch the event.")
+    timestamp_ms: int = Field(
+        ge=0, description="Milliseconds since session start; use to seek the session replay player to the moment."
+    )
+
+
 class LensResult(BaseModel, frozen=True):
     """Result data of a completed observation, persisted into `ReplayObservation.lens_result`."""
 
     model_output: AnyLensOutput
     signals_count: int = Field(default=0, ge=0)
+    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
 
 
 class ApplyLensInputs(BaseModel, frozen=True):
@@ -105,8 +115,16 @@ class EventTable(BaseModel, frozen=True):
         return self
 
     def as_dicts(self) -> list[dict[str, Any]]:
-        """Zip columns and rows into per-event dicts for prompt-template rendering."""
-        return [dict(zip(self.columns, row)) for row in self.rows]
+        """Zip columns and rows into per-event dicts for prompt-template rendering; drops null/empty values so sparse events render compactly."""
+        # Explicit `is None` (not membership) so 0/False are never dropped via `0 == False`.
+        return [
+            {
+                column: value
+                for column, value in zip(self.columns, row)
+                if value is not None and value != "" and value != [] and value != {}
+            }
+            for row in self.rows
+        ]
 
 
 class SessionMetadata(BaseModel, frozen=True):
@@ -139,6 +157,7 @@ class LensLlmInputs(BaseModel, frozen=True):
     # Reverse mappings: `url_1` -> actual URL, `window_1` -> actual window UUID.
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
+    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
     metadata: SessionMetadata
 
 
@@ -172,6 +191,8 @@ class LensCallOutput(BaseModel, frozen=True):
     """Result of one `call_lens_provider` invocation."""
 
     model_output: AnyLensOutput
+    # Short event_id (LLM-facing) -> citation metadata, propagated from `LensLlmInputs` for downstream resolution.
+    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):

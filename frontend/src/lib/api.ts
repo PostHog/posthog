@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AggregatedSpanRow,
@@ -174,6 +174,7 @@ import {
     ProductTour,
     ProductTourAIGenerationResponse,
     ProductTourStep,
+    ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -1831,6 +1832,15 @@ export class ApiRequest {
 
     public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
         return this.personalApiKeys().addPathComponent(id)
+    }
+
+    // Project API Keys
+    public projectSecretApiKeys(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('project_secret_api_keys')
+    }
+
+    public projectSecretApiKey(id: ProjectSecretAPIKeyApi['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.projectSecretApiKeys(projectId).addPathComponent(id)
     }
 
     // Request finalization
@@ -5471,7 +5481,11 @@ const api = {
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
-        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
+        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
+            added: number
+            deleted: number
+            total_tables_seen: number
+        }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
         async bulkUpdateSchemas(
@@ -6016,6 +6030,30 @@ const api = {
         },
         async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
             return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        },
+    },
+
+    projectSecretApiKeys: {
+        async list(): Promise<ProjectSecretAPIKeyApi[]> {
+            const response: CountedPaginatedResponse<ProjectSecretAPIKeyApi> = await new ApiRequest()
+                .projectSecretApiKeys()
+                .get()
+            return response.results
+        },
+        async create(data: ProjectSecretAPIKeyRequest): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKeys().create({ data })
+        },
+        async update(
+            id: ProjectSecretAPIKeyApi['id'],
+            data: Partial<ProjectSecretAPIKeyRequest>
+        ): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKey(id).update({ data })
+        },
+        async delete(id: ProjectSecretAPIKeyApi['id']): Promise<void> {
+            return await new ApiRequest().projectSecretApiKey(id).delete()
+        },
+        async roll(id: ProjectSecretAPIKeyApi['id']): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKey(id).withAction('roll').create()
         },
     },
 

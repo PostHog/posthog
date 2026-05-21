@@ -4042,7 +4042,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -11058,6 +11058,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
+
+
+    export const DataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type DataWarehouseSavedQueryQuery = {
+      kind?: DataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -11106,8 +11121,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -13939,6 +13954,11 @@ export namespace Schemas {
 
     export interface ErrorTrackingGroupingRuleListResponse {
       results: ErrorTrackingGroupingRule[];
+    }
+
+    export interface ErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
     }
 
     export interface ErrorTrackingImpact {
@@ -19910,15 +19930,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `gemini-3-flash` - Gemini 3 Flash
-    * `gemini-3-flash-lite` - Gemini 3 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+    * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
      */
     export type LensModelEnum = typeof LensModelEnum[keyof typeof LensModelEnum];
 
 
     export const LensModelEnum = {
-      Gemini3Flash: 'gemini-3-flash',
-      Gemini3FlashLite: 'gemini-3-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
     } as const;
 
     /**
@@ -19932,6 +19952,11 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+     */
+    export type LensResultEventIdMapping = { [key: string]: unknown };
+
+    /**
      * Mirrors `temporal.types.LensResult` for OpenAPI generation.
      */
     export interface LensResult {
@@ -19942,6 +19967,8 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
+      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+      event_id_mapping: LensResultEventIdMapping;
     }
 
     /**
@@ -19980,8 +20007,8 @@ export namespace Schemas {
       lens_version: number;
       /** Concrete model that ran the observation.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** Concrete provider that ran the observation.
 
@@ -21530,6 +21557,23 @@ export namespace Schemas {
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown: boolean | null;
+      /** @nullable */
+      readonly is_hipaa: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -23000,8 +23044,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
+      readonly created_by: UserBasic;
       /** @nullable */
       readonly last_used_at: string | null;
       /** @nullable */
@@ -23112,7 +23155,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -23128,8 +23171,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -24636,6 +24679,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -25711,7 +25758,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -26241,6 +26288,21 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
+
+
+    export const PatchedDataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type PatchedDataWarehouseSavedQueryQuery = {
+      kind?: PatchedDataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -26257,8 +26319,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -26795,6 +26857,11 @@ export namespace Schemas {
       disabled_data?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
     }
 
     /**
@@ -28262,6 +28329,23 @@ export namespace Schemas {
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked?: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown?: boolean | null;
+      /** @nullable */
+      readonly is_hipaa?: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -28504,10 +28588,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -29295,8 +29376,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value?: string | null;
       readonly created_at?: string;
-      /** @nullable */
-      readonly created_by?: number | null;
+      readonly created_by?: UserBasic;
       /** @nullable */
       readonly last_used_at?: string | null;
       /** @nullable */
@@ -29350,7 +29430,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type?: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -29366,8 +29446,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model?: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -30509,6 +30589,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at?: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -31376,10 +31460,7 @@ export namespace Schemas {
     };
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface ProjectBackwardCompat {
       readonly id: number;
@@ -45142,6 +45223,15 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
+     * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
+
+    * `true` - true
+    * `false` - false
+    * `all` - all
+     * @minLength 1
+     */
+    archived?: TasksListArchived;
+    /**
      * Filter by creator user ID
      */
     created_by?: number;
@@ -45194,6 +45284,15 @@ export namespace Schemas {
      */
     status?: TasksListStatus;
     };
+
+    export type TasksListArchived = typeof TasksListArchived[keyof typeof TasksListArchived];
+
+
+    export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
 

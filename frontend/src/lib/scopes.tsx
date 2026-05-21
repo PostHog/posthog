@@ -151,7 +151,9 @@ export const API_SCOPES: APIScope[] = [
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
+
+export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string

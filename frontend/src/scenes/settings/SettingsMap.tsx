@@ -16,6 +16,7 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -139,6 +140,7 @@ import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefa
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
+import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
@@ -575,6 +577,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Higher confidence level reduces false positives but requires more data. Can be overridden per experiment.',
                 component: <DefaultExperimentConfidenceLevel />,
                 keywords: ['confidence', 'significance', 'p-value', 'false positive'],
+            },
+            {
+                id: 'environment-experiment-mde',
+                title: 'Default minimum detectable effect',
+                description:
+                    'The smallest effect size you want to detect with statistical significance. Lower values require more data and longer run times. Can be overridden per experiment.',
+                component: <DefaultMinimumDetectableEffect />,
+                keywords: ['mde', 'effect size', 'sensitivity', 'power', 'sample size'],
             },
             {
                 id: 'environment-experiment-recalculation-time',
@@ -1379,6 +1389,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'PostHog Cloud uses static IP addresses for outbound traffic. Add these to your firewall allowlist if needed.',
                 component: <IPAllowListInfo />,
                 keywords: ['whitelist', 'firewall', 'allowlist', 'cidr', 'ip'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-secret-api-keys',
+        title: 'Project secret API keys',
+        flag: 'PROJECT_SECRET_API_KEYS',
+        settings: [
+            {
+                id: 'environment-secret-api-keys',
+                title: 'Project secret API keys',
+                description:
+                    'These keys allow access to a select set of API endpoints, intended to be accessed exclusively by your systems. Only give keys the permissions they need, and delete unused keys promptly.',
+                docsUrl: 'https://posthog.com/docs/api',
+                component: <ProjectSecretAPIKeys />,
+                keywords: ['token', 'api key', 'authentication', 'secret'],
             },
         ],
     },

@@ -132,7 +132,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         if len(non_retryable_errors) == 0:
             non_retryable_errors = Any_Source_Errors
         else:
-            non_retryable_errors = {**non_retryable_errors, **Any_Source_Errors}
+            non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
         if has_non_retryable_error:
