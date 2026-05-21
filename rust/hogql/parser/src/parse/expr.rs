@@ -102,7 +102,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.bump()?;
                     match self.parse_expr_bp(rbp) {
                         Ok(rhs) => {
-                            lhs = self.wrap_pos(build_infix(op, lhs, rhs), lhs_start);
+                            lhs = self.wrap_pos(build_infix(&self.emit, op, lhs, rhs), lhs_start);
                             continue;
                         }
                         Err(_) => {
@@ -113,7 +113,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(rbp)?;
-                lhs = self.wrap_pos(build_infix(op, lhs, rhs), lhs_start);
+                lhs = self.wrap_pos(build_infix(&self.emit, op, lhs, rhs), lhs_start);
                 continue;
             }
             if let Some(handled) = self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)? {
@@ -3930,7 +3930,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.bump()?;
                 let args = self.parse_arg_list(TokenKind::RParen)?;
                 self.expect(TokenKind::RParen, ")")?;
-                Ok(fold_call_or_exprcall(lhs, args))
+                Ok(fold_call_or_exprcall(&self.emit, lhs, args))
             }
             TokenKind::LBracket => {
                 self.bump()?;
