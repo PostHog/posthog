@@ -480,6 +480,7 @@ frontend_unauthenticated_routes = [
     "login",
     "unsubscribe",
     "verify_email",
+    r"agentic/account-mismatch",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
