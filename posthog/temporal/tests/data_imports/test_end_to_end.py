@@ -375,6 +375,7 @@ async def _run(
     sync_type_config: Optional[dict] = None,
     billable: Optional[bool] = None,
     ignore_assertions: Optional[bool] = False,
+    use_private_worker: bool = False,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -411,7 +412,7 @@ async def _run(
         ) as mock_get_data_import_finished_metric,
         mock.patch("posthog.temporal.data_imports.metrics.get_producer") as mock_app_metrics_producer_cls,
     ):
-        await _execute_run(workflow_id, inputs, mock_data_response)
+        await _execute_run(workflow_id, inputs, mock_data_response, use_private_worker=use_private_worker)
 
         # In v3 mode, the job is still RUNNING after the workflow (consumer marks it COMPLETED),
         # so we need to query without status filter to get the job_id for the replay.
@@ -555,7 +556,20 @@ async def _replay_v3_consumer(team_id: int, schema_id, job_id: str | None = None
     _pg_queue_replay.clear()
 
 
-async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, mock_data_response):
+async def _execute_run(
+    workflow_id: str,
+    inputs: ExternalDataWorkflowInputs,
+    mock_data_response,
+    *,
+    use_private_worker: bool = False,
+):
+    """Execute a workflow against the module-shared Worker.
+
+    Set ``use_private_worker=True`` for tests that interact with the Worker's
+    shutdown state (e.g. mocking ``ShutdownMonitor.raise_if_is_worker_shutdown``)
+    — those need an isolated Worker so the shutdown signal doesn't poison the
+    shared Worker for subsequent tests."""
+
     def mock_paginate(
         class_self,
         path: str = "",
@@ -654,15 +668,37 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 )
             )
 
-        # Reuses the module-scoped Worker booted in _shared_workflow_environment_and_worker.
-        assert _shared_workflow_env is not None, "module-scoped Worker fixture not active"
-        await _shared_workflow_env.client.execute_workflow(
-            ExternalDataJobWorkflow.run,
-            inputs,
-            id=workflow_id,
-            task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
-        )
+        if use_private_worker:
+            # Tests that probe worker shutdown state need their own Worker so the
+            # signal doesn't leak into subsequent tests on the shared Worker.
+            async with await WorkflowEnvironment.start_time_skipping() as private_env:
+                async with Worker(
+                    private_env.client,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
+                    activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                    activity_executor=ThreadPoolExecutor(max_workers=50),
+                    max_concurrent_activities=50,
+                    debug_mode=True,
+                ):
+                    await private_env.client.execute_workflow(
+                        ExternalDataJobWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
+        else:
+            # Reuses the module-scoped Worker booted in _shared_workflow_environment_and_worker.
+            assert _shared_workflow_env is not None, "module-scoped Worker fixture not active"
+            await _shared_workflow_env.client.execute_workflow(
+                ExternalDataJobWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
 
 
 _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
@@ -2711,6 +2747,7 @@ async def test_worker_shutdown_desc_sort_order(team):
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "conversation_updated_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
+            use_private_worker=True,
         )
 
     # assert that the running job was completed successfully and that the new workflow was NOT triggered
@@ -2751,6 +2788,7 @@ async def test_worker_shutdown_triggers_schedule_buffer_one(team, zendesk_brands
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,
+            use_private_worker=True,
         )
 
     # assert that the running job was completed successfully and that the new workflow was triggered
