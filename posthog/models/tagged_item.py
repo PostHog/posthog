@@ -64,7 +64,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     action = models.ForeignKey(
-        "Action",
+        "actions.Action",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

@@ -999,7 +999,10 @@ class TestAnthropicCircuitBreakerIntegration:
         assert response.status_code == 200
         assert mock_anthropic.call_count == 1
         forwarded_model = mock_anthropic.call_args.kwargs["model"]
-        assert forwarded_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
+        # The model is prefixed with 'bedrock/' for litellm routing
+        assert forwarded_model.startswith("bedrock/")
+        bedrock_model = forwarded_model.removeprefix("bedrock/")
+        assert bedrock_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
         breaker.record_outcome.assert_not_called()
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")

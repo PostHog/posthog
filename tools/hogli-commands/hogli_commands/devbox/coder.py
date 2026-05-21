@@ -5,8 +5,10 @@ All subprocess interactions with the Coder CLI are isolated here.
 
 from __future__ import annotations
 
+import io
 import os
 import re
+import csv
 import sys
 import json
 import shlex
@@ -28,6 +30,12 @@ from hogli.manifest import load_manifest
 _MACOS_TAILSCALE_CLI = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 _TAILSCALE_RUNBOOK_URL = "https://runbooks.posthog.com/vpn/#tailscale"
 DEFAULT_TEMPLATE = "posthog-linux"
+# Newer coder versions added an interactive "Select a preset" prompt to `coder
+# create` that `--yes` does not bypass. Callers must always forward `--preset`
+# with a concrete value -- either a preset the template defines, or the literal
+# NO_PRESET sentinel below.
+DEFAULT_PRESET = "Default (warm)"
+NO_PRESET = "none"
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
@@ -595,6 +603,24 @@ def ensure_coder_reachable() -> None:
     _fail(body)
 
 
+def _encode_ssh_option(value: str) -> str:
+    """Encode one value for ``coder config-ssh --ssh-option``.
+
+    The flag is a cobra ``StringSlice``, which runs each value through Go's
+    ``encoding/csv``. Bare ``"`` in a non-quoted field crashes the parser
+    (``parse error: bare " in non-quoted-field``), so SSH options containing
+    quotes -- like ``IdentityAgent "/path with spaces"`` -- need to arrive
+    CSV-encoded. ``csv.QUOTE_MINIMAL`` only wraps fields that actually need
+    it, so plain options like ``ForwardAgent yes`` pass through unchanged.
+
+    coder CSV-decodes the value before writing ``~/.ssh/config``, so the
+    file ends up with the literal SSH form we constructed here.
+    """
+    buf = io.StringIO()
+    csv.writer(buf, quoting=csv.QUOTE_MINIMAL).writerow([value])
+    return buf.getvalue().rstrip("\r\n")
+
+
 def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path.
 
@@ -604,14 +630,20 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     the engineer picked in ``--configure-git-signing`` (Secretive or 1Password).
     ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
     SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
+
+    The socket path needs to land double-quoted in ``~/.ssh/config`` because
+    1Password's macOS agent lives under ``~/Library/Group Containers/...`` --
+    an unquoted space makes ``ssh`` reject the config with "extra arguments
+    at end of line." See ``_encode_ssh_option`` for how that survives coder's
+    CSV-parsing flag layer.
     """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
-    args += ["--ssh-option", "ForwardAgent yes"]
+    args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
-        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
+        args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
     return args
 
 
@@ -812,16 +844,12 @@ def print_setup_summary() -> None:
     click.echo()
     click.echo("Setup complete. Run `hogli devbox:start` to create or start your devbox.")
     click.echo()
-    click.echo("To reconfigure later:")
-    click.echo("  hogli devbox:setup --configure-git-identity")
-    click.echo("  hogli devbox:setup --configure-git-signing")
-    click.echo("  hogli devbox:setup --configure-dotfiles")
-    click.echo("  hogli devbox:setup --configure-claude  (manage CLAUDE_CODE_OAUTH_TOKEN as a Coder user secret)")
+    click.echo("Reconfigure one setting:  hogli devbox:setup --configure-<option>")
+    click.echo("Show saved configuration: hogli devbox:config:show")
+    click.echo("Clear saved settings:     hogli devbox:config:rm --help")
     click.echo()
-    click.echo("To manage other workspace secrets (GH_TOKEN, AWS creds, etc):")
-    click.echo("  hogli devbox:secret:list")
-    click.echo("  hogli devbox:secret:set NAME")
-    click.echo("  hogli devbox:secret:rm NAME")
+    click.echo("Other workspace secrets (GH_TOKEN, AWS creds, etc):")
+    click.echo("  hogli devbox:secret:list / hogli devbox:secret:set NAME / hogli devbox:secret:rm NAME")
 
 
 def _first_non_empty_string(*values: Any) -> str | None:
@@ -973,6 +1001,58 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
+def _list_template_presets(template: str) -> list[str]:
+    """Return preset names defined on the active version of ``template``, or [] on failure.
+
+    Emits a warning when the coder CLI itself fails (auth/network/version issues) so
+    a silent fall-through to ``--preset none`` is distinguishable from a template that
+    simply defines no presets.
+    """
+    result = _run(
+        ["coder", "templates", "presets", "list", template, "-o", "json"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        suffix = f": {detail}" if detail else "."
+        click.echo(
+            click.style(
+                f"Warning: failed to list presets for template '{template}'{suffix}",
+                fg="yellow",
+            ),
+        )
+        return []
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [entry["name"] for entry in payload if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+
+
+def resolve_template_preset(template: str, requested: str) -> str:
+    """Resolve ``requested`` to a preset the template defines, or ``NO_PRESET``.
+
+    Falls back to ``NO_PRESET`` (with a warning when alternatives exist) so
+    ``coder create`` never reaches its interactive picker.
+    """
+    if requested == NO_PRESET:
+        return NO_PRESET
+    presets = _list_template_presets(template)
+    if requested in presets:
+        return requested
+    if presets:
+        click.echo(
+            click.style(
+                f"Warning: preset '{requested}' not found for template '{template}'. "
+                f"Available: {', '.join(presets)}. Falling back to --preset {NO_PRESET}.",
+                fg="yellow",
+            ),
+        )
+    return NO_PRESET
+
+
 def create_workspace(
     name: str,
     disk_size: int,
@@ -982,6 +1062,7 @@ def create_workspace(
     repo: str = "https://github.com/PostHog/posthog",
     *,
     template: str = DEFAULT_TEMPLATE,
+    preset: str = DEFAULT_PRESET,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -991,6 +1072,9 @@ def create_workspace(
     template's Terraform default via ``--use-parameter-defaults``. If a
     forwarded parameter does not exist on the chosen template, coder errors
     pre-provisioning and the retry loop drops the offending key.
+
+    ``preset`` is resolved against the template's actual presets via
+    ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
         "disk_size": str(disk_size),
@@ -1003,12 +1087,15 @@ def create_workspace(
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
+    resolved_preset = resolve_template_preset(template, preset)
     base_args = [
         "coder",
         "create",
         name,
         "--template",
         template,
+        "--preset",
+        resolved_preset,
         "--use-parameter-defaults",
         "--yes",
     ]

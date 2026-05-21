@@ -2287,6 +2287,8 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
+    /** Opt this specific query into the web_overview_query precompute path. Requires the team to be in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
@@ -2313,6 +2315,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -3583,9 +3586,23 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
-export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+// Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `ExperimentMetricUnion = ExperimentMetric`). The alias is the public
+// type — callers continue to use `ExperimentMetricSource`.
+/**
+ * @discriminator kind
+ */
+export type ExperimentMetricSourceUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentMetricSource = ExperimentMetricSourceUnion
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {

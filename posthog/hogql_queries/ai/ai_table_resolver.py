@@ -14,13 +14,13 @@ from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_ev
 
 AI_EVENTS_QUERY_TOTAL = Counter(
     "posthog_ai_events_query_total",
-    "LLM analytics queries routed by execute_with_ai_events_fallback, by read-path source.",
+    "AI observability queries routed by execute_with_ai_events_fallback, by read-path source.",
     labelnames=["source"],
 )
 
 AI_EVENTS_QUERY_DURATION_SECONDS = Histogram(
     "posthog_ai_events_query_duration_seconds",
-    "Wall-clock duration of LLM analytics query executions, by read-path source. Used to compare dedicated_table vs shared_table latency.",
+    "Wall-clock duration of AI observability query executions, by read-path source. Used to compare dedicated_table vs shared_table latency.",
     labelnames=["source"],
     buckets=(0.025, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 )
