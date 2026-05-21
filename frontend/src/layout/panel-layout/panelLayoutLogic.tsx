@@ -141,7 +141,13 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         mainContentRect: [
             null as DOMRect | null,
             {
-                setMainContentRect: (_, { rect }) => rect,
+                // Ignore zero-width/height measurements. They can show up when the rect is
+                // read while the main element is briefly detached or collapsed during a
+                // layout transition (e.g. SidePanel collapse). Downstream consumers expose
+                // this through CSS vars like --scene-layout-rect-height, so a stuck 0 here
+                // blanks the scene container until the next real resize.
+                setMainContentRect: (state, { rect }) =>
+                    rect.width === 0 || rect.height === 0 ? state : rect,
             },
         ],
         sidePanelWidth: [
