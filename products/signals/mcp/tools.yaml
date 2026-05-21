@@ -119,15 +119,6 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
-    signals-reports-artefacts-list:
-        operation: signals_reports_artefacts_list
-        enabled: false
-    signals-reports-artefacts-retrieve:
-        operation: signals_reports_artefacts_retrieve
-        enabled: false
-    signals-reports-artefacts-update:
-        operation: signals_reports_artefacts_update
-        enabled: false
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false
