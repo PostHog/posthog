@@ -181,6 +181,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'web_analytics:write',
     'webhook:read',
     'webhook:write',
+    'wizard_session:read',
+    'wizard_session:write',
 ] as const
 
 export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]

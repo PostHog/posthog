@@ -101,6 +101,7 @@ APIScopeObject = Literal[
     "warehouse_view",
     "web_analytics",
     "webhook",
+    "wizard_session",
 ]
 
 APIScopeActions = Literal[
