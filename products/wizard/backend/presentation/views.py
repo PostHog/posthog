@@ -35,7 +35,6 @@ from products.wizard.backend.facade.contracts import (
     UpsertWizardSessionRequest,
     WizardSessionDTO,
 )
-from products.wizard.backend.logic.pubsub import subscribe
 from products.wizard.backend.presentation.serializers import (
     UpsertWizardSessionRequestSerializer,
     WizardSessionSerializer,
@@ -293,7 +292,7 @@ async def _wizard_session_event_stream(
     if latest is not None:
         yield _format_event(latest)
 
-    pubsub_cm = subscribe(team_id, workflow_id, skill_id)
+    pubsub_cm = wizard_facade.subscribe_to_updates(team_id, workflow_id, skill_id)
     pubsub = await sync_to_async(pubsub_cm.__enter__, thread_sensitive=False)()
     try:
         last_heartbeat = time.monotonic()
