@@ -30,13 +30,25 @@ Steps:
 1. GitHub → Settings → Developer Settings → GitHub Apps → New GitHub App
 2. Set the **Setup URL** (NOT the Callback or Homepage URL) to
    `http://localhost:8010/integrations/github/callback`
-3. Set the permissions above
-4. Generate and download a private key
-5. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
-6. Add to your `.env`:
+3. Set a **Callback URL** — `http://localhost:8010/complete/github-link/`
+   works for the personal user-link flow used by Code. Any URL under your
+   localhost is fine; the value just has to be a valid URL since it's
+   required when creating the App.
+4. Set the permissions above
+5. Under "Identifying and authorizing users", check **Request user authorization (OAuth) during installation** — required for the personal user-link flow
+6. Generate a **client secret** under "Client secrets" on the App page —
+   this is required (added a couple of releases back). If your local setup
+   stopped working recently, this is most likely what's missing.
+7. Generate a private key
+8. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
+9. Add to your `.env`:
 
 ```bash
-GITHUB_APP_CLIENT_ID=your_app_id
+# The OAuth Client ID (starts with Iv1 or Iv23) — NOT the numeric App ID.
+# Both fields are visible on the GitHub App settings page; the App ID is the
+# small grey number at the top, the Client ID is the labelled field below.
+GITHUB_APP_CLIENT_ID=Iv1.xxxxxxxxxxxxxxxx
+GITHUB_APP_CLIENT_SECRET=your_client_secret
 GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 ```
@@ -75,14 +87,14 @@ The activities live in
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
-is happening with a background cloud run.
+is happening with a background cloud run and for debugging. You can also use PostHog Code to do this rather than the debug UI.
 
-1. Navigate to Tasks in PostHog (requires the `tasks` feature flag)
+1. Navigate to Tasks in PostHog (requires the `tasks` feature flag) by visiting `/tasks` (it will not show up in the sidebar)
 2. Create a task with a title, description, and repository (format: `owner/repo`)
 3. Click "Run task"
 4. Watch logs stream in the session view
 
-## Testing with local agent packages
+## Testing with local agent packages (you only need to do this if you are making changes to the agent package, otherwise ignore this)
 
 To test changes to `@posthog/agent` before publishing:
 
@@ -98,7 +110,7 @@ MODAL_TOKEN_SECRET=<token_secret>
 
 ### Tunnel gateway, API, and MCP
 
-Since Modal sandboxes run in the cloud and can't reach `localhost` directly,
+If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,
 you'll need to expose the Django API, LLM gateway, and MCP server via a tunnel (e.g. ngrok or Cloudflare Tunnel).
 
 With ngrok, add tunnels to your ngrok config, `~/.config/ngrok/ngrok.yml` (Linux) or `~/Library/Application Support/ngrok/ngrok.yml` (MacOS):
@@ -184,7 +196,23 @@ cd /path/to/posthog-code/packages/agent && pnpm build
 | ----------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `modal` (default) | `SANDBOX_PROVIDER=modal`        | Production. Uses the published `@posthog/agent` npm package from the GHCR image.                                                                                                                                                                                                       |
 | `MODAL_DOCKER`    | `SANDBOX_PROVIDER=MODAL_DOCKER` | **Local development with Modal.** Same as `modal` but uses a separate Modal app (`posthog-sandbox-modal-docker-*`) so local image builds don't pollute the production app cache. When `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` is set, the local agent packages are overlaid onto the image. |
-| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed.                                                                                                                                                                                                         |
+| `docker`          | `SANDBOX_PROVIDER=docker`       | Local-only Docker containers (`DEBUG=True` required). No Modal account needed. This is the recommended option for local development.                                                                                                                                                   |
+
+### Optional: local repository mounts (Docker only)
+
+If you already have a repository checked out locally, you can skip cloning by
+bind-mounting it into the Docker sandbox:
+
+```bash
+# Format: org/repo:/local/path,org2/repo2:~/other/path
+SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog
+```
+
+When configured, matching repositories are mounted read-write from your host
+into the container, and `clone_repository` becomes a no-op for those
+repositories.
+
+> **Note:** This only works with `SANDBOX_PROVIDER=docker`.
 
 ### How `MODAL_DOCKER` works
 

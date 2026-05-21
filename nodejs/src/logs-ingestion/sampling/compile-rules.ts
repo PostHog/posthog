@@ -1,4 +1,16 @@
+import { createTrackedRE2 } from '~/utils/tracked-re2'
+
 import type { CompiledRuleSet, CompiledSamplingRule, SeverityAction } from './evaluate'
+import { type FilterGroupNode, MAX_FILTER_GROUP_DEPTH } from './filter-group-match'
+import { type PropertyFilterLeaf, compileLeafRegex } from './property-filter-match'
+
+/**
+ * Bound on the total node count (groups + leaves) of a filter_group tree. Depth
+ * alone does not bound per-record work: a single AND with thousands of sibling
+ * leaves passes MAX_FILTER_GROUP_DEPTH but costs O(leaves) per log line. Kept
+ * in sync with `MAX_FILTER_GROUP_NODES` in `products/logs/backend/sampling_api.py`.
+ */
+export const MAX_FILTER_GROUP_NODES = 256
 
 export type SamplingRuleRow = {
     id: string
@@ -45,6 +57,119 @@ function parseSeverityActions(raw: unknown): [SeverityAction, SeverityAction, Se
     return out
 }
 
+const MAX_LOGS_PER_SECOND = 1_000_000
+const MAX_BURST_LOGS = 60_000_000
+
+function parseRateLimitFromConfig(
+    config: Record<string, unknown>
+): { refillPerSecond: number; poolMax: number } | null {
+    const lps = config.logs_per_second
+    if (typeof lps !== 'number' || !Number.isFinite(lps) || lps < 1 || lps > MAX_LOGS_PER_SECOND) {
+        return null
+    }
+    const refill = Math.floor(lps)
+    const burstRaw = config.burst_logs
+    let poolMax: number
+    if (typeof burstRaw === 'number' && Number.isFinite(burstRaw) && burstRaw >= refill) {
+        poolMax = Math.min(Math.floor(burstRaw), MAX_BURST_LOGS)
+    } else {
+        poolMax = Math.min(refill * 3, MAX_BURST_LOGS)
+    }
+    return { refillPerSecond: refill, poolMax }
+}
+
+/**
+ * The drop-rules UI writes the inner group wrapped in another AND envelope:
+ *   { type: AND, values: [ { type: AND|OR, values: [<leaves>] } ] }
+ * Earlier shapes may have stored the bare inner group. Accept either; reject
+ * anything that doesn't look like a group.
+ */
+function parseFilterGroup(raw: unknown): FilterGroupNode | null {
+    if (!raw || typeof raw !== 'object') {
+        return null
+    }
+    const candidate = raw as { type?: unknown; values?: unknown }
+    if (!Array.isArray(candidate.values) || (candidate.type !== 'AND' && candidate.type !== 'OR')) {
+        return null
+    }
+    let parsed: FilterGroupNode = candidate as FilterGroupNode
+    // If the outer envelope contains a single inner group, unwrap it.
+    if (candidate.values.length === 1) {
+        const inner = candidate.values[0] as { type?: unknown; values?: unknown } | null
+        if (
+            inner &&
+            typeof inner === 'object' &&
+            Array.isArray(inner.values) &&
+            (inner.type === 'AND' || inner.type === 'OR')
+        ) {
+            parsed = inner as FilterGroupNode
+        }
+    }
+    // Reject pathologically deep trees at compile time so the worker hot path
+    // never recurses past MAX_FILTER_GROUP_DEPTH. Same bound is enforced in
+    // sampling_api.py's Pydantic validator at write time; this is defense in
+    // depth for rows that predate the validator.
+    if (filterGroupDepth(parsed, 0) > MAX_FILTER_GROUP_DEPTH) {
+        return null
+    }
+    // Also bound total breadth — a flat AND with thousands of sibling leaves
+    // passes the depth check but costs O(leaves) per record. Matches the
+    // server-side check in sampling_api.py and protects rows that predate it.
+    if (filterGroupNodeCount(parsed) > MAX_FILTER_GROUP_NODES) {
+        return null
+    }
+    // Walk the tree once and stamp pre-compiled regex onto each regex leaf so
+    // the per-record hot path doesn't allocate a fresh `RegExp` per match.
+    // Legacy `pathDropPatterns` already follow this pattern; this brings the
+    // filter-group path in line.
+    compileRegexLeavesInPlace(parsed)
+    return parsed
+}
+
+function filterGroupNodeCount(node: FilterGroupNode | PropertyFilterLeaf): number {
+    const maybe = node as { type?: unknown; values?: unknown }
+    if (!Array.isArray(maybe.values) || (maybe.type !== 'AND' && maybe.type !== 'OR')) {
+        return 1
+    }
+    let total = 1
+    for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+        total += filterGroupNodeCount(child)
+        if (total > MAX_FILTER_GROUP_NODES) {
+            return total
+        }
+    }
+    return total
+}
+
+function filterGroupDepth(node: FilterGroupNode | PropertyFilterLeaf, depth: number): number {
+    const maybe = node as { type?: unknown; values?: unknown }
+    if (!Array.isArray(maybe.values) || (maybe.type !== 'AND' && maybe.type !== 'OR')) {
+        return depth
+    }
+    let maxChild = depth
+    for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+        const d = filterGroupDepth(child, depth + 1)
+        if (d > maxChild) {
+            maxChild = d
+        }
+    }
+    return maxChild
+}
+
+function compileRegexLeavesInPlace(node: FilterGroupNode | PropertyFilterLeaf): void {
+    const maybe = node as { type?: unknown; values?: unknown }
+    if (Array.isArray(maybe.values) && (maybe.type === 'AND' || maybe.type === 'OR')) {
+        for (const child of maybe.values as Array<FilterGroupNode | PropertyFilterLeaf>) {
+            compileRegexLeavesInPlace(child)
+        }
+        return
+    }
+    const leaf = node as PropertyFilterLeaf
+    if (leaf.operator === 'regex' || leaf.operator === 'not_regex') {
+        leaf._compiledRegex = leaf.value == null ? null : compileLeafRegex(leaf.value)
+    }
+}
+
 function parseAlwaysKeep(config: Record<string, unknown>): CompiledSamplingRule['alwaysKeep'] {
     const ak = config.always_keep as Record<string, unknown> | undefined
     if (!ak || typeof ak !== 'object') {
@@ -68,17 +193,25 @@ function parseAlwaysKeep(config: Record<string, unknown>): CompiledSamplingRule[
 
 export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
     const rules: CompiledSamplingRule[] = []
+    let hasRateLimitRules = false
     for (const row of rows) {
-        let pathRegex: RegExp | null = null
+        // RE2 has linear-time matching; native RegExp here would expose the ingestion
+        // worker to catastrophic-backtracking ReDoS from any admin-authored pattern.
+        // Same engine choice as the new filter-group regex leaves and the rest of
+        // `nodejs/src/cdp/` regex sites.
+        let pathRegex: CompiledSamplingRule['pathRegex'] = null
         if (row.scope_path_pattern) {
             try {
-                pathRegex = new RegExp(row.scope_path_pattern)
+                pathRegex = createTrackedRE2(row.scope_path_pattern, undefined, 'logs-sampling:scope-path')
             } catch {
-                pathRegex = /^$/
+                // Treat invalid / RE2-rejected patterns as match-nothing so the rule
+                // never accidentally over-scopes. Mirrors prior `/^$/` sentinel.
+                pathRegex = createTrackedRE2('^$', undefined, 'logs-sampling:scope-path-fallback')
             }
         }
-        let pathDropPatterns: RegExp[] | null = null
+        let pathDropPatterns: CompiledSamplingRule['pathDropPatterns'] = null
         let pathDropMatchAttributeKey: string | null = null
+        let filterGroup: FilterGroupNode | null = null
         if (row.rule_type === 'path_drop') {
             const patterns = (row.config.patterns as unknown[]) || []
             pathDropPatterns = []
@@ -87,9 +220,9 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
                     continue
                 }
                 try {
-                    pathDropPatterns.push(new RegExp(p))
+                    pathDropPatterns.push(createTrackedRE2(p, undefined, 'logs-sampling:path-drop-pattern'))
                 } catch {
-                    /* skip invalid */
+                    /* skip invalid (incl. RE2-rejected lookahead/backreference patterns) */
                 }
             }
             const mak = row.config.match_attribute_key
@@ -97,18 +230,30 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
                 const t = mak.trim()
                 pathDropMatchAttributeKey = t === '' ? null : t
             }
+            filterGroup = parseFilterGroup(row.config.filter_group)
         }
         const rt = row.rule_type as CompiledSamplingRule['ruleType']
+        const ruleType: CompiledSamplingRule['ruleType'] =
+            rt === 'path_drop' || rt === 'rate_limit' || rt === 'severity_sampling' ? rt : 'path_drop'
+        let rateLimit: CompiledSamplingRule['rateLimit'] = null
+        if (ruleType === 'rate_limit') {
+            rateLimit = parseRateLimitFromConfig(row.config ?? {})
+            if (rateLimit) {
+                hasRateLimitRules = true
+            }
+        }
         rules.push({
             id: row.id,
-            ruleType: rt === 'path_drop' || rt === 'rate_limit' || rt === 'severity_sampling' ? rt : 'path_drop',
+            ruleType,
             scopeService: row.scope_service,
             pathRegex,
             pathDropPatterns,
             pathDropMatchAttributeKey,
+            filterGroup,
             severityActions: parseSeverityActions(row.config),
             alwaysKeep: parseAlwaysKeep(row.config),
+            rateLimit,
         })
     }
-    return { rules }
+    return { rules, hasRateLimitRules }
 }

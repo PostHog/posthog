@@ -1,6 +1,8 @@
 from collections.abc import AsyncIterable, Iterable
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+import orjson
+import pyarrow as pa
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
@@ -14,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -42,6 +45,32 @@ if TYPE_CHECKING:
 
 CIO_DOCS_WEBHOOKS_URL = "https://fly.customer.io/settings/webhooks/new/reporting_webhook"
 CIO_APP_API_KEY_URL = "https://fly.customer.io/settings/api_credentials?keyType=app"
+
+
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    if "data" not in table.column_names:
+        return table_from_py_list([])
+
+    data_col = table.column("data").to_pylist()
+    event_id_col = table.column("event_id").to_pylist() if "event_id" in table.column_names else [None] * table.num_rows
+    timestamp_col = (
+        table.column("timestamp").to_pylist() if "timestamp" in table.column_names else [None] * table.num_rows
+    )
+    metric_col = table.column("metric").to_pylist() if "metric" in table.column_names else [None] * table.num_rows
+
+    rows: list[dict[str, Any]] = []
+    for data, event_id, timestamp, metric in zip(data_col, event_id_col, timestamp_col, metric_col):
+        if data is None:
+            continue
+        # `data` typically arrives as a nested dict (pyarrow struct), but defensively
+        # handle the case where it's been serialized as a JSON string upstream.
+        row = orjson.loads(data) if isinstance(data, (str, bytes)) else dict(data)
+        row["event_id"] = event_id
+        row["timestamp"] = timestamp
+        row["metric"] = metric
+        rows.append(row)
+
+    return table_from_py_list(rows)
 
 
 @SourceRegistry.register
@@ -157,6 +186,7 @@ class CustomerIOSource(
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # `supports_append=False` on the webhook schemas: events arrive via the realtime
         # webhook pipeline (not the polling sync), so user-facing append/full-refresh
@@ -231,7 +261,7 @@ class CustomerIOSource(
 
         def items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
-                return webhook_source_manager.get_items()
+                return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
             return iter([])
 
         return SourceResponse(

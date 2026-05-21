@@ -1,6 +1,13 @@
 import { hexToRGBA } from 'lib/utils'
 
-import { buildTrendsBarTimeSeries, type TrendsBarResultLike } from './trendsBarChartTransforms'
+import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
+
+import {
+    buildTrendsBarAggregatedSeries,
+    buildTrendsBarTimeSeries,
+    buildTrendsBarTimeSeriesConfig,
+    type TrendsBarResultLike,
+} from './trendsBarChartTransforms'
 
 const RED = '#ff0000'
 
@@ -53,5 +60,175 @@ describe('buildTrendsBarTimeSeries', () => {
     it('falls back to empty string label when result label is null', () => {
         const series = buildTrendsBarTimeSeries([makeResult({ label: null })], { getColor: () => RED })
         expect(series[0].label).toBe('')
+    })
+})
+
+describe('buildTrendsBarAggregatedSeries', () => {
+    const mkResult = (overrides: Partial<TrendsBarResultLike> = {}): TrendsBarResultLike => ({
+        id: 0,
+        label: 'Pageview',
+        data: [],
+        aggregated_value: 42,
+        ...overrides,
+    })
+
+    it('returns labels aligned with results, in the same order', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
+            mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(labels).toEqual(['A', 'B', 'C'])
+    })
+
+    it('places each aggregated_value at the index matching its own band — zero everywhere else', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: 10 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: 20 }),
+            mkResult({ id: 'c', label: 'C', aggregated_value: 30 }),
+        ]
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(series[0].data).toEqual([10, 0, 0])
+        expect(series[1].data).toEqual([0, 20, 0])
+        expect(series[2].data).toEqual([0, 0, 30])
+    })
+
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined])(
+        'replaces non-finite aggregated_value (%p) with 0 at the result index',
+        (badValue) => {
+            const { series } = buildTrendsBarAggregatedSeries([mkResult({ aggregated_value: badValue })], {
+                getColor: () => RED,
+            })
+            expect(series[0].data).toEqual([0])
+        }
+    )
+
+    it('passes per-result colors through from getColor', () => {
+        const colors = ['#aaa', '#bbb', '#ccc']
+        const results = colors.map((_, i) => mkResult({ id: `r${i}` }))
+        const { series } = buildTrendsBarAggregatedSeries(results, { getColor: (_r, i) => colors[i] })
+        expect(series.map((s) => s.color)).toEqual(colors)
+    })
+
+    it.each([
+        {
+            name: 'suffixes labels with compare_label so compare-against-previous rows get distinct bands',
+            results: [
+                { id: 'a', label: 'Microsoft Edge', compare_label: 'current', aggregated_value: 100 },
+                { id: 'b', label: 'Microsoft Edge', compare_label: 'previous', aggregated_value: 80 },
+                { id: 'c', label: 'Safari', compare_label: 'current', aggregated_value: 60 },
+            ] satisfies Partial<TrendsBarResultLike>[],
+            expected: ['Microsoft Edge - current', 'Microsoft Edge - previous', 'Safari - current'],
+        },
+        {
+            name: 'leaves labels unchanged when compare_label is absent',
+            results: [
+                { id: 'a', label: 'Chrome', aggregated_value: 1 },
+                { id: 'b', label: 'Safari', aggregated_value: 2 },
+            ] satisfies Partial<TrendsBarResultLike>[],
+            expected: ['Chrome', 'Safari'],
+        },
+    ])('$name', ({ results, expected }) => {
+        const { labels } = buildTrendsBarAggregatedSeries(results.map(mkResult), { getColor: () => RED })
+        expect(labels).toEqual(expected)
+        // No duplicates — every band gets a unique d3 domain key.
+        expect(new Set(labels).size).toBe(labels.length)
+    })
+
+    it('drops hidden results so visible bars are densely packed', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
+            mkResult({ id: 'b', label: 'B', aggregated_value: 2 }),
+            mkResult({ id: 'c', label: 'C', aggregated_value: 3 }),
+        ]
+        const { series, labels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            getHidden: (_r, i) => i === 1,
+        })
+        expect(labels).toEqual(['A', 'C'])
+        expect(series).toHaveLength(2)
+        expect(series[0].data).toEqual([1, 0])
+        expect(series[1].data).toEqual([0, 3])
+    })
+})
+
+describe('buildTrendsBarTimeSeriesConfig', () => {
+    it.each([
+        { isPercentStackView: false, isGrouped: false, expected: 'stacked' },
+        { isPercentStackView: false, isGrouped: true, expected: 'grouped' },
+        { isPercentStackView: true, isGrouped: false, expected: 'percent' },
+        { isPercentStackView: true, isGrouped: true, expected: 'percent' },
+    ])(
+        'maps isPercentStackView=$isPercentStackView / isGrouped=$isGrouped to barLayout=$expected',
+        ({ isPercentStackView, isGrouped, expected }) => {
+            const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView, isGrouped })
+            expect(cfg.barLayout).toBe(expected)
+        }
+    )
+
+    it.each([
+        {
+            name: 'builds the xAxis from interval/timezone/allDays',
+            input: { interval: 'day' as const, timezone: 'UTC', allDays: ['2024-06-10', '2024-06-11'] },
+            expected: { timezone: 'UTC', interval: 'day', allDays: ['2024-06-10', '2024-06-11'] },
+        },
+        {
+            name: 'defaults interval to "day" and allDays to empty when omitted',
+            input: {},
+            expected: { timezone: undefined, interval: 'day', allDays: [] },
+        },
+    ])('$name', ({ input, expected }) => {
+        const cfg = buildTrendsBarTimeSeriesConfig({ isPercentStackView: false, isGrouped: false, ...input })
+        expect(cfg.xAxis).toEqual(expected)
+    })
+
+    it('forwards the y-axis from buildTrendsYAxisConfig with showGrid: true', () => {
+        const trendsFilter: TrendsFilter = { aggregationAxisFormat: 'duration', aggregationAxisPrefix: '~' }
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            trendsFilter,
+            baseCurrency: 'USD' as CurrencyCode,
+            yAxisScaleType: 'log10',
+        })
+        expect(cfg.yAxis).toMatchObject({
+            format: 'duration',
+            prefix: '~',
+            currency: 'USD',
+            scale: 'log',
+            showGrid: true,
+        })
+    })
+
+    it('forces percentage format when isPercentStackView is true', () => {
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: true,
+            isGrouped: false,
+            trendsFilter: { aggregationAxisFormat: 'currency' },
+        })
+        expect(cfg.yAxis?.format).toBe('percentage')
+    })
+
+    it('maps schema goal lines through the shared adapter', () => {
+        const goalLines: SchemaGoalLine[] = [{ value: 50, label: 'Target' }]
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            goalLines,
+        })
+        expect(cfg.goalLines).toEqual([expect.objectContaining({ value: 50, label: 'Target' })])
+    })
+
+    it('passes valueLabels and tooltip through unchanged', () => {
+        const formatter = (v: number): string => `~${v}`
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            valueLabels: { formatter },
+            tooltip: { pinnable: true, placement: 'top' },
+        })
+        expect(cfg.valueLabels).toEqual({ formatter })
+        expect(cfg.tooltip).toEqual({ pinnable: true, placement: 'top' })
     })
 })

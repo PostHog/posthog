@@ -53,7 +53,7 @@ export const personLogic = kea<personLogicType>([
             },
         ],
     })),
-    lazyLoaders(({ props, values }) => ({
+    lazyLoaders(({ props }) => ({
         person: [
             null as PersonType | null,
             {
@@ -128,10 +128,6 @@ export const personLogic = kea<personLogicType>([
             null as { mrr: number | null; lifetimeValue: number | null } | null,
             {
                 loadRevenueData: async () => {
-                    if (!values.isRevenueAnalyticsEnabled) {
-                        return null
-                    }
-
                     try {
                         const result = await api.query({
                             kind: NodeKind.HogQLQuery,

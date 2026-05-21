@@ -5,6 +5,7 @@ import { useCallback } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -68,7 +69,7 @@ export function CategoryDropdown({
             onVisibilityChange={onVisibilityChange}
             activeItemIndex={activeItemIndex >= 0 ? activeItemIndex : undefined}
             placement="bottom-start"
-            className="click-outside-block"
+            className={CLICK_OUTSIDE_BLOCK_CLASS}
         >
             {renderTrigger(variant, activeLabel)}
         </LemonMenu>
@@ -83,6 +84,7 @@ function renderTrigger(variant: Exclude<CategoryDropdownVariant, 'control'>, act
             sideIcon={<IconChevronDown />}
             data-attr={`taxonomic-category-dropdown-trigger-${variant}`}
             aria-label={`Current category: ${activeLabel}. Click to change.`}
+            className={CLICK_OUTSIDE_BLOCK_CLASS}
         >
             {activeLabel}
         </LemonButton>

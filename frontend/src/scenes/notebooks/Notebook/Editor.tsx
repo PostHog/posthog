@@ -65,6 +65,7 @@ import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookDefaultBlockOnEnter } from './NotebookDefaultBlockOnEnter'
 import { notebookLogic } from './notebookLogic'
 import { NotebookTrailingParagraph } from './NotebookTrailingParagraph'
+import { RangeSelectedNodes } from './RangeSelectedNodes'
 import { RemotePresenceExtension } from './RemotePresenceExtension'
 import { SlashCommandsExtension } from './SlashCommands'
 import { TableMenu } from './TableMenu'
@@ -173,6 +174,7 @@ export function Editor(): JSX.Element {
         NotebookNodeCustomerJourney,
         NotebookTrailingParagraph,
         NotebookDefaultBlockOnEnter,
+        RangeSelectedNodes,
     ]
 
     if (useCollab) {
@@ -205,6 +207,7 @@ export function Editor(): JSX.Element {
                 const notebookEditor: NotebookEditor = {
                     ...createEditor(editor),
                     findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
+                    getAllCommentTexts: () => getAllCommentTexts(editor),
                     removeComment: (pos: number) => removeCommentMark(editor, pos),
                     getText: () => textContent(editor.state.doc),
                 }
@@ -255,6 +258,21 @@ function findCommentPosition(editor: TTEditor, markId: string): number | null {
             // Same id can appear on multiple text nodes; use the start of the marked run.
             if (result === null || pos < result) {
                 result = pos
+            }
+        }
+    })
+    return result
+}
+
+function getAllCommentTexts(editor: TTEditor): Record<string, string> {
+    const result: Record<string, string> = {}
+    editor.state.doc.descendants((node) => {
+        if (!node.isText) {
+            return
+        }
+        for (const m of node.marks) {
+            if (m.type.name === 'comment' && m.attrs.id) {
+                result[m.attrs.id] = (result[m.attrs.id] ?? '') + (node.text ?? '')
             }
         }
     })

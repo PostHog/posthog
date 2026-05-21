@@ -1,9 +1,11 @@
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_BATCH_HOGFLOW_REQUESTS,
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_EVENTS_JSON,
+    KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
 } from '../config/kafka-topics'
@@ -17,7 +19,10 @@ import {
 } from './outputs/producers'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
-export type CdpConfig = {
+// CdpConfig intersects ClickhouseConfig so any consumer reading
+// `this.config.CLICKHOUSE_HOST` etc. gets typed, defaulted values — fixes the
+// case where `CdpRerunWorkerConsumer` silently fell back to `default` DB.
+export type CdpConfig = ClickhouseConfig & {
     CDP_WATCHER_COST_ERROR: number
     CDP_WATCHER_HOG_COST_TIMING: number
     CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: number
@@ -61,6 +66,22 @@ export type CdpConfig = {
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
+    // Reuses CDP_REDIS_PASSWORD; falls back to the writer when host is unset.
+    CDP_REDIS_READER_HOST: string
+    CDP_REDIS_READER_PORT: number
+
+    // Shadow Valkey pool for dual-write/read load testing. When CDP_VALKEY_DUAL_ENABLED
+    // is true and CDP_VALKEY_HOST is set, every Redis call also runs against this pool;
+    // shadow results are discarded, errors/timeouts logged + counted but never affect
+    // the primary code path.
+    CDP_VALKEY_HOST: string
+    CDP_VALKEY_PORT: number
+    CDP_VALKEY_PASSWORD: string
+    CDP_VALKEY_READER_HOST: string
+    CDP_VALKEY_READER_PORT: number
+    CDP_VALKEY_DUAL_ENABLED: boolean
+    // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
+    CDP_VALKEY_TLS: boolean
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -72,6 +93,10 @@ export type CdpConfig = {
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: CdpProducerName
+    HOG_INVOCATION_RESULTS_TOPIC: string
+    HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
+    HOG_INVOCATION_RESULTS_ENABLED: boolean
+    HOG_INVOCATION_RERUN_MAX_COUNT: number
     CDP_PREFILTERED_EVENTS_TOPIC: string
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
@@ -111,6 +136,7 @@ export type CdpConfig = {
 
 export function getDefaultCdpConfig(): CdpConfig {
     return {
+        ...getDefaultClickhouseConfig(),
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,
@@ -154,6 +180,16 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
         CDP_REDIS_PASSWORD: '',
+        CDP_REDIS_READER_HOST: '',
+        CDP_REDIS_READER_PORT: 6379,
+
+        CDP_VALKEY_HOST: '',
+        CDP_VALKEY_PORT: 6379,
+        CDP_VALKEY_PASSWORD: '',
+        CDP_VALKEY_READER_HOST: '',
+        CDP_VALKEY_READER_PORT: 6379,
+        CDP_VALKEY_DUAL_ENABLED: false,
+        CDP_VALKEY_TLS: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -165,6 +201,17 @@ export function getDefaultCdpConfig(): CdpConfig {
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        HOG_INVOCATION_RESULTS_TOPIC: KAFKA_HOG_INVOCATION_RESULTS,
+        // Cyclotron Warpstream cluster — ClickHouse consumes hog_invocation_results
+        // from the warpstream_cyclotron named collection, so the producer must
+        // target the same cluster.
+        HOG_INVOCATION_RESULTS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        // Off by default — flip to true once the table is migrated and we want to start writing.
+        // Per-team rollout still happens at the call site.
+        HOG_INVOCATION_RESULTS_ENABLED: isDevEnv() ? true : false,
+        // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
+        // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
+        HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
         CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,

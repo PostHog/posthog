@@ -4,7 +4,7 @@ import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 export function ruleTypeLabel(ruleType: RuleTypeEnumApi): string {
     switch (ruleType) {
         case RuleTypeEnumApi.PathDrop:
-            return 'Drop when matched'
+            return 'Drop'
         case RuleTypeEnumApi.SeveritySampling:
             return 'Drop by severity'
         case RuleTypeEnumApi.RateLimit:

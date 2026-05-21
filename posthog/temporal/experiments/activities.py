@@ -58,7 +58,6 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
     experiments = Experiment.objects.filter(
         time_filter,
         deleted=False,
-        scheduling_config__timeseries=True,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
     ).exclude(
@@ -310,7 +309,6 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
     experiments = Experiment.objects.filter(
         time_filter,
         deleted=False,
-        scheduling_config__timeseries=True,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")

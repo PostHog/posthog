@@ -126,6 +126,39 @@ describe('hog-charts bar-layout', () => {
                 /stackedBand is required/
             )
         })
+
+        it('rounds the cap of the topmost visible series per yAxisId (multi-axis stacked)', () => {
+            const labels = ['a', 'b', 'c']
+            const left1 = makeSeries({ key: 'left-1', data: [10, 20, 30], yAxisId: 'left' })
+            const left2 = makeSeries({ key: 'left-2', data: [5, 15, 25], yAxisId: 'left' })
+            const right1 = makeSeries({ key: 'right-1', data: [1, 2, 3], yAxisId: 'right' })
+            const all = [left1, left2, right1]
+            const scales = createBarScales(all, labels, dimensions, { barLayout: 'stacked' })
+            const stacks = computeStackData(all, labels)
+
+            // Mirror the per-axis top resolution that BarChart performs: last visible series per axisId wins.
+            const topPerAxis = new Map<string, string>()
+            for (const s of all) {
+                topPerAxis.set(s.yAxisId ?? 'left', s.key)
+            }
+
+            const hasRoundedCap = (bars: ReturnType<typeof layoutOf>): boolean =>
+                bars.some((b) => b !== null && (b.corners.topLeft || b.corners.topRight))
+
+            const barsFor = (s: typeof left1): ReturnType<typeof layoutOf> =>
+                layoutOf({
+                    series: s,
+                    labels,
+                    scales,
+                    layout: 'stacked',
+                    stackedBand: stacks.get(s.key),
+                    isTopOfStack: topPerAxis.get(s.yAxisId ?? 'left') === s.key,
+                })
+
+            expect(hasRoundedCap(barsFor(left2))).toBe(true)
+            expect(hasRoundedCap(barsFor(right1))).toBe(true)
+            expect(hasRoundedCap(barsFor(left1))).toBe(false)
+        })
     })
 
     it('returns null for null/NaN data points but preserves dataIndex order', () => {

@@ -7,7 +7,7 @@ from posthog.temporal.session_replay.delete_recordings.activities import (
     load_session_id_chunk,
     purge_deleted_metadata,
 )
-from posthog.temporal.session_replay.delete_recordings.workflows import (
+from posthog.temporal.session_replay.delete_recordings.workflow import (
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithQueryWorkflow,
     DeleteRecordingsWithSessionIdsWorkflow,
@@ -15,7 +15,7 @@ from posthog.temporal.session_replay.delete_recordings.workflows import (
     PurgeDeletedRecordingMetadataWorkflow,
 )
 
-WORKFLOWS = [
+DELETE_RECORDINGS_WORKFLOWS = [
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithTeamWorkflow,
     DeleteRecordingsWithQueryWorkflow,
@@ -23,7 +23,7 @@ WORKFLOWS = [
     PurgeDeletedRecordingMetadataWorkflow,
 ]
 
-ACTIVITIES = [
+DELETE_RECORDINGS_ACTIVITIES = [
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,

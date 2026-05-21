@@ -1,6 +1,7 @@
 import { type ReactElement, useState } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
@@ -65,7 +66,14 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     const { series, labels, maxValue } = prepareChartData(results)
 
     if (!results || results.length === 0 || series.length === 0) {
-        return <EmptyState icon="chart" description="No data available" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                    <EmptyDescription>No data available</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     if (displayType === 'BoldNumber') {
@@ -76,13 +84,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     return (
         <div>
-            <div
-                style={{
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    marginBottom: '0.5rem',
-                }}
-            >
+            <div className="mb-2 flex justify-end">
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>

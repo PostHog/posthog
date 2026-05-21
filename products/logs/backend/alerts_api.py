@@ -10,11 +10,14 @@ from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import LogsAlertFilters
 
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -61,8 +64,9 @@ UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
 STATE_TIMELINE_LOOKBACK_HOURS = 24
-# Mirrors LogsAlertConfiguration.check_interval_minutes' default — kept here so
-# the simulate endpoint evaluates at the same cadence production runs at.
+# Mirrors LogsAlertConfiguration.check_interval_minutes' default — used as the
+# simulate endpoint's default cadence so it matches production when callers
+# don't override it.
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
@@ -103,6 +107,31 @@ def _state_timeline_window_bounds() -> tuple[datetime, datetime]:
     return end - dt.timedelta(hours=STATE_TIMELINE_LOOKBACK_HOURS), end
 
 
+@extend_schema_field(LogsAlertFilters)  # type: ignore[arg-type]
+class LogsAlertFiltersField(serializers.JSONField):
+    """JSONField typed against the `LogsAlertFilters` Pydantic schema.
+
+    Annotating with `@extend_schema_field(LogsAlertFilters)` is what makes the
+    generated OpenAPI spec — and downstream MCP zod schemas — surface the actual
+    shape (severityLevels / serviceNames / filterGroup) to API consumers and AI
+    agents, instead of an opaque `JSONField` blob. Validating with
+    `model_validate` on write rejects shape errors at the API boundary so the
+    alerting worker never sees a structurally invalid `filterGroup`.
+    """
+
+    def to_internal_value(self, data: dict | list) -> dict:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Must be a JSON object.")
+        try:
+            LogsAlertFilters.model_validate(value)
+        except PydanticValidationError as e:
+            first = e.errors()[0]
+            location = ".".join(str(p) for p in first["loc"]) or "filters"
+            raise serializers.ValidationError(f"Invalid filters shape at `{location}`: {first['msg']}") from e
+        return value
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(
         read_only=True,
@@ -118,7 +147,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         default=True,
         help_text="Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
     )
-    filters = serializers.JSONField(
+    filters = LogsAlertFiltersField(
         required=False,
         help_text="Filter criteria — subset of LogsViewerFilters. Must contain at least one of: "
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
@@ -505,7 +534,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
 
 def _validate_filters(filters: dict) -> None:
-    """Shared filter validation for both create/update and simulate."""
+    """Cross-field requirement that at least one filter is present.
+
+    Per-field shape validation is handled by `LogsAlertFiltersField`, which runs
+    `LogsAlertFilters.model_validate` on the raw input — by the time this helper
+    runs, `filters` is a structurally valid `LogsAlertFilters` dict.
+    """
     if not isinstance(filters, dict):
         raise ValidationError({"filters": "Must be a JSON object."})
     has_severity = bool(filters.get("severityLevels"))
@@ -544,7 +578,7 @@ class LogsAlertSimulateBucketSerializer(serializers.Serializer):
 
 
 class LogsAlertSimulateRequestSerializer(serializers.Serializer):
-    filters = serializers.JSONField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
+    filters = LogsAlertFiltersField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
     threshold_count = serializers.IntegerField(
         min_value=1,
         help_text="Threshold count to evaluate against.",
@@ -555,6 +589,12 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     )
     window_minutes = serializers.IntegerField(
         help_text="Window size in minutes — determines bucket interval.",
+    )
+    check_interval_minutes = serializers.IntegerField(
+        default=DEFAULT_CHECK_INTERVAL_MINUTES,
+        min_value=1,
+        max_value=max(ALLOWED_WINDOW_MINUTES),
+        help_text="How often the alert is evaluated, in minutes.",
     )
     evaluation_periods = serializers.IntegerField(
         default=1,
@@ -599,6 +639,8 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     def validate(self, attrs: dict) -> dict:
         if attrs.get("datapoints_to_alarm", 1) > attrs.get("evaluation_periods", 1):
             raise ValidationError({"datapoints_to_alarm": "Cannot exceed evaluation_periods."})
+        if attrs["check_interval_minutes"] > attrs["window_minutes"]:
+            raise ValidationError({"check_interval_minutes": "Cannot exceed window_minutes."})
         return attrs
 
 
@@ -994,25 +1036,34 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             threshold_count=data["threshold_count"],
             threshold_operator=data["threshold_operator"],
             window_minutes=window_minutes,
+            check_interval_minutes=data["check_interval_minutes"],
         )
+        cadence_minutes = fake_alert.check_interval_minutes
 
         sparse_buckets: list[BucketedCount] = AlertCheckQuery(
             team=self.team,
             alert=fake_alert,
             date_from=date_from_dt,
             date_to=date_to_dt,
-        ).execute_bucketed(interval_minutes=DEFAULT_CHECK_INTERVAL_MINUTES, limit=MAX_SIMULATE_BUCKETS)
+        ).execute_bucketed(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_BUCKETS)
 
-        cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, DEFAULT_CHECK_INTERVAL_MINUTES)
+        cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, cadence_minutes)
 
-        # ALLOWED_WINDOW_MINUTES is bounded below by DEFAULT_CHECK_INTERVAL_MINUTES,
+        # ALLOWED_WINDOW_MINUTES is bounded below by the configured cadence,
         # so integer division here is always >= 1.
-        buckets_per_window = window_minutes // DEFAULT_CHECK_INTERVAL_MINUTES
+        buckets_per_window = window_minutes // cadence_minutes
         counts = [b.count for b in cadence_buckets]
         rolling_counts: list[int] = []
+        # Bucket i represents `[T_i, T_i + check_interval)`. The actual evaluator
+        # at moment T queries `[T - window, T)` — purely past — so the simulator's
+        # rolling sum at bucket time T_i must exclude bucket i (which holds future
+        # data) and sum the previous `buckets_per_window` buckets ending just
+        # before T_i. Without this, the simulator looks `check_interval` minutes
+        # into the future and produces fire/resolve transitions that don't match
+        # production.
         for i in range(len(counts)):
-            window_start = max(0, i - buckets_per_window + 1)
-            rolling_counts.append(sum(counts[window_start : i + 1]))
+            window_start = max(0, i - buckets_per_window)
+            rolling_counts.append(sum(counts[window_start:i]))
 
         threshold = data["threshold_count"]
         is_above = data["threshold_operator"] == LogsAlertConfiguration.ThresholdOperator.ABOVE

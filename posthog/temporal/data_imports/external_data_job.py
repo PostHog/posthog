@@ -44,10 +44,6 @@ from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
-    SyncNewSchemasActivityInputs,
-    sync_new_schemas_activity,
-)
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -55,6 +51,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
+from products.data_warehouse.backend.data_load.service import a_unpause_external_data_schedule
 from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
@@ -177,6 +174,35 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
     )
 
+    # If an admin action paused the schedule before triggering this run, auto-
+    # unpause it on COMPLETED so support ops don't have to remember. On any
+    # non-COMPLETED outcome (FAILED, BILLING_LIMIT_REACHED, …) the flag stays
+    # set and the schedule stays paused — a human looks at it before resuming.
+    if inputs.status == ExternalDataJob.Status.COMPLETED:
+        await _maybe_unpause_schedule_after_admin_run(inputs.schema_id, logger)
+
+
+async def _maybe_unpause_schedule_after_admin_run(schema_id: str, logger) -> None:
+    try:
+        schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(id=schema_id)
+    except ExternalDataSchema.DoesNotExist:
+        return
+
+    sync_type_config = schema.sync_type_config or {}
+    if not sync_type_config.get("admin_unpause_schedule_after_run"):
+        return
+
+    try:
+        await a_unpause_external_data_schedule(schema_id)
+    except Exception:
+        logger.exception(f"Failed to auto-unpause schedule for schema {schema_id} after admin run")
+        return
+
+    sync_type_config.pop("admin_unpause_schedule_after_run", None)
+    schema.sync_type_config = sync_type_config
+    await database_sync_to_async_pool(schema.save)(update_fields=["sync_type_config"])
+    logger.info(f"Auto-unpaused schedule for schema {schema_id} after successful admin-triggered run")
+
 
 @dataclasses.dataclass
 class CreateSourceTemplateInputs:
@@ -277,18 +303,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
-
-            await workflow.execute_activity(
-                sync_new_schemas_activity,
-                SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
-                ),
-            )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,

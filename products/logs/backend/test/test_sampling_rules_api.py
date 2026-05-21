@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.logs.backend.models import LogsExclusionRule
@@ -64,3 +65,129 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert ordered[0]["priority"] == 0
         assert ordered[1]["id"] == a["id"]
         assert ordered[1]["priority"] == 1
+
+    def test_create_rate_limit_requires_scope_service(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Cap api",
+                rule_type="rate_limit",
+                scope_service=None,
+                config={"logs_per_second": 100},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "scope_service"
+
+    def test_create_rate_limit_success(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Cap api",
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={"logs_per_second": 5000, "burst_logs": 15000},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["rule_type"] == "rate_limit"
+        assert body["scope_service"] == "payment-api"
+        assert body["config"]["logs_per_second"] == 5000
+        assert body["config"]["burst_logs"] == 15000
+
+    def test_create_path_drop_with_valid_filter_group(self):
+        # The drop-rules UI writes the inner group wrapped in an outer AND envelope.
+        filter_group = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "service.name", "operator": "exact", "value": "api", "type": "log_resource_attribute"}
+                    ],
+                }
+            ],
+        }
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Drop api logs",
+                config={"patterns": [], "filter_group": filter_group},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["config"]["filter_group"] == filter_group
+
+    # Each case is a config payload that the Pydantic PropertyGroupFilter validator
+    # should reject at write time, so a malformed shape never reaches the worker.
+    MALFORMED_FILTER_GROUPS = [
+        ("filter_group_is_list", []),
+        ("filter_group_is_string", "not a group"),
+        ("missing_type", {"values": []}),
+        ("invalid_logical_operator", {"type": "XOR", "values": []}),
+        ("values_is_not_list", {"type": "AND", "values": "oops"}),
+        ("inner_group_is_list", {"type": "AND", "values": [[{"key": "x"}]]}),
+    ]
+
+    @parameterized.expand([(label, payload) for label, payload in MALFORMED_FILTER_GROUPS])
+    def test_create_path_drop_rejects_malformed_filter_group(self, _label, malformed):
+        response = self.client.post(
+            self.base_url,
+            self._payload(config={"patterns": [], "filter_group": malformed}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        # The error attaches under config → filter_group; precise message comes from Pydantic.
+        body = response.json()
+        assert "filter_group" in str(body), body
+
+    @parameterized.expand([(label, payload) for label, payload in MALFORMED_FILTER_GROUPS])
+    def test_patch_path_drop_rejects_malformed_filter_group(self, _label, malformed):
+        create = self.client.post(self.base_url, self._payload(), format="json")
+        assert create.status_code == status.HTTP_201_CREATED, create.json()
+        rule_id = create.json()["id"]
+
+        response = self.client.patch(
+            f"{self.base_url}{rule_id}/",
+            {"config": {"patterns": [], "filter_group": malformed}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_create_path_drop_rejects_filter_group_nested_too_deeply(self):
+        # 20 nested AND groups around a single leaf — well past the cap of 16.
+        # Worker recurses per record, so an unbounded depth is a stack-overflow + CPU footgun.
+        node = {
+            "type": "AND",
+            "values": [{"key": "service.name", "operator": "exact", "value": "api", "type": "log_resource_attribute"}],
+        }
+        for _ in range(20):
+            node = {"type": "AND", "values": [node]}
+        response = self.client.post(
+            self.base_url,
+            self._payload(config={"patterns": [], "filter_group": node}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "nested too deeply" in str(response.json()), response.json()
+
+    def test_create_path_drop_rejects_filter_group_with_too_many_nodes(self):
+        # A shallow group with 300 sibling leaves passes the depth check but
+        # forces the ingestion worker to evaluate every leaf on every log
+        # record. MAX_FILTER_GROUP_NODES (256) is enforced server-side.
+        leaves = [
+            {"key": "service.name", "operator": "exact", "value": f"svc-{i}", "type": "log_resource_attribute"}
+            for i in range(300)
+        ]
+        filter_group = {"type": "AND", "values": [{"type": "AND", "values": leaves}]}
+        response = self.client.post(
+            self.base_url,
+            self._payload(config={"patterns": [], "filter_group": filter_group}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "too many nodes" in str(response.json()), response.json()

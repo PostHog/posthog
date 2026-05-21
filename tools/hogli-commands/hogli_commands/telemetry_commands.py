@@ -4,22 +4,21 @@ from __future__ import annotations
 
 import click
 from hogli import telemetry
-from hogli.cli import cli
 
 
-@cli.command(name="telemetry:on", help="Enable anonymous usage telemetry")
+@click.command(name="telemetry:on", help="Enable anonymous usage telemetry")
 def telemetry_on() -> None:
     telemetry.set_enabled(True)
     click.echo("Telemetry enabled. Thank you for helping improve hogli!")
 
 
-@cli.command(name="telemetry:off", help="Disable anonymous usage telemetry")
+@click.command(name="telemetry:off", help="Disable anonymous usage telemetry")
 def telemetry_off() -> None:
     telemetry.set_enabled(False)
     click.echo("Telemetry disabled.")
 
 
-@cli.command(name="telemetry:status", help="Show current telemetry settings")
+@click.command(name="telemetry:status", help="Show current telemetry settings")
 def telemetry_status() -> None:
     import os
 

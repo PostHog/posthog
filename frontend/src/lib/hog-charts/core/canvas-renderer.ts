@@ -290,6 +290,13 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+export interface DrawGridOptions {
+    gridColor?: string
+    orientation?: 'vertical' | 'horizontal'
+    /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
+    categoryTicks?: number[]
+}
+
 /** Draws the grid lines and the categorical-axis baseline.
  *
  * `orientation`:
@@ -299,14 +306,12 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
  */
-export function drawGrid(
-    drawCtx: DrawContext,
-    options: { gridColor?: string; orientation?: 'vertical' | 'horizontal' } = {}
-): void {
+export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
     const orientation = options.orientation ?? 'vertical'
     const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
+    const categoryTicks = options.categoryTicks ?? []
 
     const valueTicks = (yScale as d3.ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
 
@@ -314,12 +319,27 @@ export function drawGrid(
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
+    // Skip the first category tick when it falls right next to the axis baseline
+    // (left edge in vertical mode, top edge in horizontal) — otherwise it renders
+    // as a faint second line hugging the axis.
+    const AXIS_BASELINE_GAP = 4
+
     if (orientation === 'horizontal') {
         for (const tick of valueTicks) {
             const x = Math.round(yScale(tick)) + 0.5
             ctx.beginPath()
             ctx.moveTo(x, dimensions.plotTop)
             ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
+            ctx.stroke()
+        }
+        for (const coord of categoryTicks) {
+            if (!isFinite(coord) || coord - dimensions.plotTop < AXIS_BASELINE_GAP) {
+                continue
+            }
+            const y = Math.round(coord) + 0.5
+            ctx.beginPath()
+            ctx.moveTo(dimensions.plotLeft, y)
+            ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
             ctx.stroke()
         }
         const axisY = Math.round(dimensions.plotTop) + 0.5
@@ -335,6 +355,17 @@ export function drawGrid(
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, y)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
+        ctx.stroke()
+    }
+
+    for (const coord of categoryTicks) {
+        if (!isFinite(coord) || coord - dimensions.plotLeft < AXIS_BASELINE_GAP) {
+            continue
+        }
+        const x = Math.round(coord) + 0.5
+        ctx.beginPath()
+        ctx.moveTo(x, dimensions.plotTop)
+        ctx.lineTo(x, dimensions.plotTop + dimensions.plotHeight)
         ctx.stroke()
     }
 
@@ -455,21 +486,20 @@ export function drawBars(
     }
 }
 
+/** Translucent fill on the overlay canvas, alpha-composited over the static bar. */
 export function drawBarHighlight(
     ctx: CanvasRenderingContext2D,
     bar: BarRect,
-    color: string,
+    overlayColor: string,
     cornerRadius: number = DEFAULT_BAR_CORNER_RADIUS
 ): void {
     if (bar.width <= 0 || bar.height <= 0) {
         return
     }
-    ctx.strokeStyle = color
-    ctx.lineWidth = 2
-    ctx.setLineDash([])
+    ctx.fillStyle = overlayColor
     ctx.beginPath()
     traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
-    ctx.stroke()
+    ctx.fill()
 }
 
 export function drawHighlightPoint(

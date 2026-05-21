@@ -12,6 +12,7 @@ interface UseChartDrawOptions {
     series: ResolvedSeries[]
     labels: string[]
     hoverIndex: number
+    hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => void
@@ -32,6 +33,7 @@ export function useChartDraw({
     series,
     labels,
     hoverIndex,
+    hoverPosition,
     theme,
     drawStatic,
     drawHover,
@@ -55,7 +57,7 @@ export function useChartDraw({
         staticRafRef.current = requestAnimationFrame(() => {
             staticRafRef.current = null
             clearAndPrepare(ctx, dimensions)
-            drawStatic({ ctx, dimensions, scales, series, labels, hoverIndex: -1, theme })
+            drawStatic({ ctx, dimensions, scales, series, labels, hoverIndex: -1, hoverPosition: null, theme })
             ctx.restore()
         })
         return () => {
@@ -81,7 +83,7 @@ export function useChartDraw({
         hoverRafRef.current = requestAnimationFrame(() => {
             hoverRafRef.current = null
             clearAndPrepare(overlayCtx, dimensions)
-            drawHover({ ctx: overlayCtx, dimensions, scales, series, labels, hoverIndex, theme })
+            drawHover({ ctx: overlayCtx, dimensions, scales, series, labels, hoverIndex, hoverPosition, theme })
             overlayCtx.restore()
         })
         return () => {
@@ -90,5 +92,5 @@ export function useChartDraw({
                 hoverRafRef.current = null
             }
         }
-    }, [overlayCtx, dimensions, scales, series, labels, hoverIndex, theme, drawHover])
+    }, [overlayCtx, dimensions, scales, series, labels, hoverIndex, hoverPosition, theme, drawHover])
 }

@@ -45,6 +45,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; MistralAI-User/1.0; +https://mistral.ai/mistralai-user)",
         "Mozilla/5.0 (compatible; Manus-User/1.0; +https://manus.im/bot)",
         "Mozilla/5.0 (compatible; Google-NotebookLM/1.0; +https://notebooklm.google)",
+        "posthog/desktop.hog.dev; version: 1.0.0",
+        "posthog/mobile.hog.dev; version: 1.0.0",
+        "posthog/agent.hog.dev; version: 1.0.0",
+        "posthog/cloud.hog.dev; version: 1.0.0",
     ],
     "search_crawler": [
         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",

@@ -1,11 +1,26 @@
 config:
     description: Unified developer experience for the PostHog monorepo.
     commands_dir: tools/hogli-commands/hogli_commands
+    # Imported once at startup to register precheck handlers, telemetry property
+    # hooks, and post-command hooks. Keep these modules cheap to import — heavy
+    # dependencies must live behind lazy imports inside handler bodies.
+    boot_modules:
+        - hogli_commands.prechecks
+        - hogli_commands.telemetry_props
+        - hogli_commands.hint_hook
     scripts_exclude:
         - mprocs.yaml
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+    env:
+        files:
+            - .env.development
+            - .env.services
+        secrets:
+            file: .env.local
+            marker: 'op://'
+            wrap: [op, run, --env-file, '{file}', --]
     telemetry:
         # Write-only project token for PostHog's internal hogli project.
         # It cannot read data; safe to commit. Standalone hogli users get a blank
@@ -113,29 +128,94 @@ metadata:
             name: phrocs
             about: PostHog's custom process runner (replaces mprocs).
 devbox:
-    devbox: null
-    devbox:setup: null
-    devbox:start: null
-    devbox:stop: null
-    devbox:restart: null
-    devbox:update: null
-    devbox:list: null
-    devbox:ssh: null
-    devbox:open: null
-    devbox:logs: null
-    devbox:destroy: null
-    devbox:status: null
-    devbox:forward: null
-    devbox:users: null
-    devbox:share: null
-    devbox:cleanup:disk: null
-    devbox:task: null
+    devbox:
+        click: hogli_commands.devbox.cli:devbox_help
+        description: Show available devbox commands
+    devbox:setup:
+        click: hogli_commands.devbox.cli:devbox_setup
+        description: Install and configure local access to Coder devboxes
+    devbox:start:
+        click: hogli_commands.devbox.cli:devbox_start
+        description: Start or create your remote devbox
+    devbox:stop:
+        click: hogli_commands.devbox.cli:devbox_stop
+        description: Stop your devbox (preserves disk, stops billing)
+    devbox:restart:
+        click: hogli_commands.devbox.cli:devbox_restart
+        description: Restart your devbox
+    devbox:update:
+        click: hogli_commands.devbox.cli:devbox_update
+        description: Update devbox to the latest template
+    devbox:list:
+        click: hogli_commands.devbox.cli:devbox_list
+        description: List your devboxes
+    devbox:ssh:
+        click: hogli_commands.devbox.cli:devbox_ssh
+        description: SSH into your devbox
+    devbox:open:
+        click: hogli_commands.devbox.cli:devbox_open
+        description: Open devbox in browser, VS Code, or Cursor
+    devbox:logs:
+        click: hogli_commands.devbox.cli:devbox_logs
+        description: Tail devbox build and agent logs
+    devbox:destroy:
+        click: hogli_commands.devbox.cli:devbox_destroy
+        description: Destroy your devbox and its data
+    devbox:status:
+        click: hogli_commands.devbox.cli:devbox_status
+        description: Show devbox status
+    devbox:forward:
+        click: hogli_commands.devbox.cli:devbox_forward
+        description: Forward PostHog UI to localhost
+    devbox:users:
+        click: hogli_commands.devbox.cli:devbox_users
+        description: List Coder users (for devbox sharing)
+    devbox:share:
+        click: hogli_commands.devbox.cli:devbox_share
+        description: Share your devbox with other users
+    devbox:unshare:
+        click: hogli_commands.devbox.cli:devbox_unshare
+        description: Revoke access to your devbox from other users
+    devbox:cleanup:disk:
+        click: hogli_commands.devbox.cli:devbox_cleanup_disk
+        description: Free disk space by cleaning caches and build artifacts
+    devbox:task:
+        click: hogli_commands.devbox.cli:devbox_task
+        description: Run a background agent task on a fresh devbox
+    devbox:secret:list:
+        click: hogli_commands.devbox.cli:devbox_secret_list
+        description: List your Coder user secrets
+    devbox:secret:set:
+        click: hogli_commands.devbox.cli:devbox_secret_set
+        description: Create or replace a Coder user secret
+    devbox:secret:rm:
+        click: hogli_commands.devbox.cli:devbox_secret_rm
+        description: Delete a Coder user secret
 devenv:
-    dev:setup: null
-    dev:generate: null
-    dev:explain: null
-    dev:intents: null
+    dev:setup:
+        click: hogli_commands.devenv.cli:dev_setup
+        description: Interactive wizard to configure your dev environment
+    dev:generate:
+        click: hogli_commands.devenv.cli:dev_generate
+        description: Regenerate mprocs config from saved settings
+    dev:explain:
+        click: hogli_commands.devenv.cli:dev_explain
+        description: Show what services would be started for intents
+    dev:intents:
+        click: hogli_commands.devenv.cli:dev_intents
+        description: List available intents
+    dev:list-units:
+        click: hogli_commands.devenv.cli:dev_list_units
+        description: List autostart units for given intents (used by phrocs)
+        hidden: true
+    dev:apply:
+        click: hogli_commands.devenv.cli:dev_apply
+        description: Apply intent config non-interactively (used by phrocs)
+        hidden: true
 core:
+    quickstart:
+        click: hogli_commands.quickstart:quickstart
+        description: Show getting started with PostHog development
     categories:
         description: Show all available commands grouped by category
     dev:up:
@@ -211,6 +291,7 @@ start:
     start:
         bin_script: start
         description: Launch all dev services via phrocs (interactive TUI, or `-d` for detached mode)
+        needs_secrets: true
         services:
             - phrocs
             - mprocs
@@ -226,7 +307,7 @@ start:
             - clickhouse
             - temporal
     up:
-        bin_script: start
+        extends: start
         description: Alias for `hogli start`; use `-d` for optional detached mode
     wait:
         cmd: phrocs wait
@@ -243,6 +324,9 @@ start:
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload
+        # Django runtime — Max / AI features / Stripe billing all read keys
+        # from .env.local at request time.
+        needs_secrets: true
         services:
             - django
             - postgresql
@@ -251,6 +335,8 @@ start:
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
+        # Celery jobs hit AI providers (session summaries, batch exports, ...).
+        needs_secrets: true
         services:
             - celery
             - redis
@@ -270,6 +356,9 @@ start:
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, nodejs, ingestion)
+        # Workers run AI / billing / ingestion code paths that touch external
+        # providers — they need the runtime keys resolved.
+        needs_secrets: true
         services:
             - celery
             - nodejs
@@ -281,10 +370,14 @@ start:
     start:rust-service:
         bin_script: start-rust-service
         description: Build and run live Rust microservice with auto-restart on crash
+        # Rust services include batch-import-worker etc. that talk to Stripe
+        # and other external endpoints.
+        needs_secrets: true
         hidden: true
     start:go:service:
         bin_script: start-go-service
         description: Build and run Go microservices with auto-restart on crash
+        needs_secrets: true
         hidden: true
 deploy:
     deploy:hobby:
@@ -317,7 +410,9 @@ deploy:
             \ exports -n     # Dry run exports only"
         prompt: true
 build:
-    build: null # Click-defined command; placed here for help categorization
+    build:
+        click: hogli_commands.build:build
+        description: Run code generation pipelines (smart change detection by default)
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
         description: Build frontend packages and run TypeScript compilation
@@ -405,6 +500,9 @@ build:
         cmd: python products/posthog_ai/scripts/build_skills.py --sync --clean
         description: Remove a previously synced skill from .agents/skills/
 docker:
+    docker:services:up:
+        click: hogli_commands.devenv.cli:docker_services_up
+        description: Start Docker services based on your intent config
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
@@ -481,6 +579,21 @@ migrations:
         services:
             - postgresql
             - clickhouse
+    migrations:status:
+        click: hogli_commands.migrations:migrations_status
+        description: Show migration diff between database and code
+    migrations:down:
+        click: hogli_commands.migrations:migrations_down
+        description: Roll back orphaned migrations
+    migrations:up:
+        click: hogli_commands.migrations:migrations_up
+        description: Apply pending migrations
+    migrations:sync:
+        click: hogli_commands.migrations:migrations_sync
+        description: 'Sync migrations: roll back orphaned, apply pending'
+    migrations:cache-sync:
+        click: hogli_commands.migrations:migrations_cache_sync
+        description: Populate cache from currently applied migrations
 db:
     db:pg:
         cmd: psql postgres://posthog:posthog@localhost:5432/posthog
@@ -527,41 +640,52 @@ db:
         services:
             - postgresql
             - docker
-    db:download-schema:
-        cmd: "set -e\nmkdir -p .postgres-backups\necho \"Finding latest CI run with migrated-schema\
-            \ artifact...\"\nRUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10'\
-            \ --jq '[.artifacts[] | select(.expired == false and .size_in_bytes > 10000)]\
-            \ | .[0].workflow_run.id')\nif [ -z \"$RUN_ID\" ]; then\n    echo \"\u274C No\
-            \ migrated-schema artifact found. Has CI run on master yet?\"\n    exit 1\n\
-            fi\necho \"Downloading from run $RUN_ID...\"\ngh run download \"$RUN_ID\" --name\
-            \ migrated-schema -R PostHog/posthog -D /tmp/migrated-schema-dl\nmv /tmp/migrated-schema-dl/schema.sql.gz\
-            \ .postgres-backups/schema-latest.sql.gz\nrm -rf /tmp/migrated-schema-dl\necho\
-            \ \"\u2705 Downloaded to .postgres-backups/schema-latest.sql.gz\"\n"
-        description: Download pre-migrated schema artifact from CI (requires gh CLI)
-    db:restore-schema:
+    db:prime-test-db:
         steps:
             - db:download-schema
-            - db:dump
-            - name: restore-schema
-              cmd: "set -e\nset -o pipefail\necho \"Restoring schema to database...\"\ngunzip\
-                  \ -c .postgres-backups/schema-latest.sql.gz | docker compose exec -T db psql\
-                  \ -q -U posthog posthog\necho \"\u2705 Schema restored\"\n"
-            - db:migrate
-            - name: ensure-migration-defaults
-              cmd: 'set -e
-
-                  echo "Ensuring default migration data..."
-
-                  python manage.py ensure_migration_defaults
-
-                  '
+            - db:restore-test-db
+        description: Download pre-migrated schema and prime the test_posthog database for
+            pytest --reuse-db
+        services:
+            - postgresql
+            - docker
+    db:restore-test-db:
+        click: hogli_commands.db_schema:db_restore_test_db
+        description: 'Restore a fresh DB from a local schema dump (no download). Drops and
+            recreates the target DB then loads schema-latest.sql.gz into it. Target DB
+            defaults to test_posthog; override via TARGET_DB env var. Used by CI after
+            restoring the schema from Actions cache.'
+        services:
+            - postgresql
+            - docker
+    db:restore-schema-fresh:
+        click: hogli_commands.db_schema:db_restore_schema_fresh
+        description: Alias for db:restore-test-db. Kept so PR branches that pulled in the
+            short-lived rename (#57657) still resolve a valid command after the revert.
+            Safe to remove once those branches are merged or rebased.
+    db:download-schema:
+        click: hogli_commands.db_schema:db_download_schema
+        description: Download the newest compatible pre-migrated schema artifact from CI
+            (requires gh auth or GH_TOKEN)
+    db:restore-schema-if-fresh:
+        click: hogli_commands.db_schema:db_restore_schema_if_fresh
+        description: Restore a compatible schema into an empty local dev database before
+            migrations. Defaults to best-effort auto mode; set POSTHOG_SCHEMA_RESTORE_IN_DEV=off
+            to disable or on to fail on restore errors.
+        services:
+            - postgresql
+            - docker
+    db:restore-schema:
+        click: hogli_commands.db_schema:db_restore_schema
         description: Fetch pre-migrated schema from CI, restore it, and run any pending
             migrations (creates backup first)
-        prompt: true
         services:
             - postgresql
             - docker
 tests:
+    test:
+        click: hogli_commands.test_runner:test_command
+        description: Auto-detect test type (Python, Jest, Playwright, Rust, Go) and run it
     test:python:
         cmd: pytest
         description: Run Python test suite
@@ -615,16 +739,44 @@ quality:
     lint:feature-flags:fix:
         cmd: node bin/lint-feature-flag-sorting.mjs --fix
         description: Auto-sort FEATURE_FLAGS in constants.tsx alphabetically
+    lint:workflows:
+        click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
+        description: Lint .github/workflows/** for repo conventions
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
 auth:
-    metabase:login: null # Click-defined, placed here for categorization
-    metabase:cookie: null # Click-defined, placed here for categorization
-    metabase:databases: null # Click-defined, placed here for categorization
-    metabase:query: null # Click-defined, placed here for categorization
+    metabase:login:
+        click: hogli_commands.metabase:metabase_login
+        description: Log in to Metabase via SSO and cache the session cookie
+    metabase:cookie:
+        click: hogli_commands.metabase:metabase_cookie
+        description: Print the cached Metabase cookie header
+    metabase:databases:
+        click: hogli_commands.metabase:metabase_databases
+        description: List Metabase databases (id, name, engine) for a region
+    metabase:query:
+        click: hogli_commands.metabase:metabase_query
+        description: Run a SQL query against Metabase /api/dataset; results to stdout
 tools:
-    doctor: null # Click-defined, placed here for categorization
+    doctor:
+        click: hogli_commands.doctor:doctor
+        description: Quick health check for your dev environment
+    doctor:disk:
+        click: hogli_commands.doctor:doctor_disk
+        description: Interactive disk space cleanup for common PostHog dev bloat
+    doctor:zombies:
+        click: hogli_commands.doctor:doctor_zombies
+        description: Find and kill orphaned PostHog dev processes
+    product:bootstrap:
+        click: hogli_commands.product.cli:cmd_bootstrap
+        description: Scaffold a new product with canonical structure
+    product:lint:
+        click: hogli_commands.product.cli:cmd_lint
+        description: Check product structure for misplaced files
+    product:maturity:
+        click: hogli_commands.product.cli:cmd_maturity
+        description: Score product maturity across isolation dimensions
     tool:temporal-codec-server:
         bin_script: temporal-codec-server
         description: Run a local Temporal codec server to decode Fernet payloads for debugging
@@ -636,9 +788,6 @@ tools:
         bin_script: temporal-recording-rasterizer-worker
         description: Start recording rasterizer Temporal worker (Puppeteer + Chromium)
         hidden: true
-    tool:nodejs:
-        bin_script: nodejs
-        description: Start nodejs with optional restart loop
     tool:download-mmdb:
         bin_script: download-mmdb
         description: Download and cache GeoLite2 MaxMind database with retry logic
@@ -674,7 +823,23 @@ tools:
         hidden: true
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
-        description: 'TODO: add description for clickhouse-logs-init'
+        description: Initialize ClickHouse logs schema (temporary, pre-migration)
+        hidden: true
+    clickhouse:metrics:init:
+        bin_script: clickhouse-metrics-init
+        description: Initialize ClickHouse metrics schema (temporary, pre-migration)
+        hidden: true
+    clickhouse:multinode:start:
+        cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
+        description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
+        hidden: true
+    clickhouse:multinode:verify:
+        cmd: python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
+        description: Assert that the multinode ClickHouse stack ended up with the expected per-node table layout
+        hidden: true
+    clickhouse:multinode:test:
+        cmd: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
+        description: Boot a per-cluster ClickHouse stack and smoke-test migrations against it
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
@@ -691,44 +856,22 @@ tools:
     start:llm:gateway:
         bin_script: start-llm-gateway
         description: Start the LLM gateway service
+        needs_secrets: true
         hidden: true
     posthog:node:
         bin_script: posthog-node
         description: Start the posthog-node service (old plugin-server)
-        hidden: true
-    posthog:hobby-installer-linux:
-        bin_script: hobby-installer-linux
-        description: Run the hobby-installer installation script for Linux, don't use
-            it on your MacOS development environment
-        hidden: true
-    posthog:hobby-installer:darwin:
-        bin_script: hobby-installer-darwin
-        description: Run the hobby-installer installation script for MacOS
-        hidden: true
-    posthog:hobby-installer:demo:
-        bin_script: hobby-installer-demo
-        description: Run a demo check for the PostHog hobby installation, useful while
-            developing the installation script
-        hidden: true
-    posthog:hobby-installer:development:
-        bin_script: hobby-installer-development
-        description: Run the development version for the hobby-installer deployment
+        needs_secrets: true
         hidden: true
     start:mcp:server:
         bin_script: start-mcp-server
         description: Start the MCP server
+        needs_secrets: true
         hidden: true
     start:stripe:app:
         bin_script: start-stripe-app
         description: Start the Stripe app dev server (requires Stripe CLI)
-    posthog:hobby:
-        bin_script: posthog-hobby
-        description: 'TODO: add description for posthog-hobby'
-        hidden: true
-    start:custom:
-        bin_script: start-custom
-        description: 'TODO: add description for start-custom'
-        hidden: true
+        needs_secrets: true
     generate_personhog_proto:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'
@@ -736,10 +879,6 @@ tools:
     phrocs:build:
         cmd: cd tools/phrocs && make build
         description: Build the phrocs binary from source
-    phrocs:
-        bin_script: phrocs
-        description: Run phrocs directly with a custom mprocs-format YAML config
-        hidden: true
     ci:wait:for:docker:
         bin_script: ci-wait-for-docker
         description: Launch Docker Compose services in CI and later wait for readiness
@@ -801,10 +940,13 @@ environment:
         cmd: uv sync --active
         description: Install Python dependencies to active virtual environment
     telemetry:on:
+        click: hogli_commands.telemetry_commands:telemetry_on
         description: Enable anonymous usage telemetry
     telemetry:off:
+        click: hogli_commands.telemetry_commands:telemetry_off
         description: Disable anonymous usage telemetry
     telemetry:status:
+        click: hogli_commands.telemetry_commands:telemetry_status
         description: Show current telemetry settings
     sandbox:
         bin_script: sandbox
@@ -824,4 +966,8 @@ environment:
     flags:jumphost:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
+        hidden: true
+    wait:for:postgres:tables:
+        bin_script: wait-for-postgres-tables
+        description: 'Block until the named Postgres tables exist'
         hidden: true

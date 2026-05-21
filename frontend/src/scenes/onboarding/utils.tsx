@@ -8,6 +8,7 @@ import {
     IconDownload,
     IconGear,
     IconGraph,
+    IconLive,
     IconLlmAnalytics,
     IconLogomark,
     IconMessage,
@@ -37,6 +38,7 @@ import {
     GraphsHog,
     MailHog,
     MicrophoneHog,
+    ReadingHog,
     RobotHog,
 } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
@@ -55,6 +57,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
     IconDownload,
     IconGear,
     IconGraph,
+    IconLive,
     IconLlmAnalytics,
     IconLogomark,
     IconMessage,
@@ -292,5 +295,22 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Workflows,
         setupEffort: 'medium',
         socialProof: 'Used by 3K+ teams',
+    },
+    [ProductKey.LOGS]: {
+        name: 'Logs',
+        description: 'Search, filter, and monitor your application logs',
+        userCentricDescription: 'Understand what your app is doing in real time',
+        capabilities: ['Full-text log search', 'Structured log filtering', 'Alerting on log patterns'],
+        valueProps: [
+            { title: 'Full-text log search', problem: 'Find the exact log line that caused an incident' },
+            { title: 'Structured filtering', problem: 'Drill into logs by service, severity, or any attribute' },
+            { title: 'Log-based alerting', problem: 'Get notified the moment an error pattern appears' },
+        ],
+        hedgehog: ReadingHog,
+        icon: 'IconLive',
+        iconColor: 'var(--color-product-logs-light)',
+        url: urls.logs(),
+        scene: Scene.Logs,
+        setupEffort: 'low',
     },
 }

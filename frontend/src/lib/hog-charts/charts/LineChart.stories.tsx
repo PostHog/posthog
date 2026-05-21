@@ -1,8 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { DEFAULT_Y_AXIS_ID, LineChart, ReferenceLine, ValueLabels } from 'lib/hog-charts'
+import { ciRanges, DEFAULT_Y_AXIS_ID, LineChart, ReferenceLine, trendLine, ValueLabels } from 'lib/hog-charts'
 import type { LineChartConfig, Series } from 'lib/hog-charts'
-import { ciRanges, trendLine } from 'lib/statistics'
 
 import { playHoverAtFraction, Stage, useReactiveTheme } from '../story-helpers'
 
@@ -147,7 +146,7 @@ export const HoveringInterior: Story = {
     },
 }
 
-/** Multi-series hover with one series hidden from the tooltip via `fromTooltip`. */
+/** Multi-series hover with one series hidden from the tooltip via `tooltip: false`. */
 export const HoveringMultiSeries: Story = {
     parameters: { layout: 'fullscreen' },
     render: () => {
@@ -160,7 +159,8 @@ export const HoveringMultiSeries: Story = {
                 color: theme.colors[6],
                 data: DAYS.map(() => 30),
                 stroke: { pattern: [4, 4] },
-                visibility: { fromTooltip: true, fromStack: true },
+                overlay: true,
+                visibility: { tooltip: false },
             },
         ]
         return (
@@ -189,11 +189,11 @@ export const VisibilityFlags: Story = {
         const cases: { title: string; series: Series[] }[] = [
             { title: 'excluded', series: [base[0], { ...base[1], visibility: { excluded: true } }, base[2]] },
             {
-                title: 'fromValueLabels',
-                series: [base[0], { ...base[1], visibility: { fromValueLabels: true } }, base[2]],
+                title: 'valueLabel: false',
+                series: [base[0], { ...base[1], visibility: { valueLabel: false } }, base[2]],
             },
             {
-                title: 'fromStack (auxiliary)',
+                title: 'overlay (auxiliary)',
                 series: [
                     { ...base[0], fill: { opacity: 0.5 } },
                     { ...base[1], fill: { opacity: 0.5 } },
@@ -203,7 +203,7 @@ export const VisibilityFlags: Story = {
                         color: theme.colors[6],
                         data: [12, 18, 17, 25, 24, 33, 27],
                         stroke: { pattern: [4, 4] },
-                        visibility: { fromStack: true },
+                        overlay: true,
                     },
                 ],
             },
@@ -240,7 +240,7 @@ export const CombinedOverlays: Story = {
                 color,
                 data: upper,
                 fill: { opacity: 0.2, lowerData: lower },
-                visibility: { fromTooltip: true, fromValueLabels: true },
+                visibility: { tooltip: false, valueLabel: false },
             },
             {
                 key: 'visits__trend',
@@ -248,7 +248,8 @@ export const CombinedOverlays: Story = {
                 color,
                 data: trendLine(data),
                 stroke: { pattern: [1, 3] },
-                visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+                overlay: true,
+                visibility: { tooltip: false, valueLabel: false },
             },
         ]
         return (
@@ -328,7 +329,7 @@ export const InProgressTail: Story = {
 }
 
 /** Hovers over the same composition as `CombinedOverlays`. Verifies the tooltip excludes
- *  the banded fill and the dashed trend overlay (both `fromTooltip: true`) while the
+ *  the banded fill and the dashed trend overlay (both `tooltip: false`) while the
  *  crosshair / highlight ring still fire on the main series. */
 export const HoveringOverAuxSeries: Story = {
     parameters: { layout: 'fullscreen' },
@@ -345,7 +346,7 @@ export const HoveringOverAuxSeries: Story = {
                 color,
                 data: upper,
                 fill: { opacity: 0.2, lowerData: lower },
-                visibility: { fromTooltip: true, fromValueLabels: true },
+                visibility: { tooltip: false, valueLabel: false },
             },
             {
                 key: 'visits__trend',
@@ -353,7 +354,8 @@ export const HoveringOverAuxSeries: Story = {
                 color,
                 data: trendLine(data),
                 stroke: { pattern: [1, 3] },
-                visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
+                overlay: true,
+                visibility: { tooltip: false, valueLabel: false },
             },
         ]
         return (
@@ -379,7 +381,7 @@ export const HoveringOverAuxSeries: Story = {
             throw new Error(`expected main series in tooltip, got: ${text}`)
         }
         if (text.includes('(CI)') || text.includes('(trend)')) {
-            throw new Error(`fromTooltip aux series leaked into tooltip: ${text}`)
+            throw new Error(`aux series leaked into tooltip: ${text}`)
         }
     },
 }

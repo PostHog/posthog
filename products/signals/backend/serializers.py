@@ -1,5 +1,7 @@
 import json
 import logging
+from collections.abc import Mapping
+from typing import cast
 
 from asgiref.sync import async_to_sync
 from rest_framework import serializers
@@ -28,6 +30,7 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
     (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
     (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): ("Linear", "issues"),
     (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): ("Zendesk", "tickets"),
+    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): ("PgAnalyze", "issues"),
 }
 
 
@@ -298,6 +301,14 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
         # Enrich suggested_reviewers with fresh PostHog user info at read time
         if obj.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS and isinstance(parsed, list):
-            return enrich_reviewer_dicts_with_org_members(obj.team_id, parsed)
+            reviewer_login_map = cast(
+                Mapping[str, User] | None,
+                self.context.get("signals_github_login_to_user_map"),
+            )
+            return enrich_reviewer_dicts_with_org_members(
+                obj.team_id,
+                parsed,
+                login_to_user=reviewer_login_map,
+            )
 
         return parsed

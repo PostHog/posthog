@@ -72,8 +72,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
 
@@ -147,6 +147,163 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response["count"] == 2
         dashboard_names = {dashboard["name"] for dashboard in response["results"]}
         assert dashboard_names == {"tagged", "also tagged"}
+
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Salesforce sync", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Dashboard overview", "Unrelated"],
+                "dahsboard",
+                "Dashboard overview",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing funnel", "Engineering metrics"],
+                "Marke",
+                "Marketing funnel",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["VMS Feature - History Browser - Nova", "Engineering metrics"],
+                "nova",
+                "VMS Feature - History Browser - Nova",
+                ["Engineering metrics"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["VMS Feature - History Browser - Nova", "Engineering metrics"],
+                "NOVA",
+                "VMS Feature - History Browser - Nova",
+                ["Engineering metrics"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, dashboard_names, search, expected_first, excluded):
+        for name in dashboard_names:
+            self.dashboard_api.create_dashboard({"name": name})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
+        result_names = [d["name"] for d in response["results"]]
+
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
+
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        # Description matches are kept but rank below name matches.
+        name_match_id, _ = self.dashboard_api.create_dashboard({"name": "revenue"})
+        description_match_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Q4 review", "description": "Quarterly revenue dashboard"}
+        )
+        self.dashboard_api.create_dashboard({"name": "Unrelated", "description": "nothing here"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "revenue"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids[:2] == [name_match_id, description_match_id]
+        assert all(d["name"] != "Unrelated" for d in response["results"])
+
+    def test_list_filter_by_search_handles_null_name_with_description_match(self):
+        # Dashboard.name is nullable. Without coalescing the trigram annotations to 0.0
+        # the unnamed row's `_search_score` would be NULL, and Postgres orders NULLS FIRST
+        # in DESC — so an unnamed row matched on description alone would wrongly outrank
+        # a row matched on name.
+        named_match_id, _ = self.dashboard_api.create_dashboard({"name": "Marketing funnel"})
+        unnamed_match = Dashboard.objects.create(team=self.team, name=None, description="A marketing-focused overview")
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "marketing"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert named_match_id in result_ids
+        assert unnamed_match.id in result_ids
+        assert result_ids.index(named_match_id) < result_ids.index(unnamed_match.id), (
+            f"named match should rank above unnamed description match, got {result_ids}"
+        )
+
+    def test_list_filter_by_search_is_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization)
+        Dashboard.objects.create(team=other_team, name="Sales Funnel")
+        own_id, _ = self.dashboard_api.create_dashboard({"name": "Sales Funnel"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales"})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids == [own_id]
+
+    def test_list_filter_by_search_combines_with_tag_filter(self):
+        target_id, _ = self.dashboard_api.create_dashboard({"name": "Sales", "tags": ["finance"]})
+        self.dashboard_api.create_dashboard({"name": "Sales Funnel", "tags": ["marketing"]})
+        self.dashboard_api.create_dashboard({"name": "Other", "tags": ["finance"]})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "Sales", "tags": ["finance"]})
+        result_ids = [d["id"] for d in response["results"]]
+
+        assert result_ids == [target_id]
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a_id, _ = self.dashboard_api.create_dashboard({"name": "Alpha"})
+        b_id, _ = self.dashboard_api.create_dashboard({"name": "Beta"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
+        result_ids = {d["id"] for d in response["results"]}
+
+        assert {a_id, b_id}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        # No `to_tsquery` to trip on unsafe characters; trigram tolerates anything
+        # the URL layer admits. We pin the contract that pathological inputs return
+        # an empty result set rather than raising.
+        self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
+
+        response = self.dashboard_api.list_dashboards(
+            query_params={"search": search},
+            expected_status=status.HTTP_200_OK,
+        )
+
+        assert response["results"] == []
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        self.dashboard_api.create_dashboard({"name": "Dashboard overview"})
+
+        response = self.dashboard_api.list_dashboards(
+            query_params={"search": "a" * length},
+            expected_status=expected_status,
+        )
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response["attr"] == "search", f"expected error scoped to 'search', got {response}"
+            assert "200 characters" in response["detail"], (
+                f"expected error detail to mention the cap, got {response['detail']}"
+            )
 
     def test_list_includes_last_viewed_at_from_filesystem_logs(self):
         dashboard_recent_id, _ = self.dashboard_api.create_dashboard({"name": "Recently viewed"})
@@ -356,16 +513,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
+            # was baseline + 11 + 12, -1 after dropping duplicate session lookup
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 12):
+        with self.assertNumQueries(baseline + 11 + 11):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -676,7 +834,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard_id)
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
-        self.assertEqual(response["tiles"][0]["insight"]["filters"]["date_from"], "-14d")
+        self.assertEqual(response["tiles"][0]["insight"]["query"]["source"]["dateRange"]["date_from"], "-14d")
 
         item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
@@ -970,7 +1128,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tile = response["tiles"][0]
 
         assert tile["insight"]["id"] == insight_id
-        assert tile["insight"]["filters"]["date_from"] == "-14d"
+        assert tile["insight"]["query"]["source"]["dateRange"]["date_from"] == "-14d"
 
     def test_dashboard_filtering_on_properties(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
@@ -998,8 +1156,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
         self.assertEqual(
-            response["tiles"][0]["insight"]["filters"]["properties"],
-            [{"key": "prop", "value": "val"}],
+            response["tiles"][0]["insight"]["query"]["source"]["properties"],
+            [
+                {
+                    "key": "prop",
+                    "label": None,
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "val",
+                }
+            ],
         )
 
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
@@ -1013,11 +1179,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
         response = self.dashboard_api.get_dashboard(dashboard_id)
-        self.assertEqual(response["tiles"][0]["insight"]["filters"]["date_from"], "-14d")
+        self.assertEqual(response["tiles"][0]["insight"]["query"]["source"]["dateRange"]["date_from"], "-14d")
 
         # which doesn't change the insight's filter
         response = self.dashboard_api.get_insight(insight_id)
-        self.assertEqual(response["filters"]["date_from"], "-7d")
+        self.assertEqual(response["query"]["source"]["dateRange"]["date_from"], "-7d")
 
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
@@ -1124,7 +1290,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": None,
                 "duplicated": False,
                 "from_template": True,
-                "has_description": False,
+                "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
@@ -1687,15 +1853,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.dashboard_api.get_dashboard(dashboard.pk)
-        self.assertEqual(
-            response["tiles"][0]["insight"]["filters"],
-            {
-                "events": [{"id": "$pageview"}],
-                "insight": "TRENDS",
-                "date_from": None,
-                "date_to": None,
-            },
-        )
+        self.assertEqual(response["tiles"][0]["insight"]["filters"], {})
+        query_source = response["tiles"][0]["insight"]["query"]["source"]
+        self.assertEqual(query_source["kind"], "TrendsQuery")
+        self.assertEqual(query_source["series"][0]["event"], "$pageview")
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
@@ -1978,7 +2139,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     @parameterized.expand([("source",), ("target",)])
     def test_move_tile_respects_access_control(self, blocked_dashboard: str) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()

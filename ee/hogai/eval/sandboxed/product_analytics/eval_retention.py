@@ -12,8 +12,6 @@ To run:
 
 from __future__ import annotations
 
-import pytest
-
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery
 
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
@@ -23,7 +21,7 @@ from ee.hogai.eval.sandboxed.product_analytics.scorers import (
     RetentionSchemaAlignment,
     RetentionTimeRangeRelevancy,
 )
-from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
+from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, LastToolCallNot, NoToolCall
 
 
 def _retention_case(
@@ -41,7 +39,6 @@ def _retention_case(
     )
 
 
-@pytest.mark.django_db
 async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         _retention_case(
@@ -132,6 +129,7 @@ async def eval_retention(sandboxed_demo_data, pytestconfig, posthog_client, mcp_
         scorers=[
             ExitCodeZero(),
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
+            LastToolCallNot(forbidden="execute-sql", name="last_call_not_execute_sql"),
             RetentionSchemaAlignment(),
             RetentionTimeRangeRelevancy(),
         ],

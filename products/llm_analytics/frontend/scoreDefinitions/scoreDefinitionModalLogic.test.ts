@@ -29,6 +29,7 @@ const mockScoreDefinition: ScoreDefinition = {
     kind: 'categorical',
     archived: false,
     current_version: 2,
+    current_version_id: null,
     config: {
         options: [
             { key: 'good', label: 'Good' },

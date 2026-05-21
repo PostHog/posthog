@@ -2,6 +2,12 @@ import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import type { BarScaleSet, StackedBand } from './scales'
 import type { Series } from './types'
 
+/** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
+ *  narrowed by its draw callbacks. */
+export interface BarChartPrivate {
+    __barChart: BarScaleSet
+}
+
 export type SeriesBarLayout = (BarRect | null)[]
 
 /** Cap is the side away from the value-axis baseline; pass `shouldRoundCap: false` for stacked

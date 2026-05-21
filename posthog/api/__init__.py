@@ -11,6 +11,7 @@ from posthog.api import (
     my_notifications,
     project,
     user_integration,
+    user_push_token,
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -21,7 +22,7 @@ from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
-from posthog.settings import EE_AVAILABLE
+from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
 import products.links.backend.api as link
@@ -29,11 +30,13 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
+import products.deployments.backend.api as deployments
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
 import products.surveys.backend.api.survey as survey
 import products.revenue_analytics.backend.api as revenue_analytics
+import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
@@ -64,8 +67,10 @@ from products.error_tracking.backend.api import (
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
     ErrorTrackingIssueViewSet,
+    ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSettingsViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
     ErrorTrackingSpikeEventViewSet,
     ErrorTrackingStackFrameViewSet,
@@ -83,6 +88,7 @@ from products.llm_analytics.backend.api import (
     EvaluationRunViewSet,
     EvaluationViewSet,
     LLMAnalyticsClusteringRunViewSet,
+    LLMAnalyticsOfflineEvaluationsViewSet,
     LLMAnalyticsSentimentViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
@@ -92,6 +98,7 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    PersonalSpendViewSet,
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
@@ -106,9 +113,14 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
+from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import UserInterviewViewSet
+from products.user_interviews.backend.presentation.views import (
+    IntervieweeContextViewSet,
+    UserInterviewTopicViewSet,
+    UserInterviewViewSet,
+)
 from products.visual_review.backend.presentation.views import (
     RepoRunsViewSet as VisualReviewRepoRunsViewSet,
     RepoViewSet as VisualReviewRepoViewSet,
@@ -130,6 +142,7 @@ from . import (
     annotation,
     async_migration,
     authentication,
+    cimd_verification_token,
     cli_auth,
     comments,
     dead_letter_queue,
@@ -207,6 +220,12 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
+# Personal LLM spend data lives only in PostHog Cloud US's internal team — register
+# the endpoint there plus dev/test envs so it stays reachable in development. EU
+# adds a redirect (declared in posthog/urls.py) so callers get a discoverable
+# pointer instead of a silent 404.
+if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
+    router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
 router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -307,6 +326,21 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
+# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
+# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
+project_deployment_projects_router = projects_router.register(
+    r"deployment_projects",
+    deployments.DeploymentProjectViewSet,
+    "project_deployment_projects",
+    ["project_id"],
+)
+project_deployment_projects_router.register(
+    r"deployments",
+    deployments.DeploymentViewSet,
+    "project_deployment_projects_deployments",
+    ["project_id", "deployment_project_id"],
+)
 
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
@@ -396,6 +430,13 @@ environments_router.register(
     r"customer_journeys",
     customer_analytics.CustomerJourneyViewSet,
     "environment_customer_journeys",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"accounts",
+    customer_analytics.AccountViewSet,
+    "environment_accounts",
     ["team_id"],
 )
 
@@ -683,6 +724,12 @@ organizations_router.register(
     ["organization_id"],
 )
 organizations_router.register(
+    r"cimd_verification_tokens",
+    cimd_verification_token.CIMDVerificationTokenViewSet,
+    "organization_cimd_verification_tokens",
+    ["organization_id"],
+)
+organizations_router.register(
     r"legal_documents",
     legal_documents.LegalDocumentViewSet,
     "organization_legal_documents",
@@ -718,9 +765,16 @@ organizations_router.register(
     "organization_welcome",
     ["organization_id"],
 )
+organizations_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.OrganizationAdvancedActivityLogsViewSet,
+    "organization_advanced_activity_logs",
+    ["organization_id"],
+)
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
+router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
@@ -735,6 +789,12 @@ users_router.register(
     r"integrations",
     user_integration.UserIntegrationViewSet,
     "user_integration",
+    ["uuid"],
+)
+users_router.register(
+    r"push_tokens",
+    user_push_token.UserPushTokenViewSet,
+    "user_push_token",
     ["uuid"],
 )
 router.register(
@@ -919,11 +979,18 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-projects_router.register(
+project_notebooks_router = projects_router.register(
     r"notebooks",
     NotebookViewSet,
     "project_notebooks",
     ["project_id"],
+)
+
+project_notebooks_router.register(
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_notebook_sharing",
+    ["project_id", "notebook_id"],
 )
 
 projects_router.register(
@@ -1004,6 +1071,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/query",
+    ErrorTrackingQueryViewSet,
+    "environment_error_tracking_query",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/external_references",
     ErrorTrackingExternalReferenceViewSet,
     "environment_error_tracking_external_references",
@@ -1021,6 +1095,13 @@ environments_router.register(
     r"error_tracking/spike_detection_config",
     ErrorTrackingSpikeDetectionConfigViewSet,
     "environment_error_tracking_spike_detection_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/settings",
+    ErrorTrackingSettingsViewSet,
+    "environment_error_tracking_settings",
     ["team_id"],
 )
 
@@ -1118,6 +1199,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
+
+projects_router.register(
+    r"business_knowledge/sources",
+    business_knowledge.KnowledgeSourceViewSet,
+    "environment_business_knowledge_sources",
+    ["team_id"],
+)
 
 projects_router.register(
     r"conversations/tickets",
@@ -1262,6 +1350,19 @@ environments_router.register(
     UserInterviewViewSet,
     "environment_user_interviews",
     ["team_id"],
+)
+
+user_interview_topics_router = environments_router.register(
+    r"user_interview_topics",
+    UserInterviewTopicViewSet,
+    "environment_user_interview_topics",
+    ["team_id"],
+)
+user_interview_topics_router.register(
+    r"interviewees",
+    IntervieweeContextViewSet,
+    "environment_user_interview_topic_interviewees",
+    ["team_id", "topic_id"],
 )
 
 visual_review_repos_router = projects_router.register(
@@ -1460,6 +1561,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"llm_analytics/offline_evaluations",
+    LLMAnalyticsOfflineEvaluationsViewSet,
+    "environment_llm_analytics_offline_evaluations",
+    ["team_id"],
+)
+
+environments_router.register(
     r"llm_analytics/review_queue_items",
     ReviewQueueItemViewSet,
     "environment_llm_analytics_review_queue_items",
@@ -1492,6 +1600,19 @@ environments_router.register(
     EvaluationReportViewSet,
     "environment_llm_analytics_evaluation_reports",
     ["team_id"],
+)
+
+environment_vision_lenses_router = environments_router.register(
+    r"vision/lenses",
+    ReplayLensViewSet,
+    "environment_vision_lenses",
+    ["team_id"],
+)
+environment_vision_lenses_router.register(
+    r"observations",
+    ReplayObservationViewSet,
+    "environment_vision_lens_observations",
+    ["team_id", "lens_id"],
 )
 
 environments_router.register(

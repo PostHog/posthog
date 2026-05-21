@@ -3,13 +3,12 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { getCurrentTeamId } from '~/lib/utils/getAppContext'
 import { groupsModel } from '~/models/groupsModel'
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
-import sentimentGenerationsQueryTemplate from '../../backend/queries/sentiment_generations.sql?raw'
+import { llmAnalyticsSentimentGenerationsCreate } from '../generated/api'
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import type { GenerationSentiment, MessageSentiment } from '../llmSentimentLazyLoaderLogic'
@@ -168,9 +167,14 @@ interface GenerationsQueryValues {
 let lastRawFetchCount = 0
 
 async function fetchGenerations(values: GenerationsQueryValues, cursor: string | null): Promise<SentimentGeneration[]> {
-    const response = (await api.query({
-        kind: NodeKind.HogQLQuery,
-        query: sentimentGenerationsQueryTemplate,
+    // Routed through `LLMAnalyticsSentimentViewSet.generations` which wraps
+    // `execute_with_ai_events_fallback`. This keeps the read on the standard
+    // kill-switch / fallback / `ai_query_source` tagging contract for the
+    // rollout. Response shape is tuple-positional ([uuid, trace_id, ai_input,
+    // model, distinct_id, timestamp, created_at]) — the generated wrapper
+    // types `results` as `unknown[][]` so the position casts here are
+    // unavoidable until the response serializer declares per-element types.
+    const response = await llmAnalyticsSentimentGenerationsCreate(String(getCurrentTeamId()), {
         filters: {
             dateRange: {
                 date_from: values.dateFilter.dateFrom || null,
@@ -179,9 +183,9 @@ async function fetchGenerations(values: GenerationsQueryValues, cursor: string |
             filterTestAccounts: values.shouldFilterTestAccounts,
             properties: values.propertyFilters,
         },
-    })) as HogQLQueryResponse
+    })
 
-    return (response.results || []).map((row) => ({
+    return (response.results || []).map((row: unknown[]) => ({
         uuid: row[0] as string,
         traceId: row[1] as string,
         aiInput: row[2],

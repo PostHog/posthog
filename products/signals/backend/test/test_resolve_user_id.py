@@ -3,6 +3,7 @@ import pytest
 from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.temporal.agentic import resolve_user_id_for_team
 
@@ -32,6 +33,16 @@ def _create_github_integration(team: Team, created_by: User | None = None) -> In
         config={"installation_id": "12345"},
         sensitive_config={},
         created_by=created_by,
+    )
+
+
+def _create_user_github_integration(user: User, *, integration_id: str = "67890") -> UserIntegration:
+    return UserIntegration.objects.create(
+        user=user,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=integration_id,
+        config={"installation_id": integration_id},
+        sensitive_config={},
     )
 
 
@@ -85,4 +96,38 @@ def test_raises_when_no_active_users(organization, team):
     _create_github_integration(team, created_by=None)
 
     with pytest.raises(RuntimeError, match="No active users"):
+        resolve_user_id_for_team(team.id)
+
+
+@pytest.mark.django_db
+def test_uses_user_integration_owner_when_no_team_integration(organization, team):
+    other = _create_user("other@example.com", organization)
+    user_integration_owner = _create_user("posthog-code@example.com", organization)
+    _create_user_github_integration(user_integration_owner)
+
+    result = resolve_user_id_for_team(team.id)
+
+    assert result == user_integration_owner.id
+    assert result != other.id
+
+
+@pytest.mark.django_db
+def test_prefers_team_integration_creator_over_user_integration_owner(organization, team):
+    creator = _create_user("creator@example.com", organization)
+    user_integration_owner = _create_user("posthog-code@example.com", organization)
+    _create_user_github_integration(user_integration_owner)
+    _create_github_integration(team, created_by=creator)
+
+    result = resolve_user_id_for_team(team.id)
+
+    assert result == creator.id
+
+
+@pytest.mark.django_db
+def test_raises_when_team_has_no_github_source_at_all(organization, team):
+    # No Integration, no UserIntegration. Picking an arbitrary org member without GitHub
+    # credentials would just paper over the bug; the caller has to short-circuit instead.
+    _create_user("first@example.com", organization)
+
+    with pytest.raises(RuntimeError, match="No GitHub integration"):
         resolve_user_id_for_team(team.id)

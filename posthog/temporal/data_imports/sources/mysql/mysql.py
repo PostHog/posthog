@@ -20,7 +20,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -190,9 +193,10 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
+    operator = incremental_type_to_operator(incremental_field_type)
     query = (
         f"SELECT * FROM {table}{hint}"
-        f" WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s"
+        f" WHERE {_sanitize_identifier(incremental_field)} {operator} %(incremental_value)s"
         f" ORDER BY {_sanitize_identifier(incremental_field)} ASC"
     )
 

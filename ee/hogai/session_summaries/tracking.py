@@ -6,7 +6,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.models import Team, User
 
-SummarySource = Literal["chat", "api", "dock"]
+SummarySource = Literal["chat", "api", "dock", "mcp"]
 SummaryType = Literal["single", "group"]
 
 
@@ -15,7 +15,7 @@ def capture_session_summary_timing(
     user_distinct_id: str | None,
     team: Team,
     session_id: str,
-    timing_type: Literal["video_render", "transcript", "single_session_flow", "group_session_flow"],
+    timing_type: Literal["single_session_flow", "group_session_flow"],
     duration_seconds: float,
     success: bool,
     extra_properties: dict | None = None,
@@ -81,10 +81,13 @@ def capture_session_summary_generated(
     success: bool | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
+    failed_session_count: int = 0,
 ) -> None:
     """Capture the completion of a session summary generation."""
     if not user.distinct_id:
         return
+    # Lets dashboards split clean runs from degraded ones.
+    is_partial = success is True and failed_session_count > 0
     properties: dict = {
         "ai_product": "session_replay",
         "tracking_id": tracking_id,
@@ -94,6 +97,8 @@ def capture_session_summary_generated(
         "session_count": len(session_ids),
         "video_based": video_based,
         "success": success,
+        "partial": is_partial,
+        "failed_session_count": failed_session_count,
     }
     if error_type is not None:
         properties["error_type"] = error_type

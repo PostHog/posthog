@@ -24,7 +24,12 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
+import {
+    extractValidationError,
+    extractValidationErrorCode,
+    getAllEventNames,
+    queryFromKind,
+} from '~/queries/nodes/InsightViz/utils'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -496,6 +501,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         validationError: [
             (s) => [s.insightDataError],
             (insightDataError): string | null => extractValidationError(insightDataError),
+        ],
+        validationErrorCode: [
+            (s) => [s.insightDataError],
+            (insightDataError): string | null => extractValidationErrorCode(insightDataError),
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],

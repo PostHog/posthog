@@ -1,11 +1,9 @@
 """Per-team summarization workflow.
 
 Fires from a per-team schedule. Starts a `summarize-session` child per session
-and ABANDONs them so they outlive this short workflow. Self-deletes its own
-schedule if the team has been disabled since the last tick.
+and ABANDONs them so they outlive this short workflow.
 """
 
-import json
 import asyncio
 from datetime import timedelta
 from typing import Any
@@ -22,8 +20,8 @@ from posthog.temporal.session_replay.summarization_sweep.constants import (
     SESSION_LOOKBACK_MINUTES,
     WORKFLOW_NAME,
 )
-from posthog.temporal.session_replay.summarization_sweep.models import (
-    DeleteTeamScheduleInput,
+from posthog.temporal.session_replay.summarization_sweep.types import (
+    ConsumeSummaryQuotaInput,
     FindSessionsInput,
     SummarizeTeamSessionsInputs,
 )
@@ -34,19 +32,17 @@ from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MOD
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
-    from posthog.temporal.session_replay.session_summary.summarize_session import SummarizeSingleSessionWorkflow
-    from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
+    from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
+    from posthog.temporal.session_replay.session_summary.workflow import SummarizeSingleSessionWorkflow
     from posthog.temporal.session_replay.summarization_sweep.activities import (
-        delete_team_schedule_activity,
+        consume_summary_quota_activity,
         find_sessions_for_team_activity,
     )
 
 
 @workflow.defn(name=WORKFLOW_NAME)
 class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
-    @staticmethod
-    def parse_inputs(inputs: list[str]) -> SummarizeTeamSessionsInputs:
-        return SummarizeTeamSessionsInputs(**json.loads(inputs[0]))
+    inputs_cls = SummarizeTeamSessionsInputs
 
     @workflow.run
     async def run(self, inputs: SummarizeTeamSessionsInputs) -> dict[str, Any]:
@@ -62,52 +58,14 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
-        if result.team_disabled:
-            # Fast-path so a just-disabled team doesn't do another cycle before
-            # the reconciler cleans up on its next tick.
-            await workflow.execute_activity(
-                delete_team_schedule_activity,
-                args=[DeleteTeamScheduleInput(team_id=inputs.team_id, dry_run=inputs.dry_run)],
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            return {
-                "team_id": inputs.team_id,
-                "team_disabled": True,
-                "workflows_started": 0,
-                "workflows_skipped_already_running": 0,
-                "dry_run": inputs.dry_run,
-            }
-
         if not result.session_ids or result.user_id is None:
             return {
                 "team_id": inputs.team_id,
-                "team_disabled": False,
                 "workflows_started": 0,
                 "workflows_skipped_already_running": 0,
-                "dry_run": inputs.dry_run,
             }
 
-        if inputs.dry_run:
-            workflow.logger.info(
-                "summarization_sweep.dry_run.would_start_children",
-                extra={
-                    "team_id": inputs.team_id,
-                    "session_ids": result.session_ids,
-                    "user_id": result.user_id,
-                },
-            )
-            return {
-                "team_id": inputs.team_id,
-                "team_disabled": False,
-                "workflows_started": 0,
-                "workflows_skipped_already_running": 0,
-                "dry_run": True,
-            }
-
-        # Batched fan-out so that even at high sample rates / large candidate sets we don't blow
-        # past the workflow execution timeout with thousands of concurrent `start_child_workflow`
-        # calls in flight. Each batch awaits before starting the next.
+        # Batches keep the dispatch loop within WORKFLOW_EXECUTION_TIMEOUT.
         started = 0
         skipped = 0
         failed = 0
@@ -136,12 +94,32 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 type="AllChildStartsFailed",
             )
 
+        # Charge the cap by what we actually dispatched. Skipped/failed children
+        # never reach the LLM, so don't count them.
+        #
+        # `maximum_attempts=1` + swallow exceptions: INCRBY is non-idempotent, so
+        # a retry after a Redis blip would silently inflate the counter for the
+        # rest of the month. Losing one increment is recoverable on the next
+        # sweep tick; an inflated counter is not. Bookkeeping must never fail a
+        # sweep whose children all dispatched.
+        if started > 0:
+            try:
+                await workflow.execute_activity(
+                    consume_summary_quota_activity,
+                    args=[ConsumeSummaryQuotaInput(team_id=inputs.team_id, n=started)],
+                    start_to_close_timeout=timedelta(seconds=15),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception as e:
+                workflow.logger.warning(
+                    "summarization_sweep.consume_quota_failed",
+                    extra={"team_id": inputs.team_id, "n": started, "error": str(e)},
+                )
+
         return {
             "team_id": inputs.team_id,
-            "team_disabled": False,
             "workflows_started": started,
             "workflows_skipped_already_running": skipped,
-            "dry_run": False,
         }
 
     async def _start_child(
@@ -184,6 +162,5 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
             )
             return True
         except WorkflowAlreadyStartedError:
-            # `summaries_exist()` only catches completed summaries — in-progress
-            # and between-retry cases surface here.
+            # In-progress / between-retry cases — `summaries_exist()` only catches completed runs.
             return False

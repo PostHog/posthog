@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,6 +13,7 @@ import {
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsSamplingSectionLogicType } from './logsSamplingSectionLogicType'
+import { fetchSamplingRuleDropTotalsLast24h } from './samplingRuleDropImpact'
 
 export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsSampling', 'logsSamplingSectionLogic']),
@@ -56,9 +57,59 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
                 },
             },
         ],
+        ruleDropImpact: [
+            {} as Record<string, number>,
+            {
+                loadRuleDropImpact: async (_, breakpoint) => {
+                    const rules = values.rules
+                    const ids = rules.map((r) => r.id)
+                    if (ids.length === 0) {
+                        return {}
+                    }
+                    await breakpoint(1)
+                    return await fetchSamplingRuleDropTotalsLast24h(ids)
+                },
+            },
+        ],
     })),
 
+    reducers({
+        ruleDropImpactStatus: [
+            'idle' as 'idle' | 'loading' | 'ok' | 'error',
+            {
+                loadRuleDropImpact: () => 'loading',
+                loadRuleDropImpactSuccess: () => 'ok',
+                loadRuleDropImpactFailure: () => 'error',
+            },
+        ],
+    }),
+
+    selectors({
+        ruleDropImpactCellState: [
+            (s) => [s.ruleDropImpactStatus, s.ruleDropImpactLoading, s.rules],
+            (
+                status: 'idle' | 'loading' | 'ok' | 'error',
+                loading: boolean,
+                rules: LogsSamplingRuleApi[]
+            ): 'loading' | 'ok' | 'error' | 'unknown' => {
+                if (loading || (status === 'idle' && rules.length > 0)) {
+                    return 'loading'
+                }
+                if (status === 'error') {
+                    return 'error'
+                }
+                if (status === 'ok') {
+                    return 'ok'
+                }
+                return 'unknown'
+            },
+        ],
+    }),
+
     listeners(({ actions, values }) => ({
+        loadRulesSuccess: () => {
+            actions.loadRuleDropImpact(undefined)
+        },
         saveRulesOrder: async ({ orderedIds }) => {
             const projectId = values.currentTeamId
             if (projectId === null) {

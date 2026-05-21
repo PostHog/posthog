@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 from django.db import transaction
@@ -6,21 +7,34 @@ from django.db.models import Q, QuerySet
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema, extend_schema_field
 from pydantic import ValidationError
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cdp.validation import compile_hog
+from posthog.clickhouse.query_tagging import (
+    Feature as QueryFeature,
+    Product,
+    tag_queries,
+)
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
+from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
+from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
 
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
@@ -49,7 +63,7 @@ class TaggerConditionSerializer(serializers.Serializer):
     )
 
 
-class TaggerConfigSerializer(serializers.Serializer):
+class LLMTaggerConfigSerializer(serializers.Serializer):
     prompt = serializers.CharField(min_length=1, help_text="Prompt instructing the LLM how to tag generations")
     tags = TagDefinitionSerializer(many=True, help_text="Available tags the LLM can assign")
     min_tags = serializers.IntegerField(default=0, min_value=0, help_text="Minimum number of tags to apply")
@@ -76,12 +90,52 @@ class TaggerConfigSerializer(serializers.Serializer):
         return data
 
 
-class TaggerModelConfigurationSerializer(serializers.Serializer):
+class HogTaggerConfigSerializer(serializers.Serializer):
+    source = serializers.CharField(  # type: ignore[assignment]
+        min_length=1,
+        help_text="Hog source code to classify a generation into tags.",
+    )
+    tags = TagDefinitionSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.",
+    )
+
+
+TAGGER_CONFIG_SCHEMA = PolymorphicProxySerializer(
+    component_name="TaggerConfig",
+    serializers=[LLMTaggerConfigSerializer, HogTaggerConfigSerializer],
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(TAGGER_CONFIG_SCHEMA)
+class TaggerConfigField(serializers.JSONField):
+    pass
+
+
+class TaggerModelConfigurationWriteSerializer(serializers.Serializer):
+    provider = serializers.ChoiceField(choices=LLMProvider.choices, help_text="LLM provider to use for this tagger.")
+    model = serializers.CharField(max_length=100, help_text="Provider model identifier to use for this tagger.")
+    provider_key_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key "
+            "ID returned by PostHog, or omit/null when no provider key should be pinned."
+        ),
+    )
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict) and "provider_key_name" in data:
+            raise serializers.ValidationError({"provider_key_name": "This field is read-only."})
+        return super().to_internal_value(data)
+
+
+class TaggerModelConfigurationSerializer(TaggerModelConfigurationWriteSerializer):
     """Nested serializer for model configuration."""
 
-    provider = serializers.ChoiceField(choices=LLMProvider.choices)
-    model = serializers.CharField(max_length=100)
-    provider_key_id = serializers.UUIDField(required=False, allow_null=True)
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -98,10 +152,14 @@ class TaggerModelConfigurationSerializer(serializers.Serializer):
         }
 
 
-class TaggerSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-    model_configuration = TaggerModelConfigurationSerializer(required=False, allow_null=True)
-    tagger_config = serializers.JSONField(help_text="Tagger configuration (varies by tagger_type)")
+class TaggerBaseWriteSerializer(serializers.ModelSerializer):
+    model_configuration = TaggerModelConfigurationWriteSerializer(required=False, allow_null=True)
+    tagger_config = TaggerConfigField(
+        help_text=(
+            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. "
+            "For tagger_type 'hog': {source, tags?}."
+        )
+    )
     tagger_type = serializers.ChoiceField(choices=TaggerType.choices, default=TaggerType.LLM)
     conditions = TaggerConditionSerializer(
         many=True, required=False, default=list, help_text="Conditions that scope when the tagger runs"
@@ -110,7 +168,6 @@ class TaggerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tagger
         fields = [
-            "id",
             "name",
             "description",
             "enabled",
@@ -118,14 +175,9 @@ class TaggerSerializer(serializers.ModelSerializer):
             "tagger_config",
             "conditions",
             "model_configuration",
-            "created_at",
-            "updated_at",
-            "created_by",
-            "deleted",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
-    def validate(self, data: dict) -> dict:
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         tagger_type = data.get("tagger_type", self.instance.tagger_type if self.instance else TaggerType.LLM)
         tagger_config = data.get("tagger_config")
 
@@ -193,7 +245,7 @@ class TaggerSerializer(serializers.ModelSerializer):
         model_config.save()
         return model_config
 
-    def create(self, validated_data: dict) -> Tagger:
+    def create(self, validated_data: dict[str, Any]) -> Tagger:
         request = self.context["request"]
         team = self.context["get_team"]()
         validated_data["team"] = team
@@ -211,7 +263,7 @@ class TaggerSerializer(serializers.ModelSerializer):
                 )
             return super().create(validated_data)
 
-    def update(self, instance: Tagger, validated_data: dict) -> Tagger:
+    def update(self, instance: Tagger, validated_data: dict[str, Any]) -> Tagger:
         model_config_data = validated_data.pop("model_configuration", None)
 
         # Transaction wraps the model_configuration update and the tagger save so a failed
@@ -223,6 +275,34 @@ class TaggerSerializer(serializers.ModelSerializer):
                 )
 
             return super().update(instance, validated_data)
+
+
+class TaggerCreateSerializer(TaggerBaseWriteSerializer):
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict) and "deleted" in data:
+            raise serializers.ValidationError({"deleted": "This field cannot be set when creating a tagger."})
+        return super().to_internal_value(data)
+
+
+class TaggerUpdateSerializer(TaggerBaseWriteSerializer):
+    class Meta(TaggerBaseWriteSerializer.Meta):
+        fields = [*TaggerBaseWriteSerializer.Meta.fields, "deleted"]
+
+
+class TaggerSerializer(TaggerBaseWriteSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    model_configuration = TaggerModelConfigurationSerializer(required=False, allow_null=True)
+
+    class Meta(TaggerBaseWriteSerializer.Meta):
+        fields = [
+            "id",
+            *TaggerBaseWriteSerializer.Meta.fields,
+            "created_at",
+            "updated_at",
+            "created_by",
+            "deleted",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
 
 class TaggerFilter(django_filters.FilterSet):
@@ -254,6 +334,57 @@ class TaggerFilter(django_filters.FilterSet):
         return queryset
 
 
+class TestHogTaggerTagSerializer(serializers.Serializer):
+    # Enforce the same {name, description?} shape as TagDefinitionSerializer so a payload
+    # like {"tags": [{}]} is rejected with a 400 instead of blowing up on KeyError downstream.
+    name = serializers.CharField(max_length=100, help_text="Tag identifier to allow in Hog test results.")
+    description = serializers.CharField(
+        max_length=500,
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Optional description for the tag.",
+    )
+
+
+class TestHogTaggerRequestSerializer(serializers.Serializer):
+    source = serializers.CharField(
+        required=True,
+        min_length=1,
+        help_text="Hog source code to test. Return a tag name string, a list of tag name strings, or null.",
+    )  # type: ignore[assignment]
+    sample_count = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=10,
+        help_text="Number of recent $ai_generation events to test against (1-10, default 5).",
+    )
+    tags = TestHogTaggerTagSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Optional tag whitelist. Returned tags outside this list are filtered out.",
+    )
+
+
+class TestHogTaggerResultItemSerializer(serializers.Serializer):
+    event_uuid = serializers.CharField(help_text="UUID of the sampled $ai_generation event.")
+    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 characters of the generation input.")
+    output_preview = serializers.CharField(help_text="First 200 characters of the generation output.")
+    tags = serializers.ListField(child=serializers.CharField(), help_text="Tag names returned by the Hog code.")
+    reasoning = serializers.CharField(allow_blank=True, help_text="Text written to stdout by the Hog code.")
+    error = serializers.CharField(allow_null=True, required=False, help_text="Error message if the Hog code failed.")
+
+
+class TestHogTaggerResponseSerializer(serializers.Serializer):
+    results = TestHogTaggerResultItemSerializer(many=True, help_text="Per-event Hog tagger test results.")
+    message = serializers.CharField(
+        required=False, help_text="Optional message, for example when no recent AI events were found."
+    )
+
+
 class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "tagger"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -261,6 +392,13 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
     queryset = Tagger.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = TaggerFilter
+
+    def get_serializer_class(self) -> type[BaseSerializer[Any]]:
+        if self.action == "create":
+            return TaggerCreateSerializer
+        if self.action in ("update", "partial_update"):
+            return TaggerUpdateSerializer
+        return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[Tagger]) -> QuerySet[Tagger]:
         queryset = (
@@ -273,7 +411,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
         return queryset
 
-    def perform_create(self, serializer: BaseSerializer) -> None:
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = serializer.save()
 
         conditions = instance.conditions or []
@@ -297,7 +435,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             request=self.request,
         )
 
-    def perform_update(self, serializer: BaseSerializer) -> None:
+    def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         instance_before = cast(Tagger, serializer.instance)
         is_deletion = serializer.validated_data.get("deleted") is True and not instance_before.deleted
         old_enabled_value = instance_before.enabled
@@ -336,56 +474,66 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
                 request=self.request,
             )
 
+    def _serialize_saved_tagger(self, tagger: Tagger) -> dict[str, Any]:
+        hydrated_tagger = self.get_queryset().get(pk=tagger.pk)
+        return TaggerSerializer(hydrated_tagger, context=self.get_serializer_context()).data
+
     @llma_track_latency("llma_taggers_list")
     @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_list", method="GET")
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().list(request, *args, **kwargs)
 
     @llma_track_latency("llma_taggers_retrieve")
     @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_retrieve", method="GET")
-    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().retrieve(request, *args, **kwargs)
 
+    @extend_schema(request=TaggerCreateSerializer, responses={201: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_create")
     @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_create", method="POST")
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        return super().create(request, *args, **kwargs)
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        instance = cast(Tagger, serializer.instance)
+        response_data = self._serialize_saved_tagger(instance)
+        headers = self.get_success_headers(response_data)
+        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
 
+    @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_update")
     @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_update", method="PUT")
-    def update(self, request: Request, *args, **kwargs) -> Response:
-        return super().update(request, *args, **kwargs)
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update_tagger(request=request, partial=False)
 
+    @extend_schema(request=TaggerUpdateSerializer, responses={200: OpenApiResponse(response=TaggerSerializer)})
     @llma_track_latency("llma_taggers_partial_update")
     @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_partial_update", method="PATCH")
-    def partial_update(self, request: Request, *args, **kwargs) -> Response:
-        return super().partial_update(request, *args, **kwargs)
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._update_tagger(request=request, partial=True)
 
-    @action(detail=False, methods=["post"], url_path="test_hog")
+    def _update_tagger(self, request: Request, partial: bool) -> Response:
+        instance = self.get_object()
+        serializer = self.get_serializer(
+            instance,
+            data=request.data,
+            partial=partial,
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, "_prefetched_objects_cache", None):
+            instance._prefetched_objects_cache = {}
+
+        updated_instance = cast(Tagger, serializer.instance)
+        return Response(self._serialize_saved_tagger(updated_instance), status=status.HTTP_200_OK)
+
+    @extend_schema(request=TestHogTaggerRequestSerializer, responses=TestHogTaggerResponseSerializer)
+    @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["tagger:read"])
     @llma_track_latency("llma_taggers_test_hog")
     @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_test_hog", method="POST")
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog tagger code against sample events without saving."""
-        import json
-
-        from posthog.hogql import ast
-        from posthog.hogql.query import execute_hogql_query
-
-        from posthog.cdp.validation import compile_hog
-        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-        from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
-        from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
-
-        # The Hog tagger workflow ships in the next PR of the stack. Surface a clean 503
-        # if /test_hog is hit before that PR is deployed, instead of a 500 from ImportError.
-        try:
-            from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
-        except ImportError:
-            return Response(
-                {"error": "Hog tagger runtime is not yet deployed in this environment."},
-                status=503,
-            )
-
         test_serializer = TestHogTaggerRequestSerializer(data=request.data)
         if not test_serializer.is_valid():
             return Response({"error": test_serializer.errors}, status=400)
@@ -438,7 +586,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             limit=ast.Constant(value=sample_count),
         )
 
-        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        tag_queries(product=Product.LLM_ANALYTICS, feature=QueryFeature.QUERY)
         response = execute_hogql_query(query=query, team=team, limit_context=None)
 
         if not response.results:
@@ -480,16 +628,3 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             )
 
         return Response({"results": results})
-
-
-class TestHogTaggerTagSerializer(serializers.Serializer):
-    # Enforce the same {name, description?} shape as TagDefinitionSerializer so a payload
-    # like {"tags": [{}]} is rejected with a 400 instead of blowing up on KeyError downstream.
-    name = serializers.CharField(max_length=100)
-    description = serializers.CharField(max_length=500, required=False, default="", allow_blank=True)
-
-
-class TestHogTaggerRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
-    sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
-    tags = TestHogTaggerTagSerializer(many=True, required=False, default=list)

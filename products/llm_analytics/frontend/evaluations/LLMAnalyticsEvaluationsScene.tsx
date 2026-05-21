@@ -199,13 +199,16 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             key: 'conditions',
             render: (_, evaluation) => (
                 <div className="flex flex-wrap gap-1">
-                    {evaluation.conditions.map((condition) => (
-                        <LemonTag key={condition.id} type="option">
-                            {parseFloat((condition.rollout_percentage ?? 0).toFixed(2))}%
-                            {condition.properties.length > 0 &&
-                                ` when ${condition.properties.length} condition${condition.properties.length !== 1 ? 's' : ''}`}
-                        </LemonTag>
-                    ))}
+                    {evaluation.conditions.map((condition) => {
+                        const propertyCount = condition.properties?.length ?? 0
+                        return (
+                            <LemonTag key={condition.id} type="option">
+                                {parseFloat((condition.rollout_percentage ?? 0).toFixed(2))}%
+                                {propertyCount > 0 &&
+                                    ` when ${propertyCount} condition${propertyCount !== 1 ? 's' : ''}`}
+                            </LemonTag>
+                        )
+                    })}
                     {evaluation.conditions.length === 0 && <span className="text-muted text-sm">No triggers</span>}
                 </div>
             ),

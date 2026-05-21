@@ -19,6 +19,6 @@ Run `hogli --help` to get the full, current command list. Run `hogli <command> -
 ## Key references
 
 - `hogli.yaml` — command definitions (source of truth)
-- `tools/hogli-commands/hogli_commands/commands.py` — extension point for custom Click commands
+- `tools/hogli-commands/hogli_commands/` — PostHog-specific lazy Click command modules
 - `tools/hogli/README.md` — framework documentation
 - `tools/hogli-commands/README.md` — PostHog commands documentation

@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface ApprovalPolicyApi {
@@ -158,7 +154,7 @@ export interface ChangeRequestApi {
     readonly intent_display: unknown
     readonly policy_snapshot: unknown
     readonly validation_status: ValidationStatusEnumApi
-    readonly validation_errors: unknown | null
+    readonly validation_errors: unknown
     /** @nullable */
     readonly validated_at: string | null
     readonly state: ChangeRequestStateEnumApi
@@ -171,7 +167,7 @@ export interface ChangeRequestApi {
     /** @nullable */
     readonly applied_at: string | null
     readonly apply_error: string
-    readonly result_data: unknown | null
+    readonly result_data: unknown
     readonly approvals: readonly ChangeRequestApiApprovalsItem[]
     /** Check if current user can approve this change request. */
     readonly can_approve: boolean
@@ -246,7 +242,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -268,9 +264,9 @@ export interface OrganizationApi {
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -320,7 +316,7 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: EffectiveMembershipLevelEnumApi | null
+    readonly membership_level?: EffectiveMembershipLevelEnumApi
     readonly plugins_access_level?: PluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
@@ -342,9 +338,9 @@ export interface PatchedOrganizationApi {
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
 
-* `bayesian` - Bayesian
-* `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | NullEnumApi | null
+  * `bayesian` - Bayesian
+  * `frequentist` - Frequentist */
+    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -539,6 +535,12 @@ export interface ActivityLogApi {
     user: UserBasicApi
     /** is the date of this log item newer than the user's bookmark */
     readonly unread: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    team_id?: number | null
     /** @nullable */
     organization_id?: string | null
     /** @nullable */
@@ -559,7 +561,7 @@ export interface ActivityLogApi {
     item_id?: string | null
     /** @maxLength 79 */
     scope: string
-    detail?: unknown | null
+    detail?: unknown
     created_at?: string
 }
 
@@ -610,9 +612,13 @@ export interface CommentApi {
     deleted?: boolean | null
     mentions?: number[]
     slug?: string
+    /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+    is_task?: boolean
+    /** The user who marked this task complete. Null for open tasks and non-task comments. */
+    readonly completed_by: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version: number
     readonly created_at: string
     /**
@@ -620,9 +626,14 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope: string
+    /**
+     * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+     * @nullable
+     */
+    readonly completed_at: string | null
     /** @nullable */
     source_comment?: string | null
 }
@@ -642,9 +653,13 @@ export interface PatchedCommentApi {
     deleted?: boolean | null
     mentions?: number[]
     slug?: string
+    /** Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation. */
+    is_task?: boolean
+    /** The user who marked this task complete. Null for open tasks and non-task comments. */
+    readonly completed_by?: UserBasicApi | null
     /** @nullable */
     content?: string | null
-    rich_content?: unknown | null
+    rich_content?: unknown
     readonly version?: number
     readonly created_at?: string
     /**
@@ -652,9 +667,14 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown | null
+    item_context?: unknown
     /** @maxLength 79 */
     scope?: string
+    /**
+     * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
+     * @nullable
+     */
+    readonly completed_at?: string | null
     /** @nullable */
     source_comment?: string | null
 }
@@ -761,6 +781,10 @@ export type MembersListParams = {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string
+    /**
+     * Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.
+     */
+    search?: string
 }
 
 export type RolesListParams = {
@@ -1063,15 +1087,34 @@ export const ActivityLogListScopesItem = {
 } as const
 
 export type AdvancedActivityLogsListParams = {
+    /**
+     * Filter by activity types (e.g. "created", "updated", "deleted").
+     */
     activities?: string[]
+    /**
+     * Filter by API clients that generated the activity (from x-posthog-client header).
+     */
     clients?: string[]
+    /**
+     * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
+     */
     detail_filters?: string
+    /**
+     * Upper bound on `created_at` (inclusive), ISO-8601.
+     */
     end_date?: string
+    /**
+     * Reserved for future HogQL-based filtering.
+     */
     hogql_filter?: string
     /**
+     * When set, filters rows authored by the system (no user).
      * @nullable
      */
     is_system?: boolean | null
+    /**
+     * Filter by the `item_id` of the affected resource(s).
+     */
     item_ids?: string[]
     /**
      * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
@@ -1084,17 +1127,43 @@ export type AdvancedActivityLogsListParams = {
      * @maximum 1000
      */
     page_size?: number
+    /**
+     * Filter by activity scopes (e.g. "FeatureFlag", "Insight").
+     */
     scopes?: string[]
+    /**
+     * Free-text search across the `detail` JSON column.
+     */
     search_text?: string
+    /**
+     * Lower bound on `created_at` (inclusive), ISO-8601.
+     */
     start_date?: string
+    /**
+     * Filter by project (team) IDs. Only honored on the organization-scoped endpoint; ignored on the project-scoped endpoint.
+     */
+    team_ids?: number[]
+    /**
+     * Filter by users who performed the activity (user UUIDs).
+     */
     users?: string[]
     /**
+     * When set, filters rows where the actor was impersonating another user.
      * @nullable
      */
     was_impersonated?: boolean | null
 }
 
 export type CommentsListParams = {
+    /**
+ * When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).
+
+* `any` - any
+* `open` - open
+* `completed` - completed
+ * @minLength 1
+ */
+    completed?: CommentsListCompleted
     /**
      * The pagination cursor value.
      */
@@ -1104,6 +1173,15 @@ export type CommentsListParams = {
      * @minLength 1
      */
     item_id?: string
+    /**
+ * Filter by comment kind. 'task' returns only items intentionally created as actionable. 'comment' excludes tasks. Defaults to 'any' (no filter).
+
+* `any` - any
+* `comment` - comment
+* `task` - task
+ * @minLength 1
+ */
+    kind?: CommentsListKind
     /**
      * Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).
      * @minLength 1
@@ -1120,3 +1198,19 @@ export type CommentsListParams = {
      */
     source_comment?: string
 }
+
+export type CommentsListCompleted = (typeof CommentsListCompleted)[keyof typeof CommentsListCompleted]
+
+export const CommentsListCompleted = {
+    Any: 'any',
+    Open: 'open',
+    Completed: 'completed',
+} as const
+
+export type CommentsListKind = (typeof CommentsListKind)[keyof typeof CommentsListKind]
+
+export const CommentsListKind = {
+    Any: 'any',
+    Comment: 'comment',
+    Task: 'task',
+} as const
