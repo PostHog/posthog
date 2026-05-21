@@ -14,6 +14,8 @@ export const sessionRecordingPinnedPropertiesLogic = kea<sessionRecordingPinnedP
         pinnedProperties: [
             [
                 ...HARDCODED_DISPLAY_LABELS,
+                'distinct_id',
+                '$session_id',
                 '$entry_referring_domain',
                 '$entry_current_url',
                 '$geoip_country_code',

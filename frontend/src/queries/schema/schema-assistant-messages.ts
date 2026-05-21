@@ -485,6 +485,7 @@ export type AssistantTool =
     | 'switch_mode'
     | 'summarize_sessions'
     | 'filter_session_recordings'
+    | 'get_session_recording'
     | 'create_insight'
     | 'create_form'
     | 'task'

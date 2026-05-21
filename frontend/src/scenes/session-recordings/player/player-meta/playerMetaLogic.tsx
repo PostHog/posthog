@@ -4,7 +4,15 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
+import {
+    IconClock,
+    IconCursorClick,
+    IconHourglass,
+    IconKeyboard,
+    IconPerson,
+    IconRewindPlay,
+    IconWarning,
+} from '@posthog/icons'
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -37,6 +45,12 @@ import { sessionSummaryProgressLogic } from './sessionSummaryProgressLogic'
 import { SessionSummaryContent, SummarizationProgress } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
+
+const SPECIAL_OVERVIEW_PROPERTY_KEYS = ['distinct_id', '$session_id'] as const
+
+function getRecordingDistinctId(sessionPlayerMetaData: SessionRecordingType | null): string | undefined {
+    return sessionPlayerMetaData?.distinct_id ?? sessionPlayerMetaData?.person?.distinct_ids?.[0]
+}
 
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
@@ -333,6 +347,30 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     }
                 })
 
+                const distinctId = getRecordingDistinctId(sessionPlayerMetaData)
+                if (distinctId) {
+                    items.push({
+                        icon: <IconPerson />,
+                        label: 'Distinct ID',
+                        value: distinctId,
+                        keyTooltip: 'The distinct_id PostHog associates with this recording',
+                        type: 'property',
+                        property: 'distinct_id',
+                    })
+                }
+
+                const sessionId = sessionPlayerMetaData?.id ?? props.sessionRecordingId
+                if (sessionId) {
+                    items.push({
+                        icon: <IconRewindPlay />,
+                        label: 'Session ID',
+                        value: sessionId,
+                        keyTooltip: 'The $session_id for this recording',
+                        type: 'property',
+                        property: '$session_id',
+                    })
+                }
+
                 const recordingProperties = sessionPlayerMetaData?.id
                     ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
                     : {}
@@ -364,6 +402,11 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
 
                     // Skip recording property keys that we've already processed
                     if (recordingPropertyKeys.includes(property as any)) {
+                        return
+                    }
+
+                    // Skip identity properties we've already pushed above
+                    if (SPECIAL_OVERVIEW_PROPERTY_KEYS.includes(property as any)) {
                         return
                     }
 
