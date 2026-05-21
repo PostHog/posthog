@@ -237,3 +237,15 @@ class TestDuckgresBatchQueueEligibility:
         batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
 
         assert batches == []
+
+    @pytest.mark.asyncio
+    async def test_duckgres_failed_run_is_skipped(self, conn):
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        failed_id = await _insert_batch(conn, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=failed_id, job_state="succeeded", attempt=1)
+        await DuckgresBatchQueue.update_status(conn, batch_id=failed_id, job_state="failed", attempt=3)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn)
+
+        assert batches == []

@@ -65,18 +65,18 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
             batch_index=batch.batch_index,
             table=duckgres_table,
         )
-        conn.execute(
-            sql.SQL("CREATE OR REPLACE TABLE {}.{} AS SELECT * FROM read_parquet(%s)").format(
-                sql.Identifier(duckgres_schema),
-                sql.Identifier(duckgres_table),
-            ),
-            [batch.s3_path],
-        )
+        _replace_table(conn, duckgres_schema, duckgres_table, batch.s3_path)
         return
 
-    _ensure_table_exists(conn, duckgres_schema, duckgres_table, batch.s3_path)
+    if not _table_exists(conn, duckgres_schema, duckgres_table):
+        _create_table_from_parquet(conn, duckgres_schema, duckgres_table, batch.s3_path)
+        return
 
     if batch.sync_type == "incremental":
+        if batch.is_first_ever_sync:
+            _insert_batch(conn, duckgres_schema, duckgres_table, batch.s3_path)
+            return
+
         primary_keys = _primary_keys(batch)
         if not primary_keys:
             raise ValueError("Duckgres incremental batches require primary keys")
@@ -109,11 +109,35 @@ def _should_replace_table(batch: PendingBatch) -> bool:
     return batch.batch_index == 0 and not batch.is_resume and batch.sync_type in ("full_refresh", "incremental")
 
 
-def _ensure_table_exists(
+def _table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str) -> bool:
+    cursor = conn.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = %s
+            AND table_name = %s
+        LIMIT 1
+        """,
+        [duckgres_schema, duckgres_table],
+    )
+    return cursor.fetchone() is not None
+
+
+def _replace_table(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, s3_path: str) -> None:
+    conn.execute(
+        sql.SQL("CREATE OR REPLACE TABLE {}.{} AS SELECT * FROM read_parquet(%s)").format(
+            sql.Identifier(duckgres_schema),
+            sql.Identifier(duckgres_table),
+        ),
+        [s3_path],
+    )
+
+
+def _create_table_from_parquet(
     conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, s3_path: str
 ) -> None:
     conn.execute(
-        sql.SQL("CREATE TABLE IF NOT EXISTS {}.{} AS SELECT * FROM read_parquet(%s) WHERE false").format(
+        sql.SQL("CREATE TABLE {}.{} AS SELECT * FROM read_parquet(%s)").format(
             sql.Identifier(duckgres_schema),
             sql.Identifier(duckgres_table),
         ),

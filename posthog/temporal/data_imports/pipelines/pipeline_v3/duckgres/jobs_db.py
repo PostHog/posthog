@@ -58,6 +58,13 @@ class DuckgresBatchQueue:
                             WHERE b2.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND ds2.job_state = 'failed'
                         )
+                        AND b.run_uuid NOT IN (
+                            SELECT DISTINCT b3.run_uuid
+                            FROM {BATCH_TABLE} b3
+                            JOIN {DUCKGRES_STATUS_VIEW} dgs3 ON b3.id = dgs3.batch_id
+                            WHERE b3.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                AND dgs3.job_state = 'failed'
+                        )
                         AND NOT EXISTS (
                             SELECT 1
                             FROM {BATCH_TABLE} prev
