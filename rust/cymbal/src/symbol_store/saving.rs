@@ -121,6 +121,12 @@ impl<F> Saving<F> {
                 "Not overwriting existing symbol set data for {} after dynamic fetch",
                 record.set_ref
             );
+            if let Err(err) = self.s3_client.delete(&self.bucket, &key).await {
+                warn!(
+                    "Failed to clean up unused symbol set data at {} after skipped DB update: {:?}",
+                    key, err
+                );
+            }
             start.label("outcome", "skipped_existing_data").fin();
             return Ok(key);
         }
@@ -607,6 +613,75 @@ mod test {
         saving_smp.lookup(0, test_url.clone()).await.unwrap();
         source_mock.assert_hits(1);
         map_mock.assert_hits(1);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_dynamic_fetch_cleanup_when_existing_blob_wins_race(db: PgPool) {
+        let server = MockServer::start();
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+
+        let test_url = Url::parse(&server.url(CHUNK_PATH.to_string())).unwrap();
+        let storage_ptr = "symbolsets/existing".to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 0,
+            set_ref: test_url.to_string(),
+            storage_ptr: Some(storage_ptr.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_put()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::str::starts_with(config.ss_prefix.clone()),
+                predicate::eq(Bytes::from(get_symbol_data_bytes())),
+            )
+            .returning(|_, _, _| Ok(()))
+            .once();
+        client
+            .expect_delete()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::str::starts_with(config.ss_prefix.clone()),
+            )
+            .returning(|_, _| Ok(()))
+            .once();
+
+        let smp = SourcemapProvider::new(&config);
+        let saving_smp = Saving::new(
+            smp,
+            db.clone(),
+            Arc::new(client),
+            config.object_storage_bucket.clone(),
+            config.ss_prefix.clone(),
+        );
+
+        saving_smp
+            .save_data(
+                0,
+                test_url.to_string(),
+                Bytes::from(get_symbol_data_bytes()),
+            )
+            .await
+            .unwrap();
+
+        let record = SymbolSetRecord::load(&db, 0, test_url.as_ref())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.storage_ptr.as_deref(), Some(storage_ptr.as_str()));
+        assert!(record.failure_reason.is_none());
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
