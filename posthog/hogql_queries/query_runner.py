@@ -149,11 +149,11 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 _GROUP_AGGREGATION_RE = re.compile(r"^\$group_\d+$")
 
 
-def query_uses_user_authored_hogql(query: Any) -> bool:
+def query_uses_user_authored_hogql(query: Any) -> bool | None:
     """Whether the query contains a user-authored HogQL expression — a HogQL property
-    filter, breakdown, funnel aggregation, or series math. A failure on a query built
-    purely from structured input (no user HogQL) is almost always a query-builder bug,
-    so this label lets observability separate those from user-written-HogQL failures."""
+    filter, breakdown, funnel aggregation, or series math. Returns None if the walk
+    fails so callers can distinguish "unknown" from a confident False (the
+    QUERY_BUILD_BUG promotion in classify_query_error only fires on explicit False)."""
 
     def _walk(obj: Any) -> bool:
         if isinstance(obj, dict):
@@ -178,10 +178,8 @@ def query_uses_user_authored_hogql(query: Any) -> bool:
     try:
         return _walk(query.model_dump())
     except Exception:
-        # query is always a pydantic BaseModel here, so model_dump() should not
-        # raise — log rather than silently mislabel a real bug in _walk as false.
         logger.warning("query_uses_user_authored_hogql failed", exc_info=True)
-        return False
+        return None
 
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
@@ -1606,7 +1604,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         query_type = getattr(self.query, "kind", "Other")
         has_user_authored_hogql = query_uses_user_authored_hogql(self.query)
-        has_user_authored_hogql_label = str(has_user_authored_hogql).lower()
+        has_user_authored_hogql_label = (
+            "unknown" if has_user_authored_hogql is None else str(has_user_authored_hogql).lower()
+        )
         survey_query_metric_labels = get_survey_query_metric_labels(self.query)
         query_start = perf_counter()
         try:
@@ -1623,17 +1623,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ).inc()
         except Exception as e:
             category = classify_query_error(e, has_user_authored_hogql=has_user_authored_hogql)
+            error_type = clickhouse_error_type(e)
             QUERY_EXECUTION_TOTAL.labels(
                 query_type=query_type,
                 category=category,
-                error_type=clickhouse_error_type(e),
+                error_type=error_type,
                 has_user_authored_hogql=has_user_authored_hogql_label,
             ).inc()
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_TOTAL.labels(
                     **survey_query_metric_labels,
                     category=category,
-                    error_type=clickhouse_error_type(e),
+                    error_type=error_type,
                 ).inc()
             raise
         finally:

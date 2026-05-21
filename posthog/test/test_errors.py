@@ -1,5 +1,3 @@
-import pytest
-
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
@@ -28,10 +26,11 @@ class TestClassifyQueryError:
 
     @parameterized.expand(
         [
-            (159, QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
-            (241, QueryErrorCategory.QUERY_PERFORMANCE_ERROR),
-            (202, QueryErrorCategory.RATE_LIMITED),
-            (394, QueryErrorCategory.CANCELLED),
+            (62, QueryErrorCategory.USER_ERROR),  # SYNTAX_ERROR — USER_ERROR not in build-bug set, must stay USER_ERROR
+            (159, QueryErrorCategory.QUERY_PERFORMANCE_ERROR),  # TIMEOUT_EXCEEDED
+            (241, QueryErrorCategory.QUERY_PERFORMANCE_ERROR),  # MEMORY_LIMIT_EXCEEDED
+            (202, QueryErrorCategory.RATE_LIMITED),  # TOO_MANY_SIMULTANEOUS_QUERIES
+            (394, QueryErrorCategory.CANCELLED),  # QUERY_WAS_CANCELLED
         ]
     )
     def test_non_build_bug_codes_unchanged_with_has_user_authored_hogql_false(
@@ -41,7 +40,3 @@ class TestClassifyQueryError:
 
     def test_non_server_exception_unaffected(self) -> None:
         assert classify_query_error(ValueError("boom"), has_user_authored_hogql=False) == QueryErrorCategory.ERROR
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

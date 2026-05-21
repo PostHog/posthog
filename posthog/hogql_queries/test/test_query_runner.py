@@ -9,6 +9,7 @@ from unittest import mock
 
 from django.core.cache import cache
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
@@ -46,6 +47,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
+    QUERY_EXECUTION_TOTAL,
     ExecutionMode,
     QueryRunner,
     get_query_runner,
@@ -569,10 +571,6 @@ class TestQueryRunner(BaseTest):
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
 
     def test_query_execution_metric_promotes_query_build_bug_category(self):
-        from clickhouse_driver.errors import ServerException
-
-        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_TOTAL
-
         TestQueryRunner = self.setup_test_query_runner_class()
 
         def calculate_raises(self):
@@ -581,23 +579,18 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.calculate = calculate_raises
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        before = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery",
-            category="query_build_bug",
-            error_type="CHQueryErrorUnknownIdentifier",
-            has_user_authored_hogql="false",
-        )._value.get()
+        labels = {
+            "query_type": "TestQuery",
+            "category": "query_build_bug",
+            "error_type": "CHQueryErrorUnknownIdentifier",
+            "has_user_authored_hogql": "false",
+        }
+        before = QUERY_EXECUTION_TOTAL.labels(**labels)._value.get()
 
         with pytest.raises(ServerException):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        after = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery",
-            category="query_build_bug",
-            error_type="CHQueryErrorUnknownIdentifier",
-            has_user_authored_hogql="false",
-        )._value.get()
-
+        after = QUERY_EXECUTION_TOTAL.labels(**labels)._value.get()
         assert after - before == 1
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
