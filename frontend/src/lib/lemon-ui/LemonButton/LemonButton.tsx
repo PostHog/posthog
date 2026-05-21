@@ -79,6 +79,12 @@ export interface LemonButtonPropsBase
      * **Project settings → Data attributes**. Defaults to the same value as `data-attr` when omitted.
      */
     'data-attr-id'?: string
+    /**
+     * Arbitrary `data-*` attributes spread onto the underlying element — useful for surfacing
+     * extra context (e.g. selected values) to autocapture's `elements_chain`.
+     * Keys must start with `data-`.
+     */
+    extraDataAttrs?: Record<`data-${string}`, string | number | boolean | null | undefined>
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
@@ -171,6 +177,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 tooltipDocLink,
                 tooltipForceMount,
                 stopPropagation,
+                extraDataAttrs,
                 ...buttonProps
             },
             ref
@@ -273,6 +280,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     aria-disabled={!!disabled}
                     {...linkDependentProps}
                     {...buttonProps}
+                    {...extraDataAttrs}
                     data-attr-id={buttonProps['data-attr-id'] ?? buttonProps['data-attr']}
                 >
                     <span className="LemonButton__chrome">

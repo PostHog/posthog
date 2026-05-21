@@ -15,8 +15,14 @@ import { billingProductLogic } from './billingProductLogic'
 export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const limitInputRef = useRef<HTMLInputElement | null>(null)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { isEditingBillingLimit, customLimitUsd, hasCustomLimitSet, currentAndUpgradePlans, billingLimitNextPeriod } =
-        useValues(billingProductLogic({ product, billingLimitInputRef: limitInputRef }))
+    const {
+        isEditingBillingLimit,
+        customLimitUsd,
+        hasCustomLimitSet,
+        currentAndUpgradePlans,
+        billingLimitNextPeriod,
+        billingLimitInput,
+    } = useValues(billingProductLogic({ product, billingLimitInputRef: limitInputRef }))
     const { setIsEditingBillingLimit, setBillingLimitInput, submitBillingLimitInput, removeBillingLimitNextPeriod } =
         useActions(billingProductLogic({ product }))
 
@@ -113,6 +119,10 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                     size="small"
                                     htmlType="submit"
                                     data-attr={`save-billing-limit-${product.type}`}
+                                    extraDataAttrs={{
+                                        'data-ph-billing-product': product.type,
+                                        'data-ph-billing-limit-usd': billingLimitInput.input ?? '',
+                                    }}
                                 >
                                     Save
                                 </LemonButton>
@@ -131,6 +141,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                         status="danger"
                                         size="small"
                                         data-attr={`remove-billing-limit-${product.type}`}
+                                        extraDataAttrs={{ 'data-ph-billing-product': product.type }}
                                         tooltip="Remove billing limit"
                                         onClick={() => {
                                             setBillingLimitInput(null)
