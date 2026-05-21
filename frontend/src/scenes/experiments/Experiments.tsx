@@ -59,7 +59,7 @@ import {
 } from './experimentsLogic'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { ExperimentVelocityStats } from './ExperimentVelocityStats'
-import { StatusTag } from './ExperimentView/components'
+import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { isLegacyExperiment } from './utils'
@@ -499,6 +499,7 @@ const ExperimentsTable = ({
                         isEmpty={shouldShowEmptyState}
                         customHog={ExperimentsHog}
                         className="my-0"
+                        mcpSurfaceKey="experiments.create"
                     />
                 </AccessControlAction>
             )}

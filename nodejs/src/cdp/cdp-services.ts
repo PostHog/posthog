@@ -3,7 +3,7 @@ import { getRedisHost } from '~/utils/db/redis'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
-import { AppMetricsOutput, LogEntriesOutput } from '../ingestion/common/outputs'
+import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -35,6 +35,7 @@ import { EmailService } from './services/messaging/email.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
@@ -45,6 +46,7 @@ import { EncryptedFields } from './utils/encryption-utils'
 export type CdpOutput =
     | AppMetricsOutput
     | LogEntriesOutput
+    | HogInvocationResultsOutput
     | PrefilteredEventsOutput
     | PrecalculatedPersonPropertiesOutput
     | BatchHogflowRequestsOutput
@@ -78,12 +80,16 @@ export interface CdpCoreServices {
      */
     hogWatcherMirror: HogWatcherService | null
     hogExecutor: HogExecutorService
+    /** Rebuilds the templated/resolved input bundle for a hog function — used by the rerun path to re-derive `inputs` after they're stripped from the persisted payload. */
+    hogInputsService: HogInputsService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
+    hogInvocationResultsService: HogInvocationResultsService
     /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -138,6 +144,9 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER'
+        | 'HOG_INVOCATION_RESULTS_TOPIC'
+        | 'HOG_INVOCATION_RESULTS_PRODUCER'
+        | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
@@ -411,10 +420,12 @@ export function createCdpCoreServices(
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
+    const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
     const invocationResultsService = new InvocationResultsService(
         hogFunctionMonitoringService,
+        hogInvocationResultsService,
         warehouseWebhooksService,
         capturedEventsService
     )
@@ -430,12 +441,14 @@ export function createCdpCoreServices(
         hogWatcher,
         hogWatcherMirror,
         hogExecutor,
+        hogInputsService,
         hogFunctionTemplateManager,
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        hogInvocationResultsService,
         invocationResultsService,
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,

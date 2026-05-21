@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from posthog.models.action.action import Action, ActionStepJSON, ActionStepMatching
+from products.actions.backend.models.action import Action, ActionStepJSON, ActionStepMatching
 
 from .property_filters import (
     PropertyFilterCollectionDescriber,

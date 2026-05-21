@@ -1,1 +1,1 @@
-1164_alter_alertconfiguration_calculation_interval
+1168_migrate_alerts_actions_models
