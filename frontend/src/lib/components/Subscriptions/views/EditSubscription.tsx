@@ -29,6 +29,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import { DashboardType, InsightShortId } from '~/types'
 
@@ -36,6 +37,20 @@ import { InsightSelector } from '../InsightSelector'
 import { subscriptionLogic } from '../subscriptionLogic'
 
 const AI_PROMPT_CHAR_LIMIT = 4000
+
+// Shown wherever AI subscriptions are gated off (org hasn't approved AI data
+// processing). Mirrors the backend gate in `_ai_create_gate_reason`, which 403s
+// the create regardless — so the form must block before submit, not after.
+const AI_NOT_ALLOWED_REASON = 'Enable AI data processing in your Organization settings to use AI subscriptions.'
+
+function AiConsentGateMessage(): JSX.Element {
+    return (
+        <>
+            {AI_NOT_ALLOWED_REASON}{' '}
+            <Link to={urls.settings('organization-details', 'organization-ai-consent')}>Manage AI data processing</Link>
+        </>
+    )
+}
 
 // Concrete starter prompts — each one maps cleanly to a flat HogQL pattern the
 // planner already knows (see PLAN_GENERATION_PROMPT reference patterns). Click
@@ -252,7 +267,7 @@ export function EditSubscription({
                             </LemonField>
                         )}
 
-                        {!isParentless && (
+                        {!isParentless && !isEditing && aiSubscriptionsEnabled && (
                             <LemonField name="content_type" label="What to send">
                                 {({ value, onChange }) => (
                                     <LemonSegmentedButton
@@ -263,18 +278,11 @@ export function EditSubscription({
                                             {
                                                 value: 'insight',
                                                 label: 'Insight or dashboard snapshot',
-                                                disabledReason: isEditing
-                                                    ? 'Content type cannot be changed after a subscription is created.'
-                                                    : undefined,
                                             },
                                             {
                                                 value: 'ai_prompt',
                                                 label: 'AI report (beta)',
-                                                disabledReason: isEditing
-                                                    ? 'Content type cannot be changed after a subscription is created.'
-                                                    : !aiAllowed
-                                                      ? 'Enable AI data processing in your Organization settings to use AI subscriptions.'
-                                                      : undefined,
+                                                disabledReason: !aiAllowed ? AI_NOT_ALLOWED_REASON : undefined,
                                             },
                                         ]}
                                     />
@@ -282,8 +290,19 @@ export function EditSubscription({
                             </LemonField>
                         )}
 
+                        {!isParentless && !isEditing && aiSubscriptionsEnabled && !aiAllowed && (
+                            <LemonBanner type="info" className="text-sm">
+                                <AiConsentGateMessage />
+                            </LemonBanner>
+                        )}
+
                         {isAiPrompt ? (
                             <>
+                                {!aiAllowed && !isEditing && (
+                                    <LemonBanner type="warning" className="text-sm">
+                                        <AiConsentGateMessage />
+                                    </LemonBanner>
+                                )}
                                 <LemonBanner type="info" className="text-sm">
                                     The AI plans up to 3 HogQL queries against your project's events and writes a
                                     markdown report. It cannot access other tables, run actions, or use prior reports as
@@ -663,7 +682,7 @@ export function EditSubscription({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading}
+                    disabled={!subscriptionChanged || subscriptionLoading || (isAiPrompt && !aiAllowed && !isEditing)}
                 >
                     {id === 'new' ? 'Create subscription' : 'Save'}
                 </LemonButton>
