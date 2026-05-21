@@ -111,12 +111,43 @@ const appendPreposition = (item: string | JSX.Element): string | JSX.Element => 
 
 export const experimentActivityDescriber = (logItem: ActivityLogItem): HumanizedChange => {
     /**
-     * we only have two item types, `shared_metric` or the `null` default for
-     * experiments.
+     * Item types: `shared_metric`, `saved_metric_config`, `holdout`, or the `null` default for experiments.
      */
     const isSharedMetric = logItem.detail.type === 'shared_metric'
 
     return match(logItem)
+        .with({ activity: 'created', detail: { type: 'saved_metric_config' } }, () => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['added shared metric']}
+                        suffix={
+                            <span>
+                                <strong>{logItem.detail.name}</strong> to{' '}
+                                {nameOrLinkToExperiment('experiment', logItem.item_id)}
+                            </span>
+                        }
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'updated', detail: { type: 'saved_metric_config' } }, () => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['updated configuration for shared metric']}
+                        suffix={
+                            <span>
+                                <strong>{logItem.detail.name}</strong> on{' '}
+                                {nameOrLinkToExperiment('experiment', logItem.item_id)}
+                            </span>
+                        }
+                    />
+                ),
+            }
+        })
         .with({ activity: 'created', detail: { type: 'holdout' } }, () => {
             return {
                 description: (
@@ -164,6 +195,22 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                         prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
                         listParts={['deleted experiment:']}
                         suffix={logItem.detail.name}
+                    />
+                ),
+            }
+        })
+        .with({ activity: 'deleted', detail: { type: 'saved_metric_config' } }, () => {
+            return {
+                description: (
+                    <SentenceList
+                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        listParts={['removed shared metric']}
+                        suffix={
+                            <span>
+                                <strong>{logItem.detail.name}</strong> from{' '}
+                                {nameOrLinkToExperiment('experiment', logItem.item_id)}
+                            </span>
+                        }
                     />
                 ),
             }
@@ -224,7 +271,10 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
              */
             const changes = updateLogDetail.changes || []
 
-            const isExperiment = updateLogDetail.type !== 'shared_metric' && updateLogDetail.type !== 'holdout'
+            const isExperiment =
+                updateLogDetail.type !== 'shared_metric' &&
+                updateLogDetail.type !== 'holdout' &&
+                updateLogDetail.type !== 'saved_metric_config'
 
             let listParts: (string | JSX.Element)[]
             if (changes.length === 0) {
