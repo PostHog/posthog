@@ -79,9 +79,8 @@ def join_with_error_tracking_fingerprint_issue_state_table(
     return join_expr
 
 
-# Non-deleted rows carry a complete state snapshot per version, so the legacy
-# `tupleElement(argMax(tuple(x), v))` null-skip wrap is unnecessary — direct
-# `argMax(x, version)` is correct here.
+# Tuple wrap defeats argMax's NULL-skip so unassignments (NULL at latest
+# version) don't return stale prior values.
 _ARGMAX_FIELDS: tuple[str, ...] = (
     "issue_id",
     "issue_name",
@@ -126,10 +125,19 @@ def select_from_error_tracking_fingerprint_issue_state_table(
                         name="toNullable",
                         args=[
                             ast.Call(
-                                name="argMax",
+                                name="tupleElement",
                                 args=[
-                                    ast.Field(chain=[RAW_TABLE_NAME, field_name]),
-                                    ast.Field(chain=[RAW_TABLE_NAME, "version"]),
+                                    ast.Call(
+                                        name="argMax",
+                                        args=[
+                                            ast.Call(
+                                                name="tuple",
+                                                args=[ast.Field(chain=[RAW_TABLE_NAME, field_name])],
+                                            ),
+                                            ast.Field(chain=[RAW_TABLE_NAME, "version"]),
+                                        ],
+                                    ),
+                                    ast.Constant(value=1),
                                 ],
                             )
                         ],

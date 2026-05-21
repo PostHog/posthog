@@ -808,6 +808,18 @@ tools:
         bin_script: clickhouse-metrics-init
         description: Initialize ClickHouse metrics schema (temporary, pre-migration)
         hidden: true
+    clickhouse:multinode:start:
+        cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
+        description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
+        hidden: true
+    clickhouse:multinode:verify:
+        cmd: python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
+        description: Assert that the multinode ClickHouse stack ended up with the expected per-node table layout
+        hidden: true
+    clickhouse:multinode:test:
+        cmd: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
+        description: Boot a per-cluster ClickHouse stack and smoke-test migrations against it
+        hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references

@@ -29,8 +29,8 @@ rules:
           # Only enforce inside admin modules. Other places might subclass
           # `ModelAdmin` for testing or as abstract scaffolding.
           include:
-              - 'posthog/admin/admins/*.py'
-              - 'products/*/backend/admin.py'
+              - '/posthog/admin/admins/*.py'
+              - '/products/*/backend/admin.py'
       metadata:
           category: correctness
           technology:

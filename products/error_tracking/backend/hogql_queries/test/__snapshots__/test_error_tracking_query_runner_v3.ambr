@@ -40,13 +40,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -108,13 +108,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -176,13 +176,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -219,13 +219,13 @@
   FROM events AS e
   LEFT OUTER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -262,13 +262,13 @@
   FROM events AS e
   LEFT OUTER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -313,13 +313,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -364,13 +364,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -415,13 +415,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -466,13 +466,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -534,13 +534,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -577,13 +577,13 @@
   FROM events AS e
   LEFT OUTER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -645,13 +645,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -696,13 +696,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -747,13 +747,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -798,13 +798,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -866,13 +866,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -924,13 +924,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -992,13 +992,13 @@
      GROUP BY fp_hash) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -1070,13 +1070,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -1148,13 +1148,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -1216,13 +1216,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash
@@ -1284,13 +1284,13 @@
               bin_idx) AS ev
   INNER JOIN
     (SELECT cityHash64(error_tracking_fingerprint_issue_state.fingerprint) AS fp_hash,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_id, error_tracking_fingerprint_issue_state.version)) AS issue_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_status, error_tracking_fingerprint_issue_state.version)) AS issue_status,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_name, error_tracking_fingerprint_issue_state.version)) AS issue_name,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.issue_description, error_tracking_fingerprint_issue_state.version)) AS issue_description,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_user_id, error_tracking_fingerprint_issue_state.version)) AS assigned_user_id,
-            toNullable(argMax(error_tracking_fingerprint_issue_state.assigned_role_id, error_tracking_fingerprint_issue_state.version)) AS assigned_role_id,
-            toNullable(argMax(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC'), error_tracking_fingerprint_issue_state.version)) AS first_seen
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_id), error_tracking_fingerprint_issue_state.version), 1)) AS issue_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_status), error_tracking_fingerprint_issue_state.version), 1)) AS issue_status,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_name), error_tracking_fingerprint_issue_state.version), 1)) AS issue_name,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.issue_description), error_tracking_fingerprint_issue_state.version), 1)) AS issue_description,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_user_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_user_id,
+            toNullable(tupleElement(argMax(tuple(error_tracking_fingerprint_issue_state.assigned_role_id), error_tracking_fingerprint_issue_state.version), 1)) AS assigned_role_id,
+            toNullable(tupleElement(argMax(tuple(toTimeZone(error_tracking_fingerprint_issue_state.first_seen, 'UTC')), error_tracking_fingerprint_issue_state.version), 1)) AS first_seen
      FROM error_tracking_fingerprint_issue_state
      WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
      GROUP BY fp_hash

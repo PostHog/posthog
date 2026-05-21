@@ -56,7 +56,7 @@ export function parseRequestProperties(
     const params = url.searchParams
 
     const token = request.headers.get('Authorization')?.split(' ')[1] ?? ''
-    const readOnlyRaw = header(request, 'x-posthog-readonly') || params.get('readonly')
+    const readOnlyRaw = header(request, 'x-posthog-read-only') || params.get('readonly')
 
     return {
         apiToken: token,

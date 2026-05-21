@@ -1,7 +1,7 @@
 """Classifier lens: assigns one or more tags from a fixed vocabulary."""
 
 import typing
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, create_model
 
@@ -10,12 +10,14 @@ from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLe
 
 
 class ClassifierOutput(BaseLensOutput, frozen=True):
+    lens_type: Literal[LensType.CLASSIFIER] = LensType.CLASSIFIER
     tags: list[str] = Field(description="Subset of the lens's configured tag vocabulary.")
     reasoning: str = Field(description="One paragraph grounding the tag choice in concrete moments.")
 
 
 class ClassifierLens(BaseLens, frozen=True):
     lens_type: Literal[LensType.CLASSIFIER] = LensType.CLASSIFIER
+    prompt_template: ClassVar[str] = "classifier.jinja"
     tags: list[str] = Field(min_length=1, description="Fixed vocabulary the model picks from.")
     multi_label: bool = True
 
@@ -49,14 +51,11 @@ class ClassifierLens(BaseLens, frozen=True):
             reasoning=llm_response.reasoning,  # type: ignore[attr-defined]
         )
 
-    def task_instruction(self) -> str:
-        rule = "Pick every tag that applies." if self.multi_label else "Pick exactly one tag."
-        vocabulary = ", ".join(repr(t) for t in self.tags)
-        return (
-            f"Apply the lens intent and choose tags from this fixed vocabulary: [{vocabulary}]. "
-            f"{rule} "
-            "Use `reasoning` to cite the moments that justify your choice."
-        )
+    def prompt_context(self) -> dict[str, Any]:
+        return {
+            "vocabulary": ", ".join(repr(t) for t in self.tags),
+            "multi_label": self.multi_label,
+        }
 
     def validate_semantics(self, output: BaseLensOutput) -> str | None:
         # Defense in depth — `llm_response_schema` already enforces these at parse time, but `ClassifierOutput`'s `list[str]` doesn't.

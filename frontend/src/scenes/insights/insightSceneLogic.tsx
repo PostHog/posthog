@@ -344,9 +344,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           },
                           access_control_resource: 'insight',
                           access_control_resource_id: `${insight.id}`,
-                          settings_section: 'project-product-analytics',
                       }
-                    : { settings_section: 'project-product-analytics' }
+                    : null
             },
         ],
         maxContext: [
@@ -471,6 +470,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             { method, initial }, // "location changed" event payload
             { searchParams: previousSearchParams } // previous location
         ) => {
+            // `/insights/quick-start` is handled by Scene.InsightQuickStart, not the Insight scene.
+            // The :shortId pattern greedily matches it, so bail out before triggering a loadInsight
+            // for a non-existent short_id.
+            if (shortId === 'quick-start') {
+                return
+            }
             const insightMode =
                 mode === 'subscriptions'
                     ? ItemMode.Subscriptions

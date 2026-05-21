@@ -1,10 +1,25 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
+import { DataColorTheme } from 'lib/colors'
+import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
+
 import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
 import type { seriesBreakdownLogicType } from './seriesBreakdownLogicType'
 
+/**
+ * Sentinel used to key result customizations for null / undefined breakdown values.
+ * Mirrors `BREAKDOWN_NULL_STRING_LABEL` from `scenes/insights/utils` to keep the
+ * collision-resistance contract consistent with trends/funnels breakdowns.
+ */
+export const BREAKDOWN_NULL_KEY = '$$_posthog_breakdown_null_$$'
+
+export const getBreakdownValueKey = (value: unknown): string =>
+    value === null || value === undefined ? BREAKDOWN_NULL_KEY : String(value)
+
 export interface AxisBreakdownSeries<T> {
     name: string
+    /** Stable key derived from the raw breakdown column value, used for result customization lookups. */
+    breakdownValue: string
     data: T[]
     settings?: AxisSeriesSettings
 }
@@ -76,6 +91,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
         values: [
             dataVisualizationLogic,
             ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis', 'chartSettings'],
+            dataThemeLogic,
+            ['getTheme'],
         ],
     })),
     actions(({ values }) => ({
@@ -120,6 +137,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 s.response,
                 s.columns,
                 s.chartSettings,
+                s.getTheme,
             ],
             (
                 selectedBreakdownColumn,
@@ -128,7 +146,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 xSeries,
                 response,
                 columns,
-                chartSettings
+                chartSettings,
+                getTheme: (themeId: string | number | null | undefined) => DataColorTheme | null
             ): BreakdownSeriesData<number | null> => {
                 if (
                     !response ||
@@ -175,6 +194,8 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                 const multipleYSeries = yAxis.length > 1
                 const showNullsAsZero = chartSettings.showNullsAsZero ?? false
+                const resultCustomizations = chartSettings.resultCustomizations ?? {}
+                const theme = getTheme(undefined)
 
                 const seriesData: AxisBreakdownSeries<number | null>[] = yAxis.flatMap((selectedYAxis) => {
                     const yColumn = columns.find((n) => n.name === selectedYAxis.name)
@@ -186,13 +207,19 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                         const seriesName = multipleYSeries
                             ? `${selectedYAxis.name} - ${value || '[No value]'}`
                             : value || '[No value]'
+                        const breakdownValue = getBreakdownValueKey(value)
+                        const customColorToken = resultCustomizations[breakdownValue]?.color
+                        const customColor =
+                            customColorToken && theme ? getColorFromToken(theme, customColorToken) : undefined
 
                         // first filter data by breakdown column value
                         const filteredData = data.filter((n) => n[breakdownColumn.dataIndex] === value)
                         if (filteredData.length === 0) {
                             return {
                                 name: seriesName,
+                                breakdownValue,
                                 data: [],
+                                settings: customColor ? { display: { color: customColor } } : undefined,
                             }
                         }
 
@@ -223,15 +250,19 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
 
                         return {
                             name: seriesName,
+                            breakdownValue,
                             data: dataset,
                             // we copy supported settings over from the selected
                             // y-axis since we don't support setting these on the
-                            // breakdown series at the moment
+                            // breakdown series at the moment. The per-breakdown
+                            // color customization (if any) wins over the inherited
+                            // y-axis color.
                             settings: {
                                 formatting: selectedYAxis.settings.formatting,
                                 display: {
                                     yAxisPosition: selectedYAxis.settings?.display?.yAxisPosition,
                                     displayType: selectedYAxis.settings?.display?.displayType,
+                                    color: customColor,
                                 },
                             },
                         }
