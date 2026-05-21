@@ -90,8 +90,16 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
     if operator == "is_not_set":
         return _TRUE if not sn else _FALSE
     # Every remaining operator requires both an override and a filter value.
-    if not sn or value is None:
-        return _INDETERMINATE if value is None else _FALSE
+
+    if value is None:
+        return _INDETERMINATE
+    if not sn:
+        # For negation operators, empty string doesn't match non-empty values
+        if operator in ("is_not", "not_in", "not_icontains", "not_regex"):
+            return _TRUE
+        # For positive match operators, empty string can't match
+        return _FALSE
+
 
     if operator in ("exact", "in"):
         return _TRUE if _matches_any(value, sn) else _FALSE
