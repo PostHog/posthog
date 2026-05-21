@@ -52,7 +52,7 @@ class TestHogqlDefinitionDispatch(BaseTest):
         assert result.database == "ducklake"
         assert result.user == "warehouse_user"
         assert result.password == "s3cret"
-        assert result.schema == "public"
+        assert result.postgres_schema == "public"
         assert result.postgres_table_name == "users"
 
     @mock.patch("posthog.ducklake.common.get_duckgres_server_for_organization")
