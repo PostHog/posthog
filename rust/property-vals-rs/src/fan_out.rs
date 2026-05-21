@@ -6,9 +6,9 @@ use crate::types::{Event, GroupIdentify, PropertyType, TupleKey};
 /// `PropertyDefinition.name` max_length.
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
 
-/// Length cap on `property_value` in Unicode codepoints. Strictly less than
-/// this, 256 codepoints is dropped.
-pub const MAX_PROPERTY_VALUE_LEN: usize = 256;
+/// Length cap on `property_value` in Unicode codepoints. Values longer
+/// than this are dropped. Matches the storage column width minus one.
+pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
 
 /// Fan one Event out to its constituent property-value tuples.
 ///
@@ -74,7 +74,7 @@ fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mu
         if key.is_empty() || key.chars().count() > MAX_PROPERTY_KEY_LEN {
             continue;
         }
-        if property_value.is_empty() || property_value.chars().count() >= MAX_PROPERTY_VALUE_LEN {
+        if property_value.is_empty() || property_value.chars().count() > MAX_PROPERTY_VALUE_LEN {
             continue;
         }
 
@@ -90,7 +90,6 @@ fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mu
 fn coerce_to_string(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
-        Value::Null => String::new(),
         _ => v.to_string(),
     }
 }
@@ -167,7 +166,7 @@ mod tests {
         assert!(!t.property_key.is_empty());
         assert!(!t.property_value.is_empty());
         assert!(t.property_key.chars().count() <= MAX_PROPERTY_KEY_LEN);
-        assert!(t.property_value.chars().count() < MAX_PROPERTY_VALUE_LEN);
+        assert!(t.property_value.chars().count() <= MAX_PROPERTY_VALUE_LEN);
     }
 
     proptest! {
