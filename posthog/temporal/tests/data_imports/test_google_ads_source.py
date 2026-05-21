@@ -251,6 +251,7 @@ def test_google_ads_client_recycles_stale_db_connections_before_integration_fetc
         mock.call.load_from_dict(mock.ANY),
     ]
 
+
 @dataclass
 class _FakePage:
     results: list
