@@ -76,38 +76,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         events_topic = %config.consumer.kafka_consumer_topic,
         events_consumer_group = %config.consumer.kafka_consumer_group,
-        events_transactional_id = %config.kafka_transactional_id,
         groups_topic = %config.groups_kafka_consumer_topic,
         groups_consumer_group = %config.groups_kafka_consumer_group,
-        groups_transactional_id = %config.groups_kafka_transactional_id,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
         "config loaded"
     );
 
+    let produce_timeout = Duration::from_secs(config.kafka_produce_timeout_secs);
+
     let events_consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
     let events_producer = AggregatedProducer::new(
         &config.kafka,
-        &config.kafka_transactional_id,
+        events_handle.clone(),
         config.output_topic.clone(),
-        Duration::from_secs(config.kafka_transaction_timeout_secs),
-        events_consumer.clone(),
-    )?;
+        produce_timeout,
+    )
+    .await?;
 
-    // Groups consumer inherits the events ConsumerConfig and overrides topic +
-    // group only. Other tuning (TLS, fetch sizes, auto_commit=false) carries
-    // over so the two workers have consistent Kafka client behavior.
     let mut groups_consumer_config = config.consumer.clone();
     groups_consumer_config.kafka_consumer_topic = config.groups_kafka_consumer_topic.clone();
     groups_consumer_config.kafka_consumer_group = config.groups_kafka_consumer_group.clone();
     let groups_consumer = SingleTopicConsumer::new(config.kafka.clone(), groups_consumer_config)?;
     let groups_producer = AggregatedProducer::new(
         &config.kafka,
-        &config.groups_kafka_transactional_id,
+        groups_handle.clone(),
         config.output_topic.clone(),
-        Duration::from_secs(config.kafka_transaction_timeout_secs),
-        groups_consumer.clone(),
-    )?;
+        produce_timeout,
+    )
+    .await?;
 
     info!(
         "Subscribed to topic: {}",
@@ -122,8 +119,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let guard = manager.monitor_background();
 
-    // One worker per topic. Each has its own transactional producer because
-    // rdkafka allows one outstanding transaction per transactional.id.
     tokio::spawn(worker_loop::<Event, _, _>(
         shared_config.clone(),
         events_consumer,

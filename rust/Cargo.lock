@@ -7324,6 +7324,7 @@ dependencies = [
  "common-alloc",
  "common-continuous-profiling",
  "common-kafka",
+ "common-liveness",
  "envconfig",
  "lifecycle",
  "metrics",

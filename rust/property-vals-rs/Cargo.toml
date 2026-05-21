@@ -10,6 +10,7 @@ axum = { workspace = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
+common-liveness = { path = "../common/liveness" }
 envconfig = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
