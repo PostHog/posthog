@@ -19896,15 +19896,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `gemini-3-flash` - Gemini 3 Flash
-    * `gemini-3-flash-lite` - Gemini 3 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+    * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
      */
     export type LensModelEnum = typeof LensModelEnum[keyof typeof LensModelEnum];
 
 
     export const LensModelEnum = {
-      Gemini3Flash: 'gemini-3-flash',
-      Gemini3FlashLite: 'gemini-3-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
     } as const;
 
     /**
@@ -19918,6 +19918,11 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+     */
+    export type LensResultEventIdMapping = { [key: string]: unknown };
+
+    /**
      * Mirrors `temporal.types.LensResult` for OpenAPI generation.
      */
     export interface LensResult {
@@ -19928,6 +19933,8 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
+      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+      event_id_mapping: LensResultEventIdMapping;
     }
 
     /**
@@ -19966,8 +19973,8 @@ export namespace Schemas {
       lens_version: number;
       /** Concrete model that ran the observation.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** Concrete provider that ran the observation.
 
@@ -22917,7 +22924,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -22933,8 +22940,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -29145,7 +29152,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type?: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -29161,8 +29168,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model?: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
