@@ -650,7 +650,7 @@ class TestUserAPI(APIBaseTest):
         mock_request = Mock()
 
         with (
-            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch("products.feature_flags.backend.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
             patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
             patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
         ):
@@ -668,7 +668,7 @@ class TestUserAPI(APIBaseTest):
         mock_request = Mock()
 
         with (
-            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch("products.feature_flags.backend.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
             patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
@@ -703,7 +703,7 @@ class TestUserAPI(APIBaseTest):
         mock_request = Mock()
 
         with (
-            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {123: "1200/minute"}),
+            patch("products.feature_flags.backend.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {123: "1200/minute"}),
             patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
             patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
         ):
@@ -723,7 +723,7 @@ class TestUserAPI(APIBaseTest):
         mock_request = Mock()
 
         with (
-            patch("posthog.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {}),
+            patch("products.feature_flags.backend.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {}),
             patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
             patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
         ):
@@ -741,7 +741,7 @@ class TestUserAPI(APIBaseTest):
         mock_request = Mock()
 
         with (
-            patch("posthog.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {}),
+            patch("products.feature_flags.backend.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {}),
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
             patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
@@ -776,7 +776,7 @@ class TestUserAPI(APIBaseTest):
         mock_request = Mock()
 
         with (
-            patch("posthog.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {123: "1200/minute"}),
+            patch("products.feature_flags.backend.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {123: "1200/minute"}),
             patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
             patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
         ):

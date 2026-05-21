@@ -2,8 +2,15 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getReactNativeSteps = (
+    ctx: OnboardingComponentsContext,
+    options?: {
+        minVersion?: string
+    }
+): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
+
+    const pkg = options?.minVersion ? `posthog-react-native@^${options.minVersion}` : 'posthog-react-native'
 
     return [
         {
@@ -18,14 +25,14 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'Expo',
                                 code: dedent`
-                                    npx expo install posthog-react-native expo-file-system expo-application expo-device expo-localization
+                                    npx expo install ${pkg} expo-file-system expo-application expo-device expo-localization
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize
+                                    yarn add ${pkg} @react-native-async-storage/async-storage react-native-device-info react-native-localize
 
                                     # for iOS
                                     cd ios && pod install
@@ -35,7 +42,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm i -s posthog-react-native @react-native-async-storage/async-storage react-native-device-info react-native-localize
+                                    npm i -s ${pkg} @react-native-async-storage/async-storage react-native-device-info react-native-localize
 
                                     # for iOS
                                     cd ios && pod install

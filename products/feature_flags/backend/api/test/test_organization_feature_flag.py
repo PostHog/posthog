@@ -1362,7 +1362,7 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         }
 
         with patch(
-            "posthog.api.organization_feature_flag.OrganizationFeatureFlagView._copy_feature_flag_schedules"
+            "products.feature_flags.backend.api.organization_feature_flag.OrganizationFeatureFlagView._copy_feature_flag_schedules"
         ) as mock_copy:
             mock_copy.side_effect = Exception("Database error")
             response = self.client.post(url, data)
@@ -1466,7 +1466,7 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
 
     def test_clickhouse_failure_returns_null_evaluations(self):
         with patch(
-            "posthog.api.organization_feature_flag.get_cached_evaluations_7d_by_team",
+            "products.feature_flags.backend.api.organization_feature_flag.get_cached_evaluations_7d_by_team",
             return_value=None,
         ):
             body = self.client.get(self._url("shared_flag")).json()

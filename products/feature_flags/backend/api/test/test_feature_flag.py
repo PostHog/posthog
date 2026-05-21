@@ -519,7 +519,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.name, "Beta feature 3")
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_group_type_index_feature_flag(self, mock_report_user_action):
         feature_flag = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -750,7 +750,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIn(expected_type, response.json()["detail"])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -808,7 +808,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(instance.created_by, self.user)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -845,7 +845,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             request=ANY,
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_remote_config_flag_defaults_to_100_percent_rollout(self, mock_report_user_action):
         """Test that remote config flags default to 100% rollout in various scenarios."""
         test_cases = [
@@ -905,7 +905,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 instance = FeatureFlag.objects.get(id=response_data["id"])
                 self.assertEqual(instance.filters["groups"][0]["rollout_percentage"], 100)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_encrypted_payloads_requires_remote_configuration(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -921,7 +921,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("remote configuration", response.json()["detail"])
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_encrypted_payloads_with_remote_configuration_succeeds(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -936,7 +936,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_remote_config_flag_to_non_remote_with_encrypted_payloads_fails(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -960,7 +960,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("remote configuration", response.json()["detail"])
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_non_remote_flag_to_encrypted_payloads_fails(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -983,7 +983,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("remote configuration", response.json()["detail"])
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
@@ -1001,7 +1001,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "feature-with-analytics-dashboards")
         self.assertEqual(instance.analytics_dashboards.all()[0].id, dashboard.pk)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
         other_team = Team.objects.create(organization=self.organization, api_token="token_other", name="Other Team")
         other_dashboard = Dashboard.objects.create(team=other_team, name="other team dashboard", created_by=self.user)
@@ -1018,7 +1018,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["attr"], "analytics_dashboards")
         self.assertIn("does not exist", response.json()["detail"])
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_feature_flag_rejects_dashboard_from_other_team(self, mock_report_user_action):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -1055,7 +1055,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         analytics_field = cast(ManyRelatedField, fields["analytics_dashboards"])
         self.assertEqual(analytics_field.child_relation.get_queryset().count(), 0)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_evaluation_runtime(self, mock_report_user_action):
         # Test creating a feature flag with different evaluation_runtime values
 
@@ -1098,7 +1098,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["evaluation_runtime"], "all")
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_update_feature_flag_evaluation_runtime(self, mock_report_user_action):
         # Create a flag with default evaluation_runtime
         response = self.client.post(
@@ -1123,7 +1123,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.evaluation_runtime, "server")
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_multivariate_feature_flag(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -1422,7 +1422,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Filters are not valid (variant override does not exist)",
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -1560,7 +1560,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ],
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_partial(self, mock_report_user_action):
         # Test that we can update a feature flag with only some of the fields
         # And the unchanged fields are not updated
@@ -1609,7 +1609,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["name"], "Updated name")
         self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 100)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_with_different_user(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             # Create flag with original user
@@ -1642,7 +1642,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.created_by, original_user)
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_fails_concurrency_check_when_version_outdated(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             # Create flag with original user: version 0
@@ -1724,7 +1724,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.name, "Another Updated name")
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_does_not_fail_concurrency_check_when_changing_different_fields(
         self, mock_report_user_action
     ):
@@ -1838,7 +1838,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.last_modified_by, original_user)
             self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 45)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_does_not_fail_when_version_not_in_request(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -2303,7 +2303,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
         self.assertEqual(conflicts, ["name", "filters"])
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_treats_null_version_as_zero(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -2329,7 +2329,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.version, 1)
             self.assertEqual(feature_flag.name, "Updated name")
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -2513,7 +2513,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "a-new-feature-flag-key",
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -2602,7 +2602,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "a-new-feature-flag-key",
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -2691,7 +2691,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "a-new-feature-flag-key",
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -3569,7 +3569,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # targeting_flag and internal_targeting_flag should be excluded
             # (they're survey-specific and filtered out from the main list)
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_usage_dashboard(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -3948,7 +3948,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_dashboard_enrichment_fails_if_already_enriched(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -3985,7 +3985,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {"error": "Usage dashboard already has enriched data", "success": False},
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_dashboard_enrichment_fails_if_no_enriched_data(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -4014,7 +4014,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_local_evaluation_for_invalid_cohorts(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
@@ -4217,7 +4217,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert str(cohort_valid.pk) in response_data["cohorts"]
         assert str(cohort_with_nested_invalid.pk) in response_data["cohorts"]
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_local_evaluation_for_cohorts_with_variant_overrides(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
@@ -4350,7 +4350,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             sorted_flags[0].items(),
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_local_evaluation_for_static_cohorts(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
@@ -4469,7 +4469,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             {},
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_local_evaluation_for_arbitrary_cohorts(self, mock_report_user_action):
         FeatureFlag.objects.all().delete()
 
@@ -4729,7 +4729,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             sorted_flags[1].items(),
         )
 
-    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics(self):
         FeatureFlag.objects.all().delete()
 
@@ -4793,7 +4793,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 {b"165192618": b"6"},
             )
 
-    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
         FeatureFlag.objects.all().delete()
 
@@ -5441,7 +5441,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ),
         ]
     )
-    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
     def test_behavioral_cohort_flag_validation(
         self,
         _name,
@@ -5565,7 +5565,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ),
         ]
     )
-    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
     def test_mixed_aggregation_types_across_condition_sets(
         self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled
     ):
@@ -5609,7 +5609,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         else:
             self.assertIn("Mixed aggregation types", response.json()["detail"])
 
-    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
     def test_mixed_aggregation_round_trip(self, mock_feature_enabled):
         mock_feature_enabled.return_value = True
 
@@ -5646,7 +5646,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("flag_disabled", False, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
     def test_mixed_aggregation_with_properties(
         self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled
     ):
@@ -5703,7 +5703,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("flag_disabled", False, status.HTTP_400_BAD_REQUEST),
         ]
     )
-    @patch("posthog.api.feature_flag.posthoganalytics.feature_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
     def test_patch_uniform_flag_to_mixed(self, _name, mixed_targeting_enabled, expected_status, mock_feature_enabled):
         mock_feature_enabled.return_value = mixed_targeting_enabled
 
@@ -6818,7 +6818,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
-    @patch("posthog.api.feature_flag.LocalEvaluationThrottle.rate", new="7/minute")
+    @patch("products.feature_flags.backend.api.feature_flag.LocalEvaluationThrottle.rate", new="7/minute")
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
@@ -7264,7 +7264,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             f"Expected 'Special Folder/Flags' in path, got: '{fs_entry.path}'"
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_updates_super_groups(self, mock_report_user_action):
         # Create a feature flag with super_groups
         feature_flag = FeatureFlag.objects.create(
@@ -8054,7 +8054,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Verify response changed from the original cached version
         self.assertNotEqual(data["cohorts"], updated_data.get("cohorts", {}))
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_without_usage_dashboard(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -8838,7 +8838,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 0, response)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_creating_static_cohort_with_experience_continuity_flag(self, mock_on_commit, mock_update_cache):
         FeatureFlag.objects.create(
@@ -8900,7 +8900,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_creating_static_cohort_iterator(self, mock_on_commit, mock_update_cache):
         FeatureFlag.objects.create(
@@ -8969,7 +8969,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons")
         self.assertEqual(len(response.json()["results"]), 3, response)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_creating_static_cohort_with_default_person_properties_adjustment(self, mock_on_commit, mock_update_cache):
         FeatureFlag.objects.create(
@@ -9063,7 +9063,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cohort2.name, "some cohort2")
         self.assertEqual(cohort2.count, 2)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_creating_static_cohort_with_cohort_flag_adds_cohort_props_as_default_too(
         self, mock_on_commit, mock_update_cache
@@ -12552,8 +12552,8 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         # Mock on_commit to execute callbacks immediately (Django test transactions don't commit)
         # Patch at source module since the import happens inside the function
-        with patch("posthog.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()):
-            with patch("posthog.models.feature_flag.feature_flag.set_feature_flags_for_team_in_cache") as mock_cache:
+        with patch("products.feature_flags.backend.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()):
+            with patch("products.feature_flags.backend.models.feature_flag.set_feature_flags_for_team_in_cache") as mock_cache:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
                     {"ids": [f.id for f in flags]},
@@ -12946,8 +12946,8 @@ class TestFeatureFlagVersions(APIBaseTest):
 
 
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_happy_path(self, mock_get_person, mock_get_flags):
         """Test successful evaluation of a feature flag."""
@@ -13003,8 +13003,8 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(data["evaluation_distinct_id"], "test-user")
         self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "test-user")
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_with_person_id_uses_smallest_distinct_id(self, mock_get_person, mock_get_flags):
         """When the caller passes person_id (no distinct_id), bucketing must
@@ -13044,7 +13044,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         # ...but the response must NOT leak it back to the caller.
         self.assertIsNone(response.json()["evaluation_distinct_id"])
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_with_timestamp(self, mock_get_flags):
         """Historical evaluation must drive the Rust call with reconstructed
@@ -13072,7 +13072,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             }
         }
 
-        with patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props:
+        with patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time") as mock_build_props:
             mock_build_props.return_value = {"email": "historical@example.com"}
 
             # Use a recent timestamp that's after flag creation
@@ -13144,13 +13144,13 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
         """Test 500 when INTERNAL_REQUEST_TOKEN is not set."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        with patch("posthog.api.feature_flag.os.getenv", return_value=None):
+        with patch("products.feature_flags.backend.api.feature_flag.os.getenv", return_value=None):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
                 {"distinct_id": "test-user"},
@@ -13160,7 +13160,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_historical_missing_conditions_502(self, mock_get_flags):
         """Test 502 when historical evaluation returns no conditions (misconfigured token)."""
@@ -13180,7 +13180,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             }
         }
 
-        with patch("posthog.api.feature_flag.build_person_properties_at_time", return_value={}):
+        with patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={}):
             # Use a recent timestamp that's after flag creation
             from datetime import datetime
 
@@ -13195,7 +13195,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.json()["error"], "Historical evaluation unavailable. Check service configuration.")
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_current_missing_conditions_200(self, mock_get_flags):
         """Test 200 when current evaluation returns no conditions (no 502 for current evaluation)."""
@@ -13227,7 +13227,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         # Verify the response is still valid
         self.assertIn("result", response.json())
 
-    @patch("posthog.api.feature_flag.build_person_properties_at_time")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
     def test_test_evaluation_build_properties_failure(self, mock_build_props):
         """Test 500 when build_person_properties_at_time raises exception."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13245,7 +13245,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Failed to build person properties at specified timestamp.")
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_filters_person_properties(self, mock_get_flags):
         """Test that person_properties are filtered to only flag-referenced keys."""
@@ -13293,7 +13293,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         # Should only include 'email' since that's referenced in the flag, not 'name' or 'age'
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_unexpected_response_type(self, mock_get_flags):
         """Test 502 when flag service returns unexpected response format."""
@@ -13346,7 +13346,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, 400)
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_build_properties_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from build_person_properties_at_time doesn't leak sensitive information."""
@@ -13373,7 +13373,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        with patch("posthog.api.feature_flag.build_person_properties_at_time") as mock_build_props:
+        with patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time") as mock_build_props:
             # Mock build_person_properties_at_time to raise ValueError with sensitive information
             mock_build_props.side_effect = ValueError("naive datetime: /secret/path/user123")
 
@@ -13400,7 +13400,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         # Verify the mock was called
         mock_build_props.assert_called_once()
 
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
     def test_test_evaluation_reconstruct_flag_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from reconstruct_flag_at_timestamp doesn't leak sensitive information."""
@@ -13424,7 +13424,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             }
         }
 
-        with patch("posthog.api.feature_flag.reconstruct_flag_at_timestamp") as mock_reconstruct:
+        with patch("products.feature_flags.backend.api.feature_flag.reconstruct_flag_at_timestamp") as mock_reconstruct:
             # Mock reconstruct_flag_at_timestamp to raise ValueError with sensitive information
             mock_reconstruct.side_effect = ValueError("timestamp must be timezone-aware: /secret/config/token")
 
@@ -13453,7 +13453,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
 
 class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     def test_evaluation_reasons_passes_runtime_all(self, mock_get_flags):
         """The Person → Feature flags tab must bypass Rust's header-based
         runtime detection — otherwise flags whose evaluation_runtime is
@@ -13475,7 +13475,7 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
             ("server",),
         ]
     )
-    @patch("posthog.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     def test_evaluation_reasons_surfaces_flag_for_runtime(self, runtime, mock_get_flags):
         """Each stored runtime must round-trip through evaluation_reasons with
         its evaluation.reason intact — this is the shape

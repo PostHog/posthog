@@ -50,6 +50,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.user_interviews",
 ]
 layer = "modules"
 
@@ -381,6 +382,8 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "posthog",
+    "products.data_warehouse",
+    "products.event_definitions",
 ]
 layer = "modules"
 
@@ -516,7 +519,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|visual_review)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -528,6 +531,15 @@ expose = [
 ]
 from = [
     "products.experiments",
+]
+
+# user_interviews exposes Vapi webhook handlers that are routed directly from posthog/urls.py.
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.webhooks.*",
+]
+from = [
+    "products.user_interviews",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.

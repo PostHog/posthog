@@ -1,6 +1,6 @@
 """Summarizer lens: produces a title and a text summary."""
 
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,15 +24,12 @@ class SummarizerOutput(BaseLensOutput, frozen=True):
 
 class SummarizerLens(BaseLens, frozen=True):
     lens_type: Literal[LensType.SUMMARIZER] = LensType.SUMMARIZER
+    prompt_template: ClassVar[str] = "summarizer.jinja"
     length: SummaryLength = "medium"
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:
         return SummarizerOutput
 
-    def task_instruction(self) -> str:
-        return (
-            "Summarize the session per the lens intent. "
-            "`title` is at most ~80 characters. "
-            f"`summary` should be {_LENGTH_GUIDANCE[self.length]}."
-        )
+    def prompt_context(self) -> dict[str, Any]:
+        return {"length_guidance": _LENGTH_GUIDANCE[self.length]}

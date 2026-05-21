@@ -86,6 +86,7 @@ export async function authenticateAndParse(
 }
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {
+    console.error('[handleCatchError]', error)
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
         return authResponse

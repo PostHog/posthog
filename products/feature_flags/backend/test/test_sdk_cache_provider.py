@@ -47,7 +47,7 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
             ("exception", None, Exception("Redis connection failed"), None),
         ]
     )
-    @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
     def test_get_flag_definitions(self, _name, cache_return, side_effect, expected, mock_hypercache):
         # Reset cached reference so the mock is picked up
         self.provider._hypercache = None
@@ -65,13 +65,13 @@ class TestHyperCacheFlagProvider(SimpleTestCase):
             assert result == expected
 
     @patch(
-        "posthog.feature_flags.sdk_cache_provider.HyperCacheFlagProvider._get_hypercache",
+        "products.feature_flags.backend.sdk_cache_provider.HyperCacheFlagProvider._get_hypercache",
         side_effect=ImportError("circular import"),
     )
     def test_get_flag_definitions_returns_none_on_circular_import(self, _mock):
         assert self.provider.get_flag_definitions() is None
 
-    @patch("posthog.models.feature_flag.local_evaluation.flag_definitions_hypercache")
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
     def test_caches_hypercache_reference(self, mock_hypercache):
         self.provider._hypercache = None
         mock_hypercache.get_from_cache.return_value = None

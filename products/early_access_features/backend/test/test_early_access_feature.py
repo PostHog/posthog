@@ -789,7 +789,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert {"custom": "data", "number": 42} in payloads
         assert {} in payloads
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_early_access_features(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",

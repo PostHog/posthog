@@ -1,9 +1,10 @@
 """
-Email-related helpers: address normalisation, ESP suppression lookups, user
+Email-related helpers: address normalization, ESP suppression lookups, user
 lookup by email, and display-name / message validation.
 """
 
 import re
+import html
 import hashlib
 import unicodedata
 from collections.abc import Callable
@@ -36,7 +37,7 @@ _URL_SCHEME_RE = re.compile(
     re.IGNORECASE,
 )
 _BARE_DOMAIN_RE = re.compile(
-    r"\b[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.[a-z]{2,24}\b",
+    r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
     re.IGNORECASE,
 )
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
@@ -50,20 +51,18 @@ _BRACKET_ERROR = "Angle brackets are not allowed in this field."
 _INVISIBLE_ERROR = "Invisible or direction-override characters are not allowed in this field."
 
 
-def _check_shared(value: str, *, check_bare_domains: bool) -> None:
+def _check_shared(value: str) -> None:
     """
     Run the checks shared between display names and message bodies against an
-    NFKC-normalised copy of `value`. Normalisation folds fullwidth / compat
+    NFKC-normalized copy of `value`. Normalization folds fullwidth / compat
     variants (e.g. `ｈｔｔｐ：／／` \u2192 `http://`) before regex matching.
     """
-    normalised = unicodedata.normalize("NFKC", value)
-    if _INVISIBLE_CHAR_RE.search(normalised):
+    normalized = unicodedata.normalize("NFKC", value)
+    if _INVISIBLE_CHAR_RE.search(normalized):
         raise serializers.ValidationError(_INVISIBLE_ERROR, code="invalid_invisible_char")
-    if _BRACKET_RE.search(normalised):
+    if _BRACKET_RE.search(normalized):
         raise serializers.ValidationError(_BRACKET_ERROR, code="invalid_bracket")
-    if _URL_SCHEME_RE.search(normalised):
-        raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
-    if check_bare_domains and _BARE_DOMAIN_RE.search(normalised):
+    if _URL_SCHEME_RE.search(normalized):
         raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
 
 
@@ -78,10 +77,12 @@ def validate_display_name(value: None) -> None: ...
 def validate_display_name(value: str | None) -> str | None:
     """
     Validate identity fields (`first_name`, `last_name`, organization name,
-    invite recipient name). Rejects URLs (including bare domains), line
-    breaks, control characters, angle brackets, and zero-width / bidi
-    characters. Returns the stripped value; empty / blank input passes
-    through.
+    invite recipient name). Rejects URL schemes (`https://`, `javascript:`,
+    `www.`), line breaks, control characters, angle brackets, and zero-width /
+    bidi characters. Bare domains (`google.com`) are allowed — users
+    legitimately set those as org names, and `sanitize_email_string` defangs
+    them at email render time. Returns the stripped value; empty / blank input
+    passes through.
     """
     if value is None:
         return None
@@ -90,7 +91,7 @@ def validate_display_name(value: str | None) -> str | None:
         return stripped
     if _CONTROL_CHAR_RE.search(stripped):
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
-    _check_shared(stripped, check_bare_domains=True)
+    _check_shared(stripped)
     return stripped
 
 
@@ -99,13 +100,13 @@ def validate_message_body(value: str | None) -> str | None:
     Validate a free-text message body. Newlines and tabs are allowed; URL
     schemes (`http://`, `javascript:`, `www.`, ...), non-newline control
     chars, angle brackets, and invisible chars are not. Bare domains are
-    permitted here to keep messages like "see the foo.py file" usable.
+    permitted so messages like "see the foo.py file" stay usable.
     """
     if value is None:
         return None
     if _NON_NEWLINE_CONTROL_RE.search(value):
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
-    _check_shared(value, check_bare_domains=False)
+    _check_shared(value)
     return value
 
 
@@ -180,6 +181,49 @@ sanitize_message_body = partial(
     log_event="email_utils.message_body_sanitized",
     fallback="",
 )
+
+
+# Zero-width space inserted after `.` and `:` to break auto-link patterns.
+# We previously used `&#46;` / `&#58;` HTML entities, but Customer.io's
+# template engine (TinyMCE-backed) decodes them on output, defeating the
+# defang. ZWSP is a real Unicode codepoint, so it survives JSON transit and
+# the ESP's template rendering. It's invisible to the recipient, but breaks
+# the `\w+\.\w+` and `[a-z]+://` patterns mail-client auto-linkers scan for.
+_ZWSP = "​"
+
+
+def _defang_match(match: "re.Match[str]") -> str:
+    return match.group(0).replace(".", f".{_ZWSP}").replace(":", f":{_ZWSP}")
+
+
+def sanitize_email_string(value: str) -> str:
+    """
+    Sanitize a string for inclusion in email content (Customer.io
+    `message_data` properties or Django email templates). Steps:
+
+    1. NFKC-normalize so fullwidth / compatibility forms can't bypass the
+       URL regexes (e.g. `ｈｔｔｐ：／／` → `http://`).
+    2. Strip zero-width / direction-override / line-separator characters that
+       could hide URL structure (`evil​.com` → `evil.com`). This runs *before*
+       step 4 reintroduces zero-width spaces, so attacker-supplied invisibles
+       can't survive but our defang ones can.
+    3. HTML-escape so any embedded markup renders as text in the final email.
+    4. Defang URL-shaped substrings: insert a zero-width space after each `.`
+       and `:` inside a URL scheme (`https://`, `javascript:`, `www.`, ...) or
+       a bare domain (`evil.com`) so mail clients do not auto-link them.
+
+    Step 4 breaks the contiguous `\\w+\\.\\w+` / `[a-z]+://` patterns that
+    mail-client auto-linkers scan for. The recipient still reads `evil.com`
+    (the ZWSP is invisible) but the link is no longer clickable.
+    """
+    normalized = unicodedata.normalize("NFKC", value)
+    cleaned = _INVISIBLE_CHAR_RE.sub("", normalized)
+    escaped = html.escape(cleaned)
+    # No `.` or `:` means neither regex can match — skip the two passes.
+    if "." not in escaped and ":" not in escaped:
+        return escaped
+    defanged = _URL_SCHEME_RE.sub(_defang_match, escaped)
+    return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
 
 
 class EmailNormalizer:

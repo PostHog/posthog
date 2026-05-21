@@ -1,13 +1,16 @@
-import { Link } from '@posthog/lemon-ui'
+import { IconPlay } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { pluralize } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { PersonType } from '~/types'
+import { PersonsTabType, PersonType } from '~/types'
 
 interface LivePersonDrillDownRowProps {
     person: PersonType
+    recordingCount?: number
 }
 
 const pickSecondaryProperty = (person: PersonType): { key: string; value: string } | null => {
@@ -21,29 +24,46 @@ const pickSecondaryProperty = (person: PersonType): { key: string; value: string
     return null
 }
 
-export const LivePersonDrillDownRow = ({ person }: LivePersonDrillDownRowProps): JSX.Element => {
+const recordingsUrlForPerson = (distinctId: string): string =>
+    `${urls.personByDistinctId(distinctId)}#activeTab=${PersonsTabType.SESSION_RECORDINGS}`
+
+export const LivePersonDrillDownRow = ({ person, recordingCount }: LivePersonDrillDownRowProps): JSX.Element => {
     const distinctId = person.distinct_ids?.[0]
     const secondary = pickSecondaryProperty(person)
     const href = distinctId ? urls.personByDistinctId(distinctId) : undefined
 
     return (
-        <Link
-            to={href}
-            subtle
-            className="flex items-center gap-3 px-2 py-2 -mx-2 rounded hover:bg-bg-3000"
-            data-attr="live-person-drilldown-row"
-        >
-            <PersonDisplay person={person} withIcon noPopover noLink />
-            {secondary && (
-                <span className="flex-1 min-w-0 text-xs text-muted truncate ph-no-capture">
-                    {secondary.key === 'email' ? secondary.value : `${secondary.key}: ${secondary.value}`}
-                </span>
+        <div className="flex items-center gap-3" data-attr="live-person-drilldown-row">
+            <Link
+                to={href}
+                subtle
+                className="flex items-center gap-3 min-w-0 flex-1 px-2 py-2 -mx-2 rounded hover:bg-bg-3000"
+            >
+                <PersonDisplay person={person} withIcon noPopover noLink />
+                {secondary && (
+                    <span className="min-w-0 text-xs text-muted truncate ph-no-capture">
+                        {secondary.key === 'email' ? secondary.value : `${secondary.key}: ${secondary.value}`}
+                    </span>
+                )}
+            </Link>
+            {recordingCount && recordingCount > 0 && distinctId && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconPlay />}
+                    to={recordingsUrlForPerson(distinctId)}
+                    targetBlank
+                    tooltip={`Watch ${pluralize(recordingCount, 'recording')} from the last 30 minutes`}
+                    data-attr="live-person-drilldown-row-watch"
+                >
+                    {recordingCount.toLocaleString()}
+                </LemonButton>
             )}
             {person.last_seen_at && (
-                <span className="text-xs text-muted shrink-0 ml-auto">
+                <span className="text-xs text-muted shrink-0">
                     <TZLabel time={person.last_seen_at} />
                 </span>
             )}
-        </Link>
+        </div>
     )
 }

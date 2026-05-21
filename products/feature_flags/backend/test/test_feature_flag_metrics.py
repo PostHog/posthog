@@ -20,7 +20,7 @@ class TestComputeFeatureFlagMetrics(BaseTest):
         self.patcher = patch("posthog.tasks.utils.pushed_metrics_registry", return_value=self.mock_context)
         self.patcher.start()
         self.settings_patcher = patch(
-            "posthog.tasks.feature_flags.settings.PROM_PUSHGATEWAY_ADDRESS", "http://localhost:9091"
+            "products.feature_flags.backend.tasks.settings.PROM_PUSHGATEWAY_ADDRESS", "http://localhost:9091"
         )
         self.settings_patcher.start()
 
@@ -419,7 +419,7 @@ class TestComputeFeatureFlagMetrics(BaseTest):
             filters={"groups": []},
         )
 
-        with patch("posthog.tasks.feature_flags.settings") as mock_settings:
+        with patch("products.feature_flags.backend.tasks.settings") as mock_settings:
             mock_settings.PROM_PUSHGATEWAY_ADDRESS = ""
 
             compute_feature_flag_metrics()

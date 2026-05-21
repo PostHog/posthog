@@ -22,7 +22,7 @@ Configuration:
 - Miss TTL: 1 day (configurable via FLAGS_CACHE_MISS_TTL env var)
 
 Manual operations:
-    from posthog.models.feature_flag.flags_cache import clear_flags_cache
+    from products.feature_flags.backend.flags_cache import clear_flags_cache
     clear_flags_cache(team_id)
 """
 

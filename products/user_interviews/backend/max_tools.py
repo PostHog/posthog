@@ -32,6 +32,9 @@ class AnalyzeUserInterviewsTool(MaxTool):
     context_prompt_template: str = "Since the user is currently on the user interviews page, you should lean towards the `analyze_user_interviews` when it comes to any questions about users or customers."
     args_schema: type[BaseModel] = AnalyzeUserInterviewsArgs
 
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("user_interview", "viewer")]
+
     def _run_impl(self, analysis_angle: str) -> tuple[str, Any]:
         # Get all interviews for the current team
         interviews = UserInterview.objects.filter(team=self._team).order_by("-created_at")

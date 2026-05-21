@@ -1792,7 +1792,7 @@ email@example.org,
             ("realtime_backfilled_flag_off", CohortType.REALTIME, True, False, False),
         ]
     )
-    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_behavioral_cohort_dropdown_visibility(
         self,
@@ -1848,7 +1848,7 @@ email@example.org,
         else:
             self.assertNotIn(behavioral_cohort.id, result_ids)
 
-    @patch("posthog.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
+    @patch("products.feature_flags.backend.api.feature_flag._is_realtime_cohort_flag_targeting_enabled")
     @patch("posthog.api.cohort.report_user_action")
     def test_nested_cohort_with_flag_compatible_leaf_visible_when_flag_on(
         self,

@@ -213,7 +213,7 @@ class TestLocalEvaluationCache(BaseTest):
 
 
 class TestLocalEvaluationSignals(BaseTest):
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_evaluation_context_association_create(self, mock_task):
         """Creating a FeatureFlagEvaluationContext fires the cache update signal."""
@@ -238,7 +238,7 @@ class TestLocalEvaluationSignals(BaseTest):
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_evaluation_context_association_delete(self, mock_task):
         """Deleting a FeatureFlagEvaluationContext fires the cache update signal."""
@@ -262,7 +262,7 @@ class TestLocalEvaluationSignals(BaseTest):
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_not_fired_on_evaluation_context_create(self, mock_task):
         """Creating an EvaluationContext does NOT fire the cache update signal.
@@ -284,7 +284,7 @@ class TestLocalEvaluationSignals(BaseTest):
 
         mock_task.delay.assert_not_called()
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_evaluation_context_rename(self, mock_task):
         """Renaming an EvaluationContext fires the cache update signal.
@@ -312,7 +312,7 @@ class TestLocalEvaluationSignals(BaseTest):
 
         mock_task.delay.assert_called_once_with(self.team.id)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_tag_rename_does_not_fire_signal(self, mock_task):
         """Tag renames no longer affect evaluation contexts, so no cache invalidation needed."""
@@ -446,7 +446,7 @@ class TestSurveyFlagExclusion(BaseTest):
         assert regular_flag.key in flag_keys
         assert survey_flag.key not in flag_keys
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_flag_cache_invalidated_on_survey_change(self, mock_task):
         """Creating/deleting a survey should invalidate the flag cache."""
@@ -473,7 +473,7 @@ class TestSurveyFlagExclusion(BaseTest):
 
         mock_task.delay.assert_called_with(self.team.id)
 
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_flag_cache_invalidated_on_survey_update(self, mock_task):
         """Updating a survey should invalidate the flag cache."""
