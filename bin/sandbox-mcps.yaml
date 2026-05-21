@@ -1,0 +1,28 @@
+# Curated catalog of remote MCP servers that `./bin/sandbox mcp add <name>` can
+# register in your sandbox. Opt in by name; your selection — with the token
+# filled in — lives in ~/.posthog-sandboxes/mcps.json (mode 0600), never in git.
+#
+# Per entry:
+#   name        required - the argument to `sandbox mcp add`
+#   description required - one-liner shown by `sandbox mcp list`
+#   secrets     optional - values prompted for (hidden) at add time and
+#                          substituted into `server` via ${name}. This is how an
+#                          entry declares what to ask for and where it goes.
+#   server      required - the value Claude expects under mcpServers[name]:
+#                          a remote server ({type: http, url, headers}). Put a
+#                          ${secret} wherever a prompted value belongs — a bare
+#                          ${VAR} with no matching secret passes through for
+#                          Claude to expand from the env at runtime.
+#
+# Keep entries alphabetical by `name` for stable diffs.
+
+mcps:
+    - name: posthog
+      description: PostHog hosted MCP — insights, flags, errors, SQL
+      secrets:
+          - personal_api_key
+      server:
+          type: http
+          url: https://mcp.posthog.com/mcp
+          headers:
+              Authorization: 'Bearer ${personal_api_key}'

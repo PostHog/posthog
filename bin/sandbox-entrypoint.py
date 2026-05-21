@@ -226,10 +226,8 @@ def _force_sandbox_claude_defaults(settings_path: Path) -> None:
     # the one-time confirmation so the unattended tmux window doesn't block.
     settings.setdefault("permissions", {})["defaultMode"] = "bypassPermissions"
     settings["skipDangerousModePermissionPrompt"] = True
-    # Auto-approve the repo's checked-in /workspace/.mcp.json servers (phrocs,
-    # traffic-sim) so they load on the unattended boot instead of waiting on the
-    # per-project approval prompt. Safe here: the file is vetted and the sandbox
-    # is disposable.
+    # Auto-approve the repo's checked-in .mcp.json servers (phrocs, traffic-sim)
+    # so they load on the unattended boot without the approval prompt.
     settings["enableAllProjectMcpServers"] = True
 
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
@@ -238,17 +236,19 @@ def _force_sandbox_claude_defaults(settings_path: Path) -> None:
 def _merge_mcp_servers(claude_json: Path) -> None:
     """Register sandbox-managed remote MCP servers at /workspace local scope.
 
-    bin/sandbox bind-mounts mcps.json (or /dev/null when none is configured).
-    Merging under the project path Claude launches in is local scope, which
-    loads without the per-project approval prompt a checked-in .mcp.json
-    triggers. Host config keys projects by host paths, so /workspace is fresh.
+    bin/sandbox resolves mcps.yaml to JSON and bind-mounts it (or /dev/null when
+    none is configured). Merging under the project path Claude launches in is
+    local scope, which loads without the per-project approval prompt a
+    checked-in .mcp.json triggers. Host config keys projects by host paths, so
+    /workspace is always fresh here.
     """
     raw = Path("/tmp/sandbox-mcp.json").read_text()
     if not raw.strip():
         return  # /dev/null mount — nothing configured
     servers = json.loads(raw)["mcpServers"]
     config = json.loads(claude_json.read_text()) if claude_json.exists() else {}
-    config.setdefault("projects", {}).setdefault(str(WORKSPACE), {}).setdefault("mcpServers", {}).update(servers)
+    workspace = config.setdefault("projects", {}).setdefault(str(WORKSPACE), {})
+    workspace.setdefault("mcpServers", {}).update(servers)
     claude_json.write_text(json.dumps(config, indent=2) + "\n")
 
 
