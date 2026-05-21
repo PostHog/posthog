@@ -22,8 +22,8 @@ from posthog.hogql import ast
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.actions.backend.models.action import Action
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
