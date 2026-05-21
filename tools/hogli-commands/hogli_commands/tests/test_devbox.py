@@ -1682,6 +1682,30 @@ class TestDevboxConfigCommands:
 
         assert result.exit_code == 0, result.output
         assert "Nothing to clear: dotfiles was not set." in result.output
+        # When nothing actually fired, the restart hint is misleading -- suppress it.
+        assert "Restart any running devbox" not in result.output
+
+    def test_rm_prints_restart_hint_only_when_something_actually_cleared(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        # Only dotfiles is set; the secret deletions report nothing-to-do.
+        devbox_config_path.write_text(json.dumps({"dotfiles_uri": "https://github.com/user/dotfiles"}))
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: subprocess.CompletedProcess(["coder"], 1, "", "not found"),
+        )
+
+        result = runner.invoke(cli, ["devbox:config:rm", "--all"])
+
+        assert result.exit_code == 0, result.output
+        # dotfiles fired -> hint present; the no-op secret deletions don't suppress it.
+        assert "Cleared saved dotfiles repo" in result.output
+        assert "Nothing to delete:" in result.output
+        assert "Restart any running devbox" in result.output
 
 
 class TestDevboxSetupGate:

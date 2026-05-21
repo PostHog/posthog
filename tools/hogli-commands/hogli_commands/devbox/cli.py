@@ -618,33 +618,37 @@ def _print_setup_status(status: list[tuple[str, str | None]]) -> None:
         click.echo(f"  {label:<{width}} {rendered}")
 
 
-def _reset_user_secret(secret_name: str) -> None:
-    """Delete a Coder user secret, reporting whether anything was actually removed."""
+def _reset_user_secret(secret_name: str) -> bool:
+    """Delete a Coder user secret. Returns True iff something was actually removed."""
     if delete_user_secret(secret_name).returncode == 0:
         click.echo(f"Deleted Coder user secret '{secret_name}'.")
-    else:
-        click.echo(f"Nothing to delete: '{secret_name}' was not set.")
+        return True
+    click.echo(f"Nothing to delete: '{secret_name}' was not set.")
+    return False
 
 
-def _reset_git_identity() -> None:
-    """Drop the saved Git name/email so new workspaces re-prompt."""
+def _reset_git_identity() -> bool:
+    """Drop the saved Git name/email. Returns True iff something was cleared."""
     config = load_config()
     if not (config.get("git_name") or config.get("git_email")):
         click.echo("Nothing to clear: Git identity was not set.")
-        return
+        return False
     clear_git_identity()
     click.echo("Cleared saved Git identity. New workspaces will prompt for one.")
+    return True
 
 
-def _reset_dotfiles() -> None:
+def _reset_dotfiles() -> bool:
     """Drop the saved dotfiles URI and push an empty parameter to existing workspaces.
 
     Clearing the local config alone only affects future workspaces -- existing
     workspaces keep cloning the old URL until the template parameter is overridden.
+
+    Returns True iff something was cleared.
     """
     if not load_config().get("dotfiles_uri"):
         click.echo("Nothing to clear: dotfiles was not set.")
-        return
+        return False
     clear_dotfiles_uri()
     click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
     for ws in list_user_workspaces():
@@ -652,11 +656,12 @@ def _reset_dotfiles() -> None:
         if isinstance(ws_name, str) and ws_name:
             update_workspace_parameters(ws_name, {DOTFILES_URI_PARAMETER: ""})
             click.echo(f"  reset on '{ws_name}'")
+    return True
 
 
 # One handler per configurable item. Adding a new key is a single entry --
 # the orchestrator below doesn't grow a new branch.
-_CONFIG_RESETTERS: dict[str, Callable[[], None]] = {
+_CONFIG_RESETTERS: dict[str, Callable[[], bool]] = {
     "git-identity": _reset_git_identity,
     "git-signing": lambda: _reset_user_secret(GIT_SIGNING_KEY_SECRET),
     "dotfiles": _reset_dotfiles,
@@ -1213,11 +1218,11 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     if any(t in _CONFIG_KEYS_NEEDING_SECRETS for t in targets):
         _ensure_user_secrets_supported()
 
-    for key in targets:
-        _CONFIG_RESETTERS[key]()
-
-    click.echo()
-    click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the resets.")
+    # Materialize results so every handler runs even when only some clear anything.
+    fired = [_CONFIG_RESETTERS[key]() for key in targets]
+    if any(fired):
+        click.echo()
+        click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the resets.")
 
 
 @click.command(name="devbox:destroy", help="Destroy your devbox and its data")
