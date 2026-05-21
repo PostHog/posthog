@@ -119,8 +119,3 @@ export type WizardSessionsListParams = {
      */
     offset?: number
 }
-
-export type WizardSessionsStreamRetrieveParams = {
-    skill_id: string
-    workflow_id: string
-}
