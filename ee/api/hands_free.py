@@ -27,7 +27,12 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.rate_limit import MaxHandsFreeBurstRateThrottle, MaxHandsFreeSustainedRateThrottle
+from posthog.rate_limit import (
+    MaxHandsFreeSynthesizeBurstRateThrottle,
+    MaxHandsFreeSynthesizeSustainedRateThrottle,
+    MaxHandsFreeTokenBurstRateThrottle,
+    MaxHandsFreeTokenSustainedRateThrottle,
+)
 
 from ee.models.assistant import Conversation
 
@@ -92,10 +97,14 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     # needs a queryset attribute for the routing scaffolding but it is never read.
     queryset = Conversation.objects.none()
     permission_classes = [IsAuthenticated]
-    throttle_classes = [MaxHandsFreeBurstRateThrottle, MaxHandsFreeSustainedRateThrottle]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
-    @action(detail=False, methods=["POST"], url_path="token")
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="token",
+        throttle_classes=[MaxHandsFreeTokenBurstRateThrottle, MaxHandsFreeTokenSustainedRateThrottle],
+    )
     def token(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a single-use ElevenLabs Scribe realtime token.
 
@@ -140,7 +149,13 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         return Response({"token": token})
 
     @extend_schema(request=SynthesizeSerializer, responses={200: OpenApiTypes.BINARY})
-    @action(detail=False, methods=["POST"], url_path="synthesize", parser_classes=[JSONParser])
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="synthesize",
+        parser_classes=[JSONParser],
+        throttle_classes=[MaxHandsFreeSynthesizeBurstRateThrottle, MaxHandsFreeSynthesizeSustainedRateThrottle],
+    )
     def synthesize(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         """Proxy text-to-speech to ElevenLabs, streaming mp3 audio back to the browser.
 
