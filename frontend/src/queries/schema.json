@@ -9802,6 +9802,9 @@
                     },
                     "type": "array"
                 },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
+                },
                 "usedPreAggregatedTables": {
                     "type": "boolean"
                 }
@@ -11878,6 +11881,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "type": "boolean"
                                 },
                                 "usedPreAggregatedTables": {
                                     "type": "boolean"
@@ -29170,6 +29176,9 @@
                             },
                             "type": "array"
                         },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
+                        },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
                         }
@@ -30203,6 +30212,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
@@ -40076,6 +40088,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web_overview_query precompute path. Requires the team to be in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -40128,6 +40144,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 },
                 "usedPreAggregatedTables": {
                     "type": "boolean"
