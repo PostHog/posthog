@@ -5,6 +5,10 @@ description: Start, inspect, and drive the PostHog dev stack. Use for /run and /
 
 PostHog is Django + Vite + Celery + plugin-server, backed by Postgres, ClickHouse, Kafka, Redis, and Temporal in Docker, fronted by an Envoy-style proxy at `http://localhost:8010`. The dev stack runs in detached mode under `phrocs` so the running processes are inspectable from this session via the `phrocs` MCP server. Browser MCP servers (`chrome-devtools-mcp`, `playwright`) drive the UI; nothing about this skill ships its own driver.
 
+**For `/run`**: get the app reachable so the user can drive it. Success = `http://localhost:8010` serves and the core units are `ready`. Do not chase crashed migration units, do not seed data unless asked.
+
+**For `/verify`**: build (Vite HMR handles this automatically for frontend; backend changes need no build), run the same launch as `/run`, then drive the live app via a browser MCP to observe the change. The observation is the verification — tests and type checks don't substitute.
+
 All paths below are relative to the repo root.
 
 ## Prerequisites
@@ -25,7 +29,11 @@ hogli doctor             # optional: stale migrations, zombie phrocs, disk press
 
 First boot is 60-90s while Django imports and Vite warms. Stop with `hogli down -y` (leaves Docker services running for fast restart).
 
-## Is the stack healthy?
+## Is the stack ready?
+
+There are two readiness bars. Don't conflate them.
+
+**Ready for `/run`** — the app is reachable and you can drive it:
 
 ```bash
 curl -sf http://localhost:8010/_health                                                         # 200
@@ -33,14 +41,18 @@ curl -sf -o /dev/null -w '%{http_code}' http://localhost:8010/                  
 curl -sS http://localhost:8010/api/projects/@current | grep -q '"code":"not_authenticated"'   # API + DB reachable
 ```
 
-For richer detail, use the `phrocs` MCP server — it reports per-process status without any scripting:
+Plus these `phrocs` units `ready:true`: `backend`, `frontend`, `nodejs`, `capture`, `ingestion`. Stop here. **Do not chase crashed `migrate-*` units when only `/run` was asked** — the stack is usable for launch, screenshot, and most UI scenes (home, login, settings, feature flags) regardless of migration state.
+
+**Ready for `/verify` of HogQL-backed scenes** (insights, dashboards, web analytics) and for `POST /api/setup_test/...`:
+
+- Also requires `mcp__phrocs__get_process_status process="migrate-clickhouse"` to show `status:"done" exit_code:0`. If it's `crashed`, see the gotcha below.
+
+**phrocs MCP tools** — for either bar:
 
 - `mcp__phrocs__get_process_status` (no args) — all units, with `ready`, `exit_code`, memory, CPU.
-- `mcp__phrocs__get_process_status process="frontend"` — single unit (or `backend`, `capture`, `celery-worker`, `ingestion`, `nodejs`, ...).
+- `mcp__phrocs__get_process_status process="frontend"` — single unit.
 - `mcp__phrocs__get_process_logs process="backend"` — tail recent stdout/stderr.
-- `mcp__phrocs__toggle_process process="celery-worker"` — restart a single unit without bouncing the whole stack.
-
-A healthy stack reports `status:"running"` and `ready:true` for `backend`, `frontend`, `capture`, `celery-worker`, `ingestion`, `nodejs`. `migrate-*` units should be `done` with `exit_code:0`.
+- `mcp__phrocs__toggle_process process="<unit>"` — restart one unit. **Auto-mode blocks this on shared stacks** (treated as restart-of-shared-infra). If blocked, ask the user to approve, or run `phrocs stop && hogli up -d` for a full clean restart.
 
 ## Drive the UI for /verify
 
@@ -106,7 +118,7 @@ Canonical sources to grep when the path isn't obvious:
 
 ## Gotchas
 
-- **`migrate-clickhouse` often crashes on first launch — this is the hard prereq for `setup_test`.** `mcp__phrocs__get_process_status process="migrate-clickhouse"` may show `status:"crashed" exit_code:1` — if so, the `posthog.person` ClickHouse table doesn't exist, and `/api/setup_test/organization_with_team/` returns 500 `Table posthog.person does not exist`. This applies even with `no_demo_data: true` — User/Team creation triggers a CH-writing signal regardless of the demo-data flag, so there is no "skip CH" escape hatch. HogQL-backed scenes (insights, dashboards, web analytics) also break with "Unknown table expression identifier 'events'". Fix: `hogli migrations:run`. If that fails on async-migration `is_required()`, you need `hogli dev:reset` (which wipes Docker volumes — destructive). On a stack that already has corrupted CH replica state in ZooKeeper, even `dev:reset` may be required. UI scenes that don't query CH (login, home, settings, feature flags) render fine without any of this.
+- **`migrate-clickhouse` and `migrate-persons-db` often crash on a cold `hogli up -d` due to a startup race.** They start in parallel with `migrate-postgres`, and if Postgres isn't ready yet they crash. This is the hard prereq for `POST /api/setup_test/...` and for HogQL-backed scenes (insights, dashboards, web analytics) — but **not** for `/run`. Don't fix it unless the task needs HogQL/`setup_test`. When you do need to fix it, the canonical sequence is: wait for `migrate-postgres` to show `status:"done"` via `mcp__phrocs__get_process_status`, then restart the crashed migrations. `mcp__phrocs__toggle_process` is the surgical tool but auto-mode blocks it on shared stacks — fall back to `phrocs stop && hogli up -d` which re-runs everything in order, or run `python manage.py migrate_clickhouse` directly (you'll need `set -a; source .env.services; set +a` first so `CLICKHOUSE_DATABASE=posthog`, otherwise it targets `default`). If neither works (corrupted CH replica state in ZooKeeper from a partial run), `hogli dev:reset` is the only path — it wipes Docker volumes, destructive.
 - **`hogli wait` exits 0 even when phrocs is unreachable.** Don't trust its return code as ground truth — confirm with `mcp__phrocs__get_process_status` or the `curl` probes.
 - **Vite serves on `:8234`, not the URL you browse.** You browse `http://localhost:8010` (the Envoy-style proxy). The proxy reverse-proxies Vite for `/static/*` and Django for everything else. Hitting `:8234/` directly returns 404 because Vite has no index route at the dev-server root.
 - **Worktrees share Docker containers but compete for ports.** All worktrees on the same machine resolve to the same `posthog-clickhouse-1` / `posthog-db-1` containers, so DB state is global. But ports 8000/8010/8234 can only be held by one worktree at a time — kill the granian/vite/phrocs of the other worktree before `hogli up -d` here.
