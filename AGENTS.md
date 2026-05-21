@@ -162,7 +162,3 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
-
-### Verifying changes against the running app
-
-For any UI or frontend change, invoke `/verify` before reporting the task complete — it builds, runs, drives the live app via a browser MCP, and confirms the change renders. Type checks and tests verify code correctness, not feature correctness. Use `/run` instead when you just need the stack up (no verification framing). Both load `.agents/skills/run-posthog/SKILL.md` for the launch, auth, and diff → URL recipe.
