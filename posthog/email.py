@@ -6,7 +6,7 @@ import uuid
 import datetime
 import dataclasses
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -283,16 +283,18 @@ _PASSTHROUGH_KEYS = {"utm_tags"}
 _TRUSTED_URL_KEYS = {"url", "href", "link", "site_url"}
 _TRUSTED_URL_KEY_SUFFIXES = ("_url", "_link", "_href")
 
-
-def _is_passthrough_key(key: Any) -> bool:
-    return isinstance(key, str) and key.lower() in _PASSTHROUGH_KEYS
+_KeyPolicy = Literal["passthrough", "trusted_url", "default"]
 
 
-def _is_trusted_url_key(key: Any) -> bool:
+def _classify_key(key: Any) -> _KeyPolicy:
     if not isinstance(key, str):
-        return False
+        return "default"
     lower = key.lower()
-    return lower in _TRUSTED_URL_KEYS or lower.endswith(_TRUSTED_URL_KEY_SUFFIXES)
+    if lower in _PASSTHROUGH_KEYS:
+        return "passthrough"
+    if lower in _TRUSTED_URL_KEYS or lower.endswith(_TRUSTED_URL_KEY_SUFFIXES):
+        return "trusted_url"
+    return "default"
 
 
 def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, Any]:
@@ -322,14 +324,14 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     if properties is None:
         return {}
 
-    # Supported types (besides containers like dict and list)
     supported_types = (str, int, float, bool, type(None), Decimal, uuid.UUID, datetime.datetime, datetime.date)
 
     def sanitize_value(value: Any, *, key: Any = None) -> Any:
-        if key is not None and _is_passthrough_key(key):
+        policy = _classify_key(key) if key is not None else "default"
+        if policy == "passthrough":
             return value
         if isinstance(value, str):
-            if key is not None and _is_trusted_url_key(key):
+            if policy == "trusted_url":
                 return html.escape(value)
             return sanitize_email_string(value)
         elif isinstance(value, dict):
@@ -337,28 +339,21 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
         elif isinstance(value, list):
             return [sanitize_value(item) for item in value]
         elif isinstance(value, uuid.UUID):
-            # Handle UUID by converting to string and escaping
             return sanitize_email_string(str(value))
         elif isinstance(value, datetime.datetime | datetime.date):
-            # Convert datetime/date to ISO-8601 string and escape — reached via
-            # dataclasses.asdict() for facade contracts with created_at-style fields
+            # Reached via dataclasses.asdict() for facade contracts with created_at-style fields.
             return sanitize_email_string(value.isoformat())
         elif hasattr(value, "_meta") and hasattr(value, "pk"):
-            # Handle Django models by converting to string and escaping. str(model)
-            # often contains user-controlled fields (Team.name, Organization.name) that
-            # mail clients would otherwise auto-link.
+            # str(model) often contains user-controlled fields (Team.name, Organization.name)
+            # that mail clients would otherwise auto-link.
             return sanitize_email_string(str(value))
         elif isinstance(value, Decimal):
-            # Convert Decimal to float for JSON serialization
             return float(value)
         elif isinstance(value, int | float | bool | type(None)):
-            # These types are safe as-is
             return value
         elif dataclasses.is_dataclass(value) and not isinstance(value, type):
-            # Convert dataclass instances to a dict and recurse so their string fields get escaped
             return {k: sanitize_value(v, key=k) for k, v in dataclasses.asdict(value).items()}
         else:
-            # Raise an error for unsupported types - this is a security measure to prevent uncaught injections
             raise TypeError(
                 f"Unsupported type in email properties: {type(value).__name__}. "
                 f"Only {', '.join(t.__name__ for t in supported_types)}, dict, list, dataclasses, and Django models are supported."

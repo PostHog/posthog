@@ -210,6 +210,9 @@ def sanitize_email_string(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value)
     cleaned = _INVISIBLE_CHAR_RE.sub("", normalized)
     escaped = html.escape(cleaned)
+    # No `.` or `:` means neither regex can match — skip the two passes.
+    if "." not in escaped and ":" not in escaped:
+        return escaped
     defanged = _URL_SCHEME_RE.sub(_defang_match, escaped)
     return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
 
