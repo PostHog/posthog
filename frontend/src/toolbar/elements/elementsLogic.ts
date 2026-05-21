@@ -13,7 +13,13 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ActionForm, ElementWithMetadata } from '~/toolbar/types'
 import { ActionType } from '~/types'
 
-import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
+import {
+    elementToActionStep,
+    getAllClickTargets,
+    getElementForStep,
+    getRectForElement,
+    safeGetBoundingClientRect,
+} from '../utils'
 import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
@@ -541,7 +547,8 @@ export const elementsLogic = kea<elementsLogicType>([
             cache.updateRelativePosition = debounce(() => {
                 const relativePositionCompensation =
                     window.getComputedStyle(document.body).position === 'relative'
-                        ? document.documentElement.getBoundingClientRect().y - document.body.getBoundingClientRect().y
+                        ? safeGetBoundingClientRect(document.documentElement).y -
+                          safeGetBoundingClientRect(document.body).y
                         : 0
                 if (relativePositionCompensation !== values.relativePositionCompensation) {
                     actions.setRelativePositionCompensation(relativePositionCompensation)

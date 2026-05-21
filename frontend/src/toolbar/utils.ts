@@ -524,6 +524,33 @@ export function rectEqual(a?: ElementRect, b?: ElementRect): boolean {
 
 export const EMPTY_STYLE: Record<string, any> = {}
 
+const EMPTY_DOM_RECT: DOMRect = {
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    width: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+}
+
+// The toolbar runs on arbitrary customer pages where the DOM may contain non-standard nodes
+// (custom elements, polyfilled wrappers, SVG roots without the layout API). A single such
+// node would throw "getBoundingClientRect is not a function" and break heatmaps, action
+// authoring, and product tours. Treat the call as best-effort.
+export function safeGetBoundingClientRect(el: unknown): DOMRect {
+    if (!el || typeof (el as { getBoundingClientRect?: unknown }).getBoundingClientRect !== 'function') {
+        return EMPTY_DOM_RECT
+    }
+    try {
+        return (el as Element).getBoundingClientRect()
+    } catch {
+        return EMPTY_DOM_RECT
+    }
+}
+
 export function getRectForElement(element: HTMLElement): ElementRect {
     const elements = [elementToAreaRect(element)]
 
@@ -586,10 +613,10 @@ export const getZoomLevel = (el: HTMLElement): number[] => {
     return zooms
 }
 export const getRect = (el: HTMLElement): ElementRect => {
-    if (!el) {
+    if (!el || typeof (el as { getBoundingClientRect?: unknown }).getBoundingClientRect !== 'function') {
         return { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
     }
-    const rect = el?.getBoundingClientRect()
+    const rect = safeGetBoundingClientRect(el)
     const zooms = getZoomLevel(el)
     const rectWithZoom: ElementRect = {
         bottom: zooms.reduce((a, b) => a * b, rect.bottom),

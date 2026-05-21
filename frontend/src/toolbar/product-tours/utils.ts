@@ -1,5 +1,5 @@
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
+import { TOOLBAR_ID, elementToQuery, safeGetBoundingClientRect } from '~/toolbar/utils'
 
 export const PRODUCT_TOURS_SIDEBAR_TRANSITION_MS = 200
 
@@ -16,7 +16,7 @@ export interface ElementInfo {
  * Check if an element is visible on the page.
  */
 function isVisible(element: Element): boolean {
-    const rect = element.getBoundingClientRect()
+    const rect = safeGetBoundingClientRect(element)
     if (rect.width === 0 || rect.height === 0) {
         return false
     }
@@ -59,7 +59,7 @@ export function getInteractiveElements(): ElementInfo[] {
         .filter((el) => isVisible(el) && !isToolbarElement(el))
         .slice(0, 50) // Limit to avoid huge payloads
         .map((el) => {
-            const rect = el.getBoundingClientRect()
+            const rect = safeGetBoundingClientRect(el)
             const attributes: Record<string, string> = {}
 
             for (const attr of ['id', 'class', 'aria-label', 'data-attr', 'placeholder', 'title', 'name', 'type']) {
