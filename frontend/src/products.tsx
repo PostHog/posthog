@@ -445,14 +445,14 @@ export const productConfiguration: Record<string, any> = {
     LiveDebugger: { name: 'Live Debugger', projectBased: true },
     LLMAnalytics: {
         projectBased: true,
-        name: 'LLM analytics',
+        name: 'AI observability',
         layout: 'app-container',
-        description: 'Analyze and understand your LLM usage and performance.',
+        description: 'Analyze and understand your AI usage and performance.',
         iconType: 'llm_analytics',
     },
-    LLMAnalyticsTrace: { projectBased: true, name: 'LLM analytics trace', layout: 'app-container' },
-    LLMAnalyticsSession: { projectBased: true, name: 'LLM analytics session', layout: 'app-container' },
-    LLMAnalyticsUsers: { projectBased: true, name: 'LLM analytics users', layout: 'app-container' },
+    LLMAnalyticsTrace: { projectBased: true, name: 'AI observability trace', layout: 'app-container' },
+    LLMAnalyticsSession: { projectBased: true, name: 'AI observability session', layout: 'app-container' },
+    LLMAnalyticsUsers: { projectBased: true, name: 'AI observability users', layout: 'app-container' },
     LLMAnalyticsPlayground: {
         projectBased: true,
         name: 'Playground',
@@ -469,7 +469,7 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsDataset: {
         projectBased: true,
-        name: 'LLM analytics dataset',
+        name: 'AI observability dataset',
         layout: 'app-container',
         iconType: 'llm_datasets',
     },
@@ -483,14 +483,14 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsEvaluation: {
         projectBased: true,
-        name: 'LLM analytics evaluation',
+        name: 'AI observability evaluation',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluationTemplates: {
         projectBased: true,
-        name: 'LLM analytics evaluation templates',
+        name: 'AI observability evaluation templates',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_evaluations',
@@ -498,14 +498,14 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsTags: {
         projectBased: true,
         name: 'Tags',
-        description: 'Add custom tags to your LLM generations automatically.',
+        description: 'Add custom tags to your AI generations automatically.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_tags',
     },
     LLMAnalyticsTag: {
         projectBased: true,
-        name: 'LLM analytics tag',
+        name: 'AI observability tag',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_tags',
@@ -519,7 +519,7 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsPrompt: {
         projectBased: true,
-        name: 'LLM analytics prompt',
+        name: 'AI observability prompt',
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
@@ -532,20 +532,20 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsSkill: {
         projectBased: true,
-        name: 'LLM analytics skill',
+        name: 'AI observability skill',
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
     LLMAnalyticsClusters: {
         projectBased: true,
         name: 'Clusters',
-        description: 'Discover patterns and clusters in your LLM usage.',
+        description: 'Discover patterns and clusters in your AI usage.',
         layout: 'app-container',
         iconType: 'llm_clusters',
     },
     LLMAnalyticsCluster: {
         projectBased: true,
-        name: 'LLM analytics cluster',
+        name: 'AI observability cluster',
         layout: 'app-container',
         iconType: 'llm_clusters',
     },
@@ -1616,6 +1616,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'LLM analytics',
+        displayLabel: 'AI observability',
         intents: [
             ProductKey.LLM_ANALYTICS,
             ProductKey.LLM_EVALUATIONS,

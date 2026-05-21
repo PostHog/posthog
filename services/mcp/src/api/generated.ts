@@ -4042,7 +4042,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -11058,6 +11058,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
+
+
+    export const DataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type DataWarehouseSavedQueryQuery = {
+      kind?: DataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -11106,8 +11121,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -23029,8 +23044,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
+      readonly created_by: UserBasic;
       /** @nullable */
       readonly last_used_at: string | null;
       /** @nullable */
@@ -24665,6 +24679,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -25740,7 +25758,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -26270,6 +26288,21 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
+
+
+    export const PatchedDataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type PatchedDataWarehouseSavedQueryQuery = {
+      kind?: PatchedDataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -26286,8 +26319,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -29343,8 +29376,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value?: string | null;
       readonly created_at?: string;
-      /** @nullable */
-      readonly created_by?: number | null;
+      readonly created_by?: UserBasic;
       /** @nullable */
       readonly last_used_at?: string | null;
       /** @nullable */
@@ -30557,6 +30589,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at?: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -45187,6 +45223,15 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
+     * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
+
+    * `true` - true
+    * `false` - false
+    * `all` - all
+     * @minLength 1
+     */
+    archived?: TasksListArchived;
+    /**
      * Filter by creator user ID
      */
     created_by?: number;
@@ -45239,6 +45284,15 @@ export namespace Schemas {
      */
     status?: TasksListStatus;
     };
+
+    export type TasksListArchived = typeof TasksListArchived[keyof typeof TasksListArchived];
+
+
+    export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
 

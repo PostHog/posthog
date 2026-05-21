@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, LLM analytics, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
+The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, AI observability, error tracking, GitHub, Linear, and Zendesk — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
 
 Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple "summarize signals" LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers. Reports that are immediately actionable can automatically start a Tasks coding run via the **autonomy** system.
 
@@ -443,7 +443,7 @@ Per-team configuration for which signal sources are enabled.
 
 ## ClickHouse Storage
 
-Signals are stored in the **`posthog_document_embeddings`** table, which is shared across products (error tracking, session replay, LLM analytics, etc.).
+Signals are stored in the **`posthog_document_embeddings`** table, which is shared across products (error tracking, session replay, AI observability, etc.).
 
 ### Table Schema
 
