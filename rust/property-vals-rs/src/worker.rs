@@ -140,6 +140,7 @@ mod tests {
     use crate::aggregator::Aggregator;
     use crate::producer::ProduceError;
     use crate::types::{PropertyType, TupleKey};
+    use proptest::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -173,6 +174,16 @@ mod tests {
                 .last()
                 .cloned()
                 .unwrap_or_default()
+        }
+        fn successful_batches(&self) -> Vec<Vec<(TupleKey, u64)>> {
+            let items = self.seen_items.lock().unwrap();
+            let fail = self.fail_on.lock().unwrap();
+            items
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !fail.contains(&(i + 1)))
+                .map(|(_, batch)| batch.clone())
+                .collect()
         }
     }
 
@@ -294,5 +305,90 @@ mod tests {
 
         assert_eq!(agg.len(), 1);
         assert_eq!(producer.call_count(), 3);
+    }
+
+    fn arb_property_type() -> impl Strategy<Value = PropertyType> {
+        prop_oneof![
+            Just(PropertyType::Event),
+            Just(PropertyType::Person),
+            (0u8..=4).prop_map(PropertyType::Group),
+        ]
+    }
+
+    prop_compose! {
+        fn arb_tuple()(
+            team_id in -3i64..=3,
+            property_type in arb_property_type(),
+            property_key in "[a-c]{1,2}",
+            property_value in "[x-z]{1,2}",
+        ) -> TupleKey {
+            TupleKey { team_id, property_type, property_key, property_value }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    enum WorkerOp {
+        Add(TupleKey, u64),
+        Flush,
+    }
+
+    fn arb_worker_op() -> impl Strategy<Value = WorkerOp> {
+        prop_oneof![
+            // 4:1 weighting so the aggregator actually accumulates between flushes
+            // instead of every other op being an immediate drain.
+            4 => (arb_tuple(), 1u64..100).prop_map(|(t, n)| WorkerOp::Add(t, n)),
+            1 => Just(WorkerOp::Flush),
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn flush_conserves_counts(
+            ops in prop::collection::vec(arb_worker_op(), 0..60),
+            fail_indices in prop::collection::vec(1usize..30, 0..15),
+        ) {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            let mut agg = Aggregator::new();
+            let mut pending: HashMap<i32, Offset> = HashMap::new();
+            let mut producer = MockProducer::new();
+            for idx in &fail_indices {
+                producer = producer.fail_on(*idx);
+            }
+
+            let mut recorded: HashMap<TupleKey, u64> = HashMap::new();
+
+            for op in &ops {
+                match op {
+                    WorkerOp::Add(t, n) => {
+                        agg.add(t.clone(), *n);
+                        *recorded.entry(t.clone()).or_insert(0) += *n;
+                    }
+                    WorkerOp::Flush => {
+                        runtime.block_on(flush(
+                            &mut agg,
+                            &mut pending,
+                            &producer,
+                            FLUSH_REASON_TIMER,
+                        ));
+                    }
+                }
+            }
+
+            let mut accounted: HashMap<TupleKey, u64> = HashMap::new();
+            for (t, n) in agg.drain() {
+                *accounted.entry(t).or_insert(0) += n;
+            }
+            for batch in producer.successful_batches() {
+                for (t, n) in batch {
+                    *accounted.entry(t).or_insert(0) += n;
+                }
+            }
+
+            prop_assert_eq!(recorded, accounted);
+        }
     }
 }
