@@ -11,9 +11,12 @@ into the facade+contracts pattern used by Visual review.
   - [products/architecture.md](products/architecture.md)
   - [products/README.md](products/README.md)
   - [docs/internal/monorepo-layout.md](docs/internal/monorepo-layout.md)
-- Run `hogli product:lint <name>` — the isolation progress section shows exactly which layers exist,
-  what's structurally wrong with each, and what to do next. Use this as the starting point before
-  reading code.
+- Run `hogli product:lint <name>` — structure + isolation chain check.
+  Runs in **strict mode** if `backend/facade/contracts.py` exists, **lenient
+  mode** otherwise.
+- Run `hogli product:maturity <name>` — detailed scoring across the five
+  dimensions (models, facade, presentation, boundaries, codegen). Use this
+  as the starting point before reading code.
 - Locate the product's current code under `products/<name>/backend/` and identify what's already there vs. what's still missing (models, logic, presentation, facade).
 - Inventory existing tests and gaps in `backend/tests/`.
 
@@ -80,15 +83,32 @@ Reference patterns:
 
 ## Phase 5 — Tighten boundaries and clean up
 
+Complete the four-step isolation chain (each step is checked by
+`hogli product:lint`'s `IsolationChainCheck`):
+
 1. Remove direct callers of internal modules where facade replacements exist.
-2. Add a global `[[interfaces]]` block in `tach.toml` with `expose` patterns for facade and presentation views. Add `backend:contract-check` to `package.json`. Run `tach check --interfaces` and `hogli product:lint` to verify.
-3. Remove obsolete adapters and dead helper functions.
+2. Add the product to the regex in the shared `[[interfaces]]` block in
+   `tach.toml` exposing `backend.facade.*` and `backend.presentation.views.*`.
+   If `posthog/`/`ee/` still touches internals, add a transitional "Legacy
+   leaks" `[[interfaces]]` block listing exactly the modules core imports —
+   shrink and delete it as callers migrate.
+3. Add `backend:contract-check` to `package.json` (the script can be a
+   placeholder like `"echo 'Contract files unchanged'"` — it exists to mark
+   the product isolated for turbo-discover).
+4. Narrow `backend:contract-check` `inputs` in `turbo.json` to
+   `backend/facade/**` and `backend/presentation/**` so the Django suite only
+   re-runs on facade/presentation diffs.
 
-Then verify:
+Verify with:
 
+- `tach check --dependencies --interfaces` — no module or interface violations.
+- `lint-imports` — import-linter contract for presentation → facade passes
+  (defined under `tool.importlinter` in `pyproject.toml`). If the product is
+  in the TODO allowlist, remove the entry as part of the cleanup.
+- `hogli product:lint <name>` — strict mode, no issues, no legacy leak warning.
+- `hogli product:maturity <name>` — full breakdown if any dimension still lags.
 - Product tests pass.
 - API schema generation remains healthy after serializer/view changes.
-- No cross-product internal imports remain.
 
 ## Recommended PR plan
 
