@@ -44,6 +44,7 @@ import type {
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
+    LlmAnalyticsMeSpendListParams,
     LlmAnalyticsModelsRetrieveParams,
     LlmAnalyticsProviderKeyValidationsCreate200,
     LlmAnalyticsProviderKeysListParams,
@@ -88,6 +89,7 @@ import type {
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
     PatchedTraceReviewUpdateApi,
+    PersonalSpendAnalysisResponseApi,
     ReviewQueueApi,
     ReviewQueueCreateApi,
     ReviewQueueItemApi,
@@ -2028,6 +2030,35 @@ export const taggersTestHogCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(testHogTaggerRequestApi),
+    })
+}
+
+export const getLlmAnalyticsMeSpendListUrl = (params?: LlmAnalyticsMeSpendListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/llm_analytics/@me/spend/?${stringifiedParams}`
+        : `/api/llm_analytics/@me/spend/`
+}
+
+/**
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. Pass `product=<ai_product>` to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`); omit it for an aggregate view. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ */
+export const llmAnalyticsMeSpendList = async (
+    params?: LlmAnalyticsMeSpendListParams,
+    options?: RequestInit
+): Promise<PersonalSpendAnalysisResponseApi[]> => {
+    return apiMutator<PersonalSpendAnalysisResponseApi[]>(getLlmAnalyticsMeSpendListUrl(params), {
+        ...options,
+        method: 'GET',
     })
 }
 
