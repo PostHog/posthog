@@ -122,6 +122,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         os.environ["OPENAI_API_KEY"] = settings.openai_api_key
     if settings.openai_api_base_url:
         os.environ["OPENAI_BASE_URL"] = settings.openai_api_base_url
+    if settings.openai_organization:
+        os.environ["OPENAI_ORG_ID"] = settings.openai_organization
     if settings.openrouter_api_key:
         os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
     if settings.fireworks_api_key:
