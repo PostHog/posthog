@@ -1,6 +1,8 @@
 import json
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
+
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -21,8 +23,6 @@ from posthog.temporal.data_imports.sources.generated_configs import CustomSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
-REQUIRED_TOP_LEVEL_KEYS = ("client", "resources")
-ALLOWED_AUTH_TYPES = frozenset({"bearer", "api_key", "http_basic"})
 # A sync only ever fetches data. GET covers most APIs; POST covers search/query
 # endpoints that take a body. Write verbs (PUT/PATCH/DELETE) are intentionally
 # excluded so a misconfigured manifest can't mutate or delete upstream data.
@@ -36,75 +36,100 @@ class ManifestValidationError(ValueError):
     """Raised when the user-provided manifest doesn't conform to RESTAPIConfig."""
 
 
-def validate_manifest(manifest: Any) -> None:
-    """Validate the shape of a user-provided REST API manifest.
+class _ManifestAuth(BaseModel):
+    """`client.auth` block. Credentials are injected at sync time from the
+    secret `auth_*` config fields, so they must not appear inline here."""
 
-    Only checks structural correctness — the safety of any URLs in the
-    manifest is checked separately by :func:`validate_manifest_urls`, which
-    needs the team_id for cloud-vs-self-hosted handling.
+    type: Literal["bearer", "api_key", "http_basic"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_inline_credentials(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            inline = [key for key in INLINE_SECRET_KEYS if data.get(key)]
+            if inline:
+                raise ValueError(
+                    f"Credentials must not be embedded in the manifest ({', '.join(inline)}) — "
+                    "provide them in the dedicated auth fields instead."
+                )
+        return data
+
+
+class _ManifestClient(BaseModel):
+    base_url: str
+    auth: _ManifestAuth | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _base_url_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("base_url must be a non-empty string")
+        return value
+
+
+class _ManifestEndpoint(BaseModel):
+    # A sync only fetches — write verbs are rejected so a manifest can't
+    # mutate or delete upstream data (see ALLOWED_HTTP_METHODS).
+    path: str = Field(min_length=1)
+    method: str | None = None
+
+    @field_validator("method")
+    @classmethod
+    def _method_is_read_only(cls, value: str | None) -> str | None:
+        if value is not None and value.upper() not in ALLOWED_HTTP_METHODS:
+            raise ValueError(f"method must be one of {sorted(ALLOWED_HTTP_METHODS)}")
+        return value
+
+
+class _ManifestResource(BaseModel):
+    name: str = Field(min_length=1)
+    endpoint: _ManifestEndpoint
+
+
+class _Manifest(BaseModel):
+    """Structural schema for a user-provided REST API manifest.
+
+    Only the fields this source reads are modelled; every other
+    RESTAPIConfig field (paginator, data_selector, incremental, …) is
+    ignored here and passed through untouched to the REST engine.
+    """
+
+    client: _ManifestClient
+    resources: list[_ManifestResource] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _resource_names_unique(self) -> "_Manifest":
+        seen: set[str] = set()
+        for resource in self.resources:
+            if resource.name in seen:
+                raise ValueError(f"Duplicate resource name: {resource.name!r}")
+            seen.add(resource.name)
+        return self
+
+
+def validate_manifest(manifest: Any) -> None:
+    """Validate the structural shape of a user-provided REST API manifest.
+
+    Delegates to the :class:`_Manifest` schema. The safety of any URLs in
+    the manifest is checked separately by :func:`validate_manifest_urls`,
+    which needs the team_id for cloud-vs-self-hosted handling.
     """
     if not isinstance(manifest, dict):
         raise ManifestValidationError("Manifest must be a JSON object")
+    try:
+        _Manifest.model_validate(manifest)
+    except ValidationError as exc:
+        raise ManifestValidationError(_format_validation_errors(exc)) from exc
 
-    missing = [key for key in REQUIRED_TOP_LEVEL_KEYS if key not in manifest]
-    if missing:
-        raise ManifestValidationError(f"Manifest is missing required keys: {', '.join(missing)}")
 
-    client = manifest["client"]
-    if not isinstance(client, dict):
-        raise ManifestValidationError("'client' must be an object")
-
-    base_url = client.get("base_url")
-    if not isinstance(base_url, str) or not base_url.strip():
-        raise ManifestValidationError("'client.base_url' must be a non-empty string")
-
-    auth = client.get("auth")
-    if auth is not None:
-        if not isinstance(auth, dict):
-            raise ManifestValidationError("'client.auth' must be an object")
-        auth_type = auth.get("type")
-        if auth_type not in ALLOWED_AUTH_TYPES:
-            raise ManifestValidationError(
-                f"'client.auth.type' must be one of {sorted(ALLOWED_AUTH_TYPES)} (got {auth_type!r})"
-            )
-        inline_secrets = [key for key in INLINE_SECRET_KEYS if auth.get(key)]
-        if inline_secrets:
-            raise ManifestValidationError(
-                f"Credentials must not be embedded in the manifest ({', '.join(inline_secrets)}) — "
-                "provide them in the dedicated auth fields instead."
-            )
-
-    resources = manifest["resources"]
-    if not isinstance(resources, list) or not resources:
-        raise ManifestValidationError("'resources' must be a non-empty list")
-
-    seen_names: set[str] = set()
-    for index, resource in enumerate(resources):
-        if not isinstance(resource, dict):
-            raise ManifestValidationError(f"Resource at index {index} must be an object")
-
-        name = resource.get("name")
-        if not isinstance(name, str) or not name:
-            raise ManifestValidationError(f"Resource at index {index} is missing a 'name'")
-        if name in seen_names:
-            raise ManifestValidationError(f"Duplicate resource name: {name!r}")
-        seen_names.add(name)
-
-        endpoint = resource.get("endpoint")
-        if not isinstance(endpoint, dict):
-            raise ManifestValidationError(f"Resource {name!r} is missing an 'endpoint' object")
-
-        path = endpoint.get("path")
-        if not isinstance(path, str) or not path:
-            raise ManifestValidationError(f"Resource {name!r} is missing 'endpoint.path'")
-
-        method = endpoint.get("method")
-        if method is not None:
-            method_upper = method.upper() if isinstance(method, str) else None
-            if method_upper not in ALLOWED_HTTP_METHODS:
-                raise ManifestValidationError(
-                    f"Resource {name!r}: 'endpoint.method' must be one of {sorted(ALLOWED_HTTP_METHODS)}"
-                )
+def _format_validation_errors(exc: ValidationError) -> str:
+    """Render Pydantic's validation errors as a single user-facing string."""
+    messages: list[str] = []
+    for error in exc.errors():
+        location = ".".join(str(part) for part in error["loc"])
+        message = error["msg"].removeprefix("Value error, ")
+        messages.append(f"{location}: {message}" if location else message)
+    return "; ".join(messages)
 
 
 def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool, str | None]:
