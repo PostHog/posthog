@@ -1524,6 +1524,8 @@ export namespace Schemas {
       materializationMode?: MaterializationMode | null;
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
+      /** Resolve narrow row identifiers before fetching wide columns for ORDER BY ... LIMIT queries * */
+      optimizePresortedFetch?: boolean | null;
       optimizeProjections?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;

@@ -414,6 +414,8 @@ export interface HogQLQueryModifiersApi {
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     optimizeJoinedFilters?: boolean | null
+    /** Resolve narrow row identifiers before fetching wide columns for ORDER BY ... LIMIT queries * */
+    optimizePresortedFetch?: boolean | null
     optimizeProjections?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
