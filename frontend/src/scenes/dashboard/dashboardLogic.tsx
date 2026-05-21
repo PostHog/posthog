@@ -42,6 +42,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
@@ -174,6 +175,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ['getTheme'],
             dashboardQuickFiltersLogic,
             ['quickFilterPropertyFiltersById'],
+            cohortsModel,
+            ['allCohorts'],
         ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
@@ -1410,12 +1413,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         autoBreakdownColors: [
-            (s) => [s.insightTiles, s.featureFlags],
-            (insightTiles, featureFlags): BreakdownColorConfig[] => {
+            (s) => [s.insightTiles, s.allCohorts, s.featureFlags],
+            (insightTiles, allCohorts, featureFlags): BreakdownColorConfig[] => {
                 if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]) {
                     return []
                 }
-                return autoAssignBreakdownColors(extractBreakdownValues(insightTiles, null))
+                return autoAssignBreakdownColors(extractBreakdownValues(insightTiles, allCohorts?.results ?? null))
             },
         ],
         effectiveBreakdownColors: [
