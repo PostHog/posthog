@@ -117,7 +117,7 @@ pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
     // `body_offset` and `body_end`. For the standalone entry point the
     // body extends to the end of `src` — there is no trailing `'`.
     let body_end = src.len();
-    parse_template_body(src, body_offset, body_end)
+    parse_template_body(&JsonEmitter, src, body_offset, body_end)
 }
 
 // ============================================================================
@@ -1097,37 +1097,36 @@ pub(crate) fn merge_select_decorators<E: Emitter>(emit: &E, mut node: E::Value, 
 /// `join_type` + `constraint`) at the tail.
 pub(crate) fn chain_join<E: Emitter>(
     emit: &E,
-    mut left: E::Value,
+    left: E::Value,
     mut right: E::Value,
     join_type: &str,
-    constraint: Option<Value>,
+    constraint: Option<E::Value>,
 ) -> E::Value {
-    if let Some(obj) = right.as_object_mut() {
-        obj.insert("join_type".into(), Value::String(join_type.into()));
-        if let Some(c) = constraint {
-            obj.insert("constraint".into(), c);
-        }
+    let jt = emit.string(join_type);
+    emit.set_field(&mut right, "join_type", jt);
+    if let Some(c) = constraint {
+        emit.set_field(&mut right, "constraint", c);
     }
-    // Walk to the tail of `left`'s next_join chain.
-    {
-        let mut cursor: &mut Value = &mut left;
-        loop {
-            let next_exists = cursor
-                .as_object()
-                .and_then(|o| o.get("next_join"))
-                .map(|v| !v.is_null())
-                .unwrap_or(false);
-            if !next_exists {
-                break;
-            }
-            let obj = cursor.as_object_mut().unwrap();
-            cursor = obj.get_mut("next_join").unwrap();
+    // Walk to the tail of `left`'s next_join chain. With abstract
+    // E::Value we can't recurse with `&mut` cursors (no `as_object_mut`),
+    // so unwind via owned recursion: pop the existing next_join, recurse
+    // to append, then put it back.
+    fn append_at_tail<E: Emitter>(emit: &E, mut node: E::Value, new_tail: E::Value) -> E::Value {
+        let has_next = emit
+            .get_field(&node, "next_join")
+            .map(|v| !emit.is_null(&v))
+            .unwrap_or(false);
+        if !has_next {
+            emit.set_field(&mut node, "next_join", new_tail);
+            return node;
         }
-        if let Some(obj) = cursor.as_object_mut() {
-            obj.insert("next_join".into(), right);
-        }
+        // Move the existing next_join out, recurse with it, set it back.
+        let existing = emit.get_field(&node, "next_join").expect("just checked");
+        let updated = append_at_tail(emit, existing, new_tail);
+        emit.set_field(&mut node, "next_join", updated);
+        node
     }
-    left
+    append_at_tail(emit, left, right)
 }
 
 /// Map an INTERVAL unit name (e.g. "month") to the call name the C++

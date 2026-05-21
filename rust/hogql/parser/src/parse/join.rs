@@ -61,7 +61,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 self.bump()?;
                 let right = self.parse_table_atom_with_pivot()?;
-                left = chain_join(left, right, "CROSS JOIN", None);
+                left = chain_join(&self.emit, left, right, "CROSS JOIN", None);
                 joined_any = true;
                 continue;
             }
@@ -72,7 +72,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.bump()?;
                 self.bump()?;
                 let right = self.parse_table_atom_with_pivot()?;
-                left = chain_join(left, right, "CROSS JOIN", None);
+                left = chain_join(&self.emit, left, right, "CROSS JOIN", None);
                 joined_any = true;
                 continue;
             }
@@ -84,7 +84,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.bump()?;
                 let right = self.parse_table_atom_with_pivot()?;
                 let constraint = self.parse_join_constraint_opt()?;
-                left = chain_join(left, right, "POSITIONAL JOIN", constraint);
+                left = chain_join(&self.emit, left, right, "POSITIONAL JOIN", constraint);
                 joined_any = true;
                 continue;
             }
@@ -113,7 +113,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             } else {
                 format!("{op_text} JOIN")
             };
-            left = chain_join(left, right, &join_type, constraint);
+            left = chain_join(&self.emit, left, right, &join_type, constraint);
             joined_any = true;
         }
 

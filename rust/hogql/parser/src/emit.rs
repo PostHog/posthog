@@ -222,6 +222,36 @@ pub trait Emitter {
     /// `SelectSetNode(select_query, set_operator)`. Used inside the
     /// SelectSetQuery `subsequent_select_queries` list.
     fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>) -> Self::Value;
+    /// `WindowFunction(name, exprs, args, over_expr, over_identifier)`.
+    /// `over_expr` and `over_identifier` are alternatives — only one
+    /// is set per node. `args` defaults to empty list (NOT None) so
+    /// the deserialiser `__eq__` distinguishes from non-window calls.
+    #[allow(clippy::too_many_arguments)]
+    fn window_function(
+        &self,
+        name: &str,
+        exprs: Vec<Self::Value>,
+        args: Vec<Self::Value>,
+        over_expr: Option<Self::Value>,
+        over_identifier: Option<String>,
+    ) -> Self::Value;
+    /// `WithFillExpr(from_value?, to_value?, step_value?)`.
+    fn with_fill_expr(
+        &self,
+        from_value: Option<Self::Value>,
+        to_value: Option<Self::Value>,
+        step_value: Option<Self::Value>,
+    ) -> Self::Value;
+    /// `WindowExpr(...)`. Full window-spec slot.
+    #[allow(clippy::too_many_arguments)]
+    fn window_expr(
+        &self,
+        partition_by: Option<Vec<Self::Value>>,
+        order_by: Option<Vec<Self::Value>>,
+        frame_method: Option<&str>,
+        frame_start: Option<Self::Value>,
+        frame_end: Option<Self::Value>,
+    ) -> Self::Value;
 
     // ===== Position machinery =====
     /// `{line, column, offset}` per cpp's visitor — line is 1-based,
@@ -646,6 +676,73 @@ impl Emitter for JsonEmitter {
         }
         if let Some(ee) = end_expr {
             obj.insert("frame_end_expr".into(), ee);
+        }
+        Value::Object(obj)
+    }
+    fn window_function(
+        &self,
+        name: &str,
+        exprs: Vec<Value>,
+        args: Vec<Value>,
+        over_expr: Option<Value>,
+        over_identifier: Option<String>,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("WindowFunction".into()));
+        obj.insert("name".into(), Value::String(name.into()));
+        obj.insert("exprs".into(), Value::Array(exprs));
+        obj.insert("args".into(), Value::Array(args));
+        if let Some(we) = over_expr {
+            obj.insert("over_expr".into(), we);
+        }
+        if let Some(id) = over_identifier {
+            obj.insert("over_identifier".into(), Value::String(id));
+        }
+        Value::Object(obj)
+    }
+    fn with_fill_expr(
+        &self,
+        from_value: Option<Value>,
+        to_value: Option<Value>,
+        step_value: Option<Value>,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("WithFillExpr".into()));
+        if let Some(v) = from_value {
+            obj.insert("from_value".into(), v);
+        }
+        if let Some(v) = to_value {
+            obj.insert("to_value".into(), v);
+        }
+        if let Some(v) = step_value {
+            obj.insert("step_value".into(), v);
+        }
+        Value::Object(obj)
+    }
+    fn window_expr(
+        &self,
+        partition_by: Option<Vec<Value>>,
+        order_by: Option<Vec<Value>>,
+        frame_method: Option<&str>,
+        frame_start: Option<Value>,
+        frame_end: Option<Value>,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("WindowExpr".into()));
+        if let Some(p) = partition_by {
+            obj.insert("partition_by".into(), Value::Array(p));
+        }
+        if let Some(o) = order_by {
+            obj.insert("order_by".into(), Value::Array(o));
+        }
+        if let Some(fm) = frame_method {
+            obj.insert("frame_method".into(), Value::String(fm.into()));
+        }
+        if let Some(fs) = frame_start {
+            obj.insert("frame_start".into(), fs);
+        }
+        if let Some(fe) = frame_end {
+            obj.insert("frame_end".into(), fe);
         }
         Value::Object(obj)
     }

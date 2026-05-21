@@ -25,7 +25,7 @@ use crate::lex::{Kw, Lexer, Token, TokenKind};
 /// Return value of [`Parser::parse_columns_decorators`]: optional
 /// `EXCLUDE` name list, plus an optional `REPLACE` `(expr AS name, …)`
 /// list as (name, expr) pairs in declaration order.
-type ColumnsDecorators = (Option<Vec<String>>, Option<Vec<(String, Value)>>);
+type ColumnsDecorators<V> = (Option<Vec<String>>, Option<Vec<(String, V)>>);
 
 /// Return value of [`Parser::parse_function_args_inner`]: the
 /// `DISTINCT` flag, the positional args, and an optional in-arg
@@ -523,7 +523,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let body_offset = tok.start + 2; // past `f'`
                 let body_end = tok.end - 1; // before closing `'`
                 self.bump()?;
-                parse_template_body(self.src, body_offset, body_end)
+                parse_template_body(&self.emit, self.src, body_offset, body_end)
             }
             TokenKind::Keyword(Kw::True | Kw::False)
                 if self.peek_next() == TokenKind::LParen || self.peek_next() == TokenKind::Dot =>
@@ -1319,7 +1319,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // Commit the qualified-asterisk consumption.
                     self.set_lexer_pos(probe.pos())?;
                     let (exclude, replace) = self.parse_columns_decorators()?;
-                    let mut chain_values: Vec<Value> =
+                    let mut chain_values: Vec<E::Value> =
                         chain.into_iter().map(|s| self.emit.string(&s)).collect();
                     chain_values.push(self.emit.string("*"));
                     let qualified_field =
@@ -1394,7 +1394,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(self.emit.columns_expr(None, Some(list), false, None, None))
     }
 
-    fn parse_columns_decorators(&mut self) -> Result<ColumnsDecorators, ParseError> {
+    fn parse_columns_decorators(&mut self) -> Result<ColumnsDecorators<E::Value>, ParseError> {
         let exclude = if self.eat_kw(Kw::Exclude)? {
             self.expect(TokenKind::LParen, "(")?;
             let mut names = Vec::new();
@@ -1860,7 +1860,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.bump()?; // dot
         let n = self.bump()?; // digits
         let src = format!(".{}", self.text(n));
-        Ok(Some(parse_number_literal(&src, negative)?))
+        Ok(Some(parse_number_literal(&self.emit, &src, negative)?))
     }
 
     pub(crate) fn set_lexer_pos(&mut self, pos: usize) -> Result<(), ParseError> {
@@ -2469,26 +2469,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     ));
                 }
                 self.bump()?;
-                let mut obj = serde_json::Map::new();
-                obj.insert("node".into(), Value::String("WindowFunction".into()));
-                obj.insert("name".into(), Value::String(name.clone()));
-                obj.insert("exprs".into(), Value::Array(first_args.clone()));
-                // cpp's `VISIT(ColumnExprWinFunction)` always emits an
-                // `args` field — the empty list for the single-paren
-                // form, the second paren list for the parametric form.
-                // The Python AST has `args: Optional[list[Expr]]` where
-                // `[]` and `None` are NOT equal under dataclass `__eq__`,
-                // so emitting `[]` here matches cpp's deserialised shape.
-                obj.insert("args".into(), Value::Array(Vec::new()));
-                // WindowFunction has no `filter_expr` field on the AST;
-                // drop the captured FILTER expression. The C++ side
-                // similarly doesn't model it on the window-function path.
                 drop(filter_expr_for_window);
-                if self.peek() == TokenKind::LParen {
+                let (over_expr, over_identifier) = if self.peek() == TokenKind::LParen {
                     self.bump()?;
                     let we = self.parse_window_expr()?;
                     self.expect(TokenKind::RParen, ")")?;
-                    obj.insert("over_expr".into(), we);
+                    (Some(we), None)
                 } else {
                     let tok = self.bump()?;
                     let id = match tok.kind {
@@ -2502,9 +2488,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                             )))
                         }
                     };
-                    obj.insert("over_identifier".into(), Value::String(id));
-                }
-                return Ok(Value::Object(obj));
+                    (None, Some(id))
+                };
+                return Ok(self.emit.window_function(
+                    &name,
+                    first_args.clone(),
+                    Vec::new(),
+                    over_expr,
+                    over_identifier,
+                ));
             }
 
             // `name(params) WITHIN GROUP (ORDER BY ... [INTERPOLATE (...)])`.
@@ -2718,7 +2710,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // the second paren as `ExprCall`.
         if params.iter().any(|p| {
             matches!(
-                p.get("node").and_then(Value::as_str),
+                self.emit.node_kind(p).as_deref(),
                 Some("SelectQuery") | Some("SelectSetQuery")
             )
         }) {
@@ -2746,19 +2738,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let filter_expr = self.parse_optional_filter()?;
         if matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
             self.bump()?;
-            let mut obj = serde_json::Map::new();
-            obj.insert("node".into(), Value::String("WindowFunction".into()));
-            obj.insert("name".into(), Value::String(name.to_string()));
-            obj.insert("exprs".into(), Value::Array(params));
-            obj.insert("args".into(), Value::Array(args));
-            // WindowFunction has no slots for FILTER / DISTINCT / ORDER
-            // BY in the args paren; drop them to mirror the cpp visitor.
             drop((distinct, order_by, filter_expr));
-            if self.peek() == TokenKind::LParen {
+            let (over_expr, over_identifier) = if self.peek() == TokenKind::LParen {
                 self.bump()?;
                 let we = self.parse_window_expr()?;
                 self.expect(TokenKind::RParen, ")")?;
-                obj.insert("over_expr".into(), we);
+                (Some(we), None)
             } else {
                 let tok = self.bump()?;
                 let id = match tok.kind {
@@ -2772,9 +2757,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         )))
                     }
                 };
-                obj.insert("over_identifier".into(), Value::String(id));
-            }
-            return Ok(Value::Object(obj));
+                (None, Some(id))
+            };
+            return Ok(self.emit.window_function(
+                name,
+                params,
+                args,
+                over_expr,
+                over_identifier,
+            ));
         }
         Ok(self.emit.call_full(
             name,
@@ -2837,7 +2828,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok((distinct, args, order_by))
     }
 
-    fn parse_optional_filter(&mut self) -> Result<Option<Value>, ParseError> {
+    fn parse_optional_filter(&mut self) -> Result<Option<E::Value>, ParseError> {
         if !matches!(self.peek(), TokenKind::Keyword(Kw::Filter)) {
             return Ok(None);
         }
@@ -2862,7 +2853,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     /// Parse a comma-separated list of `orderExpr` items — `expr [ASC|DESC]
     /// [NULLS FIRST|LAST] [COLLATE STRING_LITERAL] [WITH FILL …]`.
-    pub(crate) fn parse_order_expr_list(&mut self) -> Result<Vec<Value>, ParseError> {
+    pub(crate) fn parse_order_expr_list(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         loop {
             let order_start = self.peek0.start;
@@ -2910,21 +2901,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 } else {
                     None
                 };
-                let mut obj = serde_json::Map::new();
-                obj.insert("node".into(), Value::String("WithFillExpr".into()));
-                if let Some(v) = from_value {
-                    obj.insert("from_value".into(), v);
-                }
-                if let Some(v) = to_value {
-                    obj.insert("to_value".into(), v);
-                }
-                if let Some(v) = step_value {
-                    obj.insert("step_value".into(), v);
-                }
+                let wfe = self.emit.with_fill_expr(from_value, to_value, step_value);
                 // cpp's `WithFill` visitor calls `addPositionInfo(json, ctx)`,
                 // so the JSON has `start` / `end` spanning the `WITH FILL ...`
                 // tokens. Wrap before stuffing into OrderExpr.
-                Some(self.wrap_pos(Value::Object(obj), with_fill_start))
+                Some(self.wrap_pos(wfe, with_fill_start))
             } else {
                 None
             };
@@ -2961,7 +2942,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // lowercasing the rest. The grammar's `columnTypeExpr` resolves
         // through `identifier`, so a `"foo"` type token is semantically
         // the bare ident `foo`; cpp `visitIdentifier` strips the quotes.
-        fn token_text(parser: &Parser<'_>, t: Token) -> String {
+        fn token_text<E: Emitter + Clone>(parser: &Parser<'_, E>, t: Token) -> String {
             let raw = parser.text(t);
             match t.kind {
                 TokenKind::QuotedIdent => identifier_text(raw, t.kind).to_ascii_lowercase(),
@@ -3455,7 +3436,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         false
     }
 
-    pub(crate) fn parse_expr_list_until_paren(&mut self) -> Result<Vec<Value>, ParseError> {
+    pub(crate) fn parse_expr_list_until_paren(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         if self.peek() == TokenKind::RParen {
             return Ok(out);
@@ -3472,7 +3453,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(out)
     }
 
-    pub(crate) fn parse_expr_list_until_terminators(&mut self) -> Result<Vec<Value>, ParseError> {
+    pub(crate) fn parse_expr_list_until_terminators(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         out.push(self.parse_expr_bp(0)?);
         // cpp's `columnExprList: columnExpr (COMMA columnExpr)*` — after
@@ -3776,7 +3757,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_arg_list(
         &mut self,
         terminator: TokenKind,
-    ) -> Result<Vec<Value>, ParseError> {
+    ) -> Result<Vec<E::Value>, ParseError> {
         let mut args = Vec::new();
         if self.peek() == terminator {
             return Ok(args);
@@ -3882,7 +3863,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let result = self.parse_select_set_stmt();
         self.suppress_setstmt_trailing_order_by = prev;
         let v = result?;
-        let kind = v.get("node").and_then(Value::as_str);
+        let kind = self.emit.node_kind(&v); let kind = kind.as_deref();
         if matches!(
             kind,
             Some("SelectQuery") | Some("SelectSetQuery") | Some("Placeholder")
@@ -4236,12 +4217,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // chain (since BP_IS_NULL > BP_IS_DISTINCT_FROM)
                     // but blocks a second IS NOT DISTINCT FROM.
                     let rhs = self.parse_expr_bp(BP_IS_DISTINCT_FROM + 1)?;
-                    let prev = lhs.take();
+                    let prev = std::mem::replace(lhs, self.emit.null());
                     *lhs = self.emit.is_distinct_from(prev, rhs, negated);
                     return Ok(Some(true));
                 }
                 self.expect_kw(Kw::Null, "NULL")?;
-                let prev = lhs.take();
+                let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.compare_is_null(prev, negated);
                 Ok(Some(true))
             }
@@ -4254,7 +4235,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.bump()?;
                     self.bump()?;
                     let (low, high, hoisted) = self.parse_between_body(min_bp)?;
-                    let prev = lhs.take();
+                    let prev = std::mem::replace(lhs, self.emit.null());
                     // Wrap the inner BetweenExpr with positions BEFORE the hoist loop. When a hoist
                     // wrapper (Or / Ternary / Alias / Arith) is applied, the outer pratt-loop wrap_pos
                     // at line ~126 stamps positions onto the OUTERMOST wrapper, but the BetweenExpr
@@ -4286,7 +4267,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     let cohort = self.try_consume_cohort_marker()?;
                     let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                     let op = if cohort { "not in cohort" } else { "not in" };
-                    let prev = lhs.take();
+                    let prev = std::mem::replace(lhs, self.emit.null());
                     *lhs = self.emit.compare(prev, op, rhs);
                     Ok(Some(true))
                 }
@@ -4297,7 +4278,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.bump()?;
                     self.bump()?;
                     let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
-                    let prev = lhs.take();
+                    let prev = std::mem::replace(lhs, self.emit.null());
                     *lhs = self.emit.compare(prev, "not like", rhs);
                     Ok(Some(true))
                 }
@@ -4308,7 +4289,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.bump()?;
                     self.bump()?;
                     let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
-                    let prev = lhs.take();
+                    let prev = std::mem::replace(lhs, self.emit.null());
                     *lhs = self.emit.compare(prev, "not ilike", rhs);
                     Ok(Some(true))
                 }
@@ -4321,7 +4302,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 self.bump()?;
                 let (low, high, hoisted) = self.parse_between_body(min_bp)?;
-                let prev = lhs.take();
+                let prev = std::mem::replace(lhs, self.emit.null());
                 // The inner BetweenExpr's structural end is `high.end`, not `self.last_consumed_end`.
                 // When `parse_between_body`'s WIDE arm absorbs a nested BETWEEN and the split hoists
                 // it back out (`BetweenHoist::Between`), `last_consumed_end` is past the high we'll
@@ -4355,7 +4336,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let cohort = self.try_consume_cohort_marker()?;
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                 let op = if cohort { "in cohort" } else { "in" };
-                let prev = lhs.take();
+                let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.compare(prev, op, rhs);
                 Ok(Some(true))
             }
@@ -4365,7 +4346,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
-                let prev = lhs.take();
+                let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.compare(prev, "like", rhs);
                 Ok(Some(true))
             }
@@ -4375,7 +4356,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
-                let prev = lhs.take();
+                let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.compare(prev, "ilike", rhs);
                 Ok(Some(true))
             }
@@ -4388,7 +4369,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 self.bump()?;
                 self.bump()?;
-                *lhs = self.emit.ignore_nulls(lhs.take());
+                let prev = std::mem::replace(lhs, self.emit.null());
+                *lhs = self.emit.ignore_nulls(prev);
                 Ok(Some(true))
             }
 
@@ -4401,7 +4383,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let then_branch = self.parse_expr_bp(0)?;
                 self.expect(TokenKind::Colon, ":")?;
                 let else_branch = self.parse_expr_bp(BP_TERNARY)?;
-                let prev = lhs.take();
+                let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.call("if", vec![prev, then_branch, else_branch]);
                 Ok(Some(true))
             }
@@ -4488,7 +4470,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         tok.end,
                     ));
                 }
-                let prev = lhs.take();
+                let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.alias(prev, &name);
                 Ok(Some(true))
             }
@@ -5290,9 +5272,9 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
         }
     }
     if node_name == Some("CompareOperation")
-        && node
-            .get("is_null_comparison_style")
-            .and_then(Value::as_bool)
+        && emit
+            .get_field(node, "is_null_comparison_style")
+            .and_then(|v| emit.as_bool(&v))
             == Some(true)
     {
         if let Some(inner) = emit.get_field(node, "left") {
@@ -5328,10 +5310,9 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     if node_name == Some("ExprCall") {
         if let Some(inner) = emit.get_field(node, "expr") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let args = node
-                    .get("args")
-                    .and_then(Value::as_array)
-                    .cloned()
+                let args = emit
+                    .get_field(node, "args")
+                    .and_then(|v| emit.as_list(&v))
                     .unwrap_or_default();
                 hoisted.push(BetweenHoist::ExprCall { args });
                 return Some((left_in, right_in, hoisted));
@@ -5392,7 +5373,7 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     //    `expr`: split And(d,e), hoist (f, g, neg=true).
     if node_name == Some("BetweenExpr") {
         if let (Some(inner_low), Some(inner_high)) = (emit.get_field(node, "low"), emit.get_field(node, "high")) {
-            if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(inner_low) {
+            if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(emit, &inner_low) {
                 let mut new_inner = node.clone();
                 emit.set_field(&mut new_inner, "low", new_low);
                 emit.set_field(&mut new_inner, "high", new_high);
@@ -5400,7 +5381,7 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
             }
         }
         if let Some(inner_expr) = emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner_expr) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner_expr) {
                 let low = emit.get_field(node, "low").unwrap_or_else(|| emit.null());
                 let high = emit.get_field(node, "high").unwrap_or_else(|| emit.null());
                 let negated = emit.get_field(node, "negated").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
