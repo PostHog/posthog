@@ -169,13 +169,15 @@ export function InsightMeta({
         placement === DashboardPlacement.Public ||
         placement === DashboardPlacement.Builtin
     const isSqlInsight = isDataVisualizationNode(insight.query)
-    const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
+    const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
         hasTileOverrides: Object.keys(tileFiltersOverride ?? {}).length > 0,
         resolvedDateRange: insightData?.resolved_date_range,
+        dateFromOverride: tileFiltersOverride?.date_from ?? filtersOverride?.date_from,
+        dateToOverride: tileFiltersOverride?.date_to ?? filtersOverride?.date_to,
     }
 
     const summary = useSummarizeInsight()(insight.query)

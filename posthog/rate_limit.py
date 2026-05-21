@@ -560,6 +560,26 @@ class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     rate = "500/day"
 
 
+class PersonalSpendBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Burst limit for the personal LLM spend analysis endpoint.
+    # ClickHouse-bound; protects against impatient refresh-spamming.
+    # Applies to session-auth users too — they are the primary callers.
+    scope = "personal_spend_burst"
+    rate = "10/minute"
+
+
+class PersonalSpendSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Sustained limit for the personal LLM spend analysis endpoint.
+    scope = "personal_spend_sustained"
+    rate = "60/hour"
+
+
+class PersonalSpendDailyThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Daily cap for the personal LLM spend analysis endpoint.
+    scope = "personal_spend_daily"
+    rate = "200/day"
+
+
 class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # Stricter burst limit for publishing prompt versions.
     # This protects against accidental loops or scripted abuse while allowing normal usage.
@@ -952,6 +972,25 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "health_issue_refresh"
+    rate = "1/15minutes"
+
+    def parse_rate(self, rate):
+        if rate is None:
+            return (None, None)
+        num, period = rate.split("/")
+        if period.endswith("minutes"):
+            return (int(num), int(period[:-7]) * 60)
+        return super().parse_rate(rate)
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 
@@ -967,6 +1006,16 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
     rate = "6/minute"
+
+
+class ComposeTicketBurstThrottle(UserRateThrottle):
+    scope = "compose_ticket_burst"
+    rate = "10/minute"
+
+
+class ComposeTicketSustainedThrottle(UserRateThrottle):
+    scope = "compose_ticket_sustained"
+    rate = "60/hour"
 
 
 class TeamsAdminGraphThrottle(UserRateThrottle):

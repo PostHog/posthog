@@ -286,12 +286,13 @@ const DEVICE_TYPE_SELECT_OPTIONS = [
     },
 ]
 
-export const WebAnalyticsLiveDeviceToggle = (): JSX.Element => {
+export const WebAnalyticsLiveDeviceToggle = ({ fullWidth = false }: { fullWidth?: boolean } = {}): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
 
     return (
         <LemonSelect
+            fullWidth={fullWidth}
             size="small"
             value={deviceTypeFilter ?? undefined}
             allowClear={true}

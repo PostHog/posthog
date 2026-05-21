@@ -244,7 +244,7 @@ import type {
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
-import { MaxUIContext } from '../scenes/max/maxTypes'
+import type { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
@@ -1446,6 +1446,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
     }
 
+    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingDags(teamId).addPathComponent(id)
+    }
+
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -2226,15 +2230,6 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
-        async getSuggestions(id: number, context?: string): Promise<any> {
-            if (context) {
-                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
-            }
-            return await new ApiRequest().insight(id).withAction('suggestions').get()
-        },
-        async analyze(id: number): Promise<{ result: string }> {
-            return await new ApiRequest().insight(id).withAction('analyze').get()
-        },
         async generateMetadata(query: Record<string, any>): Promise<{ name: string; description: string }> {
             return await new ApiRequest().insights().withAction('generate_metadata').create({ data: { query } })
         },
@@ -2631,6 +2626,7 @@ const api = {
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
+                    ActivityScope.COHORT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2821,21 +2817,24 @@ const api = {
     },
 
     tracing: {
-        async listSpans(query: {
-            dateRange?: { date_from?: string | null; date_to?: string | null }
-            serviceNames?: string[]
-            statusCodes?: number[]
-            filterGroup?: PropertyGroupFilter
-            orderBy?: 'latest' | 'earliest'
-            limit?: number
-            after?: string
-            prefetchSpans?: number
-        }): Promise<{
+        async listSpans(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+                orderBy?: 'latest' | 'earliest'
+                limit?: number
+                after?: string
+                prefetchSpans?: number
+            },
+            signal?: AbortSignal
+        ): Promise<{
             results: Record<string, any>[]
             hasMore: boolean
             nextCursor?: string
         }> {
-            return new ApiRequest().tracingSpans().withAction('query').create({ data: { query } })
+            return new ApiRequest().tracingSpans().withAction('query').create({ signal, data: { query } })
         },
         async getTrace(
             traceId: string,
@@ -2856,38 +2855,48 @@ const api = {
                     },
                 })
         },
-        async sparkline(query: {
-            dateRange?: { date_from?: string | null; date_to?: string | null }
-            serviceNames?: string[]
-            statusCodes?: number[]
-            filterGroup?: PropertyGroupFilter
-        }): Promise<{
+        async sparkline(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{
             results: { time: string; service: string; count: number }[]
         }> {
-            return new ApiRequest().tracingSpans().withAction('sparkline').create({ data: { query } })
+            return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
         },
-        async aggregate(query: {
-            dateRange?: { date_from?: string | null; date_to?: string | null }
-            serviceNames?: string[]
-            filterGroup?: PropertyGroupFilter
-            compareFilter?: { compare?: boolean; compare_to?: string | null }
-        }): Promise<{
+        async aggregate(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                filterGroup?: PropertyGroupFilter
+                compareFilter?: { compare?: boolean; compare_to?: string | null }
+            },
+            signal?: AbortSignal
+        ): Promise<{
             results: AggregatedSpanRow[]
             compare?: AggregatedSpanRow[] | null
         }> {
-            return new ApiRequest().tracingSpans().withAction('aggregate').create({ data: { query } })
+            return new ApiRequest().tracingSpans().withAction('aggregate').create({ signal, data: { query } })
         },
-        async tree(query: {
-            spanName: string
-            dateRange?: { date_from?: string | null; date_to?: string | null }
-            serviceNames?: string[]
-            filterGroup?: PropertyGroupFilter
-            compareFilter?: { compare?: boolean; compare_to?: string | null }
-        }): Promise<{
+        async tree(
+            query: {
+                spanName: string
+                serviceName: string
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                filterGroup?: PropertyGroupFilter
+                compareFilter?: { compare?: boolean; compare_to?: string | null }
+            },
+            signal?: AbortSignal
+        ): Promise<{
             results: SpanTreeNode[]
             compare?: SpanTreeNode[] | null
         }> {
-            return new ApiRequest().tracingSpans().withAction('tree').create({ data: { query } })
+            return new ApiRequest().tracingSpans().withAction('tree').create({ signal, data: { query } })
         },
         async serviceNames(params: { dateRange?: string; search?: string }): Promise<{ results: { name: string }[] }> {
             return new ApiRequest()
@@ -5029,6 +5038,17 @@ const api = {
                 .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
                 .get()
         },
+        async questionLabels(): Promise<{
+            labels: {
+                question_id: string
+                question_text: string
+                question_index: number
+                survey_id: string
+                survey_name: string
+            }[]
+        }> {
+            return await new ApiRequest().surveys().withAction('question_labels').get()
+        },
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
@@ -5319,6 +5339,15 @@ const api = {
         async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
             return await new ApiRequest().dataModelingDags().create({ data })
         },
+        async update(
+            dagId: DataModelingDAG['id'],
+            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
+        ): Promise<DataModelingDAG> {
+            return await new ApiRequest().dataModelingDag(dagId).update({ data })
+        },
+        async delete(dagId: DataModelingDAG['id']): Promise<void> {
+            await new ApiRequest().dataModelingDag(dagId).delete()
+        },
     },
 
     dataModelingNodes: {
@@ -5457,6 +5486,7 @@ const api = {
                 | 'sync_frequency'
                 | 'sync_time_of_day'
                 | 'cdc_table_mode'
+                | 'enabled_columns'
             >[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
@@ -6217,39 +6247,6 @@ const api = {
         async deleteHogFlowSchedule(hogFlowId: HogFlow['id'], scheduleId: string): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('schedules').withAction(scheduleId).delete()
         },
-        async getBlockedRuns(
-            hogFlowId: HogFlow['id'],
-            limit = 100,
-            offset = 0
-        ): Promise<{
-            results: {
-                instance_id: string
-                timestamp: string
-                action_id: string | null
-                event_uuid: string | null
-                message: string
-            }[]
-            has_next: boolean
-            limit: number
-            offset: number
-        }> {
-            return await new ApiRequest()
-                .hogFlow(hogFlowId)
-                .withAction('blocked_runs')
-                .withQueryString(`limit=${limit}&offset=${offset}`)
-                .get()
-        },
-        async replayBlockedRun(
-            hogFlowId: HogFlow['id'],
-            data: { event_uuid: string; action_id: string; instance_id: string }
-        ): Promise<{ status: string }> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_blocked_run').create({ data })
-        },
-        async replayAllBlockedRuns(
-            hogFlowId: HogFlow['id']
-        ): Promise<{ succeeded: number; failed: number; skipped: number }> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('replay_all_blocked_runs').create()
-        },
     },
     hogFlowTemplates: {
         async getHogFlowTemplates(): Promise<PaginatedResponse<HogFlowTemplate>> {
@@ -6577,6 +6574,17 @@ const api = {
 
         async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
             return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
+        },
+
+        async compose(data: {
+            message: string
+            recipient_email: string
+            email_config_id: string
+            recipient_distinct_id?: string
+            email_subject?: string
+            rich_content?: Record<string, unknown> | null
+        }): Promise<{ id: string; ticket_number: number }> {
+            return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
         },
     },
 
@@ -7015,6 +7023,10 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
             if (typeof data.detail === 'string') {
                 throw new ApiError(data.detail, response.status, response.headers, data)
+            }
+
+            if (typeof data.message === 'string') {
+                throw new ApiError(data.message, response.status, response.headers, data)
             }
         }
 

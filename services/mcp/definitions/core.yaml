@@ -821,6 +821,12 @@ tools:
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create
         enabled: false
+    users-push-tokens-create:
+        operation: users_push_tokens_create
+        enabled: false
+    users-push-tokens-unregister-create:
+        operation: users_push_tokens_unregister_create
+        enabled: false
     users-request-email-verification-create:
         operation: users_request_email_verification_create
         enabled: false

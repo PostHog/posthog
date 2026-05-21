@@ -133,3 +133,17 @@ export const VisionLensesPartialUpdateBody = /* @__PURE__ */ zod.object({
             'When true, the prompt is augmented with the Signal side mission and the lens emits PostHog Signals.'
         ),
 })
+
+/**
+ * Apply this lens to one specific session, on demand. Returns 202 with the workflow handle.
+ */
+export const visionLensesObserveCreateBodySessionIdMax = 128
+
+export const VisionLensesObserveCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_id: zod
+            .string()
+            .max(visionLensesObserveCreateBodySessionIdMax)
+            .describe('ID of the session recording to apply the lens to.'),
+    })
+    .describe('Body of POST \/vision\/lenses\/{id}\/observe\/.')

@@ -9,6 +9,7 @@ from parameterized import parameterized
 from products.replay_vision.backend.models import ReplayLens, ReplayObservation
 from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
+from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
 def _make_lens(team, **overrides) -> ReplayLens:
@@ -89,9 +90,6 @@ class TestReplayLens(BaseTest):
     )
     def test_lens_version_bumps_on_tracked_field_change(self, field: str, new_value) -> None:
         lens = self._create_lens()
-        # Classifier needs `tags` in lens_config; supply a valid one to satisfy any future validation.
-        if field == "lens_type":
-            lens.lens_config = {"prompt": "p", "tags": ["a"]}
         setattr(lens, field, new_value)
         lens.save()
         self.assertEqual(lens.lens_version, 2)
@@ -143,8 +141,7 @@ class TestReplayObservation(BaseTest):
         return ReplayObservation.objects.create(
             lens=lens,
             session_id=session_id,
-            lens_version=lens.lens_version,
-            lens_config_snapshot=lens.lens_config,
+            lens_snapshot=_snapshot_for(lens),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
 
@@ -187,8 +184,7 @@ class TestReplayObservation(BaseTest):
         obs = ReplayObservation.objects.create(
             lens=lens,
             session_id="auto-team",
-            lens_version=lens.lens_version,
-            lens_config_snapshot=lens.lens_config,
+            lens_snapshot=_snapshot_for(lens),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
         self.assertEqual(obs.team_id, lens.team_id)
@@ -201,8 +197,7 @@ class TestReplayObservation(BaseTest):
                 lens=lens,
                 team=other_team,
                 session_id="mismatch",
-                lens_version=lens.lens_version,
-                lens_config_snapshot=lens.lens_config,
+                lens_snapshot=_snapshot_for(lens),
                 triggered_by=ObservationTrigger.SCHEDULE,
             )
 
@@ -217,11 +212,10 @@ class TestReplayObservation(BaseTest):
         self, label: str, status: str, has_completed_at: bool, expect_error: bool
     ) -> None:
         lens = self._create_lens()
-        kwargs = {
+        kwargs: dict = {
             "lens": lens,
             "session_id": label,
-            "lens_version": lens.lens_version,
-            "lens_config_snapshot": lens.lens_config,
+            "lens_snapshot": _snapshot_for(lens),
             "triggered_by": ObservationTrigger.SCHEDULE,
             "status": status,
         }
@@ -254,8 +248,7 @@ class TestReplayObservation(BaseTest):
         obs = ReplayObservation.objects.create(
             lens=lens,
             session_id="user-cascade",
-            lens_version=lens.lens_version,
-            lens_config_snapshot=lens.lens_config,
+            lens_snapshot=_snapshot_for(lens),
             triggered_by=ObservationTrigger.ON_DEMAND,
             triggered_by_user=ephemeral,
         )
@@ -264,14 +257,14 @@ class TestReplayObservation(BaseTest):
         obs.refresh_from_db()
         self.assertIsNone(obs.triggered_by_user_id)
 
-    def test_lens_config_snapshot_immutable_to_lens_edits(self) -> None:
+    def test_lens_snapshot_immutable_to_lens_edits(self) -> None:
         lens = self._create_lens(lens_config={"prompt": "original"})
         obs = self._create_observation(lens, session_id="snap-test")
-        self.assertEqual(obs.lens_config_snapshot, {"prompt": "original"})
+        self.assertEqual(obs.lens_snapshot["lens_config"], {"prompt": "original"})
         lens.lens_config = {"prompt": "edited"}
         lens.save()
         obs.refresh_from_db()
-        self.assertEqual(obs.lens_config_snapshot, {"prompt": "original"})
+        self.assertEqual(obs.lens_snapshot["lens_config"], {"prompt": "original"})
 
     def test_mark_succeeded_sets_completed_at(self) -> None:
         lens = self._create_lens()

@@ -38,7 +38,7 @@ class WebExternalClicksTableQueryRunner(WebAnalyticsQueryRunner[WebExternalClick
         else:
             url_expr = ast.Field(chain=["properties", "$external_click_url"])
 
-        with self.timings.measure("stats_table_query"):
+        with self.timings.measure("external_clicks_query"):
             query = parse_select(
                 """
 SELECT
@@ -113,7 +113,7 @@ GROUP BY "context.columns.url"
     def _calculate(self):
         query = self.to_query()
         response = self.paginator.execute_hogql_query(
-            query_type="stats_table_query",
+            query_type="external_clicks_query",
             query=query,
             team=self.team,
             timings=self.timings,

@@ -957,6 +957,10 @@ class OauthIntegration:
             # Default to 1 hour for Salesforce if not provided (conservative)
             config["expires_in"] = 3600
 
+        # Stripe Apps OAuth tokens don't include expires_in in the response
+        if not config.get("expires_in") and kind == "stripe":
+            config["expires_in"] = 3600
+
         if kind == "stripe":
             # Persisted so downstream Stripe API calls (refresh_access_token,
             # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
@@ -994,6 +998,9 @@ class OauthIntegration:
 
         if not expires_in and self.integration.kind == "salesforce":
             # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
+            expires_in = 3600
+
+        if not expires_in and self.integration.kind == "stripe":
             expires_in = 3600
 
         if not expires_in or not refreshed_at:
@@ -1097,10 +1104,11 @@ class OauthIntegration:
             if config.get("refresh_token"):
                 self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
 
-            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
-                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+            if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
 
             self.integration.config["expires_in"] = expires_in

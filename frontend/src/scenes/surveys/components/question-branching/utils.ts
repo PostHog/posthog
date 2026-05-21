@@ -134,3 +134,123 @@ export function createBranchingConfig(
             throw new Error(`Unknown branching type: ${branchingType}`)
     }
 }
+
+/**
+ * Remaps branching indices when the question array is mutated (reordered or deleted).
+ *
+ * `indexMap[oldIndex]` is the new position of the question that used to be at
+ * `oldIndex`, or `null` if it was removed. Any branching that pointed at a removed
+ * question is converted to default "Next question" (i.e. `branching` is dropped).
+ *
+ * Adding a question at the end is a no-op since existing indices stay valid.
+ */
+export function remapBranchingIndices(questions: SurveyQuestion[], indexMap: (number | null)[]): SurveyQuestion[] {
+    const remapIndex = (index: number): number | null => {
+        if (index < 0 || index >= indexMap.length) {
+            return null
+        }
+        return indexMap[index]
+    }
+
+    return questions.map((question) => {
+        if (!question.branching) {
+            return question
+        }
+
+        if (question.branching.type === SurveyQuestionBranchingType.SpecificQuestion) {
+            const remapped = remapIndex(question.branching.index)
+            if (remapped === null) {
+                // Target was deleted — fall back to default (Next question / End).
+                const { branching, ...rest } = question
+                return rest as SurveyQuestion
+            }
+            if (remapped === question.branching.index) {
+                return question
+            }
+            return {
+                ...question,
+                branching: { ...question.branching, index: remapped },
+            }
+        }
+
+        if (
+            question.branching.type === SurveyQuestionBranchingType.ResponseBased &&
+            'responseValues' in question.branching &&
+            question.branching.responseValues
+        ) {
+            const originalEntries = Object.entries(question.branching.responseValues)
+            const nextResponseValues: Record<string, number | SurveyQuestionBranchingType> = {}
+            let changed = false
+            for (const [response, target] of originalEntries) {
+                if (typeof target === 'number') {
+                    const remapped = remapIndex(target)
+                    if (remapped === null) {
+                        // Target was deleted — drop the mapping so it falls back to default.
+                        changed = true
+                        continue
+                    }
+                    if (remapped !== target) {
+                        changed = true
+                    }
+                    nextResponseValues[response] = remapped
+                } else {
+                    nextResponseValues[response] = target
+                }
+            }
+            if (!changed) {
+                return question
+            }
+            // If we had mappings before and none survived, drop the whole branching block
+            // so the question falls back to default routing (rather than keeping a
+            // dangling ResponseBased config with empty rules).
+            if (originalEntries.length > 0 && Object.keys(nextResponseValues).length === 0) {
+                const { branching, ...rest } = question
+                return rest as SurveyQuestion
+            }
+            return {
+                ...question,
+                branching: { ...question.branching, responseValues: nextResponseValues },
+            }
+        }
+
+        return question
+    })
+}
+
+/**
+ * Builds an index map for a reorder operation that moved a single question
+ * from `oldIndex` to `newIndex` within an array of `length` items.
+ */
+export function buildReorderIndexMap(length: number, oldIndex: number, newIndex: number): (number | null)[] {
+    const map: (number | null)[] = Array.from({ length })
+    for (let i = 0; i < length; i++) {
+        if (i === oldIndex) {
+            map[i] = newIndex
+        } else if (oldIndex < newIndex && i > oldIndex && i <= newIndex) {
+            map[i] = i - 1
+        } else if (oldIndex > newIndex && i >= newIndex && i < oldIndex) {
+            map[i] = i + 1
+        } else {
+            map[i] = i
+        }
+    }
+    return map
+}
+
+/**
+ * Builds an index map for a deletion at `deletedIndex` within an array of `length`
+ * items. The deleted position maps to `null`; later positions shift left by one.
+ */
+export function buildDeleteIndexMap(length: number, deletedIndex: number): (number | null)[] {
+    const map: (number | null)[] = Array.from({ length })
+    for (let i = 0; i < length; i++) {
+        if (i === deletedIndex) {
+            map[i] = null
+        } else if (i > deletedIndex) {
+            map[i] = i - 1
+        } else {
+            map[i] = i
+        }
+    }
+    return map
+}

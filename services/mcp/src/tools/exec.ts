@@ -40,6 +40,45 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
+// Extracts the inner tool name from an exec `call` command, e.g.
+// "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
+// malformed input. Used by analytics to surface the real tool being invoked
+// in single-exec mode, where the outer call always shows as `exec`.
+export function parseExecCallInnerToolName(command: string): string | undefined {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call' || !rest) {
+        return
+    }
+    const argv = rest.startsWith('--json ') ? rest.slice('--json '.length).trim() : rest === '--json' ? '' : rest
+    if (!argv) {
+        return
+    }
+    const innerName = parseCommand(argv).verb
+    return innerName || undefined
+}
+
+// Builds the resolver mcp.ts hands to initMcpAnalytics in single-exec
+// mode: given a request, return the inner tool's { name, description } when
+// the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
+// here (alongside parseExecCallInnerToolName) so tests can import the exact
+// same factory the production code uses — no copy-pasted resolver lambda.
+export function createExecInnerToolCallResolver(
+    allTools: ReadonlyArray<Tool<ZodObjectAny>>
+): (request: unknown) => { name: string; description: string } | undefined {
+    return (request: unknown) => {
+        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
+        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
+            return
+        }
+        const innerName = parseExecCallInnerToolName(params.arguments.command)
+        if (!innerName) {
+            return
+        }
+        const tool = allTools.find((t) => t.name === innerName)
+        return tool ? { name: tool.name, description: tool.description } : undefined
+    }
+}
+
 // Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
 // surface a targeted redirect to the v2 replacement instead of dumping the full
 // tool catalog. Sourced from tools marked `new_mcp: false` in
@@ -163,8 +202,12 @@ export function createExecTool(
                         return fullOutput
                     }
 
-                    // Schema too large — return summary with drill-down hints
-                    return serialize(topShape, summarizeSchema(fullSchema as Record<string, unknown>, tool.name))
+                    // Schema too large — return summary with drill-down hints.
+                    // Each complex field's `hint` carries the imperative to run
+                    // `schema` before populating it, so no separate directive is
+                    // needed here.
+                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    return serialize(topShape, summary)
                 }
 
                 case 'schema': {
@@ -176,6 +219,9 @@ export function createExecTool(
                     const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
 
                     if (!fieldPath) {
+                        // The bare `schema <tool>` view is always a summary. Any
+                        // field that still needs drilling carries the imperative
+                        // in its own `hint`, so the summary stands on its own.
                         return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
@@ -193,10 +239,12 @@ export function createExecTool(
                         return serialized
                     }
 
-                    // Field schema too large — return summary with sub-path hints
+                    // Field schema too large — return a summary instead. The
+                    // summary's complex sub-fields carry the drill-down `hint`,
+                    // so the response shape stays the same as the inline case
+                    // (`{ field, schema }`) — no separate top-level note.
                     return JSON.stringify({
                         field: fieldPath,
-                        note: `Full schema is ${Math.ceil(serialized.length / 6000)}k+ tokens. Showing summary. Drill into sub-fields for details.`,
                         schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
                     })
                 }

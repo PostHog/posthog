@@ -1,11 +1,14 @@
 import uuid
+from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
@@ -15,6 +18,8 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.temporal.constants import APPLY_LENS_WORKFLOW_NAME, build_apply_lens_workflow_id
+from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -170,6 +175,125 @@ class TestReplayLensViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["lens_version"], 1)
 
+    @parameterized.expand(
+        [
+            ("monitor", LensType.MONITOR, {"prompt": "p"}),
+            ("classifier", LensType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
+            ("scorer", LensType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
+            ("summarizer", LensType.SUMMARIZER, {"prompt": "p"}),
+            ("indexer", LensType.INDEXER, {"prompt": "p"}),
+        ]
+    )
+    def test_create_accepts_valid_lens_config_per_type(
+        self, label: str, lens_type: LensType, lens_config: dict
+    ) -> None:
+        resp = self.client.post(
+            self.lenses_url,
+            data={
+                "name": f"valid-{label}",
+                "lens_type": lens_type,
+                "lens_config": lens_config,
+                "model": LensModel.GEMINI_3_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+
+    @parameterized.expand(
+        [
+            ("classifier_without_tags", LensType.CLASSIFIER, {"prompt": "p"}),
+            ("classifier_empty_tags", LensType.CLASSIFIER, {"prompt": "p", "tags": []}),
+            ("scorer_inverted_scale", LensType.SCORER, {"prompt": "p", "scale": {"min": 10, "max": 0}}),
+            ("monitor_missing_prompt", LensType.MONITOR, {}),
+            ("not_a_dict", LensType.MONITOR, "just a string"),
+        ]
+    )
+    def test_create_rejects_invalid_lens_config_per_type(
+        self, label: str, lens_type: LensType, lens_config: Any
+    ) -> None:
+        resp = self.client.post(
+            self.lenses_url,
+            data={
+                "name": f"invalid-{label}",
+                "lens_type": lens_type,
+                "lens_config": lens_config,
+                "model": LensModel.GEMINI_3_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "lens_config")
+
+    def test_patch_lens_type_validates_against_existing_config(self) -> None:
+        # Existing monitor lens has {"prompt": "..."}; switching to classifier without tags must 400.
+        lens = self._create_lens()
+        resp = self.client.patch(
+            f"{self.lenses_url}{lens.id}/",
+            data={"lens_type": LensType.CLASSIFIER},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "lens_config")
+
+    def test_patch_can_change_lens_type_with_matching_config(self) -> None:
+        lens = self._create_lens()
+        resp = self.client.patch(
+            f"{self.lenses_url}{lens.id}/",
+            data={"lens_type": LensType.CLASSIFIER, "lens_config": {"prompt": "p", "tags": ["x"]}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["lens_type"], LensType.CLASSIFIER)
+
+    def test_create_accepts_valid_query(self) -> None:
+        resp = self.client.post(
+            self.lenses_url,
+            data={
+                "name": "with-query",
+                "lens_type": LensType.MONITOR,
+                "lens_config": {"prompt": "p"},
+                "model": LensModel.GEMINI_3_FLASH,
+                "query": {"filter_test_accounts": True},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["query"], {"filter_test_accounts": True})
+
+    def test_create_strips_date_fields_from_query(self) -> None:
+        # The schedule controls time, not the user.
+        resp = self.client.post(
+            self.lenses_url,
+            data={
+                "name": "stripped",
+                "lens_type": LensType.MONITOR,
+                "lens_config": {"prompt": "p"},
+                "model": LensModel.GEMINI_3_FLASH,
+                "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        body_query = resp.json()["query"]
+        self.assertNotIn("date_from", body_query)
+        self.assertNotIn("date_to", body_query)
+        self.assertEqual(body_query["filter_test_accounts"], True)
+
+    def test_create_rejects_invalid_query(self) -> None:
+        resp = self.client.post(
+            self.lenses_url,
+            data={
+                "name": "bad-query",
+                "lens_type": LensType.MONITOR,
+                "lens_config": {"prompt": "p"},
+                "model": LensModel.GEMINI_3_FLASH,
+                "query": {"this_field_does_not_exist": True},
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "query")
+
     def test_delete(self) -> None:
         lens = self._create_lens()
         resp = self.client.delete(f"{self.lenses_url}{lens.id}/")
@@ -230,8 +354,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         defaults = {
             "lens": self.lens,
             "session_id": "sess-1",
-            "lens_version": self.lens.lens_version,
-            "lens_config_snapshot": self.lens.lens_config,
+            "lens_snapshot": _snapshot_for(self.lens),
             "triggered_by": ObservationTrigger.SCHEDULE,
         }
         defaults.update(overrides)
@@ -271,8 +394,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         ReplayObservation.objects.create(
             lens=other_lens,
             session_id="theirs",
-            lens_version=other_lens.lens_version,
-            lens_config_snapshot=other_lens.lens_config,
+            lens_snapshot=_snapshot_for(other_lens),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
         resp = self.client.get(self.observations_url(str(self.lens.id)))
@@ -284,6 +406,28 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(self.lens.id))}{obs.id}/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["session_id"], obs.session_id)
+        self.assertIsNone(resp.json()["lens_result"])  # null until succeeded
+
+    def test_retrieve_observation_exposes_lens_result_when_succeeded(self) -> None:
+        obs = self._create_observation(
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            lens_result={
+                "model_output": {
+                    "lens_type": "monitor",
+                    "verdict": True,
+                    "reasoning": "user completed checkout",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        resp = self.client.get(f"{self.observations_url(str(self.lens.id))}{obs.id}/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["lens_result"]["signals_count"], 0)
+        self.assertEqual(body["lens_result"]["model_output"]["verdict"], True)
+        self.assertEqual(body["lens_result"]["model_output"]["confidence"], 0.9)
 
     @parameterized.expand(
         [
@@ -327,3 +471,157 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         body = resp.json()
         self.assertEqual(len(body["results"]), 2)
         self.assertIsNotNone(body.get("next"))
+
+
+@patch("products.replay_vision.backend.api.lenses.async_to_sync")
+@patch("products.replay_vision.backend.api.lenses.sync_connect")
+class TestObserveAction(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.lens = self._create_lens()
+
+    def observe_url(self, lens_id: str) -> str:
+        return f"{self.lenses_url}{lens_id}/observe/"
+
+    def test_observe_returns_workflow_id_and_starts_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_client = MagicMock()
+        mock_sync_connect.return_value = mock_client
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-42"}, format="json")
+        self.assertEqual(resp.status_code, 202, resp.json())
+
+        expected_workflow_id = build_apply_lens_workflow_id(self.lens.id, "sess-42")
+        self.assertEqual(resp.json(), {"workflow_id": expected_workflow_id})
+
+        self.assertFalse(ReplayObservation.objects.filter(lens=self.lens, session_id="sess-42").exists())
+
+        mock_async_to_sync.assert_called_once_with(mock_client.start_workflow)
+        args, kwargs = start_workflow.call_args
+        self.assertEqual(args[0], APPLY_LENS_WORKFLOW_NAME)
+        self.assertEqual(kwargs["id"], expected_workflow_id)
+        self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
+        inputs = args[1]
+        self.assertEqual(inputs.lens_id, self.lens.id)
+        self.assertEqual(inputs.session_id, "sess-42")
+        self.assertEqual(inputs.team_id, self.team.id)
+        self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
+        self.assertEqual(inputs.triggered_by_user_id, self.user.id)
+
+    def test_observe_dedup_uses_deterministic_workflow_id(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        first = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-dup"}, format="json")
+        second = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-dup"}, format="json")
+        self.assertEqual(first.json()["workflow_id"], second.json()["workflow_id"])
+
+    def test_observe_rejects_missing_session_id(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["attr"], "session_id")
+
+    def test_observe_rejects_too_long_session_id(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        resp = self.client.post(
+            self.observe_url(str(self.lens.id)),
+            data={"session_id": "x" * 129},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["attr"], "session_id")
+
+    def test_observe_workflow_id_fits_observation_column_at_max_input(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Catches widening session_id without re-checking the workflow_id column ceiling.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        max_session_id = "x" * 128
+
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": max_session_id}, format="json")
+        self.assertEqual(resp.status_code, 202, resp.json())
+        workflow_id = resp.json()["workflow_id"]
+        max_length = ReplayObservation._meta.get_field("workflow_id").max_length
+        assert max_length is not None
+        self.assertLessEqual(len(workflow_id), max_length)
+
+    def test_observe_dispatch_failure_returns_503(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock(side_effect=RuntimeError("temporal unavailable"))
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-broken"}, format="json")
+        self.assertEqual(resp.status_code, 503)
+        self.assertFalse(ReplayObservation.objects.filter(lens=self.lens, session_id="sess-broken").exists())
+
+    def test_observe_workflow_already_started_is_treated_as_success(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        coalesced_workflow_id = build_apply_lens_workflow_id(self.lens.id, "sess-coalesce")
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id=coalesced_workflow_id,
+                workflow_type=APPLY_LENS_WORKFLOW_NAME,
+            )
+        )
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(
+            self.observe_url(str(self.lens.id)), data={"session_id": "sess-coalesce"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertEqual(resp.json(), {"workflow_id": coalesced_workflow_id})
+
+    def test_observe_workflow_already_started_with_mismatched_id_returns_503(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Mismatched workflow_id must not silently 202 under a future id_reuse_policy.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock(
+            side_effect=WorkflowAlreadyStartedError(
+                workflow_id="some-unrelated-workflow-id",
+                workflow_type=APPLY_LENS_WORKFLOW_NAME,
+            )
+        )
+        mock_async_to_sync.return_value = start_workflow
+
+        resp = self.client.post(
+            self.observe_url(str(self.lens.id)), data={"session_id": "sess-mismatch"}, format="json"
+        )
+        self.assertEqual(resp.status_code, 503, resp.json())
+
+
+@patch("products.replay_vision.backend.api.lenses.async_to_sync")
+@patch("products.replay_vision.backend.api.lenses.sync_connect")
+class TestObserveActionFeatureFlag(APIBaseTest):
+    def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
+        with patch(
+            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            lens = ReplayLens.objects.create(
+                team=self.team,
+                name="off",
+                lens_type=LensType.MONITOR,
+                lens_config={"prompt": "p"},
+                model=LensModel.GEMINI_3_FLASH,
+            )
+            resp = self.client.post(
+                f"/api/environments/{self.team.id}/vision/lenses/{lens.id}/observe/",
+                data={"session_id": "s"},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, 404)

@@ -489,7 +489,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Logs',
             searchPlaceholder: 'logs',
             type: TaxonomicFilterGroupType.Logs,
-            options: [{ key: 'message', name: 'Message', propertyFilterType: 'log' }],
+            options: [
+                { key: 'message', name: 'message', propertyFilterType: 'log' },
+                { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
+                { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
+                { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
+            ],
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
                     return items
@@ -587,12 +592,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'span attributes',
             type: TaxonomicFilterGroupType.SpanAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                attribute_type: 'span',
+                attribute_type: 'span_attribute',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
                 combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                    attribute_type: 'span',
+                    attribute_type: 'span_attribute',
                     key: key,
                     ...endpointFilters,
                 }).url,
@@ -605,12 +610,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'span resources',
             type: TaxonomicFilterGroupType.SpanResourceAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                attribute_type: 'resource',
+                attribute_type: 'span_resource_attribute',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
                 combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                    attribute_type: 'resource',
+                    attribute_type: 'span_resource_attribute',
                     key: key,
                     ...endpointFilters,
                 }).url,

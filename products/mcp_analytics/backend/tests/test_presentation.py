@@ -1,12 +1,14 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
+from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
-class TestMCPAnalyticsPresentation(APIBaseTest):
+class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -129,6 +131,70 @@ class TestMCPAnalyticsPresentation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == field
+
+    def test_intent_clusters_returns_empty_idle_when_no_snapshot(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "idle"
+        assert data["clusters"] == []
+        assert data["last_computed_at"] is None
+        assert data["computed_with"] is None
+
+    def test_intent_clusters_returns_stored_snapshot(self) -> None:
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            clusters={
+                "clusters": [
+                    {
+                        "id": 0,
+                        "label": "check feature flag rollout",
+                        "intent_count": 2,
+                        "call_count": 14,
+                        "error_count": 1,
+                        "error_rate_pct": 7.1,
+                        "routing_entropy": 0.1,
+                        "tool_distribution": [
+                            {"tool": "feature_flag_get", "count": 12, "pct": 85.7, "errors": 1, "error_rate_pct": 8.3},
+                        ],
+                        "sample_intents": ["check feature flag rollout"],
+                    }
+                ],
+                "computed_with": {
+                    "distance_threshold": 0.2,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": 2,
+                    "n_clusters": 1,
+                },
+            },
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["status"] == "idle"
+        assert len(data["clusters"]) == 1
+        assert data["clusters"][0]["label"] == "check feature flag rollout"
+        assert data["computed_with"]["n_clusters"] == 1
+
+    def test_intent_clusters_recompute_enqueues_task_and_returns_computing(self) -> None:
+        # Mock only the Celery dispatch so the synchronous COMPUTING write
+        # still runs. The 202 body should reflect the new state, not the
+        # stale pre-trigger state.
+        with patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.json()["status"] == "computing"
+        mock_delay.assert_called_once_with(self.team.id, self.user.id)
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+        assert snapshot.last_computed_by_id == self.user.id
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(

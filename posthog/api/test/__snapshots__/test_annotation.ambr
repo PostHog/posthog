@@ -29,6 +29,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -38,8 +39,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.1
@@ -363,7 +364,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -443,6 +450,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -453,8 +461,13 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_annotation"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_annotation"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -492,6 +505,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -501,8 +515,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.18
@@ -955,7 +969,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1035,6 +1055,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1045,8 +1066,13 @@
          "posthog_user"."email_opt_in"
   FROM "posthog_annotation"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_annotation"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1208,7 +1234,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1244,6 +1276,7 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -1253,8 +1286,8 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.9

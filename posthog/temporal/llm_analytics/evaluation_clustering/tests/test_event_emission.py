@@ -20,7 +20,7 @@ def mock_team(db):
 
 
 class TestEmitEvaluationClusterEvents:
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_emits_single_event_with_evaluation_level(self, mock_team):
         items = [
             ClusterItem(trace_id="e1", generation_id="e1"),
@@ -72,7 +72,7 @@ class TestEmitEvaluationClusterEvents:
         # Clusters are serialized as dicts
         assert props["$ai_clusters"][0]["title"] == "Factuality failures"
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     def test_metrics_flow_through_to_cluster_payload(self, mock_team):
         items = [ClusterItem(trace_id="e1", generation_id="e1")]
         labels = [0]

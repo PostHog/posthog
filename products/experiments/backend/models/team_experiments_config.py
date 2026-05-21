@@ -53,5 +53,13 @@ class TeamExperimentsConfig(models.Model):
         ),
     )
 
+    default_cuped_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Default for enabling CUPED variance reduction on experiment metrics. "
+            "Overridden by the experiment-level `stats_config.cuped.enabled` setting when set."
+        ),
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)

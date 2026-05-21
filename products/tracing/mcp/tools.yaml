@@ -46,9 +46,9 @@ tools:
             idempotent: true
         title: List tracing span attributes
         description: >
-            List available span or resource attribute names. Use attribute_type "span" for span-level attributes or
-            "resource" for resource-level attributes (e.g. k8s labels). Use this to discover available attribute keys
-            before building filters.
+            List available span or resource attribute names. Use attribute_type "span_attribute" for span-level
+            attributes or "span_resource_attribute" for resource-level attributes (e.g. k8s labels). Use this to
+            discover available attribute keys before building filters.
         feature_flag: tracing
         response:
             include:
@@ -71,6 +71,38 @@ tools:
         response:
             include:
                 - results
+    apm-spans-aggregate:
+        operation: tracing_spans_aggregate_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Aggregate span statistics
+        description_file: ./prompts/apm-spans-aggregate.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
+                - compare
+    apm-spans-tree:
+        operation: tracing_spans_tree_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Aggregate span call tree
+        description_file: ./prompts/apm-spans-tree.md
+        feature_flag: tracing
+        response:
+            include:
+                - results
+                - compare
     apm-sparkline-query:
         operation: tracing_spans_sparkline_create
         enabled: false
@@ -109,9 +141,3 @@ tools:
         response:
             include:
                 - results
-    tracing-spans-aggregate-create:
-        operation: tracing_spans_aggregate_create
-        enabled: false
-    tracing-spans-tree-create:
-        operation: tracing_spans_tree_create
-        enabled: false

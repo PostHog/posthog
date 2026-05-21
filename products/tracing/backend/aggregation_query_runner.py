@@ -19,6 +19,7 @@ import datetime as dt
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, cast
+from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     AggregatedSpanRow,
@@ -136,6 +137,7 @@ class _SpanAggregationMixin:
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
+            timezone_info=ZoneInfo("UTC"),
             now=dt.datetime.now(),
         )
 
@@ -149,6 +151,7 @@ class _SpanAggregationMixin:
                 date_range=self.query.dateRange,
                 team=self.team,
                 interval=IntervalType.MINUTE,
+                timezone_info=ZoneInfo("UTC"),
                 now=dt.datetime.now(),
                 compare_to=compare_filter.compare_to,
             )
@@ -157,6 +160,7 @@ class _SpanAggregationMixin:
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
+            timezone_info=ZoneInfo("UTC"),
             now=dt.datetime.now(),
         )
 
@@ -335,7 +339,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         # The CTE has to widen the span-name filter so we can also fetch parent and
         # ancestor rows that match by trace_id but not by name; otherwise the LEFT JOIN
-        # can't recover the parent.
+        # can't recover the parent. The service filter, however, is applied to the spans
+        # CTE so the resulting tree is scoped to one service even when matched traces
+        # span multiple services.
         query = parse_select(
             """
             WITH matched_traces AS (
@@ -343,6 +349,7 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 FROM posthog.trace_spans
                 WHERE {where}
                   AND name = {span_name}
+                  AND service_name = {service_name}
                   AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
                   AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
                   AND timestamp >= {date_from}
@@ -354,6 +361,7 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                     duration_nano, status_code, timestamp
                 FROM posthog.trace_spans
                 WHERE trace_id IN (SELECT trace_id FROM matched_traces)
+                  AND service_name = {service_name}
                   AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
                   AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
                   AND timestamp >= {date_from}
@@ -387,6 +395,7 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
             placeholders={
                 "where": self._where_without_date_range(),
                 "span_name": ast.Constant(value=self.query.spanName),
+                "service_name": ast.Constant(value=self.query.serviceName),
                 "limit": ast.Constant(value=_ROW_LIMIT),
                 **query_date_range.to_placeholders(),
             },

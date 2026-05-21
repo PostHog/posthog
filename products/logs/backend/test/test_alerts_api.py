@@ -367,6 +367,52 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
+    MALFORMED_FILTERS_CASES = [
+        ("filter_group_is_list", {"filterGroup": [{"type": "AND", "values": []}]}),
+        ("filter_group_is_string", {"filterGroup": "AND"}),
+        ("filter_group_missing_type", {"filterGroup": {"values": []}}),
+        ("filter_group_invalid_operator", {"filterGroup": {"type": "XOR", "values": []}}),
+        ("severity_levels_not_a_list", {"severityLevels": "error"}),
+        ("unknown_top_level_key", {"unknownKey": "value", "severityLevels": ["error"]}),
+    ]
+
+    @parameterized.expand(MALFORMED_FILTERS_CASES)
+    def test_create_rejects_malformed_filters_shape(self, _name, filters):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(filters=filters),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(MALFORMED_FILTERS_CASES)
+    def test_patch_rejects_malformed_filters_shape(self, _name, filters):
+        created = self._create_via_api()
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"filters": filters},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
+    @parameterized.expand(MALFORMED_FILTERS_CASES)
+    def test_simulate_rejects_malformed_filters_shape(self, _name, filters):
+        response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": filters,
+                "threshold_count": 100,
+                "threshold_operator": "above",
+                "window_minutes": 5,
+                "date_from": "-24h",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters"
+
     @parameterized.expand(
         [
             ("severity_levels", {"severityLevels": ["error"]}),

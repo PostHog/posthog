@@ -66,7 +66,12 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         }
 
     def get_schemas(
-        self, config: MailchimpSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: MailchimpSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

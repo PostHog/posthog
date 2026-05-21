@@ -20,6 +20,10 @@ const eventFilter = (key: string, value: string | string[]): WebAnalyticsPropert
     operator: PropertyOperator.Exact,
 })
 
+// Event+Exact filters are the subset shared with the live stream view.
+export const isLiveStreamFilter = (filter: WebAnalyticsPropertyFilter): boolean =>
+    filter.type === PropertyFilterType.Event && filter.operator === PropertyOperator.Exact
+
 export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsFilterLogic']),
     connect(() => ({
@@ -261,27 +265,20 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             },
         ],
         liveFilters: [
-            (s) => [s.selectedHost, s.deviceTypeFilter, s.countryFilter, s.referrerFilter],
+            (s) => [s.rawWebAnalyticsFilters, s.selectedHost, s.deviceTypeFilter],
             (
+                rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
                 host: string | null,
-                deviceType: DeviceType | null,
-                country: string | null,
-                referrer: string | null
+                deviceType: DeviceType | null
             ): WebAnalyticsPropertyFilter[] => {
-                const filters: WebAnalyticsPropertyFilter[] = []
+                const filters: WebAnalyticsPropertyFilter[] = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
                 if (host) {
                     filters.push(eventFilter('$host', host))
-                }
-                if (country) {
-                    filters.push(eventFilter('$geoip_country_code', country))
                 }
                 if (deviceType === 'Desktop') {
                     filters.push(eventFilter('$device_type', 'Desktop'))
                 } else if (deviceType === 'Mobile') {
                     filters.push(eventFilter('$device_type', ['Mobile', 'Tablet']))
-                }
-                if (referrer) {
-                    filters.push(eventFilter('$referring_domain', referrer))
                 }
                 return filters
             },

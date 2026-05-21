@@ -6,9 +6,14 @@ explicitly opted out via .unscoped(). This forces every code path to
 declare its team context — there is no silent "return everything" mode.
 
 This is a defense-in-depth convenience layer, not a complete security
-boundary. Django's _base_manager bypasses custom managers for related-
-object access, and raw SQL bypasses the ORM entirely. Use this alongside
-explicit team checks at the API layer.
+boundary. Django's `_default_manager` / `_base_manager` (used for admin
+querysets, related-object access like `repo.runs.all()`, generic
+relations, `prefetch_related`, DRF default querysets) intentionally
+route through the unscoped sibling manager via
+`ProductTeamModel.Meta.default_manager_name = "all_teams"` — the
+framework expects an unfiltered manager and a fail-closed default would
+raise on framework code that has no team context. Raw SQL bypasses the
+ORM entirely. Use this alongside explicit team checks at the API layer.
 """
 
 from typing import TypeVar, cast

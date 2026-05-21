@@ -1,21 +1,46 @@
+import datetime as dt
 from typing import Any, NoReturn, cast
 
+from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import QuerySet
 
+import structlog
 import django_filters
+from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, viewsets
+from drf_spectacular.utils import extend_schema, extend_schema_field
+from pydantic import ValidationError as PydanticValidationError
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.request import Request
+from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
+from posthog.temporal.common.client import sync_connect
 
+from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType, ReplayLens
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger
+from products.replay_vision.backend.temporal.constants import (
+    APPLY_LENS_WORKFLOW_NAME,
+    MAX_SESSION_ID_LENGTH,
+    build_apply_lens_workflow_id,
+)
+from products.replay_vision.backend.temporal.lenses import validate_lens_config
+from products.replay_vision.backend.temporal.types import ApplyLensInputs
 
-VISION_TAG = "replay_vision"
+# Date is set by the schedule at trigger time, not by the user — strip on save.
+_QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
+
+logger = structlog.get_logger(__name__)
 
 
 class ReplayLensSerializer(serializers.ModelSerializer):
@@ -32,14 +57,17 @@ class ReplayLensSerializer(serializers.ModelSerializer):
         choices=LensType.choices,
         help_text="What the lens does: monitor, classifier, scorer, summarizer, or indexer.",
     )
-    # TODO: validate `lens_config` shape per `lens_type` via Pydantic discriminated union (deferred to follow-up PR)
     lens_config = serializers.JSONField(
         help_text="Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc.",
     )
-    # TODO: type `query` against `posthog.schema.RecordingsQuery` (deferred to follow-up PR)
-    query = serializers.JSONField(
-        required=False,
-        help_text="Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
+    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
+        serializers.JSONField(
+            required=False,
+            help_text=(
+                "Persisted `RecordingsQuery` shape used to pick candidate sessions. "
+                "`date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
+            ),
+        )
     )
     sampling_rate = serializers.FloatField(
         required=False,
@@ -118,7 +146,43 @@ class ReplayLensSerializer(serializers.ModelSerializer):
                 duplicates = duplicates.exclude(pk=self.instance.pk)
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A lens with this name already exists in this team."})
+        self._validate_lens_config(attrs)
+        self._validate_and_strip_query(attrs)
         return attrs
+
+    def _validate_lens_config(self, attrs: dict[str, Any]) -> None:
+        # Skip when neither field is touched on PATCH — the existing combination has already been validated.
+        if "lens_config" not in attrs and "lens_type" not in attrs:
+            return
+        lens_type = attrs.get("lens_type", getattr(self.instance, "lens_type", None))
+        lens_config = attrs.get("lens_config", getattr(self.instance, "lens_config", None))
+        if lens_type is None:
+            return  # Upstream `lens_type` ChoiceField rejects this on create; PATCH with no instance is unreachable.
+        try:
+            validate_lens_config(lens_config=lens_config, lens_type=LensType(lens_type))
+        except (ValueError, PydanticValidationError) as exc:
+            raise serializers.ValidationError({"lens_config": str(exc)})
+
+    def _validate_and_strip_query(self, attrs: dict[str, Any]) -> None:
+        if "query" not in attrs:
+            return
+        try:
+            RecordingsQuery.model_validate(attrs["query"])
+        except PydanticValidationError as exc:
+            raise serializers.ValidationError({"query": str(exc)})
+        # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
+        attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
+
+    def to_representation(self, instance: ReplayLens) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # `is not None` (not falsy) so empty-dict queries still revalidate against future schema changes.
+        if data.get("query") is not None:
+            try:
+                RecordingsQuery.model_validate(data["query"])
+            except PydanticValidationError:
+                logger.exception("replay_vision.lens.malformed_query", lens_id=str(instance.id))
+                data["query"] = None
+        return data
 
     def create(self, validated_data: dict[str, Any]) -> ReplayLens:
         team = self.context["get_team"]()
@@ -171,11 +235,33 @@ class ReplayLensFilter(django_filters.FilterSet):
         fields = ["enabled", "lens_type", "emits_signals"]
 
 
+class ObserveRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/lenses/{id}/observe/."""
+
+    session_id = serializers.CharField(
+        max_length=MAX_SESSION_ID_LENGTH,
+        help_text="ID of the session recording to apply the lens to.",
+    )
+
+
+class ObserveResponseSerializer(serializers.Serializer):
+    """Async-accepted response for POST /vision/lenses/{id}/observe/."""
+
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for this lens application. Look up the resulting "
+            "ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>."
+        ),
+    )
+
+
 @extend_schema(tags=[VISION_TAG])
 class ReplayLensViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision lenses."""
 
     scope_object = "replay_lens"
+    # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "observe"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayLensSerializer
     queryset = ReplayLens.objects.all()
@@ -185,3 +271,62 @@ class ReplayLensViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet[ReplayLens]) -> QuerySet[ReplayLens]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
+
+    @extend_schema(
+        request=ObserveRequestSerializer,
+        responses={202: ObserveResponseSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="observe",
+        required_scopes=["replay_lens:write", "session_recording:read"],
+    )
+    def observe(self, request: Request, **kwargs: Any) -> Response:
+        """Apply this lens to one specific session, on demand. Returns 202 with the workflow handle."""
+        lens = self.get_object()
+        # Observation output exposes recording contents, so observe requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+
+        body = ObserveRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        session_id: str = body.validated_data["session_id"]
+        user = cast(User, request.user)
+
+        workflow_id = build_apply_lens_workflow_id(lens.id, session_id)
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore[misc]
+                APPLY_LENS_WORKFLOW_NAME,  # type: ignore[arg-type]
+                ApplyLensInputs(  # type: ignore[arg-type]
+                    lens_id=lens.id,
+                    session_id=session_id,
+                    team_id=lens.team_id,
+                    triggered_by=ObservationTrigger.ON_DEMAND,
+                    triggered_by_user_id=user.id,
+                ),
+                id=workflow_id,
+                task_queue=settings.REPLAY_VISION_TASK_QUEUE,
+                execution_timeout=dt.timedelta(hours=1),
+            )
+        except WorkflowAlreadyStartedError as exc:
+            # Pin to our own workflow_id so a future id_reuse_policy change can't silently 202 an unrelated run.
+            if exc.workflow_id != workflow_id:
+                logger.exception("replay_vision.observe.workflow_id_mismatch", workflow_id=workflow_id)
+                return Response(
+                    {"error": "Failed to start observation workflow"},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
+        except Exception:
+            logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
+            return Response(
+                {"error": "Failed to start observation workflow"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            ObserveResponseSerializer({"workflow_id": workflow_id}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
