@@ -10,59 +10,29 @@
 import * as zod from 'zod'
 
 /**
- * Upsert a wizard session. The session_id key determines whether this creates a new row or replaces an existing one.
+ * Upsert a wizard session. The session_id key determines whether this creates a new row or replaces an existing one. Always returns 201.
  */
-export const WizardSessionsCreateBody = /* @__PURE__ */ zod.object({
-    session_id: zod
-        .string()
-        .describe(
-            "Stable identifier the wizard assigns to a run, formatted '{workflow_id}-{skill_id}-{started_at_iso}'. Re-posting with the same session_id upserts the existing row."
-        ),
-    workflow_id: zod.string().describe("High-level workflow being run, e.g. 'onboarding', 'migration', 'audit'."),
-    skill_id: zod
-        .string()
-        .describe("Specific skill within the workflow, e.g. 'posthog_integration', 'revenue_analytics_setup'."),
-    started_at: zod.iso
-        .datetime({ offset: true })
-        .describe('UTC timestamp when the wizard started this run. Matches the timestamp encoded in session_id.'),
-    run_phase: zod
-        .enum(['idle', 'running', 'completed', 'error'])
-        .describe('\* `idle` - idle\n\* `running` - running\n\* `completed` - completed\n\* `error` - error')
-        .describe(
-            'Lifecycle stage of the wizard run.\n\n\* `idle` - idle\n\* `running` - running\n\* `completed` - completed\n\* `error` - error'
-        ),
-    tasks: zod
-        .array(
+export const WizardSessionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_id: zod.string(),
+        workflow_id: zod.string(),
+        skill_id: zod.string(),
+        started_at: zod.iso.datetime({ offset: true }),
+        run_phase: zod
+            .enum(['idle', 'running', 'completed', 'error'])
+            .describe('\* `idle` - IDLE\n\* `running` - RUNNING\n\* `completed` - COMPLETED\n\* `error` - ERROR'),
+        tasks: zod.array(
             zod.object({
-                id: zod
-                    .string()
-                    .describe(
-                        'Stable identifier the wizard assigned to this task. Used to track lifecycle across pushes.'
-                    ),
-                title: zod
-                    .string()
-                    .describe(
-                        "Human-readable title of the task. Should be updated if the task's purpose changes, but can remain the same if only the status changes."
-                    ),
+                id: zod.string(),
+                title: zod.string(),
                 status: zod
                     .enum(['pending', 'in_progress', 'completed', 'failed', 'canceled'])
                     .describe(
-                        '\* `pending` - pending\n\* `in_progress` - in_progress\n\* `completed` - completed\n\* `failed` - failed\n\* `canceled` - canceled'
-                    )
-                    .describe(
-                        'Current lifecycle stage of the task.\n\n\* `pending` - pending\n\* `in_progress` - in_progress\n\* `completed` - completed\n\* `failed` - failed\n\* `canceled` - canceled'
+                        '\* `pending` - PENDING\n\* `in_progress` - IN_PROGRESS\n\* `completed` - COMPLETED\n\* `failed` - FAILED\n\* `canceled` - CANCELED'
                     ),
             })
-        )
-        .describe(
-            "Full snapshot of the wizard's current task list. Each push overwrites the previous list; tasks may be added, removed, or re-ordered between pushes."
         ),
-    event_plan: zod
-        .unknown()
-        .optional()
-        .describe('Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific.'),
-    error: zod
-        .unknown()
-        .optional()
-        .describe("Populated when run_phase='error'. Shape: { type: string, message: string }."),
-})
+        event_plan: zod.record(zod.string(), zod.unknown()).nullish(),
+        error: zod.record(zod.string(), zod.unknown()).nullish(),
+    })
+    .describe('Input: validates the JSON the wizard CLI posts. team_id is derived from URL.')

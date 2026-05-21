@@ -58,7 +58,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -77,6 +77,16 @@ export namespace Schemas {
       id: number;
       email: string;
     } | null;
+      /** @nullable */
+      stripe_customer_id?: string | null;
+      /** @nullable */
+      hubspot_deal_id?: string | null;
+      /** @nullable */
+      billing_id?: string | null;
+      /** @nullable */
+      sfdc_id?: string | null;
+      /** @nullable */
+      zendesk_id?: string | null;
     } | null;
 
     export interface Account {
@@ -93,7 +103,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -3626,6 +3636,7 @@ export namespace Schemas {
     * `flags` - flags
     * `llm_analytics` - llm_analytics
     * `sandbox` - sandbox
+    * `user_interview` - user_interview
      */
     export type AgentModeEnum = typeof AgentModeEnum[keyof typeof AgentModeEnum];
 
@@ -3642,6 +3653,7 @@ export namespace Schemas {
       Flags: 'flags',
       LlmAnalytics: 'llm_analytics',
       Sandbox: 'sandbox',
+      UserInterview: 'user_interview',
     } as const;
 
     export interface AggregatedSpanRow {
@@ -4030,7 +4042,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -11046,6 +11058,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
+
+
+    export const DataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type DataWarehouseSavedQueryQuery = {
+      kind?: DataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -11094,8 +11121,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -13929,6 +13956,11 @@ export namespace Schemas {
       results: ErrorTrackingGroupingRule[];
     }
 
+    export interface ErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+    }
+
     export interface ErrorTrackingImpact {
       /** Exception occurrence count. */
       occurrences?: number;
@@ -14694,6 +14726,8 @@ export namespace Schemas {
       symbol_sets?: ErrorTrackingSymbolSetUpload[];
       /** Whether to overwrite uploaded symbol sets whose content hash changed. */
       force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
     }
 
     export interface ErrorTrackingSymbolSetFinishUpload {
@@ -15741,6 +15775,12 @@ export namespace Schemas {
      */
     export type ExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type ExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
@@ -15881,6 +15921,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -15922,6 +15969,11 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Columns to sync. Null means sync all columns.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
     }
 
     export interface ExternalDataSourceConnectionOption {
@@ -19878,15 +19930,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `gemini-3-flash` - Gemini 3 Flash
-    * `gemini-3-flash-lite` - Gemini 3 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+    * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
      */
     export type LensModelEnum = typeof LensModelEnum[keyof typeof LensModelEnum];
 
 
     export const LensModelEnum = {
-      Gemini3Flash: 'gemini-3-flash',
-      Gemini3FlashLite: 'gemini-3-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
     } as const;
 
     /**
@@ -19900,6 +19952,11 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+     */
+    export type LensResultEventIdMapping = { [key: string]: unknown };
+
+    /**
      * Mirrors `temporal.types.LensResult` for OpenAPI generation.
      */
     export interface LensResult {
@@ -19910,6 +19967,8 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
+      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+      event_id_mapping: LensResultEventIdMapping;
     }
 
     /**
@@ -19948,8 +20007,8 @@ export namespace Schemas {
       lens_version: number;
       /** Concrete model that ran the observation.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** Concrete provider that ran the observation.
 
@@ -20534,6 +20593,124 @@ export namespace Schemas {
       category?: MCPFeedbackCreateCategoryEnum;
     }
 
+    export interface MCPIntentClusterToolEntry {
+      /** MCP tool name that received calls for this cluster. */
+      readonly tool: string;
+      /** Number of tool calls routed to this tool across the cluster. */
+      readonly count: number;
+      /** Percentage of the cluster's calls that went to this tool, 0–100. */
+      readonly pct: number;
+      /** Number of error responses observed for this tool within the cluster. */
+      readonly errors: number;
+      /** Error rate for this tool within the cluster, 0–100. */
+      readonly error_rate_pct: number;
+    }
+
+    /**
+     * * `completed` - Completed
+    * `error` - Error
+     */
+    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
+
+
+    export const OutcomeEnum = {
+      Completed: 'completed',
+      Error: 'error',
+    } as const;
+
+    export interface MCPIntentClusterJourneyPath {
+      /** Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step. */
+      readonly steps: readonly (string | null)[];
+      /** Terminal outcome of the sessions following this path.
+
+      * `completed` - Completed
+      * `error` - Error */
+      readonly outcome: OutcomeEnum;
+      /** Number of sessions in this cluster that followed this exact path. */
+      readonly count: number;
+    }
+
+    export interface MCPIntentClusterJourney {
+      /** Top paths by session count, capped at MAX_JOURNEY_PATHS_PER_CLUSTER. */
+      readonly paths: readonly MCPIntentClusterJourneyPath[];
+      /** Total session count represented across all paths in this cluster. */
+      readonly total_sessions: number;
+      /** Highest-volume non-completed path. Null when every path completed successfully. */
+      readonly leak: MCPIntentClusterJourneyPath | null;
+    }
+
+    export interface MCPIntentCluster {
+      /** Stable cluster identifier within this snapshot. */
+      readonly id: number;
+      /** Representative intent text for the cluster (the medoid intent closest to the cluster centroid). */
+      readonly label: string;
+      /** Number of distinct intent texts that belong to this cluster. */
+      readonly intent_count: number;
+      /** Number of MCP sessions whose summarised intent belongs to this cluster. */
+      readonly session_count: number;
+      /** Total number of mcp_tool_call events represented by this cluster. */
+      readonly call_count: number;
+      /** Total number of error responses observed across the cluster. */
+      readonly error_count: number;
+      /** Aggregate error rate across all tool calls in the cluster, 0–100. */
+      readonly error_rate_pct: number;
+      /** Normalised Shannon entropy of the tool distribution. 0 means perfectly consistent routing (one tool dominates); 1 means uniformly spread across all tools called for this intent cluster. */
+      readonly routing_entropy: number;
+      /** Per-tool breakdown of calls and errors within the cluster. */
+      readonly tool_distribution: readonly MCPIntentClusterToolEntry[];
+      /** Up to three representative intent strings from the cluster, ordered by frequency desc. */
+      readonly sample_intents: readonly string[];
+      /** Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable. */
+      readonly journey: MCPIntentClusterJourney | null;
+    }
+
+    /**
+     * * `idle` - Idle
+    * `computing` - Computing
+    * `error` - Error
+     */
+    export type MCPIntentClusterSnapshotStatusEnum = typeof MCPIntentClusterSnapshotStatusEnum[keyof typeof MCPIntentClusterSnapshotStatusEnum];
+
+
+    export const MCPIntentClusterSnapshotStatusEnum = {
+      Idle: 'idle',
+      Computing: 'computing',
+      Error: 'error',
+    } as const;
+
+    export interface MCPIntentClusterSnapshotMeta {
+      /** Cosine distance threshold used by the clustering algorithm. */
+      readonly distance_threshold: number;
+      /** Embedding model used to vectorise intents. */
+      readonly embedding_model: string;
+      /** Number of distinct intents that fed into the clustering run. */
+      readonly n_intents: number;
+      /** Number of clusters produced by the run. */
+      readonly n_clusters: number;
+    }
+
+    export interface MCPIntentClusterSnapshot {
+      /** Whether a snapshot is current (idle), being recomputed (computing), or failed (error).
+
+      * `idle` - Idle
+      * `computing` - Computing
+      * `error` - Error */
+      readonly status: MCPIntentClusterSnapshotStatusEnum;
+      /** Error message from the most recent failed run, otherwise empty. */
+      readonly error_message: string;
+      /**
+         * When the latest snapshot finished computing.
+         * @nullable
+         */
+      readonly last_computed_at: string | null;
+      /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
+      readonly last_computed_by_email: string;
+      /** All clusters in the snapshot. */
+      readonly clusters: readonly MCPIntentCluster[];
+      /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
+      readonly computed_with: MCPIntentClusterSnapshotMeta | null;
+    }
+
     export interface MCPMissingCapabilityCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -20670,6 +20847,51 @@ export namespace Schemas {
       /** @maxLength 100 */
       icon_key?: string;
       category?: MCPServerTemplateCategoryEnum;
+    }
+
+    export interface MCPSession {
+      /** PostHog $session_id grouping all mcp_tool_call events. */
+      readonly session_id: string;
+      /** Total number of mcp_tool_call events in the session. */
+      readonly tool_calls: number;
+      /** Timestamp of the first mcp_tool_call event in the session. */
+      readonly session_start: string;
+      /** Timestamp of the most recent mcp_tool_call event in the session. */
+      readonly session_end: string;
+      /** Number of distinct PostHog distinct_ids that produced events in the session. */
+      readonly distinct_id_count: number;
+      /** Distinct $mcp_tool_name values seen in the session. */
+      readonly tools_used: readonly string[];
+      /** Most recent $mcp_client_name observed in the session. */
+      readonly mcp_client_name: string;
+      /** Most recent distinct_id observed for the session. Stable identifier the SDK tagged the events with. */
+      readonly distinct_id: string;
+      /** email property of the Person resolved from distinct_id; empty when no Person is mapped. */
+      readonly person_email: string;
+      /** name property of the Person resolved from distinct_id; empty when no Person is mapped. */
+      readonly person_name: string;
+      /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until the summary workflow runs. */
+      readonly intent: string;
+    }
+
+    export interface MCPToolCall {
+      /** ClickHouse uuid of the mcp_tool_call event. */
+      readonly event_id: string;
+      /** When the tool call was captured. */
+      readonly timestamp: string;
+      /** Tool that was invoked ($mcp_tool_name). */
+      readonly tool_name: string;
+      /** Agent intent for this tool call ($mcp_intent). Empty when the SDK did not capture context. */
+      readonly intent: string;
+      /** Whether the tool call resulted in an error. */
+      readonly is_error: boolean;
+      /** Error message when is_error is true, otherwise empty. */
+      readonly error_message: string;
+      /**
+         * Duration of the tool call in milliseconds when captured.
+         * @nullable
+         */
+      readonly duration_ms: number | null;
     }
 
     export interface MarkToleratedInput {
@@ -21335,6 +21557,23 @@ export namespace Schemas {
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown: boolean | null;
+      /** @nullable */
+      readonly is_hipaa: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -22449,6 +22688,24 @@ export namespace Schemas {
       results: MCPServerTemplate[];
     }
 
+    export interface PaginatedMCPSessionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPSession[];
+    }
+
+    export interface PaginatedMCPToolCallList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPToolCall[];
+    }
+
     export interface PaginatedMaterializedColumnSlotList {
       count: number;
       /** @nullable */
@@ -22899,7 +23156,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -22915,8 +23172,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -24423,6 +24680,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -25190,6 +25451,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -25354,10 +25617,10 @@ export namespace Schemas {
     }
 
     /**
-     * * `idle` - idle
-    * `running` - running
-    * `completed` - completed
-    * `error` - error
+     * * `idle` - IDLE
+    * `running` - RUNNING
+    * `completed` - COMPLETED
+    * `error` - ERROR
      */
     export type RunPhaseEnum = typeof RunPhaseEnum[keyof typeof RunPhaseEnum];
 
@@ -25370,16 +25633,16 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `pending` - pending
-    * `in_progress` - in_progress
-    * `completed` - completed
-    * `failed` - failed
-    * `canceled` - canceled
+     * * `pending` - PENDING
+    * `in_progress` - IN_PROGRESS
+    * `completed` - COMPLETED
+    * `failed` - FAILED
+    * `canceled` - CANCELED
      */
-    export type WizardTaskStatusEnum = typeof WizardTaskStatusEnum[keyof typeof WizardTaskStatusEnum];
+    export type WizardTaskDTOStatusEnum = typeof WizardTaskDTOStatusEnum[keyof typeof WizardTaskDTOStatusEnum];
 
 
-    export const WizardTaskStatusEnum = {
+    export const WizardTaskDTOStatusEnum = {
       Pending: 'pending',
       InProgress: 'in_progress',
       Completed: 'completed',
@@ -25387,59 +25650,52 @@ export namespace Schemas {
       Canceled: 'canceled',
     } as const;
 
-    export interface WizardTask {
-      /** Stable identifier the wizard assigned to this task. Used to track lifecycle across pushes. */
+    export interface WizardTaskDTO {
       id: string;
-      /** Human-readable title of the task. Should be updated if the task's purpose changes, but can remain the same if only the status changes. */
       title: string;
-      /** Current lifecycle stage of the task.
-
-      * `pending` - pending
-      * `in_progress` - in_progress
-      * `completed` - completed
-      * `failed` - failed
-      * `canceled` - canceled */
-      status: WizardTaskStatusEnum;
+      status: WizardTaskDTOStatusEnum;
     }
 
-    export interface WizardSession {
-      /** Stable identifier the wizard assigns to a run, formatted '{workflow_id}-{skill_id}-{started_at_iso}'. Re-posting with the same session_id upserts the existing row. */
+    /**
+     * @nullable
+     */
+    export type WizardSessionDTOEventPlan = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type WizardSessionDTOError = { [key: string]: unknown } | null;
+
+    /**
+     * Output: serialises a WizardSessionDTO returned by the facade.
+     */
+    export interface WizardSessionDTO {
       session_id: string;
-      readonly team_id: number;
-      /** High-level workflow being run, e.g. 'onboarding', 'migration', 'audit'. */
+      team_id: number;
       workflow_id: string;
-      /** Specific skill within the workflow, e.g. 'posthog_integration', 'revenue_analytics_setup'. */
       skill_id: string;
-      /** UTC timestamp when the wizard started this run. Matches the timestamp encoded in session_id. */
       started_at: string;
-      /** Lifecycle stage of the wizard run.
-
-      * `idle` - idle
-      * `running` - running
-      * `completed` - completed
-      * `error` - error */
       run_phase: RunPhaseEnum;
-      /** Full snapshot of the wizard's current task list. Each push overwrites the previous list; tasks may be added, removed, or re-ordered between pushes. */
-      tasks: WizardTask[];
-      /** Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific. */
-      event_plan?: unknown;
-      /** Populated when run_phase='error'. Shape: { type: string, message: string }. */
-      error?: unknown;
-      readonly created_at: string;
-      readonly updated_at: string;
+      tasks: WizardTaskDTO[];
+      /** @nullable */
+      event_plan: WizardSessionDTOEventPlan;
+      /** @nullable */
+      error: WizardSessionDTOError;
+      created_at: string;
+      updated_at: string;
     }
 
-    export interface PaginatedWizardSessionList {
+    export interface PaginatedWizardSessionDTOList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: WizardSession[];
+      results: WizardSessionDTO[];
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -25458,6 +25714,16 @@ export namespace Schemas {
       id: number;
       email: string;
     } | null;
+      /** @nullable */
+      stripe_customer_id?: string | null;
+      /** @nullable */
+      hubspot_deal_id?: string | null;
+      /** @nullable */
+      billing_id?: string | null;
+      /** @nullable */
+      sfdc_id?: string | null;
+      /** @nullable */
+      zendesk_id?: string | null;
     } | null;
 
     export interface PatchedAccount {
@@ -25474,7 +25740,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -25571,7 +25837,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -26101,6 +26367,21 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
+
+
+    export const PatchedDataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type PatchedDataWarehouseSavedQueryQuery = {
+      kind?: PatchedDataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -26117,8 +26398,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -26657,6 +26938,11 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+    }
+
     /**
      * @nullable
      */
@@ -27023,6 +27309,12 @@ export namespace Schemas {
      */
     export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null;
 
+    export type PatchedExternalDataSchemaAvailableColumnsItem = {
+      name: string;
+      data_type?: string;
+      is_nullable?: boolean;
+    };
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -27095,6 +27387,13 @@ export namespace Schemas {
       * `cdc_only` - cdc_only
       * `both` - both */
       cdc_table_mode?: CdcTableModeEnum | null;
+      /**
+         * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+         * @nullable
+         */
+      enabled_columns?: string[] | null;
+      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -28109,6 +28408,23 @@ export namespace Schemas {
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked?: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown?: boolean | null;
+      /** @nullable */
+      readonly is_hipaa?: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -28351,10 +28667,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -29197,7 +29510,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type?: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -29213,8 +29526,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model?: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -30356,6 +30669,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at?: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -30930,6 +31247,8 @@ export namespace Schemas {
          * @nullable
          */
       passkeys_enabled_for_2fa?: boolean | null;
+      /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+      hide_mcp_hints?: boolean;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
@@ -31221,10 +31540,7 @@ export namespace Schemas {
     };
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface ProjectBackwardCompat {
       readonly id: number;
@@ -36110,6 +36426,32 @@ export namespace Schemas {
     }
 
     /**
+     * @nullable
+     */
+    export type UpsertWizardSessionRequestEventPlan = { [key: string]: unknown } | null;
+
+    /**
+     * @nullable
+     */
+    export type UpsertWizardSessionRequestError = { [key: string]: unknown } | null;
+
+    /**
+     * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
+     */
+    export interface UpsertWizardSessionRequest {
+      session_id: string;
+      workflow_id: string;
+      skill_id: string;
+      started_at: string;
+      run_phase: RunPhaseEnum;
+      tasks: WizardTaskDTO[];
+      /** @nullable */
+      event_plan?: UpsertWizardSessionRequestEventPlan;
+      /** @nullable */
+      error?: UpsertWizardSessionRequestError;
+    }
+
+    /**
      * The release condition to evaluate
      */
     export type UserBlastRadiusRequestCondition = { [key: string]: unknown };
@@ -40249,6 +40591,36 @@ export namespace Schemas {
     };
 
     export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_end'.
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type McpAnalyticsSessionsToolCallsParams = {
     /**
      * Number of results to return per page.
      */
@@ -44957,6 +45329,15 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
+     * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
+
+    * `true` - true
+    * `false` - false
+    * `all` - all
+     * @minLength 1
+     */
+    archived?: TasksListArchived;
+    /**
      * Filter by creator user ID
      */
     created_by?: number;
@@ -45009,6 +45390,15 @@ export namespace Schemas {
      */
     status?: TasksListStatus;
     };
+
+    export type TasksListArchived = typeof TasksListArchived[keyof typeof TasksListArchived];
+
+
+    export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
 
@@ -45310,6 +45700,11 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WizardSessionsStreamRetrieveParams = {
+    skill_id: string;
+    workflow_id: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {

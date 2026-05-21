@@ -8,7 +8,7 @@ returns DTO-shaped responses. No model imports.
 from typing import Any
 
 import structlog
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -99,8 +99,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(WizardSessionSerializer(sessions, many=True).data)
 
     @extend_schema(
-        description="Retrieve a single wizard session by its session_id.",
-        parameters=[OpenApiParameter(name="session_id", location=OpenApiParameter.PATH, type=str)],
+        description="Retrieve a single wizard session by its session_id (path parameter {id}).",
         responses={
             200: WizardSessionSerializer,
             404: OpenApiResponse(description="No session with that id for this project."),
