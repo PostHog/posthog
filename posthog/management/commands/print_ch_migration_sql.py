@@ -43,6 +43,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # Under TEST/E2E settings the MergeTree engine helper appends a random UUID to each
+        # ReplicatedMergeTree ZooKeeper path (to avoid clashes between test runs). That makes
+        # the rendered SQL non-deterministic across environments, breaking per-env comparison
+        # and hiding real divergence. Render production-deterministic ZK paths instead — the
+        # engine reads these flags off django.conf.settings at SQL-build time, so flip them
+        # before importing the migration modules below.
+        settings.TEST = False
+        settings.E2E_TESTING = False
+
         names = [self._normalize(name) for name in options["migrations"]]
         if options["format"] == "markdown":
             self._handle_markdown(names)

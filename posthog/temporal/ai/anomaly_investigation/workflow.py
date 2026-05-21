@@ -31,6 +31,7 @@ from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.utils import absolute_uri
 
 from products.notebooks.backend.models import Notebook
 
@@ -270,7 +271,8 @@ def _build_breach_descriptions(
     if summary:
         lines.append(summary)
     if notebook_short_id:
-        lines.append(f"See /notebooks/{notebook_short_id} for the full investigation.")
+        notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}")
+        lines.append(f"See {notebook_url} for the full investigation.")
     return lines
 
 

@@ -3,8 +3,7 @@ import { type Unzipped, strFromU8, unzipSync } from 'fflate'
 import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 import { loadContextMillManifest } from './manifest-loader'
 
-const CONTEXT_MILL_URL =
-    'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
+const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 let cachedResources: Unzipped | null = null
 

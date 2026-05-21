@@ -512,6 +512,7 @@ export enum AgentMode {
     Flags = 'flags',
     LLMAnalytics = 'llm_analytics',
     Sandbox = 'sandbox',
+    UserInterview = 'user_interview',
 }
 
 export enum SlashCommandName {
