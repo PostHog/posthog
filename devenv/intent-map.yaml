@@ -28,6 +28,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    property_values:
+        description: 'Aggregate distinct property values for autocomplete'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     replay_storage:
         description: 'Session replay blob storage and capture'
         requires: [event_ingestion]
