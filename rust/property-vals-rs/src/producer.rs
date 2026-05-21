@@ -152,9 +152,10 @@ impl Producer for AggregatedProducer {
             }
         }
 
-        producer
-            .commit_transaction(self.transaction_timeout)
-            .map_err(|e| ProduceError::Commit(e.to_string()))?;
+        if let Err(e) = producer.commit_transaction(self.transaction_timeout) {
+            abort_logged(producer, self.transaction_timeout);
+            return Err(ProduceError::Commit(e.to_string()));
+        }
         Ok(())
     }
 }
