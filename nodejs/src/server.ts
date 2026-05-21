@@ -258,6 +258,18 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        // Legacy postgres v1 drain for hogflow jobs — delete once cdp-cyclotron-worker-hogflows-pg-legacy is shut down
+        if (capabilities.cdpCyclotronWorkerHogFlowLegacyPg) {
+            serviceLoaders.push(async () => {
+                const worker = new CdpCyclotronWorkerHogFlow(
+                    { ...this.config, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
+                    cdpDeps!
+                )
+                await worker.start()
+                return worker.service
+            })
+        }
+
         if (capabilities.cdpHogflowScheduler) {
             serviceLoaders.push(() => {
                 const scheduler = new HogFlowScheduleService(this.config)

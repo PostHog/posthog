@@ -50,6 +50,7 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
+    USER_INTERVIEW = "user_interview"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -63,6 +64,7 @@ class AggregationAxisFormat(StrEnum):
 
 
 class AlertCalculationInterval(StrEnum):
+    EVERY_15_MINUTES = "every_15_minutes"
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
