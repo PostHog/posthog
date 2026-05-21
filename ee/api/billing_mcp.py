@@ -15,6 +15,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from ee.billing.billing_manager import BillingManager
 
 
+@extend_schema(tags=["billing"])
 class BillingMCPViewset(TeamAndOrgViewSetMixin, GenericViewSet):
     """
     MCP-accessible read tools that proxy to billing's `/api/mcp/tools/` namespace.
@@ -45,5 +46,4 @@ class BillingMCPViewset(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["billing:read"],
     )
     def billing_summary(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        org = self._get_org()
-        return Response(self._get_billing_manager().get_mcp_billing_summary(org))
+        return Response(self._get_billing_manager().get_mcp_billing_summary(self.organization))

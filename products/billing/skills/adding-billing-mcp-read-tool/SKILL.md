@@ -14,9 +14,9 @@ re-implement it on this side.
 
 ## Where authorization lives
 
-| Layer | What it checks | Where |
-|-------|----------------|-------|
-| PostHog edge | OAuth/PAT scope (`billing:read`) | `required_scopes=` on the action |
+| Layer           | What it checks                         | Where                                                 |
+| --------------- | -------------------------------------- | ----------------------------------------------------- |
+| PostHog edge    | OAuth/PAT scope (`billing:read`)       | `required_scopes=` on the action                      |
 | Billing service | Organization role (Member/Admin/Owner) | `permission_classes=[...]` on the billing-side action |
 
 If you only need `billing:read`, you do not need to add a new scope. If a new
@@ -63,8 +63,7 @@ regenerate `services/mcp/src/lib/oauth-scopes.generated.ts`.
    @action(detail=False, methods=["GET"], url_path="usage-snapshot",
            required_scopes=["billing:read"])
    def usage_snapshot(self, request, *args, **kwargs):
-       org = self._get_org()
-       return Response(self._get_billing_manager().get_mcp_usage_snapshot(org))
+       return Response(self._get_billing_manager().get_mcp_usage_snapshot(self.organization))
    ```
 
 4. **Tool manifest** — append an entry to
@@ -72,17 +71,17 @@ regenerate `services/mcp/src/lib/oauth-scopes.generated.ts`.
 
    ```yaml
    usage-snapshot:
-       operation: environment_billing_mcp_usage_snapshot
-       enabled: true
-       scopes:
-           - billing:read
-       annotations:
-           readOnly: true
-           destructive: false
-           idempotent: true
-       title: Get usage snapshot
-       description: >
-           One-line description of what the tool returns and when to use it.
+     operation: environment_billing_mcp_usage_snapshot
+     enabled: true
+     scopes:
+       - billing:read
+     annotations:
+       readOnly: true
+       destructive: false
+       idempotent: true
+     title: Get usage snapshot
+     description: >
+       One-line description of what the tool returns and when to use it.
    ```
 
    The `operation` string is the DRF `basename` + action name with underscores
