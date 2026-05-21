@@ -1,3 +1,4 @@
+import { coerceActionIds } from './coerce-action-ids'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 
@@ -71,11 +72,8 @@ export class ActionManagerCDP {
         }
 
         // Group actions by team_id
-        // NOTE: The posthog_action.id column is BIGINT, which pg returns as string.
-        // We coerce id and team_id back to number since action IDs are well within safe integer range.
         result.rows.forEach((action) => {
-            action.id = Number(action.id)
-            action.team_id = Number(action.team_id)
+            coerceActionIds(action)
             const teamIdStr = String(action.team_id)
             if (!resultRecord[teamIdStr]) {
                 resultRecord[teamIdStr] = []

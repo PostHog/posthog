@@ -1,6 +1,7 @@
 import * as schedule from 'node-schedule'
 
 import { Action, Hook, RawAction, Team } from '../../types'
+import { coerceActionIds } from '../../utils/coerce-action-ids'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
@@ -148,10 +149,7 @@ export async function fetchAllActionsGroupedByTeam(
 
     const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
     for (const rawAction of rawActions) {
-        // NOTE: posthog_action.id is BIGINT, which pg returns as string.
-        // Coerce back to number since action IDs are well within safe integer range.
-        rawAction.id = Number(rawAction.id)
-        rawAction.team_id = Number(rawAction.team_id)
+        coerceActionIds(rawAction)
 
         if (!actions[rawAction.team_id]) {
             actions[rawAction.team_id] = {}
@@ -208,9 +206,7 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
         return null
     }
 
-    // NOTE: posthog_action.id is BIGINT, which pg returns as string. Coerce back to number.
-    rawActions[0].id = Number(rawActions[0].id)
-    rawActions[0].team_id = Number(rawActions[0].team_id)
+    coerceActionIds(rawActions[0])
 
     const hooks = await fetchActionRestHooks(client, id)
 
