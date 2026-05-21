@@ -6708,6 +6708,7 @@ dependencies = [
  "common-database",
  "common-metrics",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics-exporter-prometheus",
  "personhog-common",

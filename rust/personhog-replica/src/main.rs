@@ -97,6 +97,8 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 replica_pool,
                 bulk_primary_pool,
                 bulk_replica_pool,
+                config.bulk_chunk_size,
+                config.bulk_max_concurrent_chunks,
             ))
         }
         other => {
