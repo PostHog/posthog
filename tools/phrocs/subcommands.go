@@ -102,7 +102,9 @@ func runWait(timeoutSec int, asJSON bool) int {
 //
 // "done" counts as ready: a one-shot setup proc (migrations, seed scripts) that
 // exits 0 should not block `phrocs wait` forever just because it lacks a
-// `ready_pattern`. Only `crashed` is a terminal failure.
+// `ready_pattern`. "stopped" likewise counts as ready: it's the steady state
+// for procs configured `autostart: false`, which the manager intentionally
+// never launched. Only `crashed` is a terminal failure.
 func classify(procs map[string]any) (verdict string, crashed []string, notReady []string) {
 	if len(procs) == 0 {
 		return "pending", nil, nil
@@ -116,7 +118,7 @@ func classify(procs map[string]any) (verdict string, crashed []string, notReady 
 			crashed = append(crashed, name)
 			continue
 		}
-		if status == "done" {
+		if status == "done" || status == "stopped" {
 			continue
 		}
 		if !ready {

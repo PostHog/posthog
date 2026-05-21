@@ -1,2 +1,2 @@
-export { AI_EVENT_TYPES, EventWithProperties, normalizeTraceProperties, processAiEvent } from './process-ai-event'
-export { AiEventSubpipelineConfig, createAiEventSubpipeline } from './pipelines/ai-event-subpipeline'
+export { AI_EVENT_TYPES, normalizeTraceProperties, processAiEvent, type EventWithProperties } from './process-ai-event'
+export { createAiEventSubpipeline, type AiEventSubpipelineConfig } from './pipelines/ai-event-subpipeline'

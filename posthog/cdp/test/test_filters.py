@@ -433,7 +433,7 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 ],
             }
         )
-        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "negation": True}]
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": "not_in"}]
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)
@@ -603,8 +603,8 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             is_static=False,
         )
         self.team.test_account_filters = [
-            {"type": "cohort", "key": "id", "value": test_users_cohort.pk, "negation": True},
-            {"type": "cohort", "key": "id", "value": internal_users_cohort.pk, "negation": True},
+            {"type": "cohort", "key": "id", "value": test_users_cohort.pk, "operator": "not_in"},
+            {"type": "cohort", "key": "id", "value": internal_users_cohort.pk, "operator": "not_in"},
         ]
         self.team.save()
 
@@ -644,7 +644,7 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             is_static=False,
         )
         # "not in cohort" = exclude anyone whose email matches either domain
-        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "negation": True}]
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.pk, "operator": "not_in"}]
         self.team.save()
 
         result = compile_filters_bytecode({"filter_test_accounts": True}, self.team)

@@ -38,9 +38,13 @@ from posthog.hogql_queries.insights.retention.retention_base_query_rolling impor
     RetentionRollingIntervalBaseQueryBuilder,
 )
 from posthog.hogql_queries.insights.retention.retention_validation_rules import DisallowCumulativeWith24HourWindows
-from posthog.hogql_queries.insights.retention.utils import has_cohort_property
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter, has_single_breakdown
+from posthog.hogql_queries.insights.utils.breakdowns import (
+    ALL_USERS_COHORT_ID,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    has_breakdown_filter,
+    has_single_breakdown,
+)
+from posthog.hogql_queries.insights.utils.properties import has_cohort_property
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
@@ -48,7 +52,6 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.queries.util import correct_result_for_sampling
 
 DEFAULT_INTERVAL = IntervalType("day")
@@ -142,17 +145,39 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             if self.query.retentionFilter.aggregationPropertyType == "person":
                 # person.properties resolves via the HogQL person join on the events table
                 chain = cast(list[str | int], ["person", "properties", prop_name])
+            elif self.query.retentionFilter.aggregationPropertyType == "data_warehouse":
+                chain = cast(list[str | int], [prop_name])
             else:
                 chain = cast(list[str | int], ["events", "properties", prop_name])
             property_field = ast.Field(chain=chain)
-            return ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(name="toFloat", args=[property_field]),
-                    ast.Constant(value=0.0),
-                ],
-            )
+            return self.property_aggregation_expr_for_field(property_field)
         return None
+
+    def property_aggregation_expr_for_field(self, property_field: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[property_field]),
+                ast.Constant(value=0.0),
+            ],
+        )
+
+    def property_aggregation_expr_for_entity(self, entity: RetentionEntity) -> ast.Expr | None:
+        if (
+            self.query.retentionFilter.aggregationType not in [AggregationType.SUM, AggregationType.AVG]
+            or not self.query.retentionFilter.aggregationProperty
+        ):
+            return None
+
+        if (
+            self.query.retentionFilter.aggregationPropertyType == "data_warehouse"
+            and entity.type == EntityType.DATA_WAREHOUSE
+        ):
+            return self.property_aggregation_expr_for_field(
+                ast.Field(chain=[self.query.retentionFilter.aggregationProperty])
+            )
+
+        return self.property_aggregation_expr
 
     @cached_property
     def has_property_aggregation(self) -> bool:

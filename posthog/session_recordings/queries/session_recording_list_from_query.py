@@ -32,6 +32,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_session_property,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -196,7 +197,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
                 settings=HogQLGlobalSettings(
-                    enable_analyzer=None,
                     **(
                         {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
                     ),
@@ -373,6 +373,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     right=cohort_subquery,
                 )
             )
+
+        # Session-scoped properties (e.g. $entry_utm_source) join to the sessions table
+        # via property_to_expr's "replay" scope. They're stripped from `remaining_properties`
+        # below to avoid the UnexpectedQueryProperties exception, so handle them here.
+        session_properties = [p for p in (self._query.properties or []) if is_session_property(p)]
+        if session_properties:
+            optional_exprs.append(property_to_expr(session_properties, team=self._team, scope="replay"))
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:

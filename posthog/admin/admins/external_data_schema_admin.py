@@ -58,6 +58,7 @@ def _change_url(schema_id) -> str:
     return reverse("admin:data_warehouse_externaldataschema_change", args=[schema_id])
 
 
+@admin.register(ExternalDataSchema)
 class ExternalDataSchemaAdmin(admin.ModelAdmin):
     list_display = (
         "id",

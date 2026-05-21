@@ -194,6 +194,44 @@ describe('MCP org/project resolution inside the real Workers runtime', () => {
         })
     })
 
+    it('init completes for a project-scoped API key without organization:read (no org fetch)', async () => {
+        // Production scenario behind the dogpile silenced by #58726 and now
+        // fixed at the source: a personal API key scoped to a single project
+        // carries `project:read` but not `organization:read`. Pre-guard, every
+        // session init would still issue GET /api/organizations/{id}/ from
+        // both getEnvironmentPrompt and getAiConsentGiven and 403. The guard
+        // short-circuits the fetch so the request path completes without
+        // capturing the expected denial.
+        vi.spyOn(StateManager.prototype, 'getApiKey').mockResolvedValue({
+            scopes: ['project:read', 'insight:read'],
+            scoped_teams: [1],
+            scoped_organizations: [],
+        })
+        // Wrap, don't replace: the real implementation still runs and we
+        // observe its behavior. Without the guard this would resolve to the
+        // captured org fixture; with the guard it resolves to `undefined`.
+        const orgFetchSpy = vi.spyOn(StateManager.prototype, 'getCachedOrFetchOrg')
+
+        const stub = env.MCP_OBJECT.get(env.MCP_OBJECT.idFromName('session-project-scoped-no-org-read'))
+
+        await runInDurableObject(stub, async (mcp: MCP) => {
+            const bg = interceptWaitUntil(mcp)
+            ;(mcp as any).props = propsFor()
+
+            await expect(mcp.init()).resolves.toBeUndefined()
+
+            // getEnvironmentPrompt and getAiConsentGiven both go through the
+            // org fetcher — assert it was invoked and that each invocation
+            // returned `undefined` without throwing.
+            expect(orgFetchSpy).toHaveBeenCalled()
+            for (const call of orgFetchSpy.mock.results) {
+                await expect(call.value).resolves.toBeUndefined()
+            }
+
+            await bg.flush()
+        })
+    })
+
     it('getProjectId throws MissingProjectContextError with the scoped org when no project is resolvable', async () => {
         const stub = env.MCP_OBJECT.get(env.MCP_OBJECT.idFromName('session-missing-project'))
 

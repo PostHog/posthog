@@ -34,6 +34,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from '../../products/llm_analytics/frontend/clusters/constants'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
+import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -118,7 +119,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
+    MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
+    MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    ReplayVision: () => import('../../products/replay_vision/frontend/replay_lenses/ReplayLensesScene'),
+    ReplayVisionLens: () => import('../../products/replay_vision/frontend/replay_lenses/ReplayLens'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
@@ -160,6 +165,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
+    '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
@@ -230,7 +236,14 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
+    '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
+    '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
+    '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
+    '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/metrics': ['Metrics', 'metrics'],
+    '/replay-vision': ['ReplayVision', 'replayVision'],
+    '/replay-vision/:id': ['ReplayVisionLens', 'replayVision'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
@@ -559,6 +572,19 @@ export const productConfiguration: Record<string, any> = {
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
+    MCPAnalytics: {
+        projectBased: true,
+        name: 'MCP analytics',
+        layout: 'app-container',
+        description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
+        iconType: 'llm_analytics',
+    },
+    MCPAnalyticsToolDetail: {
+        projectBased: true,
+        name: 'MCP tool',
+        layout: 'app-container',
+        iconType: 'llm_analytics',
+    },
     Metrics: {
         name: 'Metrics',
         projectBased: true,
@@ -566,6 +592,20 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Metrics',
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
+    },
+    ReplayVision: {
+        name: 'Replay vision',
+        projectBased: true,
+        description:
+            'Configure named lenses that PostHog applies to completed session recordings. Results land as queryable events.',
+        iconType: 'replay_vision',
+        layout: 'app-container',
+    },
+    ReplayVisionLens: {
+        name: 'Replay vision lens',
+        projectBased: true,
+        iconType: 'replay_vision',
+        layout: 'app-container',
     },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
@@ -675,7 +715,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
-    models: (): string => '/models',
+    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     nodeDetail: (id: string): string => `/models/${id}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
@@ -883,7 +923,13 @@ export const productUrls = {
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
     llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
     llmAnalyticsSkills: (): string => '/llm-analytics/skills',
-    llmAnalyticsSkill: (name: string): string => `/llm-analytics/skills/${name}`,
+    llmAnalyticsSkill: (
+        name: string,
+        params?: {
+            file?: string
+            version?: number
+        }
+    ): string => combineUrl(`/llm-analytics/skills/${name}`, params).url,
     llmAnalyticsClusters: (runId?: string): string =>
         runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>
@@ -896,6 +942,11 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
+    mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
+    mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
+    mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
+    mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
@@ -996,6 +1047,7 @@ export const productUrls = {
     replayFilePlayback: (): string => '/replay/file-playback',
     replayKiosk: (): string => '/replay/kiosk',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
+    replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
@@ -1633,6 +1685,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
     },
     {
+        path: 'MCP analytics',
+        intents: [ProductKey.LLM_ANALYTICS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        visualOrder: 2,
+        type: 'mcp_analytics',
+        iconType: 'llm_analytics' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.mcpAnalyticsDashboard(),
+        flag: FEATURE_FLAGS.MCP_ANALYTICS,
+        tags: ['alpha'],
+        sceneKey: 'MCPAnalytics',
+        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
+    },
+    {
         path: 'Marketing analytics',
         intents: [ProductKey.MARKETING_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
@@ -1750,6 +1816,22 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
         ],
+    },
+    {
+        path: 'Replay vision',
+        category: ProductItemCategory.BEHAVIOR,
+        intents: [ProductKey.REPLAY_VISION],
+        type: 'replay_vision',
+        iconType: 'replay_vision' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-session-replay-light)',
+            'var(--color-product-session-replay-dark)',
+        ] as FileSystemIconColor,
+        href: urls.replayVision(),
+        tags: ['beta'],
+        flag: FEATURE_FLAGS.REPLAY_VISION,
+        sceneKey: 'ReplayVision',
+        sceneKeys: ['ReplayVision', 'ReplayVisionLens'],
     },
     {
         path: 'Revenue analytics',

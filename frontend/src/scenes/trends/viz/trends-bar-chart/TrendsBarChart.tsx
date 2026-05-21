@@ -46,7 +46,8 @@ interface TrendsBarChartProps {
 }
 
 const EMPTY_LABELS: string[] = []
-const TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
+const TIME_SERIES_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
+const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false }
 
 const buildBarMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
     action: r.action,
@@ -159,7 +160,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 allDays: currentPeriodResult?.days ?? [],
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: TOOLTIP_CONFIG,
+                tooltip: TIME_SERIES_TOOLTIP_CONFIG,
             }),
         [
             trendsFilter,
@@ -184,7 +185,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     const aggregatedConfig: BarChartConfig = useMemo(
         () => ({
             showGrid: true,
-            tooltip: TOOLTIP_CONFIG,
+            tooltip: AGGREGATED_TOOLTIP_CONFIG,
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
@@ -276,6 +277,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                     groupTypeLabel={resolvedGroupTypeLabel}
                     formatCompareLabel={context?.formatCompareLabel}
                     onRowClick={onRowClick}
+                    showHeader={isAggregated ? false : undefined}
                 />
             )
         },

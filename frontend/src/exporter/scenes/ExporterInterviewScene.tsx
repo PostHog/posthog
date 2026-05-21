@@ -10,12 +10,12 @@ import { InterviewExportPayload } from '../types'
 
 type CallState = 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
 
-type ConversationPhase = 'agent-talking' | 'user-speaking' | 'waiting'
+type ConversationPhase = 'agent-talking' | 'listening' | 'thinking'
 
 const PHASE_LABELS: Record<ConversationPhase, string> = {
     'agent-talking': '🎤 Talking',
-    'user-speaking': '👂 Listening',
-    waiting: '🧠 Thinking',
+    listening: '👂 Listening',
+    thinking: '🧠 Thinking',
 }
 
 interface VapiTranscriptMessage {
@@ -212,11 +212,15 @@ export default function ExporterInterviewScene({
     accessToken?: string
 }): JSX.Element {
     const [state, setState] = useState<CallState>('idle')
-    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('waiting')
+    // Default to 'thinking' — between connection-up and the agent's first speech-start
+    // the assistant is loading its opener, which can take a few seconds. After
+    // speech-end transitions us into 'listening', subsequent silent moments correctly
+    // read as listening (mic is open), and only the post-user-final gap re-enters thinking.
+    const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('thinking')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const vapiRef = useRef<Vapi | null>(null)
     const agentTalkingRef = useRef<boolean>(false)
-    const lastPhaseRef = useRef<ConversationPhase>('waiting')
+    const lastPhaseRef = useRef<ConversationPhase>('thinking')
     const isMountedRef = useRef<boolean>(true)
 
     useEffect(() => {
@@ -240,8 +244,8 @@ export default function ExporterInterviewScene({
         vapiRef.current?.stop()
         vapiRef.current = null
         agentTalkingRef.current = false
-        lastPhaseRef.current = 'waiting'
-        setConversationPhase('waiting')
+        lastPhaseRef.current = 'thinking'
+        setConversationPhase('thinking')
         setState('loading')
         void (async () => {
             try {
@@ -258,10 +262,34 @@ export default function ExporterInterviewScene({
                     lastPhaseRef.current = next
                     setConversationPhase(next)
                 }
-                vapi.on('call-end', () => setState('ended'))
+                // Daily.co's normal end-of-call eviction surfaces as an `error` event in the
+                // Vapi SDK ("Meeting ended due to ejection: Meeting has ended"), often racing
+                // with the `call-end` event. Suppress that race so the error panel doesn't
+                // flash as the interview wraps up — but ONLY when the call actually got off
+                // the ground. A pre-connection failure that happens to mention "Meeting has
+                // ended" (e.g. joining an already-ended room) must still surface as an
+                // error so the user gets the retry affordance.
+                const callEndedRef = { current: false }
+                const callConnectedRef = { current: false }
+                const isBenignEndOfCallError = (msg: string): boolean =>
+                    msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
+                vapi.on('call-end', () => {
+                    callEndedRef.current = true
+                    setState('ended')
+                })
                 vapi.on('error', (e: unknown) => {
+                    const message = e instanceof Error ? e.message : ''
+                    // call-end already fired — definitely post-end, swallow.
+                    if (callEndedRef.current) {
+                        return
+                    }
+                    // Benign message + we'd reached in-call → call is ending, swallow.
+                    // Benign message but never connected → real failure, surface it.
+                    if (callConnectedRef.current && isBenignEndOfCallError(message)) {
+                        return
+                    }
                     vapi.stop()
-                    setErrorMessage(e instanceof Error ? e.message : 'Vapi reported an error during the call.')
+                    setErrorMessage(message || 'Vapi reported an error during the call.')
                     setState('error')
                 })
                 vapi.on('speech-start', () => {
@@ -270,12 +298,12 @@ export default function ExporterInterviewScene({
                 })
                 vapi.on('speech-end', () => {
                     agentTalkingRef.current = false
-                    setPhase('waiting')
+                    setPhase('listening')
                 })
                 vapi.on('message', (message: VapiTranscriptMessage) => {
                     if (message.type === 'user-interrupted') {
                         agentTalkingRef.current = false
-                        setPhase('user-speaking')
+                        setPhase('listening')
                         return
                     }
                     if (message.type !== 'transcript' || message.role !== 'user') {
@@ -285,9 +313,9 @@ export default function ExporterInterviewScene({
                         return
                     }
                     if (message.transcriptType === 'partial') {
-                        setPhase('user-speaking')
+                        setPhase('listening')
                     } else if (message.transcriptType === 'final') {
-                        setPhase('waiting')
+                        setPhase('thinking')
                     }
                 })
                 setState('connecting')
@@ -296,6 +324,9 @@ export default function ExporterInterviewScene({
                     vapi.stop()
                     return
                 }
+                // Mark that the call actually connected — gates the benign-error suppression
+                // so pre-connection "Meeting has ended" failures still surface to the user.
+                callConnectedRef.current = true
                 setState((current) => (current === 'connecting' ? 'in-call' : current))
             } catch (e) {
                 if (!isMountedRef.current) {
@@ -319,9 +350,8 @@ export default function ExporterInterviewScene({
 
     return (
         <div className="max-w-2xl mx-auto px-4 py-12">
-            <div className="mb-8 flex items-center justify-between">
+            <div className="mb-8">
                 <Logo className="text-lg" />
-                <span className="text-xs text-muted">Powered by PostHog</span>
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">

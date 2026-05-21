@@ -85,6 +85,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "llm_skill": "llm_analytics",
+    "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "dashboard_template": "dashboard",
@@ -373,7 +374,7 @@ class UserAccessControl:
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
 
     # ------------------------------------------------------------
     # Access control helpers

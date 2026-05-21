@@ -14,22 +14,35 @@ with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
 from products.replay_vision.backend.temporal.activities import (
+    call_lens_provider_activity,
+    cleanup_gemini_file_activity,
     create_observation_activity,
+    emit_observation_event_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
     mark_observation_failed_activity,
     mark_observation_running_activity,
+    mark_observation_succeeded_activity,
+    upload_video_to_gemini_activity,
 )
 from products.replay_vision.backend.temporal.constants import APPLY_LENS_WORKFLOW_NAME
 from products.replay_vision.backend.temporal.types import (
     ApplyLensInputs,
+    CallLensProviderInputs,
+    CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
+    EmitObservationEventInputs,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     FetchSessionEventsInputs,
+    LensCallOutput,
+    LensResult,
     MarkObservationFailedInputs,
     MarkObservationRunningInputs,
+    MarkObservationSucceededInputs,
+    UploadedVideo,
+    UploadVideoToGeminiInputs,
 )
 
 _STATE_ACTIVITY_RETRY = common.RetryPolicy(
@@ -55,15 +68,28 @@ _FETCH_RETRY = common.RetryPolicy(
 # Asset get-or-create has no transient failure modes worth retrying.
 _ENSURE_ASSET_RETRY = common.RetryPolicy(maximum_attempts=1)
 
-_STUB_NOT_IMPLEMENTED_REASON = (
-    "ApplyLensWorkflow is a stub: events fetched and video rasterized, but the provider call "
-    "and event-emit terminal step are not implemented yet."
+# Deterministic failures don't retry; a re-upload would leak another Gemini file before the cleanup sweep reaps it.
+_UPLOAD_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=2),
+    maximum_interval=dt.timedelta(seconds=30),
+    maximum_attempts=3,
+    non_retryable_error_types=["RuntimeError", "ValueError"],
 )
+
+# Workflow-level retries only cover transient transport failures; schema/semantic errors are non-retryable.
+_PROVIDER_CALL_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=2),
+    maximum_interval=dt.timedelta(seconds=30),
+    maximum_attempts=3,
+)
+
+# Cleanup is best-effort; the cleanup sweep handles persistent failures.
+_CLEANUP_RETRY = common.RetryPolicy(maximum_attempts=2)
 
 
 @wf.defn(name=APPLY_LENS_WORKFLOW_NAME)
 class ApplyLensWorkflow(PostHogWorkflow):
-    """Apply one lens to one session. STUB: rasterizes + fetches events, then marks failed."""
+    """Apply one lens to one session: create row → fetch+rasterize → upload → call provider → emit event → mark succeeded."""
 
     inputs_cls = ApplyLensInputs
 
@@ -95,14 +121,57 @@ class ApplyLensWorkflow(PostHogWorkflow):
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
 
+        uploaded: UploadedVideo | None = None
         try:
             asset_result = await self._fetch_and_ensure_asset(inputs, observation_id)
             await self._run_rasterize_child(inputs, asset_result.asset_id)
+            uploaded = await wf.execute_activity(
+                upload_video_to_gemini_activity,
+                UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=_UPLOAD_RETRY,
+            )
+            call_output: LensCallOutput = await wf.execute_activity(
+                call_lens_provider_activity,
+                CallLensProviderInputs(
+                    team_id=inputs.team_id,
+                    observation_id=observation_id,
+                    file_uri=uploaded.file_uri,
+                    mime_type=uploaded.mime_type,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=_PROVIDER_CALL_RETRY,
+            )
+            await wf.execute_activity(
+                emit_observation_event_activity,
+                EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_STATE_ACTIVITY_RETRY,
+            )
+            await wf.execute_activity(
+                mark_observation_succeeded_activity,
+                MarkObservationSucceededInputs(
+                    observation_id=observation_id,
+                    lens_result=LensResult(model_output=call_output.model_output),
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_STATE_ACTIVITY_RETRY,
+            )
         except Exception as e:
             await self._mark_failed(observation_id, f"{type(e).__name__}: {e}")
             raise
-
-        await self._mark_failed(observation_id, _STUB_NOT_IMPLEMENTED_REASON)
+        finally:
+            if uploaded is not None:
+                # Swallow exceptions so cleanup failure can't fail a workflow that already marked-succeeded.
+                try:
+                    await wf.execute_activity(
+                        cleanup_gemini_file_activity,
+                        CleanupGeminiFileInputs(gemini_file_name=uploaded.gemini_file_name),
+                        start_to_close_timeout=dt.timedelta(seconds=30),
+                        retry_policy=_CLEANUP_RETRY,
+                    )
+                except Exception:
+                    pass
 
     async def _fetch_and_ensure_asset(self, inputs: ApplyLensInputs, observation_id: UUID) -> EnsureSessionAssetOutput:
         fetch_task = wf.execute_activity(

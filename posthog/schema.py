@@ -50,6 +50,7 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
+    USER_INTERVIEW = "user_interview"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -63,6 +64,7 @@ class AggregationAxisFormat(StrEnum):
 
 
 class AlertCalculationInterval(StrEnum):
+    EVERY_15_MINUTES = "every_15_minutes"
     HOURLY = "hourly"
     DAILY = "daily"
     WEEKLY = "weekly"
@@ -133,6 +135,11 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
         extra="forbid",
     )
     property: str = Field(..., description="Property name from the plan to break down by.")
+
+
+class Operator(StrEnum):
+    IN_ = "in"
+    NOT_IN = "not_in"
 
 
 class YAxisPosition(StrEnum):
@@ -682,6 +689,7 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     FIX_HOGQL_QUERY = "fix_hogql_query"
     ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
+    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
@@ -727,6 +735,7 @@ class AssistantTool(StrEnum):
     SEARCH_LLM_TRACES = "search_llm_traces"
     RUN_HOG_EVAL_TEST = "run_hog_eval_test"
     DIAGNOSE_PROXY = "diagnose_proxy"
+    WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
 
 
 class AssistantToolCall(BaseModel):
@@ -2157,6 +2166,7 @@ class ExternalDataSourceType(StrEnum):
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
     RESEND = "Resend"
+    PG_ANALYZE = "PgAnalyze"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2228,6 +2238,7 @@ class FileSystemIconType(StrEnum):
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
+    REPLAY_VISION = "replay_vision"
     SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
@@ -3695,6 +3706,40 @@ class PersonType(BaseModel):
     uuid: str | None = None
 
 
+class PgAnalyzeIssueReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: str | None = None
+    name: str | None = None
+    queryText: str | None = None
+    url: str | None = None
+
+
+class PgAnalyzeIssueSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    database_id: str | None = None
+    references: list[PgAnalyzeIssueReference]
+    server_human_id: str | None = None
+    server_name: str | None = None
+    severity: str | None = None
+    synced_at: str
+
+
+class PgAnalyzeIssueSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: PgAnalyzeIssueSignalExtra
+    source_id: str
+    source_product: Literal["pganalyze"] = "pganalyze"
+    source_type: Literal["issue"] = "issue"
+    weight: float
+
+
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
 
@@ -3856,6 +3901,7 @@ class ProductKey(StrEnum):
     PRODUCT_TOURS = "product_tours"
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
+    REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"
     SUBSCRIPTIONS = "subscriptions"
     STREAMLIT_APPS = "streamlit_apps"
@@ -4510,6 +4556,7 @@ class SignalSourceProduct(StrEnum):
     CONVERSATIONS = "conversations"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
+    PGANALYZE = "pganalyze"
 
 
 class SignalSourceType(StrEnum):
@@ -5337,13 +5384,15 @@ class AssistantCohortPropertyFilter(BaseModel):
         extra="forbid",
     )
     key: Literal["id"] = "id"
-    operator: Literal["in"] = "in"
+    operator: Operator | None = Operator.IN_
     type: Literal["cohort"] = Field(
         default="cohort",
         description=(
             "Filter events by cohort membership. Use this to narrow down results to"
-            ' persons belonging to a specific cohort. Example: `{ type: "cohort", key:'
-            ' "id", value: 42, operator: "in" }`'
+            ' persons belonging to a specific cohort. Use `operator: "in"` to include'
+            ' cohort members, or `operator: "not_in"` to exclude them. Examples:\n-'
+            ' Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`\n-'
+            ' Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`'
         ),
     )
     value: int = Field(..., description="The cohort ID to filter by.")
@@ -8396,6 +8445,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | PgAnalyzeIssueSignalInput
     ]
 ):
     root: (
@@ -8408,6 +8458,7 @@ class SignalInput(
         | ConversationsTicketSignalInput
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
+        | PgAnalyzeIssueSignalInput
     )
 
 
@@ -12807,6 +12858,10 @@ class ChartSettings(BaseModel):
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
+    resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
+        default=None,
+        description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
+    )
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
@@ -19332,6 +19387,7 @@ class CustomerAnalyticsConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    account_group_type_index: int | None = None
     activity_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
     signup_event: EventsNode | ActionsNode
@@ -20374,6 +20430,14 @@ class TraceSpansTreeQuery(BaseModel):
     kind: Literal["TraceSpansTreeQuery"] = "TraceSpansTreeQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TraceSpansTreeQueryResponse | None = None
+    serviceName: str = Field(
+        ...,
+        description=(
+            "Service name that scopes the returned tree. Applied to the spans CTE so"
+            " the call-tree only contains spans from this service, even when matched"
+            " traces span multiple services."
+        ),
+    )
     serviceNames: list[str] | None = None
     spanName: str = Field(
         ...,
@@ -21342,6 +21406,15 @@ class LogValuesQuery(BaseModel):
     severityLevels: list[LogSeverityLevel] | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class LogsAlertFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterGroup: PropertyGroupFilter | None = None
+    serviceNames: list[str] | None = None
+    severityLevels: list[LogSeverityLevel] | None = None
 
 
 class LogsQuery(BaseModel):
