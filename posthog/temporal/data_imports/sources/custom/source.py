@@ -2,7 +2,7 @@ import json
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -23,10 +23,6 @@ from posthog.temporal.data_imports.sources.generated_configs import CustomSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
-# A sync only ever fetches data. GET covers most APIs; POST covers search/query
-# endpoints that take a body. Write verbs (PUT/PATCH/DELETE) are intentionally
-# excluded so a misconfigured manifest can't mutate or delete upstream data.
-ALLOWED_HTTP_METHODS = frozenset({"GET", "POST"})
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
 INLINE_SECRET_KEYS = ("token", "api_key", "password")
@@ -37,48 +33,32 @@ class ManifestValidationError(ValueError):
 
 
 class _ManifestAuth(BaseModel):
-    """`client.auth` block. Credentials are injected at sync time from the
-    secret `auth_*` config fields, so they must not appear inline here."""
-
     type: Literal["bearer", "api_key", "http_basic"]
 
     @model_validator(mode="before")
     @classmethod
     def _reject_inline_credentials(cls, data: Any) -> Any:
+        # Credentials belong in the secret auth_* config fields, never inline in
+        # the manifest — the manifest field is non-secret and round-trips to the client.
         if isinstance(data, dict):
             inline = [key for key in INLINE_SECRET_KEYS if data.get(key)]
             if inline:
                 raise ValueError(
-                    f"Credentials must not be embedded in the manifest ({', '.join(inline)}) — "
-                    "provide them in the dedicated auth fields instead."
+                    f"Credentials ({', '.join(inline)}) must not be embedded — use the dedicated auth fields"
                 )
         return data
 
 
 class _ManifestClient(BaseModel):
-    base_url: str
+    base_url: str = Field(min_length=1)
     auth: _ManifestAuth | None = None
-
-    @field_validator("base_url")
-    @classmethod
-    def _base_url_not_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("base_url must be a non-empty string")
-        return value
 
 
 class _ManifestEndpoint(BaseModel):
-    # A sync only fetches — write verbs are rejected so a manifest can't
-    # mutate or delete upstream data (see ALLOWED_HTTP_METHODS).
     path: str = Field(min_length=1)
-    method: str | None = None
-
-    @field_validator("method")
-    @classmethod
-    def _method_is_read_only(cls, value: str | None) -> str | None:
-        if value is not None and value.upper() not in ALLOWED_HTTP_METHODS:
-            raise ValueError(f"method must be one of {sorted(ALLOWED_HTTP_METHODS)}")
-        return value
+    # Read verbs only — write verbs (PUT/PATCH/DELETE) are excluded so a
+    # misconfigured manifest can't mutate or delete upstream data.
+    method: Literal["GET", "POST", "get", "post"] | None = None
 
 
 class _ManifestResource(BaseModel):
@@ -87,12 +67,9 @@ class _ManifestResource(BaseModel):
 
 
 class _Manifest(BaseModel):
-    """Structural schema for a user-provided REST API manifest.
-
-    Only the fields this source reads are modelled; every other
-    RESTAPIConfig field (paginator, data_selector, incremental, …) is
-    ignored here and passed through untouched to the REST engine.
-    """
+    """Structural schema for a user-provided REST API manifest. Only the fields
+    this source reads are modelled; every other RESTAPIConfig field (paginator,
+    data_selector, incremental, …) passes through untouched to the REST engine."""
 
     client: _ManifestClient
     resources: list[_ManifestResource] = Field(min_length=1)
@@ -190,8 +167,9 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             name=SchemaExternalDataSourceType.CUSTOM,
             label="Custom REST source",
             caption=(
-                "Define a REST API source by providing a manifest. "
-                "The manifest follows the same shape as PostHog's built-in REST sources — see the docs for the field reference."
+                "Set up a source using custom configured mappings. "
+                "Define a REST API source by providing a manifest that follows the same shape "
+                "as PostHog's built-in REST sources — see the docs for the field reference."
             ),
             iconPath="/static/posthog-icon.svg",
             docsUrl=None,
