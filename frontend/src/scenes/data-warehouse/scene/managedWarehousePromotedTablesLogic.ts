@@ -20,8 +20,7 @@ interface PaginatedListResponse<T> {
     count: number
 }
 
-const endpoint = (teamId: number): string =>
-    `api/environments/${teamId}/managed_warehouse_promoted_tables`
+const endpoint = (teamId: number): string => `api/environments/${teamId}/managed_warehouse_promoted_tables`
 
 export interface PromoteTableForm {
     source_schema_name: string
@@ -34,6 +33,8 @@ export const managedWarehousePromotedTablesLogic = kea<managedWarehousePromotedT
 
     actions({
         promoteTable: (form: PromoteTableForm) => form,
+        promoteTableSuccess: true,
+        promoteTableFailure: true,
         deletePromotion: (id: string) => ({ id }),
         triggerPromotion: (id: string) => ({ id }),
         updateFrequency: (id: string, frequency: ManagedWarehousePromotedTableFrequency) => ({
@@ -52,9 +53,7 @@ export const managedWarehousePromotedTablesLogic = kea<managedWarehousePromotedT
                     if (teamId === null) {
                         return []
                     }
-                    const result: PaginatedListResponse<ManagedWarehousePromotedTable> = await api.get(
-                        endpoint(teamId)
-                    )
+                    const result: PaginatedListResponse<ManagedWarehousePromotedTable> = await api.get(endpoint(teamId))
                     return result.results
                 },
             },

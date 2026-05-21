@@ -147,6 +147,7 @@ rules:
                               |LLMProviderKey
                               |LLMSkill
                               |LLMTraceSummary
+                              |ManagedWarehousePromotedTable
                               |MarketingAnalyticsGoalMapping
                               |MessageCategory
                               |MessageRecipientPreference
@@ -347,6 +348,7 @@ rules:
                         |LLMProviderKey
                         |LLMSkill
                         |LLMTraceSummary
+                        |ManagedWarehousePromotedTable
                         |MarketingAnalyticsGoalMapping
                         |MessageCategory
                         |MessageRecipientPreference

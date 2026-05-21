@@ -36,9 +36,7 @@ const FREQUENCY_OPTIONS: { value: ManagedWarehousePromotedTableFrequency; label:
     { value: '24hour', label: 'Every 24 hours' },
 ]
 
-function statusToTagType(
-    status: ManagedWarehousePromotedTableStatus
-): 'success' | 'warning' | 'danger' | 'default' {
+function statusToTagType(status: ManagedWarehousePromotedTableStatus): 'success' | 'warning' | 'danger' | 'default' {
     switch (status) {
         case 'completed':
             return 'success'
