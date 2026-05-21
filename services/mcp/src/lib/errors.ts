@@ -119,6 +119,49 @@ export class PostHogValidationError extends Error {
     }
 }
 
+export interface PostHogApiErrorOptions {
+    status: number
+    statusText: string
+    body: string
+    url: string
+    method: string
+    message?: string
+}
+
+/**
+ * Thrown when the PostHog API rejects a request with a non-success status that
+ * isn't already handled by a more specific subclass (PostHogPermissionError,
+ * PostHogValidationError). Carries the status code so callers can distinguish
+ * recoverable agent-input errors (4xx) from genuine service failures (5xx).
+ *
+ * Background: an LLM agent passing a placeholder UUID to an MCP tool produced
+ * a 404, and `handleToolError` captured it as a PostHog exception fingerprinted
+ * by tool name — creating a brand-new error tracking issue per tool every time
+ * an agent fumbled a parameter. Keying off `status` here lets `handleToolError`
+ * short-circuit 4xx without losing visibility into real 5xx failures.
+ */
+export class PostHogApiError extends Error {
+    public readonly status: number
+    public readonly statusText: string
+    public readonly body: string
+    public readonly url: string
+    public readonly method: string
+
+    constructor(options: PostHogApiErrorOptions) {
+        super(options.message ?? buildDefaultApiErrorMessage(options))
+        this.name = 'PostHogApiError'
+        this.status = options.status
+        this.statusText = options.statusText
+        this.body = options.body
+        this.url = options.url
+        this.method = options.method
+    }
+}
+
+function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
+    return `Request failed:\nURL: ${options.method} ${options.url}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+}
+
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
@@ -259,6 +302,25 @@ export function findPostHogPermissionError(error: unknown): PostHogPermissionErr
 }
 
 /**
+ * Walks `Error.cause` chains to find a wrapped PostHogApiError or
+ * PostHogValidationError. Tool-level wrappers (e.g. `throw new Error("Failed
+ * to X: ...", { cause })`) hide the underlying typed error, so callers must
+ * unwrap before classifying the failure.
+ */
+export function findRecoverableApiError(error: unknown): PostHogApiError | PostHogValidationError | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogApiError || current instanceof PostHogValidationError) {
+            return current
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
+}
+
+/**
  * Handles tool errors and returns a structured error message.
  * Any errors that originate from the tool SHOULD be reported inside the result
  * object, with `isError` set to true, _not_ as an MCP protocol-level error
@@ -287,6 +349,31 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
                 },
             ],
             isError: true,
+        }
+    }
+
+    // Recoverable: 4xx responses from the PostHog API (and validation errors)
+    // are agent-input failures — the LLM passed a bad id, a stale UUID, or a
+    // value the serializer rejected. Returning the typed error message to the
+    // LLM lets it self-correct on the next turn. Capturing these as exceptions
+    // — fingerprinted by tool name — would create a fresh error tracking issue
+    // for every agent slip-up. Reserve `captureException` for 5xx and
+    // unexpected non-HTTP errors, which are genuinely actionable for engineers.
+    const recoverableApiError = findRecoverableApiError(error)
+    if (recoverableApiError) {
+        const isFourXx =
+            recoverableApiError instanceof PostHogValidationError ||
+            (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
+        if (isFourXx) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                    },
+                ],
+                isError: true,
+            }
         }
     }
 

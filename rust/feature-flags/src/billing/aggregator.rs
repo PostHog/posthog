@@ -5,6 +5,16 @@
 //! map, and issues pipelined `HINCRBY`s to Redis. On graceful shutdown a
 //! final flush runs before the service exits.
 //!
+//! # Mode
+//!
+//! `AggregatorMode::Shadow` writes `…:shadow`-suffixed keys for offline
+//! reconciliation against the per-request synchronous HINCRBY path; both
+//! writes happen on every billable request. `AggregatorMode::Authoritative`
+//! writes the production billing keys directly and the per-request path is
+//! skipped — at this point `flags_billing_pending_records` and
+//! `flags_billing_seconds_since_successful_flush` are billing-critical
+//! signals, not just reconciliation hygiene.
+//!
 //! # Durability trade-off
 //!
 //! Aggregation defers writes until the next flush, so failure modes differ
@@ -74,7 +84,8 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use crate::flags::flag_analytics::{
-    current_bucket, get_team_request_library_shadow_key, get_team_request_shadow_key,
+    current_bucket, get_team_request_key, get_team_request_library_key,
+    get_team_request_library_shadow_key, get_team_request_shadow_key,
 };
 use crate::flags::flag_request::FlagRequestType;
 use crate::handler::types::Library;
@@ -134,6 +145,39 @@ pub struct AggregationKey {
     pub request_type: FlagRequestType,
     pub library: Option<Library>,
     pub bucket: u64,
+}
+
+/// Which Redis keyspace the aggregator writes to.
+///
+/// `Shadow` writes `…:shadow`-suffixed keys that run in parallel with the
+/// authoritative per-request HINCRBY in `flag_analytics::increment_request_count`,
+/// so its counts can be reconciled before cutover. `Authoritative` writes the
+/// production billing keys directly — at that point the per-request HINCRBY is
+/// skipped (see `handler::billing::record_billing_increment`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregatorMode {
+    Shadow,
+    Authoritative,
+}
+
+impl AggregatorMode {
+    fn team_key(self, team_id: i32, request_type: FlagRequestType) -> String {
+        match self {
+            AggregatorMode::Shadow => get_team_request_shadow_key(team_id, request_type),
+            AggregatorMode::Authoritative => get_team_request_key(team_id, request_type),
+        }
+    }
+
+    fn library_key(self, team_id: i32, request_type: FlagRequestType, library: Library) -> String {
+        match self {
+            AggregatorMode::Shadow => {
+                get_team_request_library_shadow_key(team_id, request_type, library)
+            }
+            AggregatorMode::Authoritative => {
+                get_team_request_library_key(team_id, request_type, library)
+            }
+        }
+    }
 }
 
 /// Policy for handling a chunk error during a flush. The flusher's normal
@@ -209,6 +253,7 @@ pub struct BillingAggregator {
 
 struct Inner {
     config: BillingAggregatorConfig,
+    mode: AggregatorMode,
     redis: Arc<dyn RedisClient + Send + Sync>,
     pending: Mutex<HashMap<AggregationKey, u64>>,
     /// Running sum of `pending.values()`. Updated under the `pending` lock so
@@ -242,9 +287,11 @@ impl Inner {
     fn new(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
+        mode: AggregatorMode,
     ) -> Arc<Self> {
         Arc::new(Self {
             config,
+            mode,
             redis,
             pending: Mutex::new(HashMap::new()),
             pending_total: AtomicU64::new(0),
@@ -273,6 +320,7 @@ impl BillingAggregator {
     pub fn start(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
+        mode: AggregatorMode,
     ) -> Arc<Self> {
         // Fail fast on misconfiguration. A misconfigured FLAGS_BILLING_*
         // env var would otherwise panic the flusher task silently, or silently
@@ -285,7 +333,7 @@ impl BillingAggregator {
         let max_pending_entries = config.max_pending_entries;
         let per_flush_batch_size = config.per_flush_batch_size;
 
-        let inner = Inner::new(redis, config);
+        let inner = Inner::new(redis, config, mode);
         let flusher = tokio::spawn(run_flusher(inner.clone()));
         let metrics_sampler = tokio::spawn(run_metrics_sampler(inner.clone()));
 
@@ -293,6 +341,7 @@ impl BillingAggregator {
             flush_interval_ms,
             max_pending_entries,
             per_flush_batch_size,
+            mode = ?mode,
             "BillingAggregator started"
         );
 
@@ -464,11 +513,27 @@ impl BillingAggregator {
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
     ) -> Arc<Self> {
+        Self::for_tests_with_mode(redis, config, AggregatorMode::Shadow)
+    }
+
+    #[doc(hidden)]
+    pub fn for_tests_with_mode(
+        redis: Arc<dyn RedisClient + Send + Sync>,
+        config: BillingAggregatorConfig,
+        mode: AggregatorMode,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            inner: Inner::new(redis, config),
+            inner: Inner::new(redis, config, mode),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         })
+    }
+
+    /// Read-only accessor used by `record_billing_increment` to decide whether
+    /// to skip the per-request HINCRBY (`Authoritative` mode) or run today's
+    /// dual-write coupling (`Shadow` mode).
+    pub fn mode(&self) -> AggregatorMode {
+        self.inner.mode
     }
 }
 
@@ -665,13 +730,15 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
         // into the team command without an extra clone.
         if let Some(library) = key.library {
             buffer.push(PipelineCommand::HIncrBy {
-                key: get_team_request_library_shadow_key(key.team_id, key.request_type, library),
+                key: inner
+                    .mode
+                    .library_key(key.team_id, key.request_type, library),
                 field: field.clone(),
                 count: count_i64,
             });
         }
         buffer.push(PipelineCommand::HIncrBy {
-            key: get_team_request_shadow_key(key.team_id, key.request_type),
+            key: inner.mode.team_key(key.team_id, key.request_type),
             field,
             count: count_i64,
         });
@@ -990,7 +1057,7 @@ mod tests {
     ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
         let redis = Arc::new(redis);
         let agg = Arc::new(BillingAggregator {
-            inner: Inner::new(redis.clone(), config),
+            inner: Inner::new(redis.clone(), config, AggregatorMode::Shadow),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         });
@@ -1223,6 +1290,50 @@ mod tests {
         assert!(calls.contains(&(expected_sdk, 1)));
     }
 
+    /// Cutover-mode counterpart to `test_flush_once_writes_flag_definitions_keys`:
+    /// in `Authoritative` mode the aggregator writes the production billing
+    /// keys without the `:shadow` suffix, so the existing
+    /// `calculate_decide_usage` reader picks them up unchanged.
+    #[tokio::test]
+    async fn test_flush_once_authoritative_writes_non_shadow_keys() {
+        let redis = Arc::new(MockRedisClient::new());
+        let agg = BillingAggregator::for_tests_with_mode(
+            redis.clone(),
+            test_config(),
+            AggregatorMode::Authoritative,
+        );
+
+        agg.record(
+            42,
+            FlagRequestType::FlagDefinitions,
+            Some(Library::PosthogJs),
+        );
+        agg.record(7, FlagRequestType::Decide, None);
+
+        let bucket = current_bucket();
+        flush_once(&agg.inner, FlushPolicy::BailOnError).await;
+
+        let calls = hincrby_calls(&redis);
+        let expected_team_42_def = format!("posthog:local_evaluation_requests:42:{bucket}");
+        let expected_sdk_42_def =
+            format!("posthog:local_evaluation_requests:sdk:42:posthog-js:{bucket}");
+        let expected_team_7_decide = format!("posthog:decide_requests:7:{bucket}");
+        assert_eq!(calls.len(), 3);
+        assert!(calls.contains(&(expected_team_42_def, 1)));
+        assert!(calls.contains(&(expected_sdk_42_def, 1)));
+        assert!(calls.contains(&(expected_team_7_decide, 1)));
+
+        // Belt-and-braces: no key the aggregator writes in authoritative mode
+        // should ever carry the `:shadow` suffix. A regression here would
+        // double-count once the per-request HINCRBY is removed.
+        for (key, _) in &calls {
+            assert!(
+                !key.contains(":shadow"),
+                "authoritative mode wrote a shadow-suffixed key: {key}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_flush_once_drains_pending() {
         let (_, agg) = new_test_aggregator(test_config());
@@ -1307,6 +1418,7 @@ mod tests {
                 flush_interval: Duration::from_secs(60),
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
 
         agg.record(1, FlagRequestType::Decide, None);
@@ -1333,6 +1445,7 @@ mod tests {
                 flush_interval: Duration::from_secs(60),
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
         agg.record(1, FlagRequestType::Decide, None);
 
@@ -1360,6 +1473,7 @@ mod tests {
                 shutdown_flush_timeout: Duration::from_millis(100),
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
         agg.record(1, FlagRequestType::Decide, None);
 
@@ -1699,6 +1813,7 @@ mod tests {
                 per_flush_batch_size: 2,
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
 
         record_n_decide_with_library(&agg, 5);
@@ -1842,7 +1957,7 @@ mod tests {
             shutdown_flush_timeout: Duration::from_millis(50),
             ..test_config()
         };
-        let agg = BillingAggregator::start(redis, config);
+        let agg = BillingAggregator::start(redis, config, AggregatorMode::Shadow);
 
         for _ in 0..7 {
             agg.record(1, FlagRequestType::Decide, None);
@@ -2172,6 +2287,7 @@ mod tests {
                 flush_interval: Duration::ZERO,
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
     }
 }

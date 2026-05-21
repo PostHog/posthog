@@ -37,6 +37,7 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetOutput,
     FetchSessionEventsInputs,
     LensCallOutput,
+    LensResult,
     MarkObservationFailedInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
@@ -149,7 +150,10 @@ class ApplyLensWorkflow(PostHogWorkflow):
             )
             await wf.execute_activity(
                 mark_observation_succeeded_activity,
-                MarkObservationSucceededInputs(observation_id=observation_id),
+                MarkObservationSucceededInputs(
+                    observation_id=observation_id,
+                    lens_result=LensResult(model_output=call_output.model_output),
+                ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_ACTIVITY_RETRY,
             )

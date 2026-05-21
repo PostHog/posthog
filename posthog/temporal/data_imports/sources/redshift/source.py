@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     filter_redshift_incremental_fields,
@@ -225,8 +226,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
                     columns=columns,
-                    detected_primary_keys=detected_pks.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(detected_pks.get(table_name), columns),
                 )
             )
 

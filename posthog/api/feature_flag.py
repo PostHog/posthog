@@ -3457,6 +3457,7 @@ class FeatureFlagViewSet(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            evaluation_runtime="all",
         )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.

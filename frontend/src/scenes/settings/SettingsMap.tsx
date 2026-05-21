@@ -145,6 +145,7 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -442,7 +443,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Accounts',
                 description: 'Select which group type represents an account in customer analytics.',
                 component: <CustomerAnalyticsAccountConfig />,
-                flag: ['CUSTOMER_ANALYTICS', 'POSTHOG_CSP'],
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
             },
         ],
@@ -1243,7 +1244,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'datacapture',
                 title: 'IP data capture configuration',
                 description:
-                    'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded.',
+                    'When enabled, client IP addresses will not be stored with your events. Transformations like GeoIP enrichment and bot detection can still use the IP before it is discarded. Note: this does not apply when Cookieless server hash mode is enabled, which strips the IP before transformations run.',
                 docsUrl: 'https://posthog.com/docs/privacy',
                 component: <IPCapture />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation', 'discard'],
@@ -1753,6 +1754,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
                 component: <SidebarAutoSuggestSetting />,
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
+            },
+            {
+                id: 'mcp-hints',
+                title: 'MCP hints',
+                description:
+                    'After you take an action in PostHog (creating a feature flag, building a dashboard, etc.), show a small hint that the same action can be done from your IDE via the PostHog MCP. Rate-limited to once a week.',
+                component: <MCPHintsSetting />,
+                flag: [['MCP_HINTS', 'test']],
+                keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
             },
             {
                 id: 'hedgehog-mode',

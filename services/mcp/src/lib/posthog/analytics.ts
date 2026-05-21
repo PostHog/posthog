@@ -227,7 +227,7 @@ export async function initMcpAnalytics(
             posthogClient: getPostHogClient(),
             context: options.contextEnabled,
             enableAITracing: true,
-            enableConversationId: true,
+            enableConversationId: false,
             enableTracing: true,
             identify: { userId: distinctId },
             reportMissing: options.reportMissingEnabled,

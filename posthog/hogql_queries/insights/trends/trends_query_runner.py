@@ -1118,7 +1118,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return False
 
         if isinstance(self.query.series[0], DataWarehouseNode) and breakdown_type == "data_warehouse":
-            series = self.query.series[0]  # only one series when data warehouse is active
+            series = self.query.series[0]
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
 
