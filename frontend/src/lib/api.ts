@@ -4741,13 +4741,14 @@ const api = {
                 onMessage,
                 onError,
                 onOpen,
+                onClose,
                 signal,
                 lastEventId,
             }: {
                 onMessage: (data: EventSourceMessage) => void
                 onError: (error: any) => void
-                /** Fires on initial open and every time fetch-event-source successfully reconnects internally. */
                 onOpen?: () => void
+                onClose?: () => void
                 signal?: AbortSignal
                 /** Stream id of the last received event; sent as `Last-Event-ID` so the
                  *  server resumes from there instead of restarting at the stream tip. */
@@ -4760,6 +4761,7 @@ const api = {
                 onMessage,
                 onError,
                 onOpen,
+                onClose,
                 signal,
                 headers: lastEventId ? { 'Last-Event-ID': lastEventId } : undefined,
             })
@@ -6763,6 +6765,7 @@ const api = {
             onMessage,
             onError,
             onOpen,
+            onClose,
             headers,
             signal,
         }:
@@ -6775,6 +6778,9 @@ const api = {
                   /** Fires every time the underlying fetch returns a healthy response — i.e.
                    *  on initial open *and* on each successful internal reconnect by fetch-event-source. */
                   onOpen?: () => void
+                  /** Fires when the server cleanly closes the response body (not on errors,
+                   *  not on abort). Use this to react to server-initiated stream rotation. */
+                  onClose?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6785,6 +6791,7 @@ const api = {
                   onMessage: (data: EventSourceMessage) => void
                   onError: (error: any) => void
                   onOpen?: () => void
+                  onClose?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6855,6 +6862,7 @@ const api = {
             },
             onmessage: onMessage,
             onerror: onError,
+            onclose: onClose,
             // By default fetch-event-source stops connection when document is no longer focused, but that is not how
             // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
             openWhenHidden: true,

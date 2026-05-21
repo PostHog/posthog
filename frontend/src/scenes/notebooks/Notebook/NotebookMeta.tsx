@@ -90,15 +90,15 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
 }
 
 /**
- * Surfaces when the collab SSE is currently disconnected, so the user knows live updates
- * are paused. Stays hidden while the stream await is in flight — green check would just
- * be noise for the steady-state case.
+ * Surfaces when the collab SSE is disconnected *and* no reconnect attempt is in flight,
+ * so the user only sees the warning when something is actually wrong — not during the
+ * initial connect or the brief gap on a normal reconnect.
  */
 export const NotebookCollabStatus = (props: NotebookLogicProps): JSX.Element | null => {
     const { collabEnabled } = useValues(notebookLogic(props))
-    const { streamConnected, streamError } = useValues(notebookCollabLogic({ shortId: props.shortId }))
+    const { streamConnected, isConnecting, streamError } = useValues(notebookCollabLogic({ shortId: props.shortId }))
 
-    if (!collabEnabled || streamConnected) {
+    if (!collabEnabled || streamConnected || isConnecting) {
         return null
     }
 
