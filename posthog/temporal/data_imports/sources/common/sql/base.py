@@ -60,6 +60,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
         with impl.connect(config) as conn:

@@ -1,10 +1,12 @@
 """Tests for the MySQL source.
 
-These tests spin up a MySQL container via `testcontainers` once per test
-session. Requires a reachable Docker daemon — CI's existing runner
-already has one (it's what brings up the `docker-compose.dev.yml`
-stack), and local `flox` envs have Docker too. If Docker is
-unreachable the fixture errors loudly instead of silently skipping.
+These tests reuse the session-scoped `mysql_container` fixture from
+`conftest.py`, which spins up a single MySQL container shared across
+every test file in this package. Requires a reachable Docker daemon —
+CI's existing runner already has one (it's what brings up the
+`docker-compose.dev.yml` stack), and local `flox` envs have Docker too.
+If Docker is unreachable the fixture errors loudly instead of silently
+skipping.
 """
 
 import math
@@ -15,10 +17,8 @@ import operator
 
 import pytest
 
-import pymysql
 import structlog
 from asgiref.sync import sync_to_async
-from testcontainers.mysql import MySqlContainer
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
@@ -33,57 +33,12 @@ _IMPL = MySQLImplementation()
 pytestmark = pytest.mark.usefixtures("minio_client")
 
 MYSQL_TABLE_NAME = "test_table"
-MYSQL_IMAGE = "mysql:9.2"
 
 TEST_DATA = [
     (1, "John Doe", "john@example.com", dt.datetime(2025, 1, 1, tzinfo=dt.UTC), 100),
     (2, "Jane Smith", "jane@example.com", dt.datetime(2025, 1, 2, tzinfo=dt.UTC), 2000000),
     (3, "Bob Wilson", "bob@example.com", dt.datetime(2025, 1, 3, tzinfo=dt.UTC), 3409892966),
 ]
-
-
-@pytest.fixture(scope="session")
-def mysql_container():
-    """Spin up a MySQL server in Docker for the duration of the test session.
-
-    Startup is paid once (~5–10s for the image + MySQL init). Requires a
-    reachable Docker daemon — the fixture errors loudly if not, instead
-    of silently skipping, so infra breakage doesn't hide.
-    """
-    container = MySqlContainer(MYSQL_IMAGE)
-    container.start()
-    try:
-        yield container
-    finally:
-        container.stop()
-
-
-@pytest.fixture
-def mysql_config(mysql_container):
-    return {
-        "host": mysql_container.get_container_host_ip(),
-        "port": int(mysql_container.get_exposed_port(3306)),
-        "user": mysql_container.username,
-        "password": mysql_container.password,
-        "database": mysql_container.dbname,
-        # MySQLSourceConfig historically names its database "schema" — keep
-        # the two in lockstep because nothing in the source splits them.
-        "schema": mysql_container.dbname,
-        "using_ssl": False,
-    }
-
-
-@pytest.fixture
-def mysql_connection(mysql_config):
-    with pymysql.connect(
-        host=mysql_config["host"],
-        port=mysql_config["port"],
-        database=mysql_config["database"],
-        user=mysql_config["user"],
-        password=mysql_config["password"],
-        connect_timeout=5,
-    ) as connection:
-        yield connection
 
 
 @pytest.fixture

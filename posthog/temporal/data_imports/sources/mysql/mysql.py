@@ -736,7 +736,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                 primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                 table = self.get_table_metadata(cursor, schema, table_name)
-                logger.debug(f"Source schema: {table.to_arrow_schema()}")
+                arrow_schema = table.to_arrow_schema()
+                logger.debug(f"Source schema: {arrow_schema}")
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
                 partition_settings = (
@@ -748,8 +749,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 # Fallback on checking for an `id` field on the table
                 if primary_keys is None and "id" in table:
                     primary_keys = ["id"]
-
-        arrow_schema = table.to_arrow_schema()
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.

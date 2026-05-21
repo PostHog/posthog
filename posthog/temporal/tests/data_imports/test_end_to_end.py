@@ -20,7 +20,6 @@ import s3fs
 import orjson
 import psycopg
 import pyarrow as pa
-import pymysql
 import aioboto3
 import deltalake
 import pytest_asyncio
@@ -34,7 +33,6 @@ from stripe import ListObject
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from testcontainers.mysql import MySqlContainer
 
 from posthog.schema import (
     BreakdownFilter,
@@ -232,49 +230,9 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-@pytest.fixture(scope="session")
-def mysql_container():
-    """Spin up a MySQL container once for the test session.
-
-    Requires a reachable Docker daemon — CI has one (it's what brings up
-    the `docker-compose.dev.yml` stack), and local flox envs have Docker
-    too. If Docker is unreachable the fixture errors loudly so the
-    breakage isn't silently hidden.
-    """
-    container = MySqlContainer("mysql:9.2")
-    container.start()
-    try:
-        yield container
-    finally:
-        container.stop()
-
-
-@pytest.fixture
-def mysql_config(mysql_container):
-    return {
-        "host": mysql_container.get_container_host_ip(),
-        "port": int(mysql_container.get_exposed_port(3306)),
-        "user": mysql_container.username,
-        "password": mysql_container.password,
-        "database": mysql_container.dbname,
-        # MySQLSourceConfig names the logical database "schema" and keeps
-        # the two in lockstep — mirror that here.
-        "schema": mysql_container.dbname,
-        "using_ssl": False,
-    }
-
-
-@pytest.fixture
-def mysql_connection(mysql_config):
-    with pymysql.connect(
-        host=mysql_config["host"],
-        port=mysql_config["port"],
-        database=mysql_config["database"],
-        user=mysql_config["user"],
-        password=mysql_config["password"],
-        connect_timeout=5,
-    ) as conn:
-        yield conn
+# `mysql_container`, `mysql_config`, and `mysql_connection` live in
+# conftest.py so the container starts once per test session and is shared
+# across every test file in this package.
 
 
 def _mysql_job_inputs(mysql_config: dict) -> dict[str, str | dict[str, str]]:
