@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     everywhere — any old code still reading the column would have failed by then.
     """
 
-    dependencies = [("posthog", "1167_remove_alertconfiguration_is_calculating")]
+    dependencies = [("posthog", "1174_taggeditem_account_unique_constraint")]
 
     operations = [
         migrations.RunSQL(
