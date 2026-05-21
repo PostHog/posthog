@@ -33,18 +33,17 @@ export const NotebookEditSchema = z
         old_value: z
             .unknown()
             .describe(
-                'The piece of content to find, as a JSON value matching the shape shown by ' +
-                    '`notebooks-retrieve`. Examples: `{"type":"text","text":"Hello"}` to target a text ' +
-                    'node, or `{"type":"paragraph","content":[...]}` to target a whole paragraph. ' +
-                    'Whitespace, key order, and indentation do not matter — only the content does. ' +
-                    'Must match exactly one place unless `replace_all` is true; if it appears in more ' +
-                    'than one place, include more surrounding structure (e.g. pass the parent paragraph ' +
-                    'instead of just a text node) to make it unique.'
+                'The piece of content to find. Copy it straight out of the response from ' +
+                    '`notebooks-retrieve` — typically a single node like a text node or a whole ' +
+                    'paragraph. Must match exactly one place in the notebook unless `replace_all` ' +
+                    'is true; if it appears in more than one place, include more surrounding ' +
+                    'structure (e.g. pass the parent paragraph instead of just the text node) to ' +
+                    'make it unique.'
             ),
         new_value: z
             .unknown()
             .describe(
-                'What to put in place of `old_value`, as a JSON value of the same shape. The whole ' +
+                'What to put in place of `old_value`. Pass a JSON value of the same shape — the whole ' +
                     'matched piece is replaced, so include every key you want preserved. Must differ ' +
                     'from `old_value`.'
             ),
@@ -52,8 +51,9 @@ export const NotebookEditSchema = z
             .boolean()
             .optional()
             .describe(
-                'Replace every place `old_value` matches. Default false — when false, the tool errors ' +
-                    'out if `old_value` is not unique, so you can decide whether to widen it or opt in.'
+                'Replace every place `old_value` matches. Default false — the tool errors out if ' +
+                    '`old_value` is not unique, so you can either narrow `old_value` to a single match ' +
+                    'or set `replace_all` to true.'
             ),
     })
     .refine((v) => !isDeepStrictEqual(v.old_value, v.new_value), {

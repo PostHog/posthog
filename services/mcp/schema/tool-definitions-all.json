@@ -4010,10 +4010,10 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Pass `old_value` (the piece to find) and `new_value` (what to put in its place) — both as JSON values matching the shape of the notebook content shown by `notebooks-retrieve`. For example, to change a paragraph's text, pass `old_value: {\"type\":\"text\",\"text\":\"Hello\"}` and `new_value: {\"type\":\"text\",\"text\":\"World\"}`. The tool finds the matching value anywhere in the notebook and swaps it.\n\nMatching is by content, not exact text — whitespace, key order, and indentation in your input don't matter. `old_value` must match exactly one place; if it appears more than once, either include enough surrounding structure to make it unique (e.g. pass the whole paragraph instead of just the text node), or set `replace_all: true`. `new_value` must differ from `old_value`.\n\nEdits broadcast live to anyone viewing the notebook. On success, returns the updated notebook with the new content and bumped version. On a 409 conflict (someone else edited the notebook between your read and write), the response includes the latest version and steps you missed — call `notebooks-retrieve` to refresh and try again.",
+        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
         "category": "Notebooks",
         "feature": "notebooks",
-        "summary": "Edit part of a notebook's content. Changes stream live to other viewers.",
+        "summary": "Edit part of a notebook's content.",
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
         "new_mcp": true,
