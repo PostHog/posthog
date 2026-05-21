@@ -101,10 +101,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
-    "slack-posthog-code": ProductConfig(
+    "slack_app_routing": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
+        billable=True,
     ),
     "growth": ProductConfig(
         allowed_application_ids=None,
@@ -153,7 +154,8 @@ ALLOWED_PRODUCTS: Final[frozenset[str]] = frozenset(PRODUCTS.keys())
 PRODUCT_ALIASES: Final[dict[str, str]] = {
     "array": "posthog_code",
     "twig": "posthog_code",
-    "slack-twig": "slack-posthog-code",
+    "slack-posthog-code": "slack_app_routing",
+    "slack-twig": "slack_app_routing",
 }
 
 
