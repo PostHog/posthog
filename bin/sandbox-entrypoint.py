@@ -239,23 +239,27 @@ def _force_sandbox_claude_defaults(settings_path: Path) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
 
-def _merge_mcp_servers(claude_json: Path) -> None:
-    """Register sandbox-managed remote MCP servers at /workspace local scope.
+def _finalize_claude_json(claude_json: Path) -> None:
+    """Adapt the copied ~/.claude.json to the container in one pass:
 
-    bin/sandbox resolves mcps.yaml to JSON and bind-mounts it (or /dev/null when
-    none is configured). Merging under the project path Claude launches in is
-    local scope, which loads without the per-project approval prompt a
-    checked-in .mcp.json triggers. Host config keys projects by host paths, so
-    /workspace is always fresh here.
+    - drop the host's installMethod (Claude is npm-installed here, not the
+      native binary the host config points at);
+    - register sandbox MCP servers at /workspace local scope, which load
+      without the approval prompt a checked-in .mcp.json triggers. bin/sandbox
+      bind-mounts the resolved servers (or /dev/null when none); host config
+      keys projects by host paths, so /workspace is always fresh here.
     """
     raw = Path("/tmp/sandbox-mcp.json").read_text()
-    if not raw.strip():
-        return  # /dev/null mount — nothing configured
-    servers = json.loads(raw)["mcpServers"]
+    servers = json.loads(raw)["mcpServers"] if raw.strip() else {}
+
     config = json.loads(claude_json.read_text()) if claude_json.exists() else {}
-    workspace = config.setdefault("projects", {}).setdefault(str(WORKSPACE), {})
-    workspace.setdefault("mcpServers", {}).update(servers)
-    claude_json.write_text(json.dumps(config, indent=2) + "\n")
+    changed = config.pop("installMethod", None) is not None
+    if servers:
+        workspace = config.setdefault("projects", {}).setdefault(str(WORKSPACE), {})
+        workspace.setdefault("mcpServers", {}).update(servers)
+        changed = True
+    if changed:
+        claude_json.write_text(json.dumps(config, indent=2) + "\n")
 
 
 def copy_claude_auth(uid: int, gid: int) -> None:
@@ -275,8 +279,7 @@ def copy_claude_auth(uid: int, gid: int) -> None:
     src = Path("/tmp/claude-auth.json")
     if src.exists():
         shutil.copy2(src, SANDBOX_HOME / ".claude.json")
-
-    _merge_mcp_servers(SANDBOX_HOME / ".claude.json")
+    _finalize_claude_json(SANDBOX_HOME / ".claude.json")
 
     run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
 
