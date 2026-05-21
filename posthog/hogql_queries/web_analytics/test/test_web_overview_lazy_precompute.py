@@ -221,7 +221,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         # `query.useWebAnalyticsPrecompute=True` BUT the
-        # `web-analytics-lazy-precompute` org-level feature flag is off. Should
+        # `web-analytics-precompute-toggle` feature flag is off. Should
         # fall through — the flag is the operator-controlled rollout gate.
         self._seed_two_sessions()
         self._run(self._build_query(opt_in_precompute=True))

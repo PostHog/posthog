@@ -150,14 +150,17 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     the lazy path. Returns None on success."""
     query = runner.query
 
-    # Rollout gate: org-level PostHog feature flag AND per-query opt-in.
-    #   - `web-analytics-lazy-precompute` (PostHog feature flag, evaluated at
-    #     the organization level): rollout lever. Flip orgs on/off without a
-    #     deploy; supports percent rollouts and targeted overrides.
+    # Rollout gate: shared PostHog feature flag AND per-query opt-in.
+    #   - `web-analytics-precompute-toggle` (PostHog feature flag): the same
+    #     flag the frontend already uses to show/hide the "Allow precompute"
+    #     button in the Web Analytics ScenePanel. Reusing it gives operators
+    #     one switch that controls both the UI surface and the backend gate.
+    #     Evaluated at the organization level here — set up an org-level
+    #     release condition on the flag to enable rollout.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
-    #     "Allow precompute" toggle in the Web Analytics ScenePanel).
+    #     "Allow precompute" toggle).
     if not posthoganalytics.feature_enabled(
-        "web-analytics-lazy-precompute",
+        "web-analytics-precompute-toggle",
         str(runner.team.id),
         groups={"organization": str(runner.team.organization_id)},
         group_properties={"organization": {"id": str(runner.team.organization_id)}},

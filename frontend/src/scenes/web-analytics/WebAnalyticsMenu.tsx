@@ -60,7 +60,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     Filter out internal and test users
                 </ButtonPrimitive>
                 {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
-                    <Tooltip title="Serve eligible Web Overview queries from the precomputed cache. Only takes effect when the web-analytics-lazy-precompute org-level feature flag is on.">
+                    <Tooltip title="Serve eligible Web Overview queries from the precomputed cache. Only takes effect when the web-analytics-precompute-toggle feature flag is on for the team's organization.">
                         <ButtonPrimitive
                             menuItem
                             onClick={() => {

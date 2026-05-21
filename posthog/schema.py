@@ -18702,7 +18702,7 @@ class WebOverviewQuery(BaseModel):
         default=None,
         description=(
             "Opt this specific query into the web_overview_query precompute path."
-            " Requires the `web-analytics-lazy-precompute` PostHog feature flag to be"
+            " Requires the `web-analytics-precompute-toggle` PostHog feature flag to be"
             " on for the team's organization for the gate to pass. *"
         ),
     )
