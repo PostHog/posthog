@@ -42,7 +42,7 @@ content_type: "ai_prompt"            # discriminator — pinned for the lifetime
 prompt: "..."                         # ≤4000 chars; what the LLM should report on
 target_type: "email" | "slack"        # webhook is rejected for AI subs
 target_value: "..."                   # comma-separated emails, or "<channel_id>|<channel_name>"
-frequency: "hourly" | "daily" | "weekly" | "monthly" | "yearly"
+frequency: "daily" | "weekly" | "monthly" | "yearly"
 interval: 1                            # 1 = every tick; 2 = every other tick; etc.
 start_date: "2026-01-15T09:00:00Z"   # first delivery, also defines time-of-day
 title: "..."                          # display name in the subscriptions list
