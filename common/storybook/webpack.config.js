@@ -77,9 +77,7 @@ function createEntry(entry) {
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
                 '@posthog/mcp-ui': path.resolve(__dirname, '..', '..', 'services', 'mcp', 'src', 'ui-apps', 'lib'),
                 '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
-                // Workspace package only linked under frontend/node_modules; products/* mcp app stories
-                // resolve from outside frontend, so alias it explicitly like the other @posthog/* packages.
-                '@posthog/quill': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', '@posthog', 'quill'),
+                '@posthog/quill': path.resolve(__dirname, '..', '..', 'packages', 'quill', 'packages', 'quill'),
                 storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
