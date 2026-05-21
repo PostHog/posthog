@@ -1483,4 +1483,60 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(body.results).toEqual([])
         })
     })
+
+    describe('toolbarFetch network error handling', () => {
+        beforeEach(() => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://us.posthog.com',
+                accessToken: 'pha_token',
+                refreshToken: 'phr_token',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+        })
+
+        it('returns a synthetic 503 Response when fetch rejects (network / CORS / ad-blocker)', async () => {
+            ;(global.fetch as jest.Mock).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+            const res = await toolbarFetch('/api/projects/@current/product_tours/')
+
+            expect(res.ok).toBe(false)
+            expect(res.status).toBe(503)
+            const body = await res.json()
+            expect(body.detail).toBe('network_error')
+            expect(body.results).toEqual([])
+        })
+
+        it('does not throw when fetch rejects during a retry after 401', async () => {
+            // The retry-after-refresh path is already wrapped in try/catch inside
+            // `withTokenRefresh`, which returns the original 401 on retry failure.
+            // The contract we care about here is "no unhandled rejection bubbles out".
+            let callCount = 0
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                callCount++
+                if (url.includes('toolbar_oauth_refresh')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () =>
+                            Promise.resolve({
+                                access_token: 'new-access',
+                                refresh_token: 'new-refresh',
+                                expires_in: 3600,
+                            }),
+                    })
+                }
+                if (callCount === 1) {
+                    return Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) })
+                }
+                // The replay fetch after token refresh fails at the network layer.
+                return Promise.reject(new TypeError('Failed to fetch'))
+            })
+
+            const res = await toolbarFetch('/api/projects/@current/product_tours/')
+            expect(res.ok).toBe(false)
+        })
+    })
 })
