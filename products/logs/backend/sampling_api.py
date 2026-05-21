@@ -116,8 +116,8 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             'Filter group example: `{"type":"AND","values":[{"type":"AND","values":['
             '{"key":"service.name","operator":"exact","value":"api"}]}]}`. '
             "For severity_sampling: object with `actions` per severity level and optional `always_keep`. "
-            "For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` "
-            "(integer ≥ logs_per_second, max 60000000) and optional `filter_group` to narrow which logs the cap applies to."
+            "For rate_limit: object with required `logs_per_second` (integer 1–10000000) and optional `burst_logs` "
+            "(integer ≥ logs_per_second, max 100000000) and optional `filter_group` to narrow which logs the cap applies to."
         )
     )
     version = serializers.IntegerField(
@@ -176,8 +176,8 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     {"config": {"logs_per_second": "Must be an integer (logs per second sustained)."}}
                 )
-            if lps < 1 or lps > 1_000_000:
-                raise ValidationError({"config": {"logs_per_second": "Must be between 1 and 1000000 inclusive."}})
+            if lps < 1 or lps > 10_000_000:
+                raise ValidationError({"config": {"logs_per_second": "Must be between 1 and 10000000 inclusive."}})
             burst = config.get("burst_logs", None)
             if burst is not None:
                 if isinstance(burst, bool) or not isinstance(burst, int):
@@ -186,8 +186,8 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                     raise ValidationError(
                         {"config": {"burst_logs": "Must be greater than or equal to logs_per_second."}}
                     )
-                if burst > 60_000_000:
-                    raise ValidationError({"config": {"burst_logs": "Must be at most 60000000."}})
+                if burst > 100_000_000:
+                    raise ValidationError({"config": {"burst_logs": "Must be at most 100000000."}})
         return attrs
 
     def _validate_filter_group(self, filter_group: Any) -> None:

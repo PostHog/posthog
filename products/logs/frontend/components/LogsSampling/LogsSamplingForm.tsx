@@ -145,8 +145,8 @@ export function LogsSamplingForm(): JSX.Element {
                 </LemonField.Pure>
                 {isRateLimit && (
                     <LemonField.Pure
-                        label="Sustained limit (kilobytes per second)"
-                        help="Whole number from 1 to 1,000,000."
+                        label="Rate limit (kilobytes per second)"
+                        help="Whole number from 1 to 10,000,000."
                         error={samplingFormErrors.rate_limit_logs_per_second}
                     >
                         <LemonInput
