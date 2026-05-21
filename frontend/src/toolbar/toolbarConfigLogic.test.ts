@@ -922,7 +922,7 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(response.ok).toBe(false)
             expect(response.status).toBe(503)
             const body = await response.json()
-            expect(body.detail).toBe('network_error')
+            expect(body.detail).toBe('Network error')
             expect(body.results).toEqual([])
         })
 

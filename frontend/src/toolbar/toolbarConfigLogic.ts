@@ -803,7 +803,11 @@ async function safeToolbarFetch(url: string, init: RequestInit): Promise<Respons
         toolbarLogger.warn('fetch', 'fetch rejected before response (network/CORS/extension)', {
             error_type: classifyFetchError(error),
         })
-        return new Response(JSON.stringify({ results: [], detail: 'network_error' }), { status: 503 })
+        // Human-readable `detail` (not the snake_case classifier tokens used elsewhere
+        // in this file): some callers surface `errorData.detail` directly in user-facing
+        // toasts on `!response.ok`, so the value needs to read sensibly without further
+        // formatting.
+        return new Response(JSON.stringify({ results: [], detail: 'Network error' }), { status: 503 })
     }
 }
 
