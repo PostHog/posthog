@@ -77,7 +77,7 @@ _ISSUE_SPECS: tuple[dict[str, Any], ...] = (
         "url": "https://app.hedgebox.test/app/files",
         "function": "submitPayment",
         "source": "https://app.hedgebox.test/static/js/checkout.js",
-        "days_ago": (2, 5, 11, 18),
+        "days_ago": (1, 2, 5, 11, 18),
     },
     {
         "name": "File preview render failure",

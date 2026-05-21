@@ -135,6 +135,27 @@ def _session_ids_from_recordings_input(tool_input: dict[str, Any]) -> set[str]:
     return set()
 
 
+def _has_recordings_result(value: Any) -> bool:
+    if isinstance(value, dict):
+        if isinstance(value.get("id"), str):
+            return True
+        results = value.get("results")
+        if isinstance(results, list):
+            return bool(results)
+        return any(_has_recordings_result(nested) for nested in value.values())
+    if isinstance(value, list):
+        return bool(value) and any(_has_recordings_result(item) for item in value)
+    return False
+
+
+def _recordings_output_has_results(raw_output: str) -> bool:
+    try:
+        decoded = json.loads(raw_output)
+    except json.JSONDecodeError:
+        return bool(re.search(r"""(?m)^\s*(?:id|session_id)\s*[:=]\s*["']?[^"',\s}\]]+""", raw_output))
+    return _has_recordings_result(decoded)
+
+
 def extract_last_query_issues_list_input(output: dict[str, Any] | None) -> dict[str, Any] | None:
     return _last_successful_input(_parser_for(output), QUERY_ISSUES_LIST_TOOL)
 
@@ -644,6 +665,9 @@ class IssueDrilldownOrder(Scorer):
             metadata["recordings_session_ids"] = sorted(recordings_session_ids)
             if not recordings_session_ids:
                 metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} did not include session_ids from sampled events"
+                return Score(name=self._name(), score=0.0, metadata=metadata)
+            if not _recordings_output_has_results(recordings_call.output):
+                metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} returned no recordings"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
             event_session_ids = self._event_session_ids_before(parser, recordings_pos)
             metadata["event_session_ids"] = sorted(event_session_ids)
