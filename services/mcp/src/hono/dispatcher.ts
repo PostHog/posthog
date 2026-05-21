@@ -80,7 +80,7 @@ class McpDispatcher {
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
 
-    private _warmupPromise: Promise<void> | undefined
+    private warmupPromise: Promise<void> | undefined
 
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
@@ -92,11 +92,11 @@ class McpDispatcher {
     }
 
     async warmup(): Promise<void> {
-        this._warmupPromise ??= this._doWarmup()
-        await this._warmupPromise
+        this.warmupPromise ??= this.doWarmup()
+        await this.warmupPromise
     }
 
-    private async _doWarmup(): Promise<void> {
+    private async doWarmup(): Promise<void> {
         await this.catalog.warmup()
         await this.resourceCatalog.warmup()
     }
@@ -130,21 +130,21 @@ class McpDispatcher {
         const state = needsState ? await this.stateResolver.resolve(props) : undefined
 
         if (!wasArray && requests.length === 1) {
-            const result = await this._dispatch(requests[0]!, props, state)
+            const result = await this.dispatch(requests[0]!, props, state)
             return new Response(JSON.stringify(result), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
             })
         }
 
-        const results = await Promise.all(requests.map((r) => this._dispatch(r, props, state)))
+        const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
         return new Response(JSON.stringify(results), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
         })
     }
 
-    private async _dispatch(
+    private async dispatch(
         request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState | undefined
@@ -154,7 +154,7 @@ class McpDispatcher {
         try {
             switch (method) {
                 case Method.Initialize:
-                    return jsonRpcResult(id, await this._handleInitialize(params, props, state!))
+                    return jsonRpcResult(id, await this.handleInitialize(params, props, state!))
                 case Method.ToolsList:
                     return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!, props))
                 case Method.ToolsCall:
@@ -178,7 +178,7 @@ class McpDispatcher {
         }
     }
 
-    private async _handleInitialize(
+    private async handleInitialize(
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
         state: ResolvedState

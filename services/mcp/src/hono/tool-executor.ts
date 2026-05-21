@@ -60,7 +60,7 @@ export class ToolExecutor {
         }
 
         if (state.useSingleExec && toolName === 'exec') {
-            return this._callTool(this._resolveExecTool(state, props), params, props, state)
+            return this.callTool(this.resolveExecTool(state, props), params, props, state)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -74,7 +74,7 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
-        return this._callTool(
+        return this.callTool(
             {
                 name: toolName,
                 schema: preBuilt.base.schema,
@@ -87,7 +87,7 @@ export class ToolExecutor {
         )
     }
 
-    private async _callTool(
+    private async callTool(
         tool: ResolvedTool,
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
@@ -147,7 +147,7 @@ export class ToolExecutor {
         }
     }
 
-    private _resolveExecTool(state: ResolvedState, props: RequestProperties): ResolvedTool {
+    private resolveExecTool(state: ResolvedState, props: RequestProperties): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {

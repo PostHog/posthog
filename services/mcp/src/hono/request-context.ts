@@ -16,10 +16,10 @@ import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl } from './constants'
 
 export class RequestContext {
-    private _cache: RedisCache<State> | undefined
-    private _api: ApiClient | undefined
-    private _sessionManager: SessionManager | undefined
-    private _distinctIdPromise: Promise<string> | undefined
+    private cacheInstance: RedisCache<State> | undefined
+    private apiInstance: ApiClient | undefined
+    private sessionManagerInstance: SessionManager | undefined
+    private distinctIdPromise: Promise<string> | undefined
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
@@ -34,14 +34,14 @@ export class RequestContext {
         if (!this.props.userHash) {
             throw new Error('User hash is required to use the cache')
         }
-        if (!this._cache) {
-            this._cache = new RedisCache<State>(this.props.userHash, this.redis)
+        if (!this.cacheInstance) {
+            this.cacheInstance = new RedisCache<State>(this.props.userHash, this.redis)
         }
-        return this._cache
+        return this.cacheInstance
     }
 
     private async api(): Promise<ApiClient> {
-        if (!this._api) {
+        if (!this.apiInstance) {
             const customApiBaseUrl = getCustomApiBaseUrl()
             let baseUrl: string
             if (customApiBaseUrl) {
@@ -53,7 +53,7 @@ export class RequestContext {
             } else {
                 baseUrl = 'http://localhost:8010'
             }
-            this._api = new ApiClient({
+            this.apiInstance = new ApiClient({
                 apiToken: this.props.apiToken,
                 baseUrl,
                 clientUserAgent: this.props.clientUserAgent,
@@ -63,14 +63,14 @@ export class RequestContext {
                 mcpConsumer: this.props.mcpConsumer,
             })
         }
-        return this._api
+        return this.apiInstance
     }
 
     get sessionManager(): SessionManager {
-        if (!this._sessionManager) {
-            this._sessionManager = new SessionManager(this.cache)
+        if (!this.sessionManagerInstance) {
+            this.sessionManagerInstance = new SessionManager(this.cache)
         }
-        return this._sessionManager
+        return this.sessionManagerInstance
     }
 
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
@@ -79,13 +79,13 @@ export class RequestContext {
     }
 
     getDistinctId(): Promise<string> {
-        if (!this._distinctIdPromise) {
-            this._distinctIdPromise = this._resolveDistinctId()
+        if (!this.distinctIdPromise) {
+            this.distinctIdPromise = this.resolveDistinctId()
         }
-        return this._distinctIdPromise
+        return this.distinctIdPromise
     }
 
-    private async _resolveDistinctId(): Promise<string> {
+    private async resolveDistinctId(): Promise<string> {
         const cached = await this.cache.get('distinctId')
         if (cached) {return cached}
         const userResult = await (await this.api()).users().me()

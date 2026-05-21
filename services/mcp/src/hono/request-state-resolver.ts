@@ -82,7 +82,7 @@ export class RequestStateResolver {
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [allFlags, _apiKey, distinctId] = await Promise.all([
-            this._resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
+            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
@@ -143,7 +143,7 @@ export class RequestStateResolver {
         }
     }
 
-    private async _resolveAllFlags(
+    private async resolveAllFlags(
         reqCtx: RequestContext,
         flagKeys: string[],
         groups?: FlagGroups

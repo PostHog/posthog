@@ -11,35 +11,35 @@ import type { Env } from '@/tools/types'
 export class ResourceCatalog {
     private readonly env: Env
 
-    private _resources: Resource[] = []
-    private _resourcesByUri = new Map<string, TextResourceContents>()
-    private _prompts: Prompt[] = []
-    private _promptsByName = new Map<string, GetPromptResult>()
-    private _uiAppResources: Resource[] = []
-    private _uiAppReadEntries = new Map<string, TextResourceContents>()
-    private _allResources: Resource[] = []
-    private _contextMillEntries: readonly ContextMillResource[] = []
+    private resources: Resource[] = []
+    private resourcesByUri = new Map<string, TextResourceContents>()
+    private prompts: Prompt[] = []
+    private promptsByName = new Map<string, GetPromptResult>()
+    private uiAppResources: Resource[] = []
+    private uiAppReadEntries = new Map<string, TextResourceContents>()
+    private allResources: Resource[] = []
+    private contextMillData: readonly ContextMillResource[] = []
 
     constructor(env: Env) {
         this.env = env
     }
 
     get contextMillEntries(): readonly ContextMillResource[] {
-        return this._contextMillEntries
+        return this.contextMillData
     }
 
     async warmup(): Promise<void> {
-        await Promise.all([this._warmupResources(), this._warmupUiApps()])
-        this._allResources = [...this._resources, ...this._uiAppResources]
+        await Promise.all([this.warmupResources(), this.warmupUiApps()])
+        this.allResources = [...this.resources, ...this.uiAppResources]
     }
 
     getResourcesList(): ListResourcesResult {
-        return { resources: this._allResources }
+        return { resources: this.allResources }
     }
 
     readResource(params: Record<string, unknown> | undefined): ReadResourceResult {
         const uri = (params?.uri as string) ?? ''
-        const entry = this._resourcesByUri.get(uri) ?? this._uiAppReadEntries.get(uri)
+        const entry = this.resourcesByUri.get(uri) ?? this.uiAppReadEntries.get(uri)
         if (!entry) {
             return { contents: [] }
         }
@@ -56,33 +56,33 @@ export class ResourceCatalog {
     }
 
     getPromptsList(): ListPromptsResult {
-        return { prompts: this._prompts }
+        return { prompts: this.prompts }
     }
 
     getPrompt(params: Record<string, unknown> | undefined): GetPromptResult {
         const name = (params?.name as string) ?? ''
-        const entry = this._promptsByName.get(name)
+        const entry = this.promptsByName.get(name)
         if (!entry) {
             return { messages: [] }
         }
         return { messages: entry.messages }
     }
 
-    private async _warmupResources(): Promise<void> {
+    private async warmupResources(): Promise<void> {
         try {
             const archive = await fetchContextMillResources()
             const manifest = loadManifestFromArchive(archive)
-            this._contextMillEntries = filterValidEntries(manifest.resources, archive)
+            this.contextMillData = filterValidEntries(manifest.resources, archive)
             clearResourceCache()
 
-            for (const entry of this._contextMillEntries) {
-                this._resources.push({
+            for (const entry of this.contextMillEntries) {
+                this.resources.push({
                     name: entry.name,
                     uri: entry.uri,
                     mimeType: entry.resource.mimeType,
                     description: entry.resource.description,
                 })
-                this._resourcesByUri.set(entry.uri, {
+                this.resourcesByUri.set(entry.uri, {
                     uri: entry.uri,
                     mimeType: entry.resource.mimeType,
                     text: entry.resource.text,
@@ -95,19 +95,19 @@ export class ResourceCatalog {
         try {
             const manifestPrompts = await getPromptsFromManifest()
             for (const prompt of manifestPrompts) {
-                this._prompts.push({
+                this.prompts.push({
                     name: prompt.name,
                     title: prompt.title,
                     description: prompt.description,
                 })
-                this._promptsByName.set(prompt.name, { messages: prompt.messages as GetPromptResult['messages'] })
+                this.promptsByName.set(prompt.name, { messages: prompt.messages as GetPromptResult['messages'] })
             }
         } catch (error) {
             console.error('[ResourceCatalog] Failed to pre-load prompts:', error)
         }
     }
 
-    private async _warmupUiApps(): Promise<void> {
+    private async warmupUiApps(): Promise<void> {
         const baseUrl = this.env.MCP_APPS_BASE_URL
         if (!baseUrl) {return}
 
@@ -125,13 +125,13 @@ export class ResourceCatalog {
             }
             uiMetadata.csp = { connectDomains, resourceDomains }
 
-            this._uiAppResources.push({
+            this.uiAppResources.push({
                 name: app.name,
                 uri: app.uri,
                 mimeType: RESOURCE_MIME_TYPE,
                 description: app.description,
             })
-            this._uiAppReadEntries.set(app.uri, {
+            this.uiAppReadEntries.set(app.uri, {
                 uri: app.uri,
                 mimeType: RESOURCE_MIME_TYPE,
                 text: html,
