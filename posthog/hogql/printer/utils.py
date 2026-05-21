@@ -15,6 +15,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.events_resolve_then_fetch import optimize_events_resolve_then_fetch
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -100,6 +101,14 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
+
+    # Resolve-then-fetch: split a wide events `ORDER BY timestamp LIMIT n` scan into a narrow inner subquery
+    # that resolves the ordered (timestamp, uuid) identities plus an outer point-fetch of the wide columns.
+    # Runs before type resolution so the injected subquery flows through the normal resolve/lazy-table/
+    # property-swap pipeline, exactly like a hand-written split (see events_resolve_then_fetch.py).
+    if dialect == "clickhouse":
+        with context.timings.measure("optimize_events_resolve_then_fetch"):
+            optimize_events_resolve_then_fetch(node, context)
 
     with context.timings.measure("resolve_types"):
         node = resolve_types(
