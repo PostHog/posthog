@@ -6,13 +6,17 @@ They are not stored in the database but appear alongside regular playlists in th
 import re
 import hashlib
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Protocol, TypeVar
 from urllib.parse import urlparse
 
 from django.core.cache import cache
+from django.db import DatabaseError, OperationalError
+from django.db.models import Max
 
+import structlog
 import posthoganalytics
 
 from posthog.schema import RecordingOrder, RecordingsQuery
@@ -31,6 +35,40 @@ try:
     HAS_EE = True
 except ImportError:
     HAS_EE = False
+
+
+logger = structlog.get_logger(__name__)
+
+# Hard cap on rows fetched from Postgres for the shared/exported synthetic
+# playlists. These collections are surfaced on every Replay list render, so the
+# absolute worst-case scan size must be bounded — large teams have triggered
+# `OperationalError` ("server closed the connection unexpectedly") when the
+# unbounded queries exceeded the wire timeout.
+SHARED_EXPORTED_PLAYLIST_MAX_SESSION_IDS = 1000
+# Short TTL: counts only need to be accurate to within a minute, and a fresh
+# query is cheap once the worst-case is bounded by the cap above.
+SHARED_EXPORTED_PLAYLIST_CACHE_TTL = 60
+
+T = TypeVar("T")
+
+
+def _safe_db_call(fn: Callable[[], T], *, fallback: T, source_name: str, team_id: int) -> T:
+    """Run a Postgres query that backs a synthetic playlist and degrade gracefully on connection errors.
+
+    Synthetic playlists are a convenience surface in the Replay list. A timeout or dropped
+    connection on one of these queries must not 500 the whole list endpoint, so we catch
+    the database errors here and return a typed fallback instead.
+    """
+    try:
+        return fn()
+    except (OperationalError, DatabaseError) as e:
+        logger.warning(
+            "synthetic_playlist_query_failed",
+            source=source_name,
+            team_id=team_id,
+            error=str(e),
+        )
+        return fallback
 
 
 class GetSessionIdsCallable(Protocol):
@@ -153,23 +191,52 @@ class CommentedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class SharedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
-        qs = (
-            SharingConfiguration.objects.filter(team=team, enabled=True)
-            .exclude(recording__isnull=True)
-            .values_list("recording__session_id", flat=True)
-            .distinct()
+    CACHE_KEY_PREFIX = "shared_synthetic_playlist_session_ids"
+
+    @staticmethod
+    def _cache_key(team_id: int) -> str:
+        return f"{SharedPlaylistSource.CACHE_KEY_PREFIX}_team_{team_id}"
+
+    @staticmethod
+    def _fetch_session_ids(team: Team) -> list[str]:
+        # `recording` uses `to_field="session_id"`, so `recording_id` is the session_id
+        # directly — no JOIN needed.
+        # We cap the raw fetch and dedupe in Python to avoid an unbounded DISTINCT scan
+        # on teams with many sharing configurations.
+        raw_ids = SharingConfiguration.objects.filter(team=team, enabled=True, recording_id__isnull=False).values_list(
+            "recording_id", flat=True
+        )[: SHARED_EXPORTED_PLAYLIST_MAX_SESSION_IDS * 4]
+
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for session_id in raw_ids:
+            if session_id and session_id not in seen:
+                seen.add(session_id)
+                ordered.append(session_id)
+                if len(ordered) >= SHARED_EXPORTED_PLAYLIST_MAX_SESSION_IDS:
+                    break
+        return ordered
+
+    @classmethod
+    def _get_cached_session_ids(cls, team: Team) -> list[str]:
+        cache_key = cls._cache_key(team.pk)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        session_ids = _safe_db_call(
+            lambda: cls._fetch_session_ids(team),
+            fallback=[],
+            source_name="shared_playlist",
+            team_id=team.pk,
         )
-        return list(self._paginate_queryset(qs, limit, offset))
+        cache.set(cache_key, session_ids, SHARED_EXPORTED_PLAYLIST_CACHE_TTL)
+        return session_ids
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        return self._paginate_list(self._get_cached_session_ids(team), limit, offset)
 
     def count_session_ids(self, team: Team, user: User) -> int:
-        return (
-            SharingConfiguration.objects.filter(team=team, enabled=True)
-            .exclude(recording__isnull=True)
-            .values("recording__session_id")
-            .distinct()
-            .count()
-        )
+        return len(self._get_cached_session_ids(team))
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
         return SyntheticPlaylistDefinition(
@@ -186,28 +253,49 @@ class SharedPlaylistSource(SyntheticPlaylistSource):
 
 @dataclass
 class ExportedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+    CACHE_KEY_PREFIX = "exported_synthetic_playlist_session_ids"
+
+    @staticmethod
+    def _cache_key(team_id: int) -> str:
+        return f"{ExportedPlaylistSource.CACHE_KEY_PREFIX}_team_{team_id}"
+
+    @staticmethod
+    def _fetch_session_ids(team: Team) -> list[str]:
+        # GROUP BY the JSONB session_recording_id key and order by the most recent
+        # export per session — pagination then happens at the database layer via the
+        # slice below, instead of materializing every matching row into Python.
         qs = (
             ExportedAsset.objects.filter(team=team)
             .filter(export_context__has_key="session_recording_id")
             .exclude(export_context__session_recording_id__isnull=True)
             .exclude(export_context__session_recording_id="")
-            .order_by("-created_at")
+            .values("export_context__session_recording_id")
+            .annotate(latest=Max("created_at"))
+            .order_by("-latest")
             .values_list("export_context__session_recording_id", flat=True)
         )
-        session_ids = list(dict.fromkeys(qs))
-        return self._paginate_list(session_ids, limit, offset)
+        return list(qs[:SHARED_EXPORTED_PLAYLIST_MAX_SESSION_IDS])
+
+    @classmethod
+    def _get_cached_session_ids(cls, team: Team) -> list[str]:
+        cache_key = cls._cache_key(team.pk)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        session_ids = _safe_db_call(
+            lambda: cls._fetch_session_ids(team),
+            fallback=[],
+            source_name="exported_playlist",
+            team_id=team.pk,
+        )
+        cache.set(cache_key, session_ids, SHARED_EXPORTED_PLAYLIST_CACHE_TTL)
+        return session_ids
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        return self._paginate_list(self._get_cached_session_ids(team), limit, offset)
 
     def count_session_ids(self, team: Team, user: User) -> int:
-        return (
-            ExportedAsset.objects.filter(team=team)
-            .filter(export_context__has_key="session_recording_id")
-            .exclude(export_context__session_recording_id__isnull=True)
-            .exclude(export_context__session_recording_id="")
-            .values("export_context__session_recording_id")
-            .distinct()
-            .count()
-        )
+        return len(self._get_cached_session_ids(team))
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
         return SyntheticPlaylistDefinition(
