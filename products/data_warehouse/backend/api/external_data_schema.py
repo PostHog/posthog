@@ -300,6 +300,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
 
+        # Refuse cdc_table_mode transitions that would kick a re-snapshot when the team is over its
+        # monthly sync billing limit. Checked here (pre-save) so we don't end up with the new mode
+        # persisted but no resnapshot triggered. Mirrors the gate in `resync` / `reload`.
+        if (
+            instance.sync_type == ExternalDataSchema.SyncType.CDC
+            and "cdc_table_mode" in data
+            and _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, data.get("cdc_table_mode"))
+            and is_any_external_data_schema_paused(instance.team_id)
+        ):
+            raise ValidationError(
+                "Monthly sync limit reached. Please increase your billing limit before changing "
+                "the CDC table mode — a full re-snapshot would be required."
+            )
+
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
         validated_data.pop("sync_frequency", None)

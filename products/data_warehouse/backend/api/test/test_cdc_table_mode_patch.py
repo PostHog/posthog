@@ -45,6 +45,9 @@ _PATCH_TARGETS = {
     "trigger_external_data_workflow": (
         "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
     ),
+    "is_any_external_data_schema_paused": (
+        "products.data_warehouse.backend.api.external_data_schema.is_any_external_data_schema_paused"
+    ),
 }
 
 
@@ -227,3 +230,64 @@ def test_patch_cdc_table_mode_idempotent_skips_resnapshot(team, user, client: Ht
     assert schema.initial_sync_complete is True
     mock_cancel.assert_not_called()
     mock_trigger.assert_not_called()
+
+
+def test_patch_cdc_table_mode_rejected_when_team_over_billing_limit(team, user, client: HttpClient):
+    """Re-snapshot-triggering transitions are gated on the team being under their sync billing limit
+    — otherwise the new job would land immediately in BillingLimit state. Pre-save check so the new
+    mode doesn't get persisted without an actual resnapshot."""
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]) as mock_cancel,
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as mock_trigger,
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=True),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"cdc_table_mode": "both"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 400, response.content
+    assert b"Monthly sync limit reached" in response.content
+
+    schema.refresh_from_db()
+    # Mode unchanged; no workflow side-effects fired.
+    assert schema.cdc_table_mode == "consolidated"
+    assert schema.sync_type_config.get("cdc_mode") == "streaming"
+    mock_cancel.assert_not_called()
+    mock_trigger.assert_not_called()
+
+
+def test_patch_cdc_table_mode_drop_target_allowed_when_team_over_billing_limit(team, user, client: HttpClient):
+    """Drop-target transitions don't kick a re-snapshot, so the billing gate doesn't apply — the
+    schema's existing tables already hold current data."""
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="both")
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=True),
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"cdc_table_mode": "consolidated"},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.cdc_table_mode == "consolidated"
