@@ -5,7 +5,7 @@ use rstest::rstest;
 use serde_json::json;
 
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
-use feature_flags::config::{FlexBool, DEFAULT_TEST_CONFIG};
+use feature_flags::config::{BotFilterMode, FlexBool, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client, TestContext,
 };
@@ -305,19 +305,18 @@ async fn benign_ip_with_benign_ua_reaches_evaluation() -> Result<()> {
     Ok(())
 }
 
-/// With the kill switch on, neither signal short-circuits — bot-shaped
-/// requests must reach evaluation regardless of which signal would have
-/// fired.
+/// In `Disabled` mode, neither signal short-circuits — bot-shaped requests
+/// must reach evaluation regardless of which signal would have fired.
 #[rstest]
 #[case::ua_signal(Some(GOOGLEBOT_UA), None)]
 #[case::ip_signal(Some(CLOUDFRONT_UA), Some(GOOGLEBOT_FORWARDED_IP))]
 #[tokio::test]
-async fn kill_switch_disables_bot_filter_for_both_signals(
+async fn disabled_mode_skips_bot_filter_for_both_signals(
     #[case] user_agent: Option<&'static str>,
     #[case] forwarded_for: Option<&'static str>,
 ) -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
-    config.disable_bot_filtering = FlexBool(true);
+    config.bot_filter_mode = BotFilterMode::Disabled;
     let (server, token) = setup_server_with_a_flag(config).await;
 
     let payload = json!({
@@ -341,7 +340,7 @@ async fn kill_switch_disables_bot_filter_for_both_signals(
     let body: LegacyFlagsResponse = res.json().await?;
     assert!(
         !body.feature_flags.is_empty(),
-        "Kill switch must let bot-shaped requests through the full pipeline (ua={user_agent:?}, xff={forwarded_for:?})"
+        "Disabled mode must let bot-shaped requests through the full pipeline (ua={user_agent:?}, xff={forwarded_for:?})"
     );
 
     Ok(())
@@ -527,6 +526,55 @@ async fn ip_rate_limit_fires_before_bot_check_for_spoofed_ua() -> Result<()> {
     );
     let body: serde_json::Value = res.json().await?;
     assert_eq!(body["code"], "rate_limit_exceeded");
+
+    Ok(())
+}
+
+/// In `LogOnly` mode (the prod default), a bot UA must not short-circuit.
+/// The request continues through the normal pipeline and gets a real
+/// evaluation back — observability of the classification is via the
+/// `flags_bot_detected_total{mode="log_only"}` counter and the
+/// `is_bot`/`bot_category`/`bot_source` fields on the canonical log line,
+/// neither of which is asserted here (the response shape is the
+/// user-visible behavior worth pinning end-to-end).
+///
+/// Both UA-driven and IP-driven classifications are covered so both code
+/// paths in `bot_detection::classify_request` are exercised.
+#[rstest]
+#[case::ua_signal(Some(GOOGLEBOT_UA), None)]
+#[case::ip_signal(Some(CLOUDFRONT_UA), Some(GOOGLEBOT_FORWARDED_IP))]
+#[tokio::test]
+async fn log_only_mode_stamps_but_does_not_short_circuit(
+    #[case] user_agent: Option<&'static str>,
+    #[case] forwarded_for: Option<&'static str>,
+) -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.bot_filter_mode = BotFilterMode::LogOnly;
+    let (server, token) = setup_server_with_a_flag(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "any-id",
+    });
+
+    let res = post_flags_v1_with_options(
+        server.addr,
+        "/flags",
+        payload,
+        RequestOptions {
+            user_agent,
+            forwarded_for,
+            ..Default::default()
+        },
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body: LegacyFlagsResponse = res.json().await?;
+    assert!(
+        !body.feature_flags.is_empty(),
+        "LogOnly mode must let bot-shaped requests reach evaluation (ua={user_agent:?}, xff={forwarded_for:?})"
+    );
 
     Ok(())
 }

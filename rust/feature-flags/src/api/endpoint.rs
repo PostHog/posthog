@@ -8,12 +8,13 @@ use crate::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
+    config::BotFilterMode,
     handler::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
     metrics::consts::{
-        FLAG_BOT_REJECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
+        FLAG_BOT_DETECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
     },
     router,
     utils::{bot_detection, user_agent::UserAgentInfo},
@@ -365,40 +366,67 @@ pub async fn flags(
     // before token rate-limit, auth, billing, and evaluation. Envelope
     // selection honors `is_from_decide × version` so proxied /decide
     // bots get the Decide shape.
-    if state.config.bot_filtering_enabled() {
+    //
+    // Behavior is controlled by `bot_filter_mode`:
+    //   Disabled — skip the classifier entirely.
+    //   LogOnly  — classify, stamp the canonical log, bump the counter
+    //              with mode="log_only", then continue through the full
+    //              pipeline (request not short-circuited). The default;
+    //              gives operators a week of observability in Loki +
+    //              Prometheus before flipping to Enforced.
+    //   Enforced — classify, stamp, bump with mode="enforced", and return
+    //              the minimal envelope without running token rate-limit,
+    //              auth, billing, or eval.
+    if !matches!(state.config.bot_filter_mode, BotFilterMode::Disabled) {
         if let Some((category, source)) = bot_detection::classify_request(user_agent, ip) {
-            common_metrics::inc(
-                FLAG_BOT_REJECTED_COUNTER,
-                &[
-                    ("bot_category".to_string(), category.as_str().to_string()),
-                    ("bot_source".to_string(), source.as_str().to_string()),
-                ],
-                1,
-            );
             canonical_log.is_bot = true;
             canonical_log.bot_category = Some(category);
             canonical_log.bot_source = Some(source);
-            // `rate_limit_warned` stays on the canonical log but is not
-            // surfaced as the `X-PostHog-Rate-Limit-Warning` header here
-            // — bots do not read response headers.
-            //
-            // Mirror the IP-rate-limit-blocked branch above: emit the
-            // queue_time / body_read / phase / db-operations histograms
-            // with `team_id="unknown"` so bot traffic still appears in the
-            // dashboards that the normal-path requests populate. The
-            // helpers no-op for fields that are None / counters that are
-            // zero, so on the bot path only `queue_time_ms` and
-            // `body_read_ms` actually produce samples.
-            canonical_log.emit_db_operations_metrics();
-            canonical_log.emit_timing_metrics();
-            canonical_log.emit_phase_metrics();
-            canonical_log.emit();
-            return Ok(get_minimal_flags_response(
-                &headers,
-                query_params.version.as_deref(),
-                is_from_decide,
-            )
-            .into_response());
+
+            let mode_label = match state.config.bot_filter_mode {
+                BotFilterMode::LogOnly => "log_only",
+                BotFilterMode::Enforced => "enforced",
+                BotFilterMode::Disabled => unreachable!("guarded by outer matches!"),
+            };
+            common_metrics::inc(
+                FLAG_BOT_DETECTED_COUNTER,
+                &[
+                    ("bot_category".to_string(), category.as_str().to_string()),
+                    ("bot_source".to_string(), source.as_str().to_string()),
+                    ("mode".to_string(), mode_label.to_string()),
+                ],
+                1,
+            );
+
+            if matches!(state.config.bot_filter_mode, BotFilterMode::Enforced) {
+                // Short-circuit path. `rate_limit_warned` stays on the
+                // canonical log but is not surfaced as the
+                // `X-PostHog-Rate-Limit-Warning` header here — bots do not
+                // read response headers.
+                //
+                // Mirror the IP-rate-limit-blocked branch above: emit the
+                // queue_time / body_read / phase / db-operations histograms
+                // with `team_id="unknown"` so bot traffic still appears in
+                // the dashboards that the normal-path requests populate.
+                // The helpers no-op for fields that are None / counters
+                // that are zero, so on the bot path only `queue_time_ms`
+                // and `body_read_ms` actually produce samples.
+                canonical_log.emit_db_operations_metrics();
+                canonical_log.emit_timing_metrics();
+                canonical_log.emit_phase_metrics();
+                canonical_log.emit();
+                return Ok(get_minimal_flags_response(
+                    &headers,
+                    query_params.version.as_deref(),
+                    is_from_decide,
+                )
+                .into_response());
+            }
+            // LogOnly: fall through. The local `canonical_log` is moved
+            // into `run_with_canonical_log` below, so the
+            // `is_bot`/`bot_category`/`bot_source` fields persist into
+            // the final emission at the end of the request. Same mechanism
+            // the IP-rate-limit warn path already relies on above.
         }
     }
 
