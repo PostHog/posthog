@@ -64,10 +64,13 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   // missing styles is a worse UX than nothing.
                   styleLink.onerror = () => {
                       toolbarLogger.error('config', 'Failed to load toolbar.css', { href: styleLink.href })
-                      captureToolbarException(
-                          new Error(`Failed to load toolbar.css from ${styleLink.href}`),
-                          'toolbar_css_load'
-                      )
+                      // Keep the Error message static — embedding styleLink.href
+                      // here fragments error-tracking fingerprints into one
+                      // issue per host, hiding the true scale of the failure.
+                      // Pass the href as a structured property instead.
+                      captureToolbarException(new Error('Failed to load toolbar.css'), 'toolbar_css_load', {
+                          href: styleLink.href,
+                      })
                       toolbarPosthogJS.capture('toolbar css load failed', { href: styleLink.href })
                       setDidLoadStyles(true)
                   }
