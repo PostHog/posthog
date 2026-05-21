@@ -1,4 +1,4 @@
-import { defaults, kea, key, path, props } from 'kea'
+import { defaults, isBreakpoint, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -67,11 +67,20 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
             LIMIT 10
                 `
 
-                const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
+                let results: any[]
+                try {
+                    const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
+                    results = qResponse.results || []
+                } catch (e) {
+                    if (e instanceof Error && isBreakpoint(e)) {
+                        throw e
+                    }
+                    return []
+                }
 
                 breakpoint()
 
-                return (qResponse.results || []).map((row) => {
+                return results.map((row) => {
                     return {
                         person: { id: row[0] as string, properties: JSON.parse(row[1]) as Record<string, any> },
                         count: row[2] as number,
