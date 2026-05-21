@@ -371,6 +371,72 @@ class TestOrganization(BaseTest):
         team_tokens = mock_remove_limited.call_args[0][1]
         self.assertIn(self.team.api_token, team_tokens)
 
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    @patch("ee.billing.quota_limiting.add_limited_team_tokens")
+    def test_limit_product_until_end_of_billing_cycle_dispatches_remote_config_sync_for_recordings(
+        self, mock_add_limited, mock_update_remote_config
+    ):
+        second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
+        self.organization.usage = {
+            "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+            "recordings": {"usage": 500, "limit": 1000},
+        }
+        self.organization.save()
+
+        self.organization.limit_product_until_end_of_billing_cycle(QuotaResource.RECORDINGS)
+
+        dispatched_team_ids = {call.kwargs["args"][0] for call in mock_update_remote_config.apply_async.call_args_list}
+        self.assertEqual(dispatched_team_ids, {self.team.id, second_team.id})
+        for call in mock_update_remote_config.apply_async.call_args_list:
+            self.assertEqual(call.kwargs.get("countdown"), 35)
+
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    @patch("ee.billing.quota_limiting.add_limited_team_tokens")
+    def test_limit_product_until_end_of_billing_cycle_skips_dispatch_for_non_recordings(
+        self, mock_add_limited, mock_update_remote_config
+    ):
+        self.organization.usage = {
+            "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+            "events": {"usage": 1000, "limit": 2000},
+        }
+        self.organization.save()
+
+        self.organization.limit_product_until_end_of_billing_cycle(QuotaResource.EVENTS)
+
+        mock_update_remote_config.apply_async.assert_not_called()
+
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    def test_unlimit_product_dispatches_remote_config_sync_for_recordings(
+        self, mock_remove_limited, mock_update_remote_config
+    ):
+        second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
+        self.organization.usage = {
+            "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+            "recordings": {"usage": 500, "limit": 1000, "quota_limited_until": 1234567890},
+        }
+        self.organization.save()
+
+        self.organization.unlimit_product(QuotaResource.RECORDINGS)
+
+        dispatched_team_ids = {call.kwargs["args"][0] for call in mock_update_remote_config.apply_async.call_args_list}
+        self.assertEqual(dispatched_team_ids, {self.team.id, second_team.id})
+        for call in mock_update_remote_config.apply_async.call_args_list:
+            self.assertEqual(call.kwargs.get("countdown"), 35)
+
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    def test_unlimit_product_skips_dispatch_for_non_recordings(self, mock_remove_limited, mock_update_remote_config):
+        self.organization.usage = {
+            "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+            "events": {"usage": 1000, "limit": 2000, "quota_limited_until": 1234567890},
+        }
+        self.organization.save()
+
+        self.organization.unlimit_product(QuotaResource.EVENTS)
+
+        mock_update_remote_config.apply_async.assert_not_called()
+
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_teams(self, mock_get_client):
         self.organization.teams.all().delete()

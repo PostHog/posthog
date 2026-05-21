@@ -1,6 +1,6 @@
 import copy
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from time import time
@@ -187,6 +187,29 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
 def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
     limited_team_attributes = list_limited_team_attributes(resource, cache_key)
     return team_api_token in limited_team_attributes
+
+
+def _dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
+    """
+    Triggers a `RemoteConfig` rebuild for each team after its recordings quota-limit state
+    transitions on `QUOTA_LIMITER_CACHE_KEY`. `RemoteConfig.build_config` reads that Redis
+    set at `posthog/models/remote_config.py` and bakes `quotaLimited` / `sessionRecording`
+    into the cached config JSON + CDN/hypercache mirrors, but no signal otherwise links
+    quota changes to a re-sync.
+
+    `countdown=35` leaves enough wall-clock time for the in-process
+    `cache_for(timedelta(seconds=30), background_refresh=True)` on `list_limited_team_attributes`
+    to expire on whichever worker picks up the task. A failed dispatch is logged but does
+    not abort the caller — Redis remains the data-plane source of truth, so a transient
+    CDN-sync hiccup must not roll back the quota-limit write.
+    """
+    from posthog.tasks.remote_config import update_team_remote_config
+
+    for team_id in team_ids:
+        try:
+            update_team_remote_config.apply_async(args=[team_id], countdown=35)
+        except Exception as e:
+            capture_exception(e, {"team_id": team_id})
 
 
 # -------------------------------------------------------------------------------------------------
@@ -506,6 +529,11 @@ def update_org_billing_quotas(organization: Organization):
     if not organization.usage:
         return None
 
+    teams_by_token: dict[str, int] = {
+        api_token: team_id for team_id, api_token in organization.teams.values_list("id", "api_token") if api_token
+    }
+    recordings_transitioned_team_ids: set[int] = set()
+
     for resource in QuotaResource:
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
@@ -516,6 +544,15 @@ def update_org_billing_quotas(organization: Organization):
         # Get the quota limiting information (e.g. {"quota_limited_until": 1737867600, "quota_limiting_suspended_until": 1737867600})
         team_attributes = get_team_attribute_by_quota_resource(organization)
         result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens)
+
+        if resource == QuotaResource.RECORDINGS:
+            now_limited_for_recordings = bool(result and result.get("quota_limited_until"))
+            prev_limited_tokens = set(previously_quota_limited_team_tokens) & set(team_attributes)
+            now_limited_tokens: set[str] = set(team_attributes) if now_limited_for_recordings else set()
+            for token in prev_limited_tokens ^ now_limited_tokens:
+                team_id = teams_by_token.get(token)
+                if team_id is not None:
+                    recordings_transitioned_team_ids.add(team_id)
 
         if result:
             quota_limited_until = result.get("quota_limited_until")
@@ -539,6 +576,9 @@ def update_org_billing_quotas(organization: Organization):
         else:
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
+
+    if recordings_transitioned_team_ids:
+        _dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
 
 
 def set_org_usage_summary(
@@ -1045,6 +1085,8 @@ def update_all_orgs_billing_quotas(
 
     quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
     quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
+    recordings_transitioned_team_ids: set[int] = set()
+    recordings_field = QuotaResource.RECORDINGS.value
 
     # Convert the org ids to team tokens
     for team in teams:
@@ -1056,12 +1098,18 @@ def update_all_orgs_billing_quotas(
                 # If the team was not previously quota limited, we add it to the list of orgs that were added
                 if team.api_token not in previously_quota_limited_team_tokens[field]:
                     orgs_with_changes.add(org_id)
+                    if field == recordings_field:
+                        recordings_transitioned_team_ids.add(team.id)
             elif org_id in quota_limiting_suspended_orgs[field]:
                 quota_limiting_suspended_teams[field][team.api_token] = quota_limiting_suspended_orgs[field][org_id]
+                if field == recordings_field and team.api_token in previously_quota_limited_team_tokens[field]:
+                    recordings_transitioned_team_ids.add(team.id)
             else:
                 # If the team was previously quota limited, we add it to the list of orgs that were removed
                 if team.api_token in previously_quota_limited_team_tokens[field]:
                     orgs_with_changes.add(org_id)
+                    if field == recordings_field:
+                        recordings_transitioned_team_ids.add(team.id)
 
     # Now we have the teams that are currently under quota limits
     # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "exceptions": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}, "feature_flag_requests": {"phc_123": 1737867600}, "api_queries_read_bytes": {"phc_123": 1737867600}, "survey_responses": {"phc_123": 1737867600}})
@@ -1104,6 +1152,9 @@ def update_all_orgs_billing_quotas(
         logger.info("quota_limiting_run", phase="redis", status="done", duration_ms=round(redis_duration_s * 1000, 1))
         if progress_callback:
             progress_callback("redis_done", f"duration={redis_duration_s}s", "")
+
+        if recordings_transitioned_team_ids:
+            _dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
 
     total_duration_s = time() - total_start
     logger.info(
