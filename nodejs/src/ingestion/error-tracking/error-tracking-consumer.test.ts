@@ -558,6 +558,8 @@ describe('ErrorTrackingConsumer', () => {
             // bar has its own bucket: 4 → 3
             await send('bar')
 
+            expect(producedCount()).toBe(4)
+
             // foo with different `value` → same key as foo's burst (value is
             // dropped from the hash when a stack exists) → still rate-limited.
             await send('foo', 'different')
