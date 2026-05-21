@@ -294,7 +294,7 @@ export const productRedirects: Record<
     '/ai-observability': (_params, searchParams, hashParams) =>
         combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
     '/ai-observability/settings': (_params, searchParams) =>
-        combineUrl(urls.settings('environment-llm-analytics', 'llm-analytics-byok'), searchParams).url,
+        combineUrl(urls.settings('project-llm-analytics', 'llm-analytics-byok'), searchParams).url,
     '/ai-evals': (_params, searchParams, hashParams) =>
         combineUrl(urls.llmAnalyticsEvaluations(), searchParams, hashParams).url,
     '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
@@ -308,7 +308,7 @@ export const productRedirects: Record<
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
     '/llm-analytics/settings': (_params, searchParams) =>
-        combineUrl(urls.settings('environment-llm-analytics', 'llm-analytics-byok'), searchParams).url,
+        combineUrl(urls.settings('project-llm-analytics', 'llm-analytics-byok'), searchParams).url,
     '/llm-analytics/dashboard': (_params, searchParams, hashParams) =>
         combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
     '/llm-analytics/generations': (_params, searchParams, hashParams) =>

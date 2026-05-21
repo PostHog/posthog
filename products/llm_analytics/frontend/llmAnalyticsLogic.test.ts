@@ -37,6 +37,7 @@ describe('LLM analytics URL split', () => {
 
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
         expect(redirectUrl('/llm-analytics')).toBe('/ai-observability/dashboard')
+        expect(redirectUrl('/llm-analytics/settings')).toBe('/settings/project-llm-analytics#llm-analytics-byok')
         expect(redirectUrl('/llm-analytics/reviews', {}, { queue_id: 'queue-1' })).toBe(
             '/ai-observability/reviews?queue_id=queue-1'
         )
@@ -56,6 +57,10 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
             '/prompt-management/skills/skill-1'
         )
+    })
+
+    it('redirects AI observability settings to the project-level BYOK setting', () => {
+        expect(redirectUrl('/ai-observability/settings')).toBe('/settings/project-llm-analytics#llm-analytics-byok')
     })
 })
 

@@ -90,7 +90,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.llmAnalyticsEvaluation(id), searchParams).url
-    const settingsUrl = urls.settings('environment-llm-analytics', 'llm-analytics-byok')
+    const settingsUrl = urls.settings('project-llm-analytics', 'llm-analytics-byok')
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -417,7 +417,7 @@ export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX
         {
             key: 'settings',
             label: 'Settings',
-            link: urls.settings('environment-llm-analytics', 'llm-analytics-byok'),
+            link: urls.settings('project-llm-analytics', 'llm-analytics-byok'),
             content: <></>,
             'data-attr': 'settings-tab',
         },

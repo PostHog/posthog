@@ -58,6 +58,17 @@ describe('settingsSceneLogic', () => {
         })
     })
 
+    it('opens the legacy AI observability BYOK settings deep link', async () => {
+        router.actions.push('/settings/project-llm-analytics', {}, { 'llm-analytics-byok': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-llm-analytics',
+        })
+
+        expect(router.values.hashParams).toEqual({ 'llm-analytics-byok': true })
+    })
+
     it('redirects level-only URLs to first section', async () => {
         router.actions.push('/settings/environment')
         await expectLogic(logic).toMatchValues({

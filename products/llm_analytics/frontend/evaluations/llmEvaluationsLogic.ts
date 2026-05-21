@@ -312,7 +312,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             }
 
             if (searchParams.tab === 'settings') {
-                router.actions.replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
+                router.actions.replace(urls.settings('project-llm-analytics', 'llm-analytics-byok'))
                 return
             }
 

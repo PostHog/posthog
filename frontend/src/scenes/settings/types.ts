@@ -53,6 +53,7 @@ export type SettingSectionId =
     | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-llm-analytics' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
     | 'organization-integrations'
     | 'organization-oauth-apps'

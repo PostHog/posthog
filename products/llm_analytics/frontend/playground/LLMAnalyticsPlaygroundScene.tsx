@@ -206,7 +206,7 @@ function RateLimitBanner(): JSX.Element | null {
             {!hasByokKeys && (
                 <>
                     {' '}
-                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                    <Link to={urls.settings('project-llm-analytics', 'llm-analytics-byok')}>
                         Add your own API key
                     </Link>{' '}
                     to get higher rate limits.

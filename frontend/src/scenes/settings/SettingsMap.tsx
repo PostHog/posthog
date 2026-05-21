@@ -699,7 +699,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-llm-analytics',
         title: 'AI observability',
         group: 'Products',
-        flag: 'LLM_ANALYTICS_EVALUATIONS',
         settings: [
             {
                 id: 'llm-analytics-byok',
