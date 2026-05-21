@@ -535,11 +535,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed user interviews'
             }
             return 'Analyzing user interviews...'
+        },
+    },
+    create_user_interview_topic: {
+        name: 'Set up user interviews',
+        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
+        product: Scene.UserInterviews,
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+        icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created interview topic'
+            }
+            return 'Setting up interview topic...'
         },
     },
     create_hog_function_filters: {
@@ -726,6 +741,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Filtered web analytics'
             }
             return 'Filtering web analytics...'
+        },
+    },
+    web_analytics_doctor: {
+        name: 'Diagnose web analytics',
+        description: 'Diagnose web analytics setup issues like missing pageviews or partial proxy coverage',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
         },
     },
     upsert_dashboard: {
@@ -1103,6 +1127,13 @@ export const MODE_DEFINITIONS: Record<
             Scene.LLMAnalyticsPlayground,
             Scene.LLMAnalyticsUsers,
         ]),
+    },
+    [AgentMode.UserInterview]: {
+        name: 'User interviews',
+        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
+        icon: iconForType('user_interview'),
+        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
+        flag: 'USER_INTERVIEWS',
     },
 }
 

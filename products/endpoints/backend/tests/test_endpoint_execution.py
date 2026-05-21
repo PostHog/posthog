@@ -1821,7 +1821,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
-            mock.patch("products.endpoints.backend.api.ENDPOINT_BREAKDOWN_LIMIT", 5),
+            mock.patch("products.endpoints.backend.materialization.ENDPOINT_BREAKDOWN_LIMIT", 5),
             mock.patch("products.endpoints.backend.api.capture_exception") as mock_capture,
         ):
             response = self.client.post(
@@ -2152,7 +2152,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         viewset = EndpointViewSet()
         viewset.team_id = self.team.id
-        viewset._disable_materialization(endpoint)
+        viewset._disable_materialization(endpoint, mock.MagicMock())
 
         after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
         self.assertEqual(after - before, 0.0)

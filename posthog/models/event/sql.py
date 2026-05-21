@@ -72,62 +72,29 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 """
 
 
+# Shared per-team allocation: each team picks its slots independently from this range, and
+# (team_id, slot_index) → property_name is resolved at write/read time via the dmat dictionary.
+# Cap matches MAX_SLOTS_PER_TEAM so every team can fully saturate its slots.
+DMAT_STRING_COLUMN_COUNT = 10
+
+
 def EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
-    s = []
-
-    # Add string columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_string_{i}` Nullable(String)")
-
-    # Add numeric columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_numeric_{i}` Nullable(Float64)")
-
-    # Add bool columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_bool_{i}` Nullable(UInt8)")
-
-    # Add datetime columns (0-9)
-    for i in range(10):
-        s.append(f"`dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
-
+    s = [f"`dmat_string_{i}` Nullable(String)" for i in range(DMAT_STRING_COLUMN_COUNT)]
     return f"    , {'\n    , '.join(s)}"
 
 
 def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
-    s = []
+    return ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table, 0, DMAT_STRING_COLUMN_COUNT)
 
-    # Add string columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)")
 
-    # Add numeric columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_numeric_{i}` Nullable(Float64)")
-
-    # Add bool columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_bool_{i}` Nullable(UInt8)")
-
-    # Add datetime columns (0-9)
-    for i in range(10):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
-
-    separator = ",\n"
-    return f"ALTER TABLE {table} \n {separator.join(s)}"
+def ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table: str, start: int, end_exclusive: int) -> str:
+    """ALTER TABLE statement adding dmat_string columns in a half-open index range."""
+    pieces = [f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)" for i in range(start, end_exclusive)]
+    return f"ALTER TABLE {table} \n {',\n'.join(pieces)}"
 
 
 def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
-    s = []
-    for i in range(10):
-        s.append(f"dmat_string_{i}")
-    for i in range(10):
-        s.append(f"dmat_numeric_{i}")
-    for i in range(10):
-        s.append(f"dmat_bool_{i}")
-    for i in range(10):
-        s.append(f"dmat_datetime_{i}")
-    return ",\n".join(s)
+    return ",\n".join(f"dmat_string_{i}" for i in range(DMAT_STRING_COLUMN_COUNT))
 
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
@@ -215,8 +182,14 @@ MATERIALIZE INDEX `minmax_inserted_at`
 # the max block size to consume from kafka such that we skip _all_ broken messages
 # this is an added safety mechanism given we control payloads to this topic
 
+KAFKA_EVENTS_JSON_TABLE = "kafka_events_json"
+EVENTS_JSON_MV = "events_json_mv"
 
-def KAFKA_EVENTS_TABLE_JSON_SQL():
+DROP_KAFKA_EVENTS_JSON_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_EVENTS_JSON_TABLE}"
+DROP_EVENTS_JSON_MV_SQL = f"DROP TABLE IF EXISTS {EVENTS_JSON_MV}"
+
+
+def KAFKA_EVENTS_TABLE_JSON_SQL(on_cluster=True):
     return (
         EVENTS_TABLE_BASE_SQL
         + """
@@ -224,7 +197,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
 """
     ).format(
         table_name="kafka_events_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON),
         extra_fields="",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),

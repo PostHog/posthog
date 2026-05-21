@@ -62,8 +62,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         result.results = rows
         return result
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_returns_ranked_matches(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows(
@@ -99,8 +99,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
             ("negative_distance_clamps_to_one", -0.01, 1.0),
         ]
     )
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_clamps_similarity_to_unit_interval(self, _name, distance, expected, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([(str(self.interview_a.id), "transcript", distance)])
@@ -108,8 +108,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()[0]["similarity"], expected)
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_snippet_reflects_current_postgres_content(self, mock_embed, mock_hogql):
         """The snippet must come from the live UserInterview row, not the embedding row's
         snapshot — otherwise editing or trimming a transcript leaves stale content visible
@@ -123,8 +123,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         response = self.client.post(self._url(), {"query": "x"}, content_type="application/json")
         self.assertEqual(response.json()[0]["content_snippet"], "alex's edited transcript: replay is faster now")
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_truncates_long_content_snippet(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         self.interview_a.transcript = "x" * 1000
@@ -133,8 +133,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         response = self.client.post(self._url(), {"query": "x"}, content_type="application/json")
         self.assertEqual(len(response.json()[0]["content_snippet"]), 500)
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_skips_rows_for_deleted_interviews(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         ghost_id = "00000000-0000-0000-0000-000000000000"
@@ -156,8 +156,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
             ("both_explicit", ["transcript", "summary"], {"transcript", "summary"}),
         ]
     )
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_forwards_document_types_filter(
         self, _name, document_types, expected_in_placeholders, mock_embed, mock_hogql
     ):
@@ -174,8 +174,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
         self.assertEqual(set(placeholders["document_types"].value), expected_in_placeholders)
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_resolves_topic_id_via_current_postgres_linkage(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([])
@@ -197,8 +197,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.assertIn("document_id IN {scoped_document_ids}", hogql_query)
         self.assertNotIn("JSONExtractString(metadata, 'topic_id')", hogql_query)
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_excludes_interviews_detached_from_topic(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([])
@@ -216,8 +216,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
         self.assertEqual(set(placeholders["scoped_document_ids"].value), {str(self.interview_a.id)})
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_short_circuits_when_topic_has_no_interviews(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         # No call to HogQL should happen when the topic resolves to zero interview IDs.
@@ -241,8 +241,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         mock_hogql.assert_not_called()
         mock_embed.assert_not_called()
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_defaults_to_both_document_types_when_unset(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([])
@@ -252,8 +252,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
         self.assertEqual(set(placeholders["document_types"].value), {"transcript", "summary"})
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_enforces_default_limit_when_omitted(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([])
@@ -277,13 +277,13 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_search_action_declares_read_scope(self):
-        from products.user_interviews.backend.api import UserInterviewViewSet
+        from products.user_interviews.backend.presentation.views import UserInterviewViewSet
 
         self.assertEqual(UserInterviewViewSet.search.kwargs["required_scopes"], ["user_interview:read"])
 
-    @patch("products.user_interviews.backend.api.tag_queries")
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.tag_queries")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_tags_clickhouse_query_for_attribution(self, mock_embed, mock_hogql, mock_tag):
         from posthog.clickhouse.query_tagging import Feature, Product
 
@@ -294,9 +294,9 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
 
         mock_tag.assert_called_once_with(product=Product.USER_INTERVIEWS, feature=Feature.SEMANTIC_SEARCH)
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
     @patch(
-        "products.user_interviews.backend.api.generate_embedding",
+        "products.user_interviews.backend.presentation.views.generate_embedding",
         side_effect=RuntimeError("embedding service down"),
     )
     def test_search_returns_502_when_embedding_service_fails(self, _mock_embed, mock_hogql):
@@ -305,10 +305,10 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         self.assertIn("Embedding service", response.json()["detail"])
         mock_hogql.assert_not_called()
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_caps_scoped_document_ids_for_pathological_topic_size(self, mock_embed, mock_hogql):
-        from products.user_interviews.backend.api import SEARCH_TOPIC_INTERVIEW_CAP
+        from products.user_interviews.backend.presentation.views import SEARCH_TOPIC_INTERVIEW_CAP
 
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([])
@@ -337,8 +337,8 @@ class TestUserInterviewSearch(_FeatureFlagEnabledMixin):
         placeholders = mock_hogql.call_args.kwargs["placeholders"]
         self.assertEqual(len(placeholders["scoped_document_ids"].value), SEARCH_TOPIC_INTERVIEW_CAP)
 
-    @patch("products.user_interviews.backend.api.execute_hogql_query")
-    @patch("products.user_interviews.backend.api.generate_embedding")
+    @patch("products.user_interviews.backend.presentation.views.execute_hogql_query")
+    @patch("products.user_interviews.backend.presentation.views.generate_embedding")
     def test_search_does_not_leak_across_teams(self, mock_embed, mock_hogql):
         mock_embed.return_value = self._embedding_response()
         mock_hogql.return_value = self._hogql_rows([])

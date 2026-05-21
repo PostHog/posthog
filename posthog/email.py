@@ -119,6 +119,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "conversation_restore": "63",
     "proxy_provisioned": "64",
     "delegation_invite": "66",
+    "provisioning_welcome": "67",
 }
 
 

@@ -52,7 +52,7 @@ from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.util import extract_inline_query_nodes
+from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
 
 logger = structlog.get_logger(__name__)
 
@@ -422,6 +422,28 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                 ),
             )
 
+        if context.get("dashboard") and "enabled" in request.data:
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=instance.dashboard.pk,
+                scope="Dashboard",
+                activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
+                detail=Detail(
+                    name=instance.dashboard.name,
+                    changes=[
+                        Change(
+                            type="Dashboard",
+                            action="changed",
+                            field="sharing",
+                            after=serializer.data.get("enabled"),
+                        )
+                    ],
+                ),
+            )
+
         if context.get("notebook"):
             log_activity(
                 organization_id=None,
@@ -480,6 +502,18 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                     name=str(name) if name else None,
                     short_id=str(new_instance.insight.short_id),
                 ),
+            )
+
+        if context.get("dashboard"):
+            log_activity(
+                organization_id=None,
+                team_id=self.team_id,
+                user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
+                item_id=new_instance.dashboard.pk,
+                scope="Dashboard",
+                activity="access token refreshed",
+                detail=Detail(name=new_instance.dashboard.name),
             )
 
         if context.get("notebook"):
@@ -1014,13 +1048,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             except Exception:
                 raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.api import _parse_identifier
+            from products.user_interviews.backend.facade.api import parse_interviewee_identifier
 
             ic = resource.interviewee_context
             topic = ic.topic
             asset_title = topic.topic or "User interview"
             asset_description = "PostHog AI user interview"
-            user_name, _ = _parse_identifier(ic.interviewee_identifier)
+            user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
             # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
             # the recipient would otherwise see their own internal-notes context in view-source.
             # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
@@ -1043,6 +1077,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_title = resource.notebook.title or "Notebook"
             asset_description = ""
             notebook_data = NotebookSerializer(resource.notebook, context=context).data
+            # Strip unsupported `ph-*` widget attrs before the document leaves the server — the
+            # frontend `UnsupportedNodePlaceholder` is UI-only and the raw attrs would otherwise
+            # ship to anonymous viewers.
+            if isinstance(notebook_data.get("content"), dict):
+                notebook_data["content"] = filter_notebook_content_for_sharing(notebook_data["content"])
+            # `text_content` is a search-only plain-text projection that may include fragments of
+            # the now-stripped nodes.
+            notebook_data["text_content"] = None
             exported_data.update({"notebook": notebook_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
 

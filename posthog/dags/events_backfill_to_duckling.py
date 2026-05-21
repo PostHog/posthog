@@ -62,7 +62,7 @@ from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.dags.events_backfill_to_ducklake import (
     DEFAULT_CLICKHOUSE_SETTINGS,
     EXPECTED_DUCKLAKE_COLUMNS,

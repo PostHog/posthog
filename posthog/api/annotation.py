@@ -148,6 +148,15 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
             # That's because annotations are restored with a PATCH request setting `deleted` to `False`
             queryset = queryset.filter(deleted=False)
+        # Annotations attached to a soft-deleted insight or dashboard are hidden
+        # across all actions — including `partial_update`, so they cannot be
+        # individually edited or restored while their parent is soft-deleted.
+        # They reappear automatically when the parent is restored. Mirrors how
+        # alerts behave (see posthog/tasks/alerts/checks.py).
+        queryset = queryset.filter(
+            Q(dashboard_item__isnull=True) | Q(dashboard_item__deleted=False),
+            Q(dashboard__isnull=True) | Q(dashboard__deleted=False),
+        )
 
         scope = self.request.query_params.get("scope")
         if scope:

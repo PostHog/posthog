@@ -1159,6 +1159,8 @@ export interface ChartSettings {
     showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+    resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
 
 export interface ConditionalFormattingRule {
@@ -4320,6 +4322,7 @@ export enum AlertState {
 }
 
 export enum AlertCalculationInterval {
+    EVERY_15_MINUTES = 'every_15_minutes',
     HOURLY = 'hourly',
     DAILY = 'daily',
     WEEKLY = 'weekly',
@@ -5870,6 +5873,7 @@ export const externalDataSources = [
     'ClickHouse',
     'Plain',
     'Resend',
+    'PgAnalyze',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

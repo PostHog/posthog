@@ -11,6 +11,7 @@
  * commit. Esc → onBack.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
+import { useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight } from '@posthog/icons'
@@ -31,6 +32,7 @@ import {
 } from '@posthog/quill'
 
 import { createFuse } from 'lib/utils/fuseSearch'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
@@ -198,6 +200,14 @@ export function MenuFilterCombobox({
         return g ? [g] : []
     }, [showChips, activeChip, drillTo, groups, visibleChipGroups])
 
+    // Mount + subscribe so `$survey_response_<question-id>` keys resolve to the
+    // actual question text. `getFriendlyLabel` reads through `getCoreFilterDefinition`,
+    // which falls back to a static label until `surveyQuestionLabelsLogic` has
+    // loaded. Subscribing here ensures `indexed` recomputes the labels once they
+    // arrive — without this, each entry's `friendlyLabel` would be frozen to the
+    // pre-load fallback for the lifetime of the popover.
+    const { surveyQuestionLabels } = useValues(surveyQuestionLabelsLogic)
+
     // Indexed entries — flat list across all visible groups (or
     // pre-resolved `drillItems` for recent/pinned, or pre-merged
     // `suggestedItems` for the Suggested chip / drill).
@@ -248,7 +258,22 @@ export function MenuFilterCombobox({
             }
         }
         return merged
-    }, [drillItems, suggestedItems, targetGroups, itemsByType, selectedEntry, showChips, activeChip, drillTo])
+        // `surveyQuestionLabels` is a deliberate recompute trigger: it isn't read
+        // directly in the body, but `getFriendlyLabel` → `getCoreFilterDefinition`
+        // reads its value via `findMounted()`. Without this dep the memo would
+        // freeze each entry's `friendlyLabel` to the pre-load fallback.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        drillItems,
+        suggestedItems,
+        targetGroups,
+        itemsByType,
+        selectedEntry,
+        showChips,
+        activeChip,
+        drillTo,
+        surveyQuestionLabels,
+    ])
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()

@@ -518,8 +518,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                         (!q.expires_at || new Date(q.expires_at) > new Date())
                                 ) ?? null
                             }
-                            onQuarantine={(reason, identifiers, expiresAt) =>
-                                quarantineSnapshot(reason, identifiers, expiresAt)
+                            onQuarantine={(reason, identifiers, expiresAt, sourceRunId) =>
+                                quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}

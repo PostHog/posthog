@@ -54,7 +54,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-    ):
+    ) -> None:
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
         if not self.query.pathsFilter:
@@ -113,6 +113,15 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             return event not in (self.query.pathsFilter.excludeEvents or [])
 
         return event in (self.query.pathsFilter.includeEventTypes or [])
+
+    @staticmethod
+    def _strip_trailing_slash(url: Optional[str]) -> Optional[str]:
+        # Mirrors the `(.)/$` regex applied to event URLs in `construct_event_hogql`,
+        # so that startPoint/endPoint values match the normalized values stored in
+        # `compact_path` / `start_filtered_path`. The bare "/" URL is preserved.
+        if url and len(url) > 1 and url.endswith("/"):
+            return url[:-1]
+        return url
 
     def construct_event_hogql(self) -> ast.Expr:
         event_hogql: ast.Expr = parse_expr("event")
@@ -523,6 +532,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def get_target_clause(self) -> list[ast.Expr]:
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
+            start_point = self._strip_trailing_slash(self.query.pathsFilter.startPoint)
+            end_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint)
             clauses: list[ast.Expr] = [
                 ast.Alias(
                     alias=f"start_target_index",
@@ -530,7 +541,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["compact_path"]),
-                            ast.Constant(value=self.query.pathsFilter.startPoint),
+                            ast.Constant(value=start_point),
                         ],
                     ),
                 ),
@@ -545,7 +556,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["start_filtered_path"]),
-                            ast.Constant(value=self.query.pathsFilter.endPoint),
+                            ast.Constant(value=end_point),
                         ],
                     ),
                 ),
@@ -577,10 +588,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         )
 
     def paths_per_person_query(self) -> ast.SelectQuery:
-        target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
-        target_point = (
-            target_point[:-1] if target_point and len(target_point) > 1 and target_point.endswith("/") else target_point
-        )
+        target_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint)
 
         path_tuples_expr = ast.Call(
             name="arrayZip",
@@ -824,7 +832,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             now=datetime.now(),
         )
 
-    def _refresh_frequency(self):
+    def _refresh_frequency(self) -> timedelta:
         date_to = self.query_date_range.date_to()
         date_from = self.query_date_range.date_from()
         interval = self.query_date_range.interval_name
@@ -841,7 +849,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return refresh_frequency
 
-    def validate_results(self, results):
+    def validate_results(self, results: list) -> list:
         # Query guarantees results list to be:
         # 1. Directed, Acyclic Tree where each node has only 1 child
         # 2. All start nodes beginning with 1_
