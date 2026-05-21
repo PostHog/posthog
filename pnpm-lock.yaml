@@ -82,8 +82,8 @@ catalogs:
       specifier: ^0.35.0
       version: 0.35.0
     posthog-js:
-      specifier: ^1.374.3
-      version: 1.374.3
+      specifier: ^1.374.4
+      version: 1.374.4
     ts-pattern:
       specifier: '4.3'
       version: 4.3.0
@@ -735,7 +735,7 @@ importers:
         version: link:../packages/quill/packages/quill
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.374.3)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.374.4)(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -1071,7 +1071,7 @@ importers:
         version: 2.11.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       query-selector-shadow-dom:
         specifier: ^1.0.0
         version: 1.0.0
@@ -2096,7 +2096,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2195,7 +2195,7 @@ importers:
         version: 3.3.0
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2239,7 +2239,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2329,7 +2329,7 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2353,7 +2353,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2506,7 +2506,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2585,7 +2585,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2687,7 +2687,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2817,7 +2817,7 @@ importers:
         version: 0.1.7
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -2914,7 +2914,7 @@ importers:
         version: 5.4.1
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3396,7 +3396,7 @@ importers:
         version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3408,7 +3408,7 @@ importers:
         version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.374.3)(react@18.3.1)
+        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.374.4)(react@18.3.1)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -3494,7 +3494,7 @@ importers:
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
       posthog-js:
         specifier: 'catalog:'
-        version: 1.374.3
+        version: 1.374.4
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -8982,8 +8982,8 @@ packages:
   '@posthog/core@1.28.3':
     resolution: {integrity: sha512-SOy0aphKawZzp8jxfeOpTcXPwi6ii0I2V6tX8YXnM+WbxKKR/R+BXLK0jS6LV8kZtW3H5YxmPAfuIbUP1UnGTw==}
 
-  '@posthog/core@1.29.6':
-    resolution: {integrity: sha512-qLA/4xTzxG1FabliYjsOy5pTC9XZWA225MHnpCmqGBoDVGL4sKKgLixMK2dpsHZbSo6AHpBLUfqkvTsh2YxZcQ==}
+  '@posthog/core@1.29.7':
+    resolution: {integrity: sha512-WcBD9/YQVGI9r/5+/IGeaPgsmTIg0YfyzaTei5TNlhmAeFOccnhs269rhtQJcAXngZFpvWSj+RTxX2ONdgxBDQ==}
 
   '@posthog/core@1.7.1':
     resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
@@ -9066,8 +9066,8 @@ packages:
   '@posthog/types@1.372.9':
     resolution: {integrity: sha512-B7k9S+H9WUKHXxe1HOkQWbpWtMcrBvsodm5stZaLQ3pYxf9TowtwssdzTtX4hHjzSYqgrS1IpNnJX4vs1KgBzA==}
 
-  '@posthog/types@1.374.3':
-    resolution: {integrity: sha512-AewLXVP/JR0iUTcY3wkYeDomNDAEWagX6g+39U61HyYcnWOjxzEVPsMGV2VdVjaAP2lRtkIOc00EzoIc9fIZ+Q==}
+  '@posthog/types@1.374.4':
+    resolution: {integrity: sha512-OHBo+gReFwPJtt/yLY6xxa1EYMp7Ti07O1C1KE9ZXXyyuLNqekRaHZxJ/SKUfEvt1LhFV/9sioz8O0xfsSffsQ==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -18843,10 +18843,6 @@ packages:
     resolution: {integrity: sha512-G6T0ZX48xgozx7587koeX9Ys2NYy6Gmv//P89sEte9V9whIapMNF4idKxnW2QtCcLiTWlb/wfCabAtAFWhhBow==}
     engines: {node: '>=16 || 14 >=14.17'}
 
-  minimatch@9.0.9:
-    resolution: {integrity: sha512-OBwBN9AL4dqmETlpS2zasx+vTeWclWzkblfZk7KTA5j3jeOONz/tRCnZomUyvNg83wL5Zv9Ss6HMJXAgL8R2Yg==}
-    engines: {node: '>=16 || 14 >=14.17'}
-
   minimist-options@4.1.0:
     resolution: {integrity: sha512-Q4r8ghd80yhO/0j1O3B2BjweX3fiHg9cdOwjJd2J76Q135c+NDxGCqdYKQ1SKBuFfgWbAUzBfvYjPUEeNgqN1A==}
     engines: {node: '>= 6'}
@@ -20282,8 +20278,8 @@ packages:
   posthog-js-lite@4.2.2:
     resolution: {integrity: sha512-fFCoGtMICWwoW0tsEdyFS7OFFgwe7bTTha/SKEtUdyJ56UyJ8wi6VghxyPkO2GVWpco5Za/edT1z1ovGYPCyLQ==}
 
-  posthog-js@1.374.3:
-    resolution: {integrity: sha512-xJ1Cr6jUs1EMbytD9g+Kej+B44sudcyiLP31l2mfkc8UL+YxAq3lNZ12lw4FVtTkwD4+blArvyd0u4sX+dU7Jg==}
+  posthog-js@1.374.4:
+    resolution: {integrity: sha512-6RtCHzeUKsfkd21QFXnOUbBhorVqemZ57xuJwxEpb0fTj4wrX+tlItm7seY0LsX5LXLRHPxA02uwL/DaGfWXKg==}
 
   posthog-node@5.25.0:
     resolution: {integrity: sha512-DFE5lZAoD6hk7RATuT8qVQ7KFgFP5YlFTJciMbU2qq6NX0A8eJxiJcmEsMnB3g30jJJ9suiwGIq4I8ESwf9bZg==}
@@ -23103,8 +23099,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.406.0:
-    resolution: {integrity: sha512-vt6MkgpgiEYSAPzZBhxvUKoTaRtFTVm1/gh+UKmB+b95iiqs47Qz1XffA0N/kRihzuvs6E2XkQHbImX1QDLlIQ==}
+  unlayer-types@1.408.0:
+    resolution: {integrity: sha512-A4Jo2klqraIhB9N8nwKknrhwHKCSHJLeyJwpaZub677FOq7axrun61Bdij+1oCWgdbkqKJ3LUym8mN0vWQae/Q==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -29831,7 +29827,7 @@ snapshots:
       chalk: 4.1.2
       collect-v8-coverage: 1.0.2
       exit-x: 0.2.2
-      glob: 10.4.5
+      glob: 10.5.0
       graceful-fs: 4.2.11
       istanbul-lib-coverage: 3.2.0
       istanbul-lib-instrument: 6.0.3
@@ -32275,9 +32271,9 @@ snapshots:
     dependencies:
       '@posthog/types': 1.372.9
 
-  '@posthog/core@1.29.6':
+  '@posthog/core@1.29.7':
     dependencies:
-      '@posthog/types': 1.374.3
+      '@posthog/types': 1.374.4
 
   '@posthog/core@1.7.1':
     dependencies:
@@ -32323,9 +32319,9 @@ snapshots:
     transitivePeerDependencies:
       - rxjs
 
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.374.3)(react@18.3.1)':
+  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.374.4)(react@18.3.1)':
     dependencies:
-      posthog-js: 1.374.3
+      posthog-js: 1.374.4
       react: 18.3.1
     optionalDependencies:
       '@types/react': 18.3.27
@@ -32364,7 +32360,7 @@ snapshots:
 
   '@posthog/types@1.372.9': {}
 
-  '@posthog/types@1.374.3': {}
+  '@posthog/types@1.374.4': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -34554,7 +34550,7 @@ snapshots:
       find-cache-dir: 3.3.2
       find-up: 5.0.0
       fs-extra: 11.3.5
-      glob: 10.4.5
+      glob: 10.5.0
       handlebars: 4.7.8
       lazy-universal-dotenv: 4.0.0
       node-fetch: 2.7.0(encoding@0.1.13)
@@ -41593,7 +41589,7 @@ snapshots:
     dependencies:
       foreground-child: 3.3.1
       jackspeak: 3.4.3
-      minimatch: 9.0.9
+      minimatch: 9.0.5
       minipass: 7.1.3
       package-json-from-dist: 1.0.1
       path-scurry: 1.11.1
@@ -43040,7 +43036,7 @@ snapshots:
       chalk: 4.1.2
       ci-info: 4.3.0
       deepmerge: 4.3.1
-      glob: 10.4.5
+      glob: 10.5.0
       graceful-fs: 4.2.11
       jest-circus: 30.0.5
       jest-docblock: 30.0.1
@@ -43691,7 +43687,7 @@ snapshots:
       chalk: 4.1.2
       cjs-module-lexer: 2.1.0
       collect-v8-coverage: 1.0.2
-      glob: 10.4.5
+      glob: 10.5.0
       graceful-fs: 4.2.11
       jest-haste-map: 30.0.5
       jest-message-util: 30.0.5
@@ -45480,7 +45476,7 @@ snapshots:
 
   minimatch@5.1.1:
     dependencies:
-      brace-expansion: 2.0.1
+      brace-expansion: 2.1.0
 
   minimatch@5.1.9:
     dependencies:
@@ -45489,10 +45485,6 @@ snapshots:
   minimatch@9.0.5:
     dependencies:
       brace-expansion: 2.0.1
-
-  minimatch@9.0.9:
-    dependencies:
-      brace-expansion: 2.1.0
 
   minimist-options@4.1.0:
     dependencies:
@@ -47354,15 +47346,15 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.1
 
-  posthog-js@1.374.3:
+  posthog-js@1.374.4:
     dependencies:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/api-logs': 0.208.0
       '@opentelemetry/exporter-logs-otlp-http': 0.208.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.5.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/sdk-logs': 0.208.0(@opentelemetry/api@1.9.0)
-      '@posthog/core': 1.29.6
-      '@posthog/types': 1.374.3
+      '@posthog/core': 1.29.7
+      '@posthog/types': 1.374.4
       core-js: 3.40.0
       dompurify: 3.3.2
       fflate: 0.4.8
@@ -48293,7 +48285,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.406.0
+      unlayer-types: 1.408.0
 
   react-error-overlay@6.0.9: {}
 
@@ -50198,7 +50190,7 @@ snapshots:
     dependencies:
       '@istanbuljs/schema': 0.1.3
       glob: 7.2.3
-      minimatch: 3.1.2
+      minimatch: 3.1.5
 
   text-decoder@1.2.7:
     dependencies:
@@ -50838,7 +50830,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.406.0: {}
+  unlayer-types@1.408.0: {}
 
   unpipe@1.0.0: {}
 
