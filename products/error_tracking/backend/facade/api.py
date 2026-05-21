@@ -16,6 +16,9 @@ from . import types as contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
+CohortNotFoundError = logic.ErrorTrackingCohortNotFoundError
+IssueCohortAssignmentError = logic.ErrorTrackingIssueCohortAssignmentError
+InvalidIssueStatusError = logic.ErrorTrackingInvalidIssueStatusError
 
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:
@@ -116,6 +119,92 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
 
 def issue_exists(team_id: int) -> bool:
     return logic.issue_exists(team_id=team_id)
+
+
+def issue_exists_by_id(issue_id: UUID, team_id: int) -> bool:
+    return logic.issue_exists_by_id(issue_id=issue_id, team_id=team_id)
+
+
+def update_issue(
+    *,
+    team_id: int,
+    issue_id: UUID,
+    organization_id: int,
+    user: Any,
+    was_impersonated: bool,
+    status: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+) -> contracts.ErrorTrackingIssue:
+    issue = logic.update_issue(
+        team_id=team_id,
+        issue_id=issue_id,
+        organization_id=organization_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        status=status,
+        name=name,
+        description=description,
+    )
+    return _to_issue(issue)
+
+
+def merge_issue(*, team_id: int, issue_id: UUID, issue_ids: list[UUID]) -> None:
+    logic.merge_issue(team_id=team_id, issue_id=issue_id, issue_ids=issue_ids)
+
+
+def split_issue(*, team_id: int, issue_id: UUID, fingerprints: list[dict[str, Any]]) -> list[UUID]:
+    return logic.split_issue(team_id=team_id, issue_id=issue_id, fingerprints=fingerprints)
+
+
+def assign_issue(
+    *,
+    team_id: int,
+    issue_id: UUID,
+    assignee: dict[str, Any] | None,
+    organization: Any,
+    user: Any,
+    was_impersonated: bool,
+) -> None:
+    logic.assign_issue(
+        team_id=team_id,
+        issue_id=issue_id,
+        assignee=assignee,
+        organization=organization,
+        user=user,
+        was_impersonated=was_impersonated,
+    )
+
+
+def set_issue_cohort(*, team_id: int, issue_id: UUID, cohort_id: int, distinct_id: int | str) -> None:
+    logic.set_issue_cohort(team_id=team_id, issue_id=issue_id, cohort_id=cohort_id, distinct_id=distinct_id)
+
+
+def bulk_update_issues(
+    *,
+    team_id: int,
+    issue_ids: list[UUID | str],
+    action: str | None,
+    status: str | None,
+    assignee: dict[str, Any] | None,
+    organization: Any,
+    user: Any,
+    was_impersonated: bool,
+) -> None:
+    logic.bulk_update_issues(
+        team_id=team_id,
+        issue_ids=issue_ids,
+        action=action,
+        status=status,
+        assignee=assignee,
+        organization=organization,
+        user=user,
+        was_impersonated=was_impersonated,
+    )
+
+
+def get_status_from_string(status: str) -> str | None:
+    return logic.get_status_from_string(status)
 
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:

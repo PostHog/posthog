@@ -2,8 +2,13 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Count, QuerySet
 
+import posthoganalytics
+
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.integration import (
     GitHubIntegration,
     GitLabIntegration,
@@ -11,14 +16,21 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
 )
+from posthog.models.organization import OrganizationMembership
+from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueCohort,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSymbolSet,
+    sync_issues_to_clickhouse,
 )
+from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
+
+from ee.models.rbac.role import Role
 
 
 class ErrorTrackingIssueNotFoundError(Exception):
@@ -26,6 +38,18 @@ class ErrorTrackingIssueNotFoundError(Exception):
 
 
 class ErrorTrackingExternalReferenceValidationError(Exception):
+    pass
+
+
+class ErrorTrackingCohortNotFoundError(Exception):
+    pass
+
+
+class ErrorTrackingIssueCohortAssignmentError(Exception):
+    pass
+
+
+class ErrorTrackingInvalidIssueStatusError(Exception):
     pass
 
 
@@ -70,6 +94,235 @@ def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
 
 def issue_exists(team_id: int) -> bool:
     return ErrorTrackingIssue.objects.filter(team_id=team_id).exists()
+
+
+def issue_exists_by_id(issue_id: UUID, team_id: int) -> bool:
+    return ErrorTrackingIssue.objects.filter(id=issue_id, team_id=team_id).exists()
+
+
+def update_issue(
+    *,
+    team_id: int,
+    issue_id: UUID,
+    organization_id: int,
+    user: Any,
+    was_impersonated: bool,
+    status: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+) -> ErrorTrackingIssue:
+    issue = get_issue(issue_id=issue_id, team_id=team_id)
+
+    changes: list[Change] = []
+    if status is not None and status != issue.status:
+        changes.append(
+            Change(
+                type="ErrorTrackingIssue",
+                field="status",
+                before=issue.status,
+                after=status,
+                action="changed",
+            )
+        )
+        issue.status = status
+
+    if name is not None and name != issue.name:
+        changes.append(Change(type="ErrorTrackingIssue", field="name", before=issue.name, after=name, action="changed"))
+        issue.name = name
+
+    if description is not None and description != issue.description:
+        issue.description = description
+
+    issue.save(update_fields=["status", "name", "description"])
+
+    if changes:
+        log_activity(
+            organization_id=organization_id,
+            team_id=team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="updated",
+            detail=Detail(
+                name=issue.name,
+                changes=changes,
+            ),
+        )
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+
+    return get_issue(issue_id=issue_id, team_id=team_id)
+
+
+def merge_issue(*, team_id: int, issue_id: UUID, issue_ids: list[UUID]) -> None:
+    issue = get_issue(issue_id=issue_id, team_id=team_id)
+    ids = [str(id_to_merge) for id_to_merge in issue_ids if id_to_merge != issue.id]
+    issue.merge(issue_ids=ids)
+    sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+
+
+def split_issue(*, team_id: int, issue_id: UUID, fingerprints: list[dict[str, Any]]) -> list[UUID]:
+    issue = get_issue(issue_id=issue_id, team_id=team_id)
+    new_issues = issue.split(fingerprints=fingerprints)
+    sync_issues_to_clickhouse(issue_ids=[issue.id] + [new_issue.id for new_issue in new_issues], team_id=team_id)
+    return [new_issue.id for new_issue in new_issues]
+
+
+def set_issue_cohort(*, team_id: int, issue_id: UUID, cohort_id: int, distinct_id: int | str) -> None:
+    issue = get_issue(issue_id=issue_id, team_id=team_id)
+    cohort = Cohort.objects.filter(team_id=team_id, id=cohort_id).first()
+    if cohort is None:
+        raise ErrorTrackingCohortNotFoundError
+
+    try:
+        # Upsert cohort_id as a cohort might have been soft deleted.
+        # nosemgrep: idor-lookup-without-team (cohort scoped to team before use)
+        _ = ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort.id})
+    except Exception as error:
+        posthoganalytics.capture_exception(
+            error,
+            distinct_id=distinct_id,
+            properties={"issue_id": issue.id, "cohort_id": cohort.id},
+        )
+        raise ErrorTrackingIssueCohortAssignmentError from error
+
+
+def _serialize_assignment(assignment: ErrorTrackingIssueAssignment | None) -> dict[str, int | str | None] | None:
+    if assignment is None:
+        return None
+
+    return {
+        "id": assignment.user_id if assignment.user_id else str(assignment.role_id) if assignment.role_id else None,
+        "type": "role" if assignment.role else "user",
+    }
+
+
+def assign_issue(
+    *,
+    team_id: int,
+    issue_id: UUID,
+    assignee: dict[str, Any] | None,
+    organization: Any,
+    user: Any,
+    was_impersonated: bool,
+) -> None:
+    issue = get_issue(issue_id=issue_id, team_id=team_id)
+    assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
+    serialized_assignment_before = _serialize_assignment(assignment_before)
+
+    if assignee:
+        if assignee["type"] == "user":
+            if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
+                raise ValueError("Assignee user does not belong to this organization.")
+        elif assignee["type"] == "role":
+            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+                raise ValueError("Assignee role does not belong to this organization.")
+
+        # nosemgrep: idor-lookup-without-team (assignee validated against org above)
+        assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
+            issue_id=issue.id,
+            defaults={
+                "team_id": team_id,
+                "user_id": None if assignee["type"] != "user" else assignee["id"],
+                "role_id": None if assignee["type"] != "role" else assignee["id"],
+            },
+        )
+
+        send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
+        dispatch_issue_assigned_realtime(assignment=assignment_after, assignee=assignee, assigner=user)
+        serialized_assignment_after = _serialize_assignment(assignment_after)
+    else:
+        if assignment_before:
+            assignment_before.delete()
+        serialized_assignment_after = None
+
+    log_activity(
+        organization_id=organization.id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=str(issue.id),
+        scope="ErrorTrackingIssue",
+        activity="assigned",
+        detail=Detail(
+            name=issue.name,
+            changes=[
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="assignee",
+                    before=serialized_assignment_before,
+                    after=serialized_assignment_after,
+                    action="changed",
+                )
+            ],
+        ),
+    )
+    sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
+
+
+def get_status_from_string(status: str) -> str | None:
+    if status in {"active", "resolved", "suppressed"}:
+        return status
+    return None
+
+
+def bulk_update_issues(
+    *,
+    team_id: int,
+    issue_ids: list[UUID | str],
+    action: str | None,
+    status: str | None,
+    assignee: dict[str, Any] | None,
+    organization: Any,
+    user: Any,
+    was_impersonated: bool,
+) -> None:
+    issues = list(ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids))
+
+    with transaction.atomic():
+        if action == "set_status":
+            new_status = get_status_from_string(status or "")
+            if new_status is None:
+                raise ErrorTrackingInvalidIssueStatusError
+
+            for issue in issues:
+                _ = log_activity(
+                    organization_id=organization.id,
+                    team_id=team_id,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    item_id=issue.id,
+                    scope="ErrorTrackingIssue",
+                    activity="updated",
+                    detail=Detail(
+                        name=issue.name,
+                        changes=[
+                            Change(
+                                type="ErrorTrackingIssue",
+                                action="changed",
+                                field="status",
+                                before=issue.status,
+                                after=new_status,
+                            )
+                        ],
+                    ),
+                )
+
+            ErrorTrackingIssue.objects.filter(id__in=[issue.id for issue in issues], team_id=team_id).update(
+                status=new_status
+            )
+        elif action == "assign":
+            for issue in issues:
+                assign_issue(
+                    team_id=team_id,
+                    issue_id=issue.id,
+                    assignee=assignee,
+                    organization=organization,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                )
+
+    sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=team_id)
 
 
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
