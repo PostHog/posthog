@@ -880,6 +880,7 @@ class HogQLQueryExecutor:
             elif self.clickhouse_sql is not None:
                 self._execute_clickhouse_query()
 
+        warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
@@ -892,6 +893,7 @@ class HogQLQueryExecutor:
             modifiers=self.query_modifiers,
             explain=self.explain,
             metadata=self.metadata,
+            warnings=warnings or None,
             hasMore=self.has_more,
             limit=self.limit,
             offset=self.offset,

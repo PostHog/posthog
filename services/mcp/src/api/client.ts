@@ -986,10 +986,34 @@ export class ApiClient {
                 query,
             }: {
                 query: Record<string, any>
-            }): Promise<Result<{ results: unknown; columns?: unknown; formatted_results?: string }>> => {
+            }): Promise<
+                Result<{
+                    results: unknown
+                    columns?: unknown
+                    formatted_results?: string
+                    warnings?: Array<{
+                        table_name: string
+                        schema_name: string
+                        source_type: string
+                        status: string
+                        message: string
+                    }>
+                }>
+            > => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
+                return this.fetchJson<{
+                    results: unknown
+                    columns?: unknown
+                    formatted_results?: string
+                    warnings?: Array<{
+                        table_name: string
+                        schema_name: string
+                        source_type: string
+                        status: string
+                        message: string
+                    }>
+                }>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })

@@ -58,6 +58,20 @@ def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
     return results if results else response.get("boxplot_data", [])
 
 
+def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
+    """Render data warehouse sync warnings as a leading block for LLM-facing output."""
+    warnings = response.get("warnings")
+    if not warnings:
+        return ""
+    lines = ["[Data warehouse sync warnings — results may not reflect current source data]"]
+    for warning in warnings:
+        message = warning.get("message") if isinstance(warning, dict) else getattr(warning, "message", None)
+        if message:
+            lines.append(f"- {message}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def format_query_results_for_llm(
     query: BaseModel,
     response: dict[str, Any],
@@ -79,32 +93,38 @@ def format_query_results_for_llm(
     if isinstance(query, InsightVizNode | DataVisualizationNode | DataTableNode):
         query = query.source
 
+    warning_prefix = format_warehouse_sync_warnings(response)
+
+    formatted: str | None = None
     if isinstance(query, AssistantTrendsQuery | TrendsQuery):
         if is_boxplot_query(query):
-            return BoxPlotResultsFormatter(get_boxplot_results(response)).format()
-        return TrendsResultsFormatter(query, response["results"]).format()
+            formatted = BoxPlotResultsFormatter(get_boxplot_results(response)).format()
+        else:
+            formatted = TrendsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
-        return FunnelResultsFormatter(query, response["results"], team, utc_now).format()
+        formatted = FunnelResultsFormatter(query, response["results"], team, utc_now).format()
     elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
-        return LifecycleResultsFormatter(query, response["results"]).format()
+        formatted = LifecycleResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantPathsQuery | PathsQuery):
-        return PathsResultsFormatter(response["results"]).format()
+        formatted = PathsResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
-        return StickinessResultsFormatter(query, response["results"]).format()
+        formatted = StickinessResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
-        return RetentionResultsFormatter(query, response["results"]).format()
+        formatted = RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
-        return SQLResultsFormatter(query, response["results"], response["columns"]).format()
+        formatted = SQLResultsFormatter(query, response["results"], response["columns"]).format()
     elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
-        return RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
+        formatted = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
     elif isinstance(query, RevenueAnalyticsMetricsQuery):
-        return RevenueAnalyticsMetricsResultsFormatter(query, response["results"]).format()
+        formatted = RevenueAnalyticsMetricsResultsFormatter(query, response["results"]).format()
     elif isinstance(query, RevenueAnalyticsMRRQuery):
-        return RevenueAnalyticsMRRResultsFormatter(query, response["results"]).format()
+        formatted = RevenueAnalyticsMRRResultsFormatter(query, response["results"]).format()
     elif isinstance(query, RevenueAnalyticsTopCustomersQuery):
-        return RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
+        formatted = RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
 
-    return None
+    if formatted is None:
+        return None
+    return warning_prefix + formatted if warning_prefix else formatted
 
 
 __all__ = [
@@ -122,4 +142,5 @@ __all__ = [
     "RevenueAnalyticsTopCustomersResultsFormatter",
     "TRUNCATED_MARKER",
     "format_query_results_for_llm",
+    "format_warehouse_sync_warnings",
 ]
