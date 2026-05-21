@@ -10,7 +10,7 @@ import { SDKGrid } from '../SDKGrid'
 import { SDKInstructionsModal } from '../SDKInstructionsModal'
 import { VariantProps } from '../types'
 import { WizardCommandBlock } from '../WizardCommandBlock'
-import { WizardProgressTracker } from '../WizardProgressTracker'
+import { WizardProgressTracker, useWizardTakeoverActive } from '../WizardProgressTracker'
 import { WizardOnlyIntro } from './WizardOnlyIntro'
 
 /**
@@ -41,6 +41,7 @@ export function WizardOnlyVariant({
 }: VariantProps): JSX.Element {
     const [manualModalOpen, setManualModalOpen] = useState(false)
     const [sdkInstructionsOpen, setSdkInstructionsOpen] = useState(false)
+    const isTakeoverActive = useWizardTakeoverActive()
 
     const handleWizardOnlySDKClick = (sdk: SDK): void => {
         sdkGridProps.onSDKClick(sdk)
@@ -66,11 +67,14 @@ export function WizardOnlyVariant({
             {header}
             {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6 space-y-8">
-                <WizardOnlyIntro />
+                {!isTakeoverActive && <WizardOnlyIntro />}
 
-                <div className="max-w-xl mx-auto">
-                    <WizardCommandBlock />
-                    <WizardProgressTracker />
+                <div className={`${isTakeoverActive ? 'max-w-3xl' : 'max-w-xl'} mx-auto`}>
+                    {isTakeoverActive ? (
+                        <WizardProgressTracker onManualSetup={() => setManualModalOpen(true)} />
+                    ) : (
+                        <WizardCommandBlock />
+                    )}
                 </div>
 
                 <div className="text-center">
