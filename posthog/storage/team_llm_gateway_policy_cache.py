@@ -30,13 +30,17 @@ import structlog
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
+from posthog.storage.cache_expiry_manager import refresh_expiring_caches as refresh_generic
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 
 logger = structlog.get_logger(__name__)
 
 
 LLM_GATEWAY_POLICY_CACHE_TTL = int(os.environ.get("LLM_GATEWAY_POLICY_CACHE_TTL", str(60 * 60 * 24 * 7)))
 LLM_GATEWAY_POLICY_CACHE_MISS_TTL = int(os.environ.get("LLM_GATEWAY_POLICY_CACHE_MISS_TTL", str(60 * 60 * 24)))
+
+LLM_GATEWAY_POLICY_CACHE_EXPIRY_SORTED_SET = "llm_gateway_policy_cache_expiry"
 
 LLM_GATEWAY_POLICY_FIELDS = [
     "id",
@@ -88,6 +92,7 @@ team_llm_gateway_policy_hypercache = HyperCache(
     cache_ttl=LLM_GATEWAY_POLICY_CACHE_TTL,
     cache_miss_ttl=LLM_GATEWAY_POLICY_CACHE_MISS_TTL,
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
+    expiry_sorted_set_key=LLM_GATEWAY_POLICY_CACHE_EXPIRY_SORTED_SET,
 )
 
 
@@ -105,3 +110,19 @@ def update_team_llm_gateway_policy_cache(team: Team | str | int, ttl: int | None
 
 def clear_team_llm_gateway_policy_cache(team: Team | str | int, kinds: list[str] | None = None) -> None:
     team_llm_gateway_policy_hypercache.clear_cache(team, kinds=kinds)
+
+
+LLM_GATEWAY_POLICY_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
+    hypercache=team_llm_gateway_policy_hypercache,
+    update_fn=update_team_llm_gateway_policy_cache,
+    cache_name="llm_gateway_policy",
+)
+
+
+def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+    """
+    Refresh policy caches whose TTL falls below the threshold. Mirrors the
+    team_metadata refresh pipeline so the cache stays warm under a growing
+    team pool instead of relying on lazy DB lookups when entries expire.
+    """
+    return refresh_generic(LLM_GATEWAY_POLICY_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)

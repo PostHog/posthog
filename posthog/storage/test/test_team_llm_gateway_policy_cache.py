@@ -132,12 +132,10 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
         mock_delay.assert_called_with(self.team.id)
 
-    @patch("posthog.tasks.team_llm_gateway_policy.transaction")
     @patch("posthog.tasks.team_llm_gateway_policy.settings")
     @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
-    def test_team_save_noop_without_flags_redis_url(self, mock_delay, mock_settings, mock_transaction):
+    def test_team_save_noop_without_flags_redis_url(self, mock_delay, mock_settings):
         mock_settings.FLAGS_REDIS_URL = None
-        mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         self.team.llm_gateway_tier = "pro"
         self.team.save()
