@@ -86,6 +86,19 @@ describe('subscriptionsSceneLogic', () => {
             expect(params.get('resource_type')).toBe('insight')
         })
 
+        it('sends resource_type=ai_prompt on AI reports tab', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            subscriptionRequestUrls.length = 0
+
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentTab(SubscriptionsTab.Ai)
+            }).toDispatchActions(['setCurrentTab', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
+
+            expect(subscriptionRequestUrls).toHaveLength(1)
+            const params = subscriptionListParamsFromUrl(subscriptionRequestUrls[0])
+            expect(params.get('resource_type')).toBe('ai_prompt')
+        })
+
         it('sends created_by for Mine tab', async () => {
             await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
             subscriptionRequestUrls.length = 0

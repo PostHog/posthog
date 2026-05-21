@@ -33,6 +33,7 @@ export enum SubscriptionsTab {
     Mine = 'mine',
     Dashboard = 'dashboard',
     Insight = 'insight',
+    Ai = 'ai_prompt',
 }
 
 /** Return type is full `SubscriptionsTab` so Kea typegen does not collapse state to the `All` literal. */
@@ -59,7 +60,10 @@ export interface SubscriptionsQueryFromUrl {
 function parseSubscriptionsSearchParams(searchParams: Record<string, unknown>): SubscriptionsQueryFromUrl {
     const rawTab = searchParams['tab']
     const tab: SubscriptionsTab =
-        rawTab === SubscriptionsTab.Mine || rawTab === SubscriptionsTab.Dashboard || rawTab === SubscriptionsTab.Insight
+        rawTab === SubscriptionsTab.Mine ||
+        rawTab === SubscriptionsTab.Dashboard ||
+        rawTab === SubscriptionsTab.Insight ||
+        rawTab === SubscriptionsTab.Ai
             ? rawTab
             : SubscriptionsTab.All
 
@@ -306,6 +310,8 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
                         resourceType = SubscriptionsListResourceType.Dashboard
                     } else if (values.currentTab === SubscriptionsTab.Insight) {
                         resourceType = SubscriptionsListResourceType.Insight
+                    } else if (values.currentTab === SubscriptionsTab.Ai) {
+                        resourceType = SubscriptionsListResourceType.AiPrompt
                     }
                     const createdBy =
                         values.currentTab === SubscriptionsTab.Mine

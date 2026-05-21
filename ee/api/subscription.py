@@ -829,10 +829,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             OpenApiParameter(
                 name="resource_type",
                 type=str,
-                enum=["insight", "dashboard"],
+                enum=["insight", "dashboard", "ai_prompt"],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by subscription resource: insight vs dashboard export.",
+                description="Filter by subscription resource: insight, dashboard export, or AI report.",
             ),
             OpenApiParameter(
                 name="target_type",
@@ -906,6 +906,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(insight_id__isnull=False)
             elif resource_type == "dashboard":
                 queryset = queryset.filter(dashboard_id__isnull=False)
+            elif resource_type == "ai_prompt":
+                queryset = queryset.filter(content_type=Subscription.ContentType.AI_PROMPT)
 
             target_type_filter = request_params.get("target_type")
             if target_type_filter:

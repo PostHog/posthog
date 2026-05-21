@@ -7,6 +7,7 @@ import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -106,6 +107,7 @@ export function SubscriptionsScene(): JSX.Element {
         targetTypeFilter,
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
+    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     const isFiltered =
         Boolean(search.trim()) ||
@@ -118,6 +120,7 @@ export function SubscriptionsScene(): JSX.Element {
         { key: SubscriptionsTab.Mine, label: 'My subscriptions' },
         { key: SubscriptionsTab.Dashboard, label: 'Dashboard' },
         { key: SubscriptionsTab.Insight, label: 'Insight' },
+        ...(aiSubscriptionsEnabled ? [{ key: SubscriptionsTab.Ai, label: 'AI reports' }] : []),
     ]
     const showProductIntroduction =
         subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
@@ -129,13 +132,15 @@ export function SubscriptionsScene(): JSX.Element {
                 description={sceneConfigurations[Scene.Subscriptions].description}
                 resourceType={{ type: 'inbox' }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        data-attr="new-subscription-button"
-                        onClick={() => router.actions.push(urls.subscriptionNew())}
-                    >
-                        New subscription
-                    </LemonButton>
+                    aiSubscriptionsEnabled ? (
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-subscription-button"
+                            onClick={() => router.actions.push(urls.subscriptionNew())}
+                        >
+                            New subscription
+                        </LemonButton>
+                    ) : undefined
                 }
             />
             <LemonTabs

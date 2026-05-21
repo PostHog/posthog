@@ -1721,6 +1721,32 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert properties["enabled"] is True
         assert properties["subscription_id"] == response.json()["id"]
 
+    def test_list_filter_by_resource_type_ai_prompt(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        ai_res = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_ai_payload())
+        assert ai_res.status_code == status.HTTP_201_CREATED, ai_res.json()
+        ai_id = ai_res.json()["id"]
+
+        insight = Insight.objects.create(team=self.team, created_by=self.user)
+        insight_sub = Subscription.objects.create(
+            team=self.team,
+            insight=insight,
+            target_type="email",
+            target_value="insight@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, tzinfo=UTC),
+            title="Insight sub",
+            created_by=self.user,
+        )
+
+        only_ai = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"resource_type": "ai_prompt"})
+        assert only_ai.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in only_ai.json()["results"]}
+        assert ai_id in ids
+        assert insight_sub.id not in ids
+
     def test_rejects_without_ai_consent(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
         response = self.client.post(
