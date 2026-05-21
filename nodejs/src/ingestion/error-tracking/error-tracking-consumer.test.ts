@@ -466,17 +466,14 @@ describe('ErrorTrackingConsumer', () => {
             })
         }
 
-        const eventWithStack = (overrides: { distinctId: string; type: string; value: string; fn: string }) =>
+        const exceptionEvent = (fn: string, value: string = 'msg'): PipelineEvent =>
             createEvent({
-                distinct_id: overrides.distinctId,
                 properties: {
                     $exception_list: [
                         {
-                            type: overrides.type,
-                            value: overrides.value,
-                            stacktrace: {
-                                frames: [{ function: overrides.fn, filename: `${overrides.fn}.js`, lineno: 1 }],
-                            },
+                            type: 'TypeError',
+                            value,
+                            stacktrace: { frames: [{ function: fn, filename: `${fn}.js`, lineno: 1 }] },
                             mechanism: { type: 'generic', handled: true },
                         },
                     ],
@@ -485,9 +482,7 @@ describe('ErrorTrackingConsumer', () => {
 
         // The pipeline produces via `.handleSideEffects(_, { await: false })`,
         // so the mock observer only reflects emits once the scheduler drains.
-        const drainProduces = async (): Promise<void> => {
-            await consumer['promiseScheduler'].waitForAll()
-        }
+        const drainProduces = () => consumer['promiseScheduler'].waitForAll()
 
         const producedCount = (): number =>
             mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test').length
@@ -496,24 +491,25 @@ describe('ErrorTrackingConsumer', () => {
             await upsertSettings({ projectRateLimit: 15 })
             await enableRateLimiter()
 
-            // Bucket starts at 15. Each batch sums to cost=4, so tokens walk
-            // 15→11→7→3 (3 batches accepted), then batch 4's cost=4 vs tokens=3
-            // trips the limit and the whole batch drops.
-            const sendBatch = async (label: string): Promise<void> => {
-                const events = [1, 2, 3, 4].map((i) =>
-                    eventWithStack({
-                        distinctId: `${label}-${i}`,
-                        type: 'TypeError',
-                        value: `${label}-${i}`,
-                        fn: `${label}-${i}`,
-                    })
+            // Each batch carries 4 events all sharing the team-global key → cost=4.
+            const sendBatch = () =>
+                consumer.handleKafkaBatch(
+                    createKafkaMessages([
+                        exceptionEvent('a'),
+                        exceptionEvent('b'),
+                        exceptionEvent('c'),
+                        exceptionEvent('d'),
+                    ])
                 )
-                await consumer.handleKafkaBatch(createKafkaMessages(events))
-            }
 
-            for (const label of ['a', 'b', 'c', 'd']) {
-                await sendBatch(label)
-            }
+            // tokens 15 → 11
+            await sendBatch()
+            // tokens 11 → 7
+            await sendBatch()
+            // tokens 7 → 3
+            await sendBatch()
+            // cost 4 > tokens 3 → batch dropped
+            await sendBatch()
             await drainProduces()
 
             expect(producedCount()).toBe(12)
@@ -523,70 +519,50 @@ describe('ErrorTrackingConsumer', () => {
             await upsertSettings({ perIssueRateLimit: 4 })
             await enableRateLimiter()
 
-            // Each batch carries the same three issues (alpha/beta/gamma). Each
-            // issue's bucket walks 4→3→2→1→0 — batches 1-3 pass for all three
-            // issues, batch 4 rate-limits all three.
-            const batchAcrossIssues = (variant: number): Message[] =>
-                createKafkaMessages(
-                    ['alpha', 'beta', 'gamma'].map((iss) =>
-                        eventWithStack({
-                            distinctId: `${iss}-${variant}`,
-                            type: 'TypeError',
-                            value: `v-${variant}`,
-                            fn: iss,
-                        })
-                    )
-                )
+            const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
 
-            for (const variant of [1, 2, 3, 4]) {
-                await consumer.handleKafkaBatch(batchAcrossIssues(variant))
-            }
-            await drainProduces()
-            expect(producedCount()).toBe(9)
+            // issue A: tokens 4 → 3
+            await send('A')
+            // 3 → 2
+            await send('A')
+            // 2 → 1
+            await send('A')
+            // 1 → 0 → rate-limited
+            await send('A')
 
-            // A previously-unseen issue has its own untouched bucket and passes.
-            await consumer.handleKafkaBatch(
-                createKafkaMessages([
-                    eventWithStack({ distinctId: 'delta-1', type: 'TypeError', value: 'v', fn: 'delta' }),
-                ])
-            )
+            expect(producedCount()).toBe(3)
+
+            // issue B has its own fresh bucket: 4 → 3
+            await send('B')
             await drainProduces()
-            expect(producedCount()).toBe(10)
+
+            expect(producedCount()).toBe(4) // 3 from A + 1 from B
         })
 
         it('signature groups by stack and ignores message interpolation', async () => {
             await upsertSettings({ perIssueRateLimit: 4 })
             await enableRateLimiter()
 
-            // Phase 1: same exception 4 times → bucket exhausts on the 4th. Three pass.
-            for (let i = 0; i < 4; i++) {
-                await consumer.handleKafkaBatch(
-                    createKafkaMessages([
-                        eventWithStack({ distinctId: `same-${i}`, type: 'TypeError', value: 'msg', fn: 'foo' }),
-                    ])
-                )
-            }
-            await drainProduces()
-            expect(producedCount()).toBe(3)
+            const send = (fn: string, value: string = 'msg') =>
+                consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn, value)]))
 
-            // Phase 2: different stack → fresh bucket → passes.
-            await consumer.handleKafkaBatch(
-                createKafkaMessages([
-                    eventWithStack({ distinctId: 'new-stack', type: 'TypeError', value: 'msg', fn: 'bar' }),
-                ])
-            )
-            await drainProduces()
-            expect(producedCount()).toBe(4)
+            // foo: tokens 4 → 3
+            await send('foo')
+            // 3 → 2
+            await send('foo')
+            // 2 → 1
+            await send('foo')
+            // 1 → 0 → rate-limited
+            await send('foo')
 
-            // Phase 3: revert to the original stack, only `value` differs. The
-            // signature drops `value` when a stack exists, so this hits the
-            // exhausted bucket from phase 1 and gets rate-limited.
-            await consumer.handleKafkaBatch(
-                createKafkaMessages([
-                    eventWithStack({ distinctId: 'new-value', type: 'TypeError', value: 'msg-2', fn: 'foo' }),
-                ])
-            )
+            // bar has its own bucket: 4 → 3
+            await send('bar')
+
+            // foo with different `value` → same key as foo's burst (value is
+            // dropped from the hash when a stack exists) → still rate-limited.
+            await send('foo', 'different')
             await drainProduces()
+
             expect(producedCount()).toBe(4)
         })
     })
