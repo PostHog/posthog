@@ -11,11 +11,11 @@ proposed refactors. This is a state dump of what exists today.
 
 ## Overview
 
-| Path | Backed by | Stored as | Used for |
-|---|---|---|---|
-| **GitHub App integration** | One GitHub App (App + user-to-server tokens) | `Integration` (team) / `UserIntegration` (user), both `kind="github"` | Repo reads, PR comments, issues, commit attribution, agent sandboxes |
-| **GitHub OAuth App (social login)** | A separate OAuth App | `UserSocialAuth` (python-social-auth) | "Log in with GitHub" only |
-| **Data warehouse GitHub source** | User-supplied PAT | `ExternalDataSource.job_inputs` | Importing issues/PRs/commits as warehouse tables |
+| Path                                | Backed by                                    | Stored as                                                             | Used for                                                             |
+| ----------------------------------- | -------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **GitHub App integration**          | One GitHub App (App + user-to-server tokens) | `Integration` (team) / `UserIntegration` (user), both `kind="github"` | Repo reads, PR comments, issues, commit attribution, agent sandboxes |
+| **GitHub OAuth App (social login)** | A separate OAuth App                         | `UserSocialAuth` (python-social-auth)                                 | "Log in with GitHub" only                                            |
+| **Data warehouse GitHub source**    | User-supplied PAT                            | `ExternalDataSource.job_inputs`                                       | Importing issues/PRs/commits as warehouse tables                     |
 
 Decision guide:
 
@@ -32,13 +32,13 @@ Decision guide:
 
 ### Credentials and settings
 
-| Name | Static/dynamic | Source | Purpose |
-|---|---|---|---|
-| `GITHUB_APP_CLIENT_ID` | static env | `posthog/settings/integrations.py:36` | JWT `iss` and OAuth `client_id` (same App for both) |
-| `GITHUB_APP_PRIVATE_KEY` | static env | `posthog/settings/integrations.py:37` | RS256 PEM for App JWTs. Newlines may be `\n` literals; decoded at sign time. |
-| `GITHUB_APP_CLIENT_SECRET` | static env | `posthog/settings/integrations.py:42` | OAuth user-to-server code exchange. Generated in the App's settings once "Request user authorization during installation" is enabled. |
-| `GITHUB_APP_SLUG` | dynamic instance setting | `posthog/settings/dynamic_settings.py:128` | Builds `https://github.com/apps/{slug}/installations/new`. Overrideable via `/api/instance_settings/`. |
-| `GITHUB_WEBHOOK_SECRET` | dynamic instance setting (masked) | `posthog/settings/dynamic_settings.py:212` | HMAC-SHA256 secret for incoming webhooks. Stored masked. |
+| Name                       | Static/dynamic           | Source                                     | Purpose                                                                                                                                                                                 |
+| -------------------------- | ------------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_APP_CLIENT_ID`     | static env               | `posthog/settings/integrations.py:36`      | JWT `iss` and OAuth `client_id` (same App for both)                                                                                                                                     |
+| `GITHUB_APP_PRIVATE_KEY`   | static env               | `posthog/settings/integrations.py:37`      | RS256 PEM for App JWTs. Newlines may be `\n` literals; decoded at sign time.                                                                                                            |
+| `GITHUB_APP_CLIENT_SECRET` | static env               | `posthog/settings/integrations.py:42`      | OAuth user-to-server code exchange. Generated in the App's settings once "Request user authorization during installation" is enabled.                                                   |
+| `GITHUB_APP_SLUG`          | dynamic instance setting | `posthog/settings/dynamic_settings.py:128` | Builds `https://github.com/apps/{slug}/installations/new`. Overrideable via `/api/instance_settings/`.                                                                                  |
+| `GITHUB_WEBHOOK_SECRET`    | dynamic instance setting | `posthog/settings/dynamic_settings.py:212` | HMAC-SHA256 secret for incoming webhooks. Listed in `SECRET_SETTINGS` (`dynamic_settings.py:354`) — API-write-only and never returned by the read API, but stored plain text in the DB. |
 
 There is no GitHub App manifest in this repo. The App must be created
 by hand at `github.com/settings/apps`. Required permissions and events
@@ -46,7 +46,7 @@ are documented in [GitHub-side App configuration](#github-side-app-configuration
 
 There is also a `GITHUB_TOKEN` env var (`posthog/settings/__init__.py:98`).
 This is a plain PAT used only for plugin repo fetches and the error
-tracking public-repo code-search fallback. It is *not* part of the
+tracking public-repo code-search fallback. It is _not_ part of the
 integration flow and is never written to or read from an `Integration`
 row.
 
@@ -77,21 +77,25 @@ installations (personal + several orgs). For `kind="github"`:
 - `sensitive_config` — `access_token` (installation token, identical
   semantics to team-side) **plus** `user_access_token` and
   `user_refresh_token` (the OAuth user-to-server pair)
+- `repository_cache` / `repository_cache_updated_at`
+  (`user_integration.py:53-54`) — same shape and semantics as the
+  team-side cache; cache-invalidation paths need to invalidate on both
+  models
 
 #### `GitHubIntegrationBase` — `posthog/models/github_integration_base.py`
 
 Shared base class for both team and user paths. Notable members:
 
-| Member | Location | What it does |
-|---|---|---|
-| `client_request(endpoint, method)` | `:98` | Mints an RS256 App JWT (`iss=GITHUB_APP_CLIENT_ID`, ±5min) and calls `https://api.github.com/app/{endpoint}` |
-| `verify_user_installation_access(installation_id, user_access_token)` | `:139` | `GET /user/installations/{id}/repositories` — IDOR guard |
-| `refresh_access_token()` | `:270` | `POST /app/installations/{id}/access_tokens`. Half-TTL refresh; one 401 retry per call. |
-| `list_teams(search, limit, offset)` | `:405` | `GET /orgs/{org}/teams` |
-| `list_repositories(page, per_page)` | `:601` | `GET /installation/repositories` |
-| `list_branches(repo, limit, offset)` | `:741` | `GET /repos/{owner}/{repo}/branches` |
-| `get_default_branch(repository)` | `:927` | `GET /repos/{owner}/{repo}`, Redis-cached for `GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS` (6h, `integration.py:2253`) |
-| `_gh_api_get(path, endpoint, timeout)` | `:1210` | Generic authenticated GET. One automatic retry on transient 5xx; raises `GitHubIntegrationError(is_rate_limit=True)` on 403/429 with `X-RateLimit-Remaining: 0` or "secondary rate limit" in the body. |
+| Member                                                                | Location | What it does                                                                                                                                                                                           |
+| --------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `client_request(endpoint, method)`                                    | `:98`    | Mints an RS256 App JWT (`iss=GITHUB_APP_CLIENT_ID`, ±5min) and calls `https://api.github.com/app/{endpoint}`                                                                                           |
+| `verify_user_installation_access(installation_id, user_access_token)` | `:139`   | `GET /user/installations/{id}/repositories` — IDOR guard                                                                                                                                               |
+| `refresh_access_token()`                                              | `:270`   | `POST /app/installations/{id}/access_tokens`. Half-TTL refresh; one 401 retry per call.                                                                                                                |
+| `list_teams(search, limit, offset)`                                   | `:405`   | `GET /orgs/{org}/teams`                                                                                                                                                                                |
+| `list_repositories(page, per_page)`                                   | `:601`   | `GET /installation/repositories`                                                                                                                                                                       |
+| `list_branches(repo, limit, offset)`                                  | `:741`   | `GET /repos/{owner}/{repo}/branches`                                                                                                                                                                   |
+| `get_default_branch(repository)`                                      | `:927`   | `GET /repos/{owner}/{repo}`, Redis-cached for `GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS` (6h, `integration.py:2253`)                                                                                    |
+| `_gh_api_get(path, endpoint, timeout)`                                | `:1210`  | Generic authenticated GET. One automatic retry on transient 5xx; raises `GitHubIntegrationError(is_rate_limit=True)` on 403/429 with `X-RateLimit-Remaining: 0` or "secondary rate limit" in the body. |
 
 Prometheus metrics (`github_integration_base.py:29-49`):
 `github_integration_api_requests`,
@@ -121,7 +125,7 @@ Wraps a `UserIntegration`. Inherits the App-level token machinery from
 `GitHubIntegrationBase`, and adds the user-to-server token machinery:
 
 - `refresh_user_access_token()` (`:187`) — `POST
-  /login/oauth/access_token` with `grant_type=refresh_token`. On
+/login/oauth/access_token` with `grant_type=refresh_token`. On
   GitHub error codes in `_GITHUB_UNRECOVERABLE_REFRESH_ERRORS`
   (`bad_refresh_token`, `refresh_token_expired`,
   `unauthorized_client`, `user_integration.py:24`), deletes the row
@@ -140,11 +144,11 @@ Wraps a `UserIntegration`. Inherits the App-level token machinery from
 
 Three token types, all minted off the same GitHub App:
 
-| Type | Stored | How minted | How refreshed | Used for |
-|---|---|---|---|---|
-| App JWT (`Bearer ey…`) | never stored | `client_request()` re-signs per call (RS256, ±5 min) | re-minted on demand | `/app/installations/*` only |
-| Installation token (`ghs_…`) | `sensitive_config.access_token` on both models | `POST /app/installations/{id}/access_tokens` | `refresh_access_token()`: half-TTL refresh + 401 retry, max 2 attempts | All repo, branch, commit, PR, issue, status, contents API calls |
-| User-to-server (`ghu_…`) | `UserIntegration.sensitive_config.user_access_token` (+ refresh token alongside) | OAuth code exchange at `github.com/login/oauth/access_token` | `refresh_user_access_token()` with `grant_type=refresh_token` | User-identity attribution: commit `Co-authored-by`, PR authorship in the agent sandbox |
+| Type                         | Stored                                                                           | How minted                                                   | How refreshed                                                          | Used for                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| App JWT (`Bearer ey…`)       | never stored                                                                     | `client_request()` re-signs per call (RS256, ±5 min)         | re-minted on demand                                                    | `/app/installations/*` only                                                            |
+| Installation token (`ghs_…`) | `sensitive_config.access_token` on both models                                   | `POST /app/installations/{id}/access_tokens`                 | `refresh_access_token()`: half-TTL refresh + 401 retry, max 2 attempts | All repo, branch, commit, PR, issue, status, contents API calls                        |
+| User-to-server (`ghu_…`)     | `UserIntegration.sensitive_config.user_access_token` (+ refresh token alongside) | OAuth code exchange at `github.com/login/oauth/access_token` | `refresh_user_access_token()` with `grant_type=refresh_token`          | User-identity attribution: commit `Co-authored-by`, PR authorship in the agent sandbox |
 
 ### Install and OAuth flows
 
@@ -165,7 +169,7 @@ Three token types, all minted off the same GitHub App:
    `handleGithubCallback` (`:187`).
 5. `handleGithubCallback` validates `state` against the cookie, then:
    - **Fresh install (has `code`):** `POST
-     /api/environments/{team_id}/integrations/` with
+/api/environments/{team_id}/integrations/` with
      `{kind, config: {installation_id, state, code}}`.
    - **Already installed (no `code` or `setup_action=update`):**
      `POST .../integrations/github/link_existing`, falling back to
@@ -180,7 +184,7 @@ Three token types, all minted off the same GitHub App:
    - `GitHubIntegration.integration_from_installation_id(...)` creates
      the team `Integration`.
    - Calls `user_github_integration_from_installation(...,
-     create_only=True)` (`integration.py:409`) to atomically create a
+create_only=True)` (`integration.py:409`) to atomically create a
      `UserIntegration` for the connecting user; an existing personal
      integration is left untouched.
 
@@ -287,15 +291,15 @@ What an operator needs to configure on the App at
 - **Webhook events:** `pull_request`, `issues`, `issue_comment`
 - **Repository permissions** (inferred from API calls in the codebase):
 
-| Permission | Level | Required by |
-|---|---|---|
-| `contents: write` | Repository | Visual review baseline read/commit (`products/visual_review/backend/logic.py`) |
-| `statuses: write` | Repository | Visual review commit statuses (`products/visual_review/backend/logic.py`) |
-| `pull_requests: write` | Repository | Visual review PR comments (`products/visual_review/backend/logic.py`) |
-| `issues: write` | Repository | Conversations issue create (`products/conversations/backend/api/github_setup.py`) and team `create_issue` (`integration.py:2485`) |
-| `actions: write` | Repository | Visual review CI rerun (`products/visual_review/backend/logic.py`) |
-| `metadata: read` | Repository | Implicit on all repository-scoped tokens |
-| `members: read` | Organization | `list_teams` for task assignments (`github_integration_base.py:405`) |
+| Permission             | Level        | Required by                                                                                                                       |
+| ---------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `contents: write`      | Repository   | Visual review baseline read/commit (`products/visual_review/backend/logic.py`)                                                    |
+| `statuses: write`      | Repository   | Visual review commit statuses (`products/visual_review/backend/logic.py`)                                                         |
+| `pull_requests: write` | Repository   | Visual review PR comments (`products/visual_review/backend/logic.py`)                                                             |
+| `issues: write`        | Repository   | Conversations issue create (`products/conversations/backend/api/github_setup.py`) and team `create_issue` (`integration.py:2485`) |
+| `actions: write`       | Repository   | Visual review CI rerun (`products/visual_review/backend/logic.py`)                                                                |
+| `metadata: read`       | Repository   | Implicit on all repository-scoped tokens                                                                                          |
+| `members: read`        | Organization | `list_teams` for task assignments (`github_integration_base.py:405`)                                                              |
 
 ### Project ↔ personal interaction
 
@@ -355,25 +359,25 @@ Shared components and logics:
 
 Per-product consumers:
 
-| Product | File | What it uses GitHub for |
-|---|---|---|
-| Error tracking | `frontend/src/lib/components/Errors/Frame/GitProviderFileLink.tsx`, `framesCodeSourceLogic.ts` | "View on GitHub" link from a stack frame; resolves through `api/gitProviderFileLinks/resolve_github` |
-| Session replay | `frontend/src/scenes/session-recordings/player/sidebar/PlayerSidebarLinkedIssuesTab.tsx`, `issueFormHelpers.tsx` | Create GitHub issue from a replay |
-| Visual review | `products/visual_review/frontend/scenes/VisualReviewSettingsScene.tsx`, `visualReviewSettingsSceneLogic.ts` | Pick repos, configure baselines, toggle PR comments |
-| Tasks | `products/tasks/frontend/components/RepositorySelector.tsx`, `taskTrackerSceneLogic.ts` | Pick a repo + installation for an agentic task |
-| Conversations | `products/conversations/frontend/scenes/settings/GithubSection.tsx`, `supportSettingsLogic.ts` | Choose which repos to monitor for support tickets |
-| Hog functions | `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts:573`, `CyclotronJobInputIntegrationField.tsx` | "GitHub issue on issue created" sub-template |
-| Max AI | `frontend/src/scenes/max/max-constants.tsx:878` | `list_repositories` tool for the `TaskTracker` scene |
-| Data modeling | backend-only via `products/data_modeling/backend/models/github_sync_config.py` | dbt-style model sync (frontend surface not yet wired) |
-| Account return | `frontend/src/scenes/authentication/AccountConnected.tsx` | Post-OAuth landing; dispatches `posthog-code://integration?…` deep link |
+| Product        | File                                                                                                             | What it uses GitHub for                                                                              |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Error tracking | `frontend/src/lib/components/Errors/Frame/GitProviderFileLink.tsx`, `framesCodeSourceLogic.ts`                   | "View on GitHub" link from a stack frame; resolves through `api/gitProviderFileLinks/resolve_github` |
+| Session replay | `frontend/src/scenes/session-recordings/player/sidebar/PlayerSidebarLinkedIssuesTab.tsx`, `issueFormHelpers.tsx` | Create GitHub issue from a replay                                                                    |
+| Visual review  | `products/visual_review/frontend/scenes/VisualReviewSettingsScene.tsx`, `visualReviewSettingsSceneLogic.ts`      | Pick repos, configure baselines, toggle PR comments                                                  |
+| Tasks          | `products/tasks/frontend/components/RepositorySelector.tsx`, `taskTrackerSceneLogic.ts`                          | Pick a repo + installation for an agentic task                                                       |
+| Conversations  | `products/conversations/frontend/scenes/settings/GithubSection.tsx`, `supportSettingsLogic.ts`                   | Choose which repos to monitor for support tickets                                                    |
+| Hog functions  | `frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts:573`, `CyclotronJobInputIntegrationField.tsx`  | "GitHub issue on issue created" sub-template                                                         |
+| Max AI         | `frontend/src/scenes/max/max-constants.tsx:878`                                                                  | `list_repositories` tool for the `TaskTracker` scene                                                 |
+| Data modeling  | backend-only via `products/data_modeling/backend/models/github_sync_config.py`                                   | dbt-style model sync (frontend surface not yet wired)                                                |
+| Account return | `frontend/src/scenes/authentication/AccountConnected.tsx`                                                        | Post-OAuth landing; dispatches `posthog-code://integration?…` deep link                              |
 
 ### Repository and branch caching
 
-| Cache | Backed by | TTL | Refresh |
-|---|---|---|---|
-| Repository list (per integration) | `Integration.repository_cache` JSON column | 1 hour | `POST /api/environments/{team_id}/integrations/{id}/github_repos/refresh` (cooldown `GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS = 30`, `integration.py:2254`) |
-| Branch list (per `(integration, repo)`) | Django cache (Redis) | 10 min staleness, 24h eviction | implicit on miss |
-| Default branch (per repo) | Django cache (Redis) | 6h (`GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS`, `integration.py:2253`) | implicit on miss |
+| Cache                                   | Backed by                                  | TTL                                                                   | Refresh                                                                                                                                                       |
+| --------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository list (per integration)       | `Integration.repository_cache` JSON column | 1 hour                                                                | `POST /api/environments/{team_id}/integrations/{id}/github_repos/refresh` (cooldown `GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS = 30`, `integration.py:2254`) |
+| Branch list (per `(integration, repo)`) | Django cache (Redis)                       | 10 min staleness, 24h eviction                                        | implicit on miss                                                                                                                                              |
+| Default branch (per repo)               | Django cache (Redis)                       | 6h (`GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS`, `integration.py:2253`) | implicit on miss                                                                                                                                              |
 
 The repo and `repository_cache_updated_at` columns are `defer()`-ed
 from default `Integration` queries (`integration.py:246`) — only
