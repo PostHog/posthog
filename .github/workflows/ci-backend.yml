@@ -1126,7 +1126,7 @@ jobs:
         runs-on: depot-ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # For same-repo PRs, checkout the actual branch (not the merge commit)
                   # so generated OpenAPI types can be committed directly. Fork PRs fall
