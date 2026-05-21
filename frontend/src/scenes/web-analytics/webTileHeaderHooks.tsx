@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconExpand45, IconOpenSidebar } from '@posthog/icons'
-import { LemonMenuItem } from '@posthog/lemon-ui'
+import { IconExpand45 } from '@posthog/icons'
+import { LemonButtonProps, LemonMenuItem } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -29,7 +29,7 @@ import {
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 const NO_ACTIVE_TAB_INSIGHT_PROPS: InsightLogicProps = {
-    dashboardItemId: 'web-analytics-no-active-tab-fallback' as const,
+    dashboardItemId: 'new-AdHoc.web-analytics-no-active-tab-fallback',
     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
@@ -59,7 +59,6 @@ interface UseWebTileOverflowMenuItemsArgs {
     tabId?: string
     query?: QuerySchema
     insightProps?: InsightLogicProps
-    canOpenInsight?: boolean
     canOpenModal?: boolean
     extraMenuItems?: LemonMenuItem[]
 }
@@ -69,16 +68,12 @@ export function useWebTileOverflowMenuItems({
     tabId,
     query,
     insightProps,
-    canOpenInsight,
     canOpenModal,
     extraMenuItems,
 }: UseWebTileOverflowMenuItemsArgs): LemonMenuItem[] {
     const effectiveInsightProps = insightProps ?? NO_ACTIVE_TAB_INSIGHT_PROPS
     const { openModal } = useActions(webAnalyticsModalLogic)
-    const { getNewInsightUrl } = useValues(webAnalyticsModalLogic)
     const adapter = useWebTileExportAdapter(query, effectiveInsightProps)
-
-    const insightUrl = canOpenInsight ? getNewInsightUrl(tileId, tabId) : undefined
 
     return useMemo(() => {
         const copyItems: LemonMenuItem[] = [
@@ -119,21 +114,6 @@ export function useWebTileOverflowMenuItems({
             },
         ]
 
-        if (insightUrl) {
-            items.push({
-                label: 'Open as new insight',
-                icon: <IconOpenSidebar />,
-                to: insightUrl,
-                onClick: () => {
-                    void addProductIntentForCrossSell({
-                        from: ProductKey.WEB_ANALYTICS,
-                        to: ProductKey.PRODUCT_ANALYTICS,
-                        intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-                    })
-                },
-            })
-        }
-
         if (canOpenModal !== false) {
             items.push({
                 label: 'Show more',
@@ -143,5 +123,34 @@ export function useWebTileOverflowMenuItems({
         }
 
         return items
-    }, [tileId, tabId, query, insightUrl, canOpenModal, openModal, adapter, extraMenuItems])
+    }, [tileId, tabId, query, canOpenModal, openModal, adapter, extraMenuItems])
+}
+
+export type WebTileOpenInsightProps = Required<Pick<LemonButtonProps, 'to' | 'onClick'>>
+
+interface UseWebTileOpenInsightArgs {
+    tileId: TileId
+    tabId?: string
+    canOpenInsight: boolean
+}
+
+const trackOpenAsNewInsightClick = (): void => {
+    void addProductIntentForCrossSell({
+        from: ProductKey.WEB_ANALYTICS,
+        to: ProductKey.PRODUCT_ANALYTICS,
+        intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+    })
+}
+
+export function useWebTileOpenInsight({
+    tileId,
+    tabId,
+    canOpenInsight,
+}: UseWebTileOpenInsightArgs): WebTileOpenInsightProps | undefined {
+    const { getNewInsightUrl } = useValues(webAnalyticsModalLogic)
+    const insightUrl = useMemo(
+        () => (canOpenInsight ? getNewInsightUrl(tileId, tabId) : undefined),
+        [canOpenInsight, getNewInsightUrl, tileId, tabId]
+    )
+    return insightUrl ? { to: insightUrl, onClick: trackOpenAsNewInsightClick } : undefined
 }

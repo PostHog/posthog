@@ -1,14 +1,15 @@
 import { IconChevronDown, IconEllipsis, IconLineGraph } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItem, LemonSelectOption } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItem, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
-import { IconTableChart } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { TileId, TileVisualizationOption } from './common'
 import { LearnMorePopover, LearnMorePopoverProps } from './WebAnalyticsDashboard'
+import { WebTileOpenInsightProps } from './webTileHeaderHooks'
 
 interface DropdownConfig<T extends string> {
     value: T
-    options: LemonSelectOption<T>[]
+    options: LemonSelectOptionLeaf<T>[]
     onChange: (value: T) => void
 }
 
@@ -25,6 +26,7 @@ export interface WebTileHeaderProps {
         value: TileVisualizationOption | undefined
         onChange: (value: TileVisualizationOption) => void
     }
+    openInsight?: WebTileOpenInsightProps
     overflowMenuItems: LemonMenuItem[]
 }
 
@@ -58,6 +60,7 @@ export function WebTileHeader({
     docs,
     intervalSelector,
     visualizationToggle,
+    openInsight,
     overflowMenuItems,
 }: WebTileHeaderProps): JSX.Element {
     const isGraph = visualizationToggle?.value === 'graph'
@@ -95,6 +98,18 @@ export function WebTileHeader({
                     aria-label={isGraph ? 'Show as table' : 'Show as graph'}
                     onClick={() => visualizationToggle.onChange(isGraph ? 'table' : 'graph')}
                     data-attr={`web-analytics-viz-toggle-${tileId}`}
+                />
+            )}
+
+            {openInsight && (
+                <LemonButton
+                    size="small"
+                    icon={<IconOpenInNew />}
+                    tooltip="Open as new insight"
+                    aria-label="Open as new insight"
+                    to={openInsight.to}
+                    onClick={openInsight.onClick}
+                    data-attr={`web-analytics-open-insight-${tileId}`}
                 />
             )}
 

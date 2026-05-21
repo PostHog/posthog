@@ -1,4 +1,4 @@
-import { cleanup, render, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, within } from '@testing-library/react'
 
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
@@ -85,5 +85,26 @@ describe('WebTileHeader', () => {
         )
         expect(within(container).getByText('Interval')).toBeTruthy()
         expect(queryByDataAttr(container, 'my-interval')).toBeTruthy()
+    })
+
+    test('renders the open-insight button, links to `to`, and fires `onClick` when clicked', () => {
+        const onClick = jest.fn()
+        const { container } = render(
+            <WebTileHeader
+                tileId={TileId.SOURCES}
+                openInsight={{ to: '/insights/new?web-source', onClick }}
+                overflowMenuItems={noopMenuItems}
+            />
+        )
+        const button = queryByDataAttr(container, 'web-analytics-open-insight-SOURCES')
+        expect(button).toBeTruthy()
+        expect(button?.getAttribute('href')).toBe('/insights/new?web-source')
+        fireEvent.click(button!)
+        expect(onClick).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not render the open-insight button when openInsight is omitted', () => {
+        const { container } = render(<WebTileHeader tileId={TileId.SOURCES} overflowMenuItems={noopMenuItems} />)
+        expect(queryByDataAttr(container, 'web-analytics-open-insight-SOURCES')).toBeNull()
     })
 })

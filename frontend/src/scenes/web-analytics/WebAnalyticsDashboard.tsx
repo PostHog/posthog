@@ -48,7 +48,7 @@ import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoad
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
-import { useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
+import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -167,10 +167,10 @@ const QueryTileItemV2 = ({
         tileId: tile.tileId,
         query,
         insightProps,
-        canOpenInsight: tile.canOpenInsight,
         canOpenModal: tile.canOpenModal,
         extraMenuItems: tile.extraMenuItems,
     })
+    const openInsight = useWebTileOpenInsight({ tileId: tile.tileId, canOpenInsight: !!tile.canOpenInsight })
 
     return (
         <div className={containerClassName}>
@@ -187,6 +187,7 @@ const QueryTileItemV2 = ({
                         tileId={tile.tileId}
                         title={title}
                         docs={docs}
+                        openInsight={openInsight}
                         overflowMenuItems={overflowMenuItems}
                     />
                 }
@@ -313,9 +314,13 @@ const TabsTileItemV2 = ({ tile }: { tile: TabsTile }): JSX.Element => {
         tabId: activeTabId,
         query: activeTab?.query,
         insightProps: activeTab?.insightProps,
-        canOpenInsight: !!activeTab?.canOpenInsight,
         canOpenModal: activeTab?.canOpenModal,
         extraMenuItems: activeTab?.extraMenuItems,
+    })
+    const openInsight = useWebTileOpenInsight({
+        tileId,
+        tabId: activeTabId,
+        canOpenInsight: !!activeTab?.canOpenInsight,
     })
 
     const header = (
@@ -339,6 +344,7 @@ const TabsTileItemV2 = ({ tile }: { tile: TabsTile }): JSX.Element => {
                       }
                     : undefined
             }
+            openInsight={openInsight}
             overflowMenuItems={overflowMenuItems}
         />
     )
