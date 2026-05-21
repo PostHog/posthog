@@ -77,6 +77,17 @@ MOBILE_GITHUB_CALLBACK_URL = "posthog://github/callback"
 APP_CONNECT_FROM_VALUES = ("posthog_code", "posthog_mobile")
 
 
+class _AppDeepLinkRedirect(HttpResponseRedirect):
+    """Redirect that also permits the mobile app's custom ``posthog://`` scheme.
+
+    Django's default ``HttpResponseRedirect`` rejects non-web schemes as unsafe
+    (``DisallowedRedirect``). The target here is a hardcoded first-party deep
+    link, not user input, so allowing the extra scheme is safe.
+    """
+
+    allowed_schemes = [*HttpResponseRedirect.allowed_schemes, "posthog"]
+
+
 def _final_github_redirect(connect_from: str | None, *, error: str | None = None) -> HttpResponseRedirect:
     """Pick the post-OAuth destination based on which client started the flow.
 
@@ -86,16 +97,15 @@ def _final_github_redirect(connect_from: str | None, *, error: str | None = None
       intercepts via its own deep link.
     - anything else (web UI) → the personal integrations settings page.
     """
-    if connect_from == "posthog_mobile":
+    app_base_urls: dict[str, str] = {
+        "posthog_mobile": MOBILE_GITHUB_CALLBACK_URL,
+        "posthog_code": ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
+    }
+    if connect_from in app_base_urls:
         params = {"provider": "github"}
         if error:
             params["error"] = error
-        return redirect(f"{MOBILE_GITHUB_CALLBACK_URL}?{urlencode(params)}")
-    if connect_from == "posthog_code":
-        params = {"provider": "github"}
-        if error:
-            params["error"] = error
-        return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{urlencode(params)}")
+        return _AppDeepLinkRedirect(f"{app_base_urls[connect_from]}?{urlencode(params)}")
     if error:
         return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_error={error}")
     return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")
@@ -413,11 +423,12 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         page handles both cases: orgs where the app is installed show "Configure"
         (no admin needed), orgs where it isn't show "Install" (needs admin).
 
-        **PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
+        **First-party app fast path:** when ``connect_from`` is one of
+        ``APP_CONNECT_FROM_VALUES`` (e.g. ``"posthog_code"`` or ``"posthog_mobile"``),
         the current project already has a team-level GitHub installation, and the
         user has no ``UserIntegration`` for that installation yet, we skip the org
         picker and redirect straight to ``/login/oauth/authorize`` so the user
-        only authorizes themselves and returns to PostHog Code immediately.
+        only authorizes themselves and returns to the originating client immediately.
 
         In both cases the response key is ``install_url`` for compatibility with callers.
         """
