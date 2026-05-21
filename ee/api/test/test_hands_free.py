@@ -9,6 +9,14 @@ from django.test import override_settings
     ELEVENLABS_API_BASE_URL="https://api.elevenlabs.example",
 )
 class TestMaxHandsFreeAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The viewset gates on the max-hands-free feature flag server-side; force it on
+        # so tests exercise the endpoint logic rather than the entitlement check.
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
     def _token_url(self) -> str:
         return f"/api/environments/{self.team.id}/max_hands_free/token/"
 
@@ -103,6 +111,20 @@ class TestMaxHandsFreeAPI(APIBaseTest):
     def test_synthesize_503_when_api_key_missing(self) -> None:
         response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
         assert response.status_code == 503
+
+    def test_endpoints_403_when_feature_flag_disabled_for_org(self) -> None:
+        # Stop the class-level patch so the real PostHogFeatureFlagPermission runs against
+        # an org that doesn't have the flag enabled — expect 403, no upstream calls.
+        self._ff_patcher.stop()
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            token_response = self.client.post(self._token_url(), format="json")
+            synth_response = self.client.post(
+                self._synthesize_url(), data={"text": "hello"}, format="json"
+            )
+        # Restart so addCleanup doesn't double-stop.
+        self._ff_patcher.start()
+        assert token_response.status_code == 403
+        assert synth_response.status_code == 403
 
     def test_synthesize_requires_authentication(self) -> None:
         self.client.logout()

@@ -27,6 +27,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     MaxHandsFreeSynthesizeBurstRateThrottle,
     MaxHandsFreeSynthesizeSustainedRateThrottle,
@@ -96,7 +97,11 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     # Hands-free actions are list-level and don't operate on any model — DRF's GenericViewSet
     # needs a queryset attribute for the routing scaffolding but it is never read.
     queryset = Conversation.objects.none()
-    permission_classes = [IsAuthenticated]
+    # Server-side gate on the same feature flag the frontend checks — without it an
+    # authenticated project member could POST directly to /token/ or /synthesize/ and
+    # rack up ElevenLabs spend even when their org doesn't have hands-free enabled.
+    posthog_feature_flag = "max-hands-free"
+    permission_classes = [IsAuthenticated, PostHogFeatureFlagPermission]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(
