@@ -77,7 +77,7 @@ export function SourcesModal(): JSX.Element {
                     )}
                 </LemonModal.Header>
                 <LemonModal.Content className={sessionAnalysisSetupOpen ? 'p-0 rounded-b' : ''}>
-                    <AllowTrainingCallout featureName="Inbox" />
+                    <AllowTrainingCallout featureName="Inbox" className="mb-3" />
                     {isDataSourceSetupOpen ? (
                         <DataSourceSetup product={dataSourceSetupProduct} onComplete={handleDataSourceComplete} />
                     ) : sessionAnalysisSetupOpen ? (

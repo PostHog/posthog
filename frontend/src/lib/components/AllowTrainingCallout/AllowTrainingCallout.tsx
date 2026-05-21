@@ -8,7 +8,13 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-export function AllowTrainingCallout({ featureName }: { featureName: string }): JSX.Element | null {
+export function AllowTrainingCallout({
+    featureName,
+    className,
+}: {
+    featureName: string
+    className?: string
+}): JSX.Element | null {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const isFlagEnabled = useFeatureFlag('AI_TRAINING')
@@ -35,7 +41,7 @@ export function AllowTrainingCallout({ featureName }: { featureName: string }): 
           }
 
     return (
-        <LemonBanner type="info" action={action} className="my-3">
+        <LemonBanner type="info" action={action} className={className ?? 'my-3'}>
             Help us make {featureName} better for you by enabling training on anonymized data.
         </LemonBanner>
     )
