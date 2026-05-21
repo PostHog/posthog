@@ -115,7 +115,7 @@ class TestBuildTaggerSystemPrompt:
 
 class TestRunTaggerWorkflow:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_fetch_tagger_activity(self, setup_data):
         tagger = setup_data["tagger"]
         team = setup_data["team"]
@@ -134,7 +134,7 @@ class TestRunTaggerWorkflow:
         assert result["team_id"] == team.id
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_fetch_tagger_activity_not_found(self, setup_data):
         team = setup_data["team"]
 
@@ -147,7 +147,7 @@ class TestRunTaggerWorkflow:
             await fetch_tagger_activity(inputs)
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_tagger_activity(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
@@ -193,7 +193,7 @@ class TestRunTaggerWorkflow:
                 mock_client.complete.assert_called_once()
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_tagger_strips_unknown_tags(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
@@ -232,7 +232,7 @@ class TestRunTaggerWorkflow:
                 assert result["tags"] == ["billing", "analytics"]
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_tagger_enforces_max_tags(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
@@ -273,7 +273,7 @@ class TestRunTaggerWorkflow:
                 assert result["tags"] == ["billing", "analytics"]
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_tagger_trial_limit_reached(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
@@ -297,7 +297,7 @@ class TestRunTaggerWorkflow:
                 await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_tagger_missing_prompt(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
@@ -315,7 +315,7 @@ class TestRunTaggerWorkflow:
             await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_tagger_no_tags_defined(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
@@ -333,7 +333,7 @@ class TestRunTaggerWorkflow:
             await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.parametrize(
         "result,expected_tagger_type,llm_props_present",
         [
@@ -425,7 +425,7 @@ class TestRunTaggerWorkflow:
                     )
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_disable_tagger_activity(self, setup_data):
         from posthog.sync import database_sync_to_async
 
@@ -588,7 +588,7 @@ class TestRunHogTagger:
 
 class TestExecuteHogTaggerActivity:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_happy_path_returns_is_hog_marker(self, setup_data):
         team = setup_data["team"]
         tagger = make_hog_tagger_dict(
@@ -603,7 +603,7 @@ class TestExecuteHogTaggerActivity:
         assert result["is_hog"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_filters_unknown_tags(self, setup_data):
         team = setup_data["team"]
         tagger = make_hog_tagger_dict(
@@ -618,7 +618,7 @@ class TestExecuteHogTaggerActivity:
         assert "unknown" not in result["tags"]
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_missing_bytecode_raises(self, setup_data):
         team = setup_data["team"]
         tagger = {
@@ -633,7 +633,7 @@ class TestExecuteHogTaggerActivity:
             await execute_hog_tagger_activity(tagger, create_mock_event_data(team.id))
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_wrong_tagger_type_raises(self, setup_data):
         team = setup_data["team"]
         tagger = {
@@ -648,7 +648,7 @@ class TestExecuteHogTaggerActivity:
             await execute_hog_tagger_activity(tagger, create_mock_event_data(team.id))
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_non_list_return_raises_application_error(self, setup_data):
         team = setup_data["team"]
         tagger = make_hog_tagger_dict(
@@ -661,7 +661,7 @@ class TestExecuteHogTaggerActivity:
             await execute_hog_tagger_activity(tagger, create_mock_event_data(team.id))
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_timeout_raises_application_error(self, setup_data):
         from common.hogvm.python.utils import HogVMRuntimeExceededException
 
@@ -680,7 +680,7 @@ class TestExecuteHogTaggerActivity:
                 await execute_hog_tagger_activity(tagger, create_mock_event_data(team.id))
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_memory_exceeded_raises_application_error(self, setup_data):
         from common.hogvm.python.utils import HogVMMemoryExceededException
 
@@ -728,7 +728,7 @@ class TestBuildTagResultSchema:
 
 class TestFetchTaggerActivityDisabled:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_short_circuits_when_tagger_disabled(self, setup_data):
         from posthog.sync import database_sync_to_async
 

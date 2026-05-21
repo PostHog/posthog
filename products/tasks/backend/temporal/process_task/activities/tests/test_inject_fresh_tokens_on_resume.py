@@ -18,7 +18,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestInjectFreshTokensOnResumeActivity:
     @pytest.fixture
     def sandbox(self):

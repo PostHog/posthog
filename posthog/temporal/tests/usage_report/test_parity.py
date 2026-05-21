@@ -167,7 +167,7 @@ def _decode_temporal_chunks(s3: dict[str, bytes], chunk_keys: list[str]) -> dict
     return out
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_end_to_end_parity_celery_task_vs_temporal_activity(
     activity_environment: Any,
     monkeypatch: pytest.MonkeyPatch,

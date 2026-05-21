@@ -81,7 +81,7 @@ class TestFetchAndFormatActivity:
         team = Team.objects.create(organization=organization, name="Test Team")
         return team
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_trace_not_found_returns_skipped(self, mock_team):
         with (
@@ -102,7 +102,7 @@ class TestFetchAndFormatActivity:
             assert result.skipped is True
             assert result.skip_reason == "trace_not_found"
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_generation_not_found_returns_skipped(self, mock_team):
         with patch(
@@ -124,7 +124,7 @@ class TestFetchAndFormatActivity:
             assert result.skipped is True
             assert result.skip_reason == "generation_not_found"
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_trace_success_stores_in_redis(self, mock_team):
         from posthog.schema import LLMTrace, LLMTracePerson
@@ -171,7 +171,7 @@ class TestFetchAndFormatActivity:
             assert "trace" in result.redis_key
             mock_store.assert_called_once()
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_generation_success_stores_in_redis(self, mock_team):
         trace_id = str(uuid.uuid4())
@@ -205,7 +205,7 @@ class TestFetchAndFormatActivity:
             assert "generation" in result.redis_key
             mock_store.assert_called_once()
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_oversized_trace_returns_skipped(self, mock_team):
         from posthog.schema import LLMTrace, LLMTraceEvent, LLMTracePerson

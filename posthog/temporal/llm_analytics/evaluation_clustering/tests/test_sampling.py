@@ -90,7 +90,7 @@ class TestComposeEvaluationText:
     _noop_heartbeater,
 )
 class TestSampleAndEmbedForJobActivity:
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_enqueues_one_embedding_per_row(self, mock_team):
         # Row shape mirrors the HogQL SELECT:
@@ -153,7 +153,7 @@ class TestSampleAndEmbedForJobActivity:
         # Applicability has no description — the line stays out of the composed text
         assert "Description:" not in na_content
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_empty_window_returns_zero(self, mock_team):
         inputs = SamplerActivityInputs(
@@ -183,7 +183,7 @@ class TestSampleAndEmbedForJobActivity:
         assert result.embedded == 0
         mock_embedder.embed_document.assert_not_called()
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_event_filter_propagated_to_query(self, mock_team):
         inputs = SamplerActivityInputs(

@@ -59,7 +59,7 @@ def _make_input(mock_team, generation_id=None):
     _noop_heartbeater,
 )
 class TestSummarizeAndSaveActivity:
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_redis_key_missing_raises_text_repr_expired(self, mock_team):
         with (
@@ -71,7 +71,7 @@ class TestSummarizeAndSaveActivity:
             with pytest.raises(TextReprExpiredError):
                 await summarize_and_save_activity(_make_input(mock_team))
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_trace_summary_success(self, mock_team):
         mock_summary = _make_mock_summary()
@@ -106,7 +106,7 @@ class TestSummarizeAndSaveActivity:
             assert call_kwargs["properties"]["$ai_clustering_job_name"] == input_data.job_name
             mock_delete.assert_called_once()
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_generation_summary_success(self, mock_team):
         mock_summary = _make_mock_summary()
@@ -137,7 +137,7 @@ class TestSummarizeAndSaveActivity:
             assert call_kwargs["properties"]["$ai_clustering_job_id"] == input_data.job_id
             assert call_kwargs["properties"]["$ai_clustering_job_name"] == input_data.job_name
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_embedding_failure_captured_not_fatal(self, mock_team):
         mock_summary = _make_mock_summary()

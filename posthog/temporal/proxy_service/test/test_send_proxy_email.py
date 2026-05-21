@@ -19,7 +19,7 @@ def _make_inputs(**overrides):
     return SendProxyCreatedEmailInputs(**defaults)  # type: ignore
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestSendProxyCreatedEmail:
     def test_sends_email_when_record_and_user_exist(self):
         org = Organization.objects.create(name="Test Org")

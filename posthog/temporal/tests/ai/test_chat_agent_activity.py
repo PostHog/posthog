@@ -17,7 +17,7 @@ from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
 from ee.models import Conversation
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestProcessChatAgentActivity:
     @pytest.fixture
     def conversation(self, team, user):

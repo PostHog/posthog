@@ -64,7 +64,7 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
     job_inputs = {
@@ -106,7 +106,7 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs):
     job_inputs = {
@@ -148,7 +148,7 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **kwargs):
     job_inputs = {
@@ -202,7 +202,7 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 @pytest.mark.flaky(reruns=2)
 async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
@@ -271,7 +271,7 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_first_attempt(team):
     logger = mock.MagicMock()
 
@@ -296,7 +296,7 @@ def test_report_heartbeat_timeout_first_attempt(team):
         logger.debug.assert_any_call(f"First attempt of activity, no heartbeat timeout to report.")
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_no_heartbeat_timeout(team):
     logger = mock.MagicMock()
 
@@ -321,7 +321,7 @@ def test_report_heartbeat_timeout_no_heartbeat_timeout(team):
         logger.debug.assert_any_call(f"No heartbeat timeout set for this activity: {mock_info.heartbeat_timeout}")
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_no_current_attempt_scheduled_time(team):
     logger = mock.MagicMock()
 
@@ -348,7 +348,7 @@ def test_report_heartbeat_timeout_no_current_attempt_scheduled_time(team):
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_no_heartbeat_details(team):
     logger = mock.MagicMock()
 
@@ -376,7 +376,7 @@ def test_report_heartbeat_timeout_no_heartbeat_details(team):
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_heartbeat_details_are_not_a_tuple(team):
     logger = mock.MagicMock()
 
@@ -404,7 +404,7 @@ def test_report_heartbeat_timeout_heartbeat_details_are_not_a_tuple(team):
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_heartbeat_details_last_item_is_not_a_dict(team):
     logger = mock.MagicMock()
 
@@ -432,7 +432,7 @@ def test_report_heartbeat_timeout_heartbeat_details_last_item_is_not_a_dict(team
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_heartbeat_details_missing_host_or_ts(team):
     logger = mock.MagicMock()
 
@@ -459,7 +459,7 @@ def test_report_heartbeat_timeout_heartbeat_details_missing_host_or_ts(team):
         logger.debug.assert_any_call(f"Incomplete heartbeat details. No host or timestamp found.")
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_heartbeat_within_timeout(team):
     logger = mock.MagicMock()
 
@@ -486,7 +486,7 @@ def test_report_heartbeat_timeout_heartbeat_within_timeout(team):
         logger.debug.assert_any_call("Last heartbeat was within the heartbeat timeout window. No action needed.")
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
     logger = mock.MagicMock()
 

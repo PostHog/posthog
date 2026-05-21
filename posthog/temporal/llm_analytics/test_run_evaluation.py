@@ -72,7 +72,7 @@ def setup_data():
 
 class TestRunEvaluationWorkflow:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_fetch_evaluation_activity(self, setup_data):
         """Test fetching evaluation from database"""
         evaluation = setup_data["evaluation"]
@@ -104,7 +104,7 @@ class TestRunEvaluationWorkflow:
             assert result["output_config"] == {"allows_na": False}
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity(self, setup_data):
         """Test LLM judge execution with realistic message array format"""
         evaluation_obj = setup_data["evaluation"]
@@ -149,7 +149,7 @@ class TestRunEvaluationWorkflow:
             mock_client.complete.assert_called_once()
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_emit_evaluation_event_activity(self, setup_data):
         """Test emitting evaluation event"""
         evaluation_obj = setup_data["evaluation"]
@@ -200,7 +200,7 @@ class TestRunEvaluationWorkflow:
                 assert props["$ai_evaluation_type"] == "online"
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_emit_evaluation_event_activity_skipped_omits_cost_attribution(self, setup_data):
         """Skipped evaluations never made an API call, so the emitted event must not attribute
         a model, provider, or token usage. The skip is surfaced via dedicated properties so
@@ -271,7 +271,7 @@ class TestRunEvaluationWorkflow:
         assert parsed.event_data == event_data
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
         """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
@@ -316,7 +316,7 @@ class TestRunEvaluationWorkflow:
             assert result["allows_na"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data):
         """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
@@ -371,7 +371,7 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_skips_errored_traces(self, ai_is_error_value: bool | str, setup_data):
         """Errored traces have no meaningful output — the judge must short-circuit instead of
         producing a verdict against an empty Output (which historically defaulted to true)."""
@@ -418,7 +418,7 @@ class TestRunEvaluationWorkflow:
         assert "provider" not in result
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_skips_errored_trace_with_allows_na(self, setup_data):
         """When N/A is allowed, errored traces should be marked inapplicable rather than verdict=false."""
         evaluation_obj = setup_data["evaluation"]
@@ -464,7 +464,7 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
         self, error_props: dict[str, Any], setup_data
     ):
@@ -510,7 +510,7 @@ class TestRunEvaluationWorkflow:
         assert result.get("skipped") is not True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_emit_evaluation_event_activity_allows_na_applicable(self, setup_data):
         """Test emitting evaluation event for applicable allows_na result"""
         evaluation_obj = setup_data["evaluation"]
@@ -551,7 +551,7 @@ class TestRunEvaluationWorkflow:
                 assert props["$ai_evaluation_allows_na"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_emit_evaluation_event_activity_allows_na_not_applicable(self, setup_data):
         """Test emitting evaluation event for not applicable allows_na result"""
         evaluation_obj = setup_data["evaluation"]
@@ -592,7 +592,7 @@ class TestRunEvaluationWorkflow:
                 assert props["$ai_evaluation_allows_na"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_disable_evaluation_activity(self, setup_data):
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
@@ -607,7 +607,7 @@ class TestRunEvaluationWorkflow:
         assert evaluation.status_reason == "trial_limit_reached"
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_successful_execution_does_not_disable_evaluation(self, setup_data):
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
@@ -645,7 +645,7 @@ class TestRunEvaluationWorkflow:
         assert evaluation.enabled is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self, setup_data):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -690,7 +690,7 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
         self, raised_exception: Exception, expected_label: str, setup_data
     ):
@@ -722,7 +722,7 @@ class TestRunEvaluationWorkflow:
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
         team = setup_data["team"]
 
@@ -752,7 +752,7 @@ class TestRunEvaluationWorkflow:
 
 class TestExecuteHogEvalActivity:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_returns_true(self, setup_data):
         team = setup_data["team"]
 
@@ -779,7 +779,7 @@ class TestExecuteHogEvalActivity:
         assert result["reasoning"] == ""
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_returns_false(self, setup_data):
         team = setup_data["team"]
 
@@ -804,7 +804,7 @@ class TestExecuteHogEvalActivity:
         assert result["verdict"] is False
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_non_bool_raises_error(self, setup_data):
         team = setup_data["team"]
 
@@ -828,7 +828,7 @@ class TestExecuteHogEvalActivity:
             await execute_hog_eval_activity(evaluation, event_data)
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_captures_print_as_reasoning(self, setup_data):
         team = setup_data["team"]
 
@@ -855,7 +855,7 @@ class TestExecuteHogEvalActivity:
         assert "checking output" in result["reasoning"]
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_missing_bytecode_raises_error(self, setup_data):
         team = setup_data["team"]
 
@@ -875,7 +875,7 @@ class TestExecuteHogEvalActivity:
             await execute_hog_eval_activity(evaluation, event_data)
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_wrong_type_raises_error(self, setup_data):
         team = setup_data["team"]
 
@@ -895,7 +895,7 @@ class TestExecuteHogEvalActivity:
             await execute_hog_eval_activity(evaluation, event_data)
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_accesses_globals(self, setup_data):
         team = setup_data["team"]
 
@@ -999,7 +999,7 @@ class TestRunHogEvalAllowsNA:
 
 class TestExecuteHogEvalActivityAllowsNA:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_null_return_with_allows_na(self, setup_data):
         team = setup_data["team"]
 
@@ -1026,7 +1026,7 @@ class TestExecuteHogEvalActivityAllowsNA:
         assert result["allows_na"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_bool_return_with_allows_na(self, setup_data):
         team = setup_data["team"]
 
@@ -1053,7 +1053,7 @@ class TestExecuteHogEvalActivityAllowsNA:
         assert result["allows_na"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_hog_eval_null_return_without_allows_na_raises(self, setup_data):
         team = setup_data["team"]
 
@@ -1079,7 +1079,7 @@ class TestExecuteHogEvalActivityAllowsNA:
 
 class TestIncrementTrialEvalCountActivity:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.parametrize(
         "trial_eval_limit, trial_evals_used, expected_threshold, expected_used_after",
         [
@@ -1123,7 +1123,7 @@ class TestIncrementTrialEvalCountActivity:
 
 class TestSendTrialUsageEmailActivity:
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.parametrize(
         "threshold_pct, expected_template",
         [
@@ -1154,7 +1154,7 @@ class TestSendTrialUsageEmailActivity:
             mock_message.send.assert_called_once()
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_skips_when_email_not_available(self, setup_data):
         team = setup_data["team"]
         await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
@@ -1168,7 +1168,7 @@ class TestSendTrialUsageEmailActivity:
             mock_email_class.assert_not_called()
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.parametrize("threshold_pct", [50, 75, 100], ids=["50pct", "75pct", "100pct"])
     async def test_campaign_key_includes_threshold_and_team(self, setup_data, threshold_pct):
         team = setup_data["team"]
@@ -1189,7 +1189,7 @@ class TestSendTrialUsageEmailActivity:
             assert call_kwargs["campaign_key"] == f"llm_analytics_trial_{threshold_pct}pct_{team.id}"
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_includes_affected_eval_names_in_context(self, setup_data):
         team = setup_data["team"]
         await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
@@ -1251,7 +1251,7 @@ class TestSendEvaluationDisabledEmailActivity:
         return {"team": team, "organization": organization}
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_sends_email_with_evaluation_disabled_template(self, setup_data):
         team = setup_data["team"]
 
@@ -1282,7 +1282,7 @@ class TestSendEvaluationDisabledEmailActivity:
             mock_message.send.assert_called_once()
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_skips_when_email_not_available(self, setup_data):
         team = setup_data["team"]
 
@@ -1323,7 +1323,7 @@ class TestJudgePromptAssembly:
     correlation that the unit tests for the helpers can't catch alone."""
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_prompt_contains_input_tools_and_output_sections_in_order(self, setup_data):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -1390,7 +1390,7 @@ class TestJudgePromptAssembly:
         assert "- lookup_user: Look up a user." in user_prompt
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     async def test_prompt_omits_tools_section_when_catalog_absent(self, setup_data):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]

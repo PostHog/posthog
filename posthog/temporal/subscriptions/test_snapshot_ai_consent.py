@@ -15,7 +15,7 @@ from posthog.temporal.subscriptions.types import SnapshotInsightsInputs
 
 from ee.models import CoreMemory
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 async def _run(inputs: SnapshotInsightsInputs):

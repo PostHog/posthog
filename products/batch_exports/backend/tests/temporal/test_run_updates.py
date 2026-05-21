@@ -79,7 +79,7 @@ def batch_export(destination, team):
     batch_export.delete()
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_start_batch_export_run(activity_environment, team, batch_export):
     """Test the 'start_batch_export_run' activity.
@@ -107,7 +107,7 @@ async def test_start_batch_export_run(activity_environment, team, batch_export):
     assert run.data_interval_end == end
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_start_batch_export_run_raises_on_mocked_over_limit(activity_environment, team, batch_export):
     """Test the 'start_batch_export_run' activity raises an exception."""
@@ -143,7 +143,7 @@ async def test_start_batch_export_run_raises_on_mocked_over_limit(activity_envir
     assert run.status == BatchExportRun.Status.FAILED_BILLING
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_start_batch_export_run_does_not_check_billing_limit(activity_environment, team, batch_export):
     """Test the 'start_batch_export_run' doesn't check billing limit when disabled.
@@ -190,7 +190,7 @@ async def test_start_batch_export_run_does_not_check_billing_limit(activity_envi
         assert run.status == BatchExportRun.Status.STARTING
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_finish_batch_export_run(activity_environment, team, batch_export):
     """Test the export_run_status activity."""
@@ -225,7 +225,7 @@ async def test_finish_batch_export_run(activity_environment, team, batch_export)
     assert run.status == "Completed"
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(activity_environment, team, batch_export):
     """Test if 'finish_batch_export_run' will pause a batch export upon reaching failure_threshold."""
@@ -263,7 +263,7 @@ async def test_finish_batch_export_run_pauses_if_reaching_failure_threshold(acti
             assert batch_export.paused is False
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_finish_batch_export_run_never_pauses_with_small_check_window(activity_environment, team, batch_export):
     """Test if 'finish_batch_export_run' will never pause a batch export with a small check window."""
@@ -300,7 +300,7 @@ async def test_finish_batch_export_run_never_pauses_with_small_check_window(acti
     assert batch_export.paused is False
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 @pytest.mark.flaky(reruns=2)
 async def test_finish_batch_export_run_handles_nul_bytes(activity_environment, team, batch_export):
@@ -336,7 +336,7 @@ async def test_finish_batch_export_run_handles_nul_bytes(activity_environment, t
     assert run.latest_error == "Oh No a NUL byte: !"
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_finish_batch_export_run_persists_records_failed(activity_environment, team, batch_export):
     start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
@@ -368,7 +368,7 @@ async def test_finish_batch_export_run_persists_records_failed(activity_environm
     assert run.records_failed == 3
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_finish_batch_export_run_records_failed_none_when_not_set(activity_environment, team, batch_export):
     start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)

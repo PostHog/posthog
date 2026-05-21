@@ -13,7 +13,7 @@ def get_research_agent_stream_key(conversation_id):
     return f"{CONVERSATION_STREAM_PREFIX}research:{conversation_id}"
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestProcessResearchAgentActivity:
     @pytest.fixture
     def conversation(self, team, user):

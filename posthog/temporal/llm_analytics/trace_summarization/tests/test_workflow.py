@@ -33,7 +33,7 @@ def mock_team(db):
     _noop_heartbeater,
 )
 class TestSampleItemsInWindowActivity:
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_traces_success(self, mock_team):
         inputs = BatchSummarizationInputs(
@@ -57,7 +57,7 @@ class TestSampleItemsInWindowActivity:
             assert result[0].generation_id is None
             assert result[49].trace_id == "trace_49"
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_traces_passes_size_filter(self, mock_team):
         from posthog.temporal.llm_analytics.trace_summarization.constants import (
@@ -82,7 +82,7 @@ class TestSampleItemsInWindowActivity:
             assert placeholders["max_events"].value == MAX_TRACE_EVENTS_LIMIT
             assert placeholders["max_properties_size"].value == MAX_TRACE_PROPERTIES_SIZE
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_generations_success(self, mock_team):
         inputs = BatchSummarizationInputs(
@@ -106,7 +106,7 @@ class TestSampleItemsInWindowActivity:
             assert result[0].trace_id == "trace_0"
             assert result[0].generation_id == "gen-uuid-0"
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_generations_passes_size_filter(self, mock_team):
         from posthog.temporal.llm_analytics.trace_summarization.constants import (
@@ -132,7 +132,7 @@ class TestSampleItemsInWindowActivity:
             assert placeholders["max_events"].value == MAX_TRACE_EVENTS_LIMIT
             assert placeholders["max_properties_size"].value == MAX_TRACE_PROPERTIES_SIZE
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_generation_filter_is_applied_inside_argmaxif(self, mock_team):
         from posthog.hogql import ast
@@ -212,7 +212,7 @@ class TestSampleItemsInWindowActivity:
             zero_uuid_guard.visit(query.having)
             assert zero_uuid_guard.found, "HAVING must guard against zero-UUID phantom generations"
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_items_empty(self, mock_team):
         inputs = BatchSummarizationInputs(
@@ -230,7 +230,7 @@ class TestSampleItemsInWindowActivity:
 
             assert len(result) == 0
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_skips_when_cohort_filter_references_missing_cohort(self, mock_team):
         # Cohort referenced by a saved job was deleted between save and run.
@@ -250,7 +250,7 @@ class TestSampleItemsInWindowActivity:
             assert result == []
             mock_execute.assert_not_called()
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_skips_when_cohort_filter_references_soft_deleted_cohort(self, mock_team):
         from asgiref.sync import sync_to_async
@@ -273,7 +273,7 @@ class TestSampleItemsInWindowActivity:
             assert result == []
             mock_execute.assert_not_called()
 
-    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_sample_runs_when_cohort_filter_resolves(self, mock_team):
         from asgiref.sync import sync_to_async
