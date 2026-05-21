@@ -333,7 +333,7 @@ If the only values are `True`/`False`/`None` and `True` dominates, the UI `equal
     "type": "actions",
     "elements": [
       {
-        "url": "https://us.posthog.com/project/<project_id>/llm-analytics/traces/{event.properties.$ai_trace_id}?event={event.properties.$ai_target_event_id}",
+        "url": "https://us.posthog.com/project/<project_id>/ai-observability/traces/{event.properties.$ai_trace_id}?event={event.properties.$ai_target_event_id}",
         "text": { "text": "View Trace", "type": "plain_text" },
         "type": "button"
       },

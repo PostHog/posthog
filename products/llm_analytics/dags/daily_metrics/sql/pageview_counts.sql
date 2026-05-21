@@ -7,7 +7,7 @@ More specific patterns should be listed before general ones in config.
 
 Produces metrics: pageviews_dashboard, pageviews_traces, pageviews_generations, etc.
 
-Example: Pageview to /project/1/llm-analytics/traces → pageviews_traces metric
+Example: Pageview to /project/1/ai-observability/traces → pageviews_traces metric
 */
 
 SELECT

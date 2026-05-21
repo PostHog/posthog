@@ -438,7 +438,7 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             return
 
         settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
-        evaluation_url = f"/project/{team.pk}/llm-analytics/evaluations/{inputs.evaluation_id}"
+        evaluation_url = f"/project/{team.pk}/ai-evals/evaluations/{inputs.evaluation_id}"
         # Campaign key includes the reason so users get a fresh notification if an eval errors for a
         # different reason later (e.g. model was allowed, then the provider key got deleted).
         campaign_key = f"llm_analytics_eval_disabled_{inputs.evaluation_id}_{inputs.status_reason}"

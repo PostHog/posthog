@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: AI observability
 feature: llm_analytics
-url_prefix: /llm-analytics
+url_prefix: /ai-observability
 ui_apps:
     llm-costs:
         type: detail
@@ -972,13 +972,14 @@ tools:
     llma-tagger-create:
         operation: taggers_create
         enabled: true
+        url_prefix: /ai-evals/taggers
         scopes:
             - tagger:write
         annotations:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: tags/{id}
+        enrich_url: '{id}'
         title: Create tagger
         description: >
             Create an AI observability tagger that automatically adds custom tags to $ai_generation events. For
@@ -989,13 +990,14 @@ tools:
     llma-tagger-list:
         operation: taggers_list
         enabled: true
+        url_prefix: /ai-evals/taggers
         scopes:
             - tagger:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: tags/{id}
+        enrich_url: '{id}'
         list: true
         title: List taggers
         description: >

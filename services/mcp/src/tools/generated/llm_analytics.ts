@@ -764,7 +764,7 @@ const llmaReviewQueueCreate = (): ToolBase<
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/review_queues/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/reviews?queue_id=${result.id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/reviews?queue_id=${result.id}`)
     },
 })
 
@@ -795,7 +795,7 @@ const llmaReviewQueueGet = (): ToolBase<typeof LlmaReviewQueueGetSchema, WithPos
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/review_queues/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/reviews?queue_id=${result.id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/reviews?queue_id=${result.id}`)
     },
 })
 
@@ -821,7 +821,7 @@ const llmaReviewQueueItemCreate = (): ToolBase<
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/review_queue_items/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/traces/${result.trace_id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/traces/${result.trace_id}`)
     },
 })
 
@@ -855,7 +855,7 @@ const llmaReviewQueueItemGet = (): ToolBase<
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/review_queue_items/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/traces/${result.trace_id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/traces/${result.trace_id}`)
     },
 })
 
@@ -889,11 +889,11 @@ const llmaReviewQueueItemList = (): ToolBase<
                 ...result,
                 results: await Promise.all(
                     (result.results ?? []).map((item) =>
-                        withPostHogUrl(context, item, `/llm-analytics/traces/${item.trace_id}`)
+                        withPostHogUrl(context, item, `/ai-observability/traces/${item.trace_id}`)
                     )
                 ),
             },
-            '/llm-analytics'
+            '/ai-observability'
         )
     },
 })
@@ -919,7 +919,7 @@ const llmaReviewQueueItemUpdate = (): ToolBase<
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/review_queue_items/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/traces/${result.trace_id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/traces/${result.trace_id}`)
     },
 })
 
@@ -951,11 +951,11 @@ const llmaReviewQueueList = (): ToolBase<
                 ...result,
                 results: await Promise.all(
                     (result.results ?? []).map((item) =>
-                        withPostHogUrl(context, item, `/llm-analytics/reviews?queue_id=${item.id}`)
+                        withPostHogUrl(context, item, `/ai-observability/reviews?queue_id=${item.id}`)
                     )
                 ),
             },
-            '/llm-analytics'
+            '/ai-observability'
         )
     },
 })
@@ -981,7 +981,7 @@ const llmaReviewQueueUpdate = (): ToolBase<
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/review_queues/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/reviews?queue_id=${result.id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/reviews?queue_id=${result.id}`)
     },
 })
 
@@ -1057,7 +1057,7 @@ const llmaScoreDefinitionList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/llm-analytics')
+        return await withPostHogUrl(context, result, '/ai-observability')
     },
 })
 
@@ -1500,7 +1500,7 @@ const llmaTaggerCreate = (): ToolBase<typeof LlmaTaggerCreateSchema, WithPostHog
             path: `/api/environments/${encodeURIComponent(String(projectId))}/taggers/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/tags/${result.id}`)
+        return await withPostHogUrl(context, result, `/ai-evals/taggers/${result.id}`)
     },
 })
 
@@ -1528,12 +1528,10 @@ const llmaTaggerList = (): ToolBase<typeof LlmaTaggerListSchema, WithPostHogUrl<
             {
                 ...result,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) =>
-                        withPostHogUrl(context, item, `/llm-analytics/tags/${item.id}`)
-                    )
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/ai-evals/taggers/${item.id}`))
                 ),
             },
-            '/llm-analytics'
+            '/ai-evals/taggers'
         )
     },
 })
@@ -1592,7 +1590,7 @@ const llmaTraceReviewCreate = (): ToolBase<
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/trace_reviews/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/traces/${result.trace_id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/traces/${result.trace_id}`)
     },
 })
 
@@ -1623,7 +1621,7 @@ const llmaTraceReviewGet = (): ToolBase<typeof LlmaTraceReviewGetSchema, WithPos
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/trace_reviews/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/traces/${result.trace_id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/traces/${result.trace_id}`)
     },
 })
 
@@ -1658,11 +1656,11 @@ const llmaTraceReviewList = (): ToolBase<
                 ...result,
                 results: await Promise.all(
                     (result.results ?? []).map((item) =>
-                        withPostHogUrl(context, item, `/llm-analytics/traces/${item.trace_id}`)
+                        withPostHogUrl(context, item, `/ai-observability/traces/${item.trace_id}`)
                     )
                 ),
             },
-            '/llm-analytics'
+            '/ai-observability'
         )
     },
 })
@@ -1697,7 +1695,7 @@ const llmaTraceReviewUpdate = (): ToolBase<
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/trace_reviews/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/llm-analytics/traces/${result.trace_id}`)
+        return await withPostHogUrl(context, result, `/ai-observability/traces/${result.trace_id}`)
     },
 })
 
