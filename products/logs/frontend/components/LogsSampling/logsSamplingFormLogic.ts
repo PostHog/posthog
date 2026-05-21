@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -215,6 +215,16 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        // Kick off an initial preview load on mount whenever the form is opened with
+        // a filter_group already set (edit mode, or pre-filled defaults). Without this
+        // the loader only fires on subsequent edits, leaving the sparkline stuck on
+        // "loading" because filterPreview is null and we never ran the request.
+        if (isFilterGroupNonEmpty(values.samplingForm.filter_group)) {
+            actions.refreshFilterPreview()
+        }
+    }),
 
     forms(({ props, values }) => ({
         samplingForm: {
