@@ -461,6 +461,7 @@ class Migration(migrations.Migration):
                             ),
                         ),
                         ("initial_sync_complete", models.BooleanField(default=False)),
+                        ("enabled_columns", models.JSONField(blank=True, default=None, null=True)),
                         (
                             "description",
                             models.CharField(blank=True, max_length=1000, null=True),

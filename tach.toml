@@ -32,27 +32,6 @@ layer = "modules"
 utility = true
 
 [[modules]]
-path = "ee"
-depends_on = [
-    "posthog",
-    "products.alerts",
-    "products.dashboards",
-    "products.error_tracking",
-    "products.event_definitions",
-    "products.experiments",
-    "products.feature_flags",
-    "products.llm_analytics",
-    "products.mcp_store",
-    "products.notebooks",
-    "products.posthog_ai",
-    "products.replay",
-    "products.revenue_analytics",
-    "products.surveys",
-    "products.tasks", "products.warehouse_sources", "products.data_modeling",
-]
-layer = "modules"
-
-[[modules]]
 path = "posthog"
 depends_on = [
     "ee",
@@ -378,13 +357,6 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.product_analytics"
-depends_on = [
-    "posthog",
-]
-layer = "modules"
-
-[[modules]]
 path = "products.product_tours"
 depends_on = [
     "posthog",
@@ -640,6 +612,7 @@ depends_on = [
     "posthog",
     "products.alerts",
     "products.dashboards",
+    "products.data_modeling",
     "products.data_warehouse",
     "products.error_tracking",
     "products.event_definitions",
@@ -654,6 +627,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.user_interviews",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 

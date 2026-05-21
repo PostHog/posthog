@@ -41,7 +41,7 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0054_remove_data_modeling_models"),
+        ("data_warehouse", "0055_remove_data_modeling_models"),
         ("endpoints", "0029_remove_data_modeling_models"),
     ]
 

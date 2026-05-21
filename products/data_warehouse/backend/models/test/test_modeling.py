@@ -11,7 +11,7 @@ from products.data_modeling.backend.models.modeling import (
     NodeType,
     get_parents_from_model_query,
 )
-from products.data_warehouse.backend.models import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

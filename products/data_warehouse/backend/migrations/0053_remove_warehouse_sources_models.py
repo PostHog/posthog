@@ -48,7 +48,7 @@ def reverse_content_types(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0051_alter_externaldatasource_source_type"),
+        ("data_warehouse", "0052_externaldataschema_enabled_columns"),
         ("warehouse_sources", "0001_migrate_warehouse_sources_models"),
     ]
 

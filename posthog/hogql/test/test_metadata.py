@@ -19,7 +19,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.models import Cohort, PropertyDefinition
 from posthog.models.insight_variable import InsightVariable
 
-from products.data_warehouse.backend.models import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable

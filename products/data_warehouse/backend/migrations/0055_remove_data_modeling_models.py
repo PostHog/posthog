@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0053_migrate_data_tools_models"),
+        ("data_warehouse", "0054_migrate_data_tools_models"),
     ]
 
     operations = [

@@ -38,6 +38,11 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
     get_or_create_webhook_hog_function,
 )
+from products.data_warehouse.backend.postgres_helpers import (
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    get_postgres_source_location,
+    reproject_direct_postgres_table,
+)
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -46,11 +51,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_to_sync_frequency_interval,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.postgres_helpers import (
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
-    get_postgres_source_location,
-    reproject_direct_postgres_table,
-)
 
 logger = structlog.get_logger(__name__)
 

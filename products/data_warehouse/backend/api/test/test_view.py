@@ -90,7 +90,7 @@ class TestView(APIBaseTest):
         )
 
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
