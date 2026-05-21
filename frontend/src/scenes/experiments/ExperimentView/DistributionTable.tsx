@@ -116,11 +116,10 @@ export function DistributionTable(): JSX.Element {
             content: (
                 <>
                     <LemonBanner type="info" className="mb-2">
-                        Launching opens the selected domain in a new tab with{' '}
-                        <code>__experiment_id</code> and <code>__experiment_variant</code> query parameters. The
-                        variant will only render if the target site's PostHog SDK is configured to consume these
-                        parameters. If nothing changes after launching, use the side menu next to Launch to copy
-                        the preview URL.
+                        Launching opens the selected domain in a new tab with <code>__experiment_id</code> and{' '}
+                        <code>__experiment_variant</code> query parameters. The variant will only render if the target
+                        site's PostHog SDK is configured to consume these parameters. If nothing changes after
+                        launching, use the side menu next to Launch to copy the preview URL.
                     </LemonBanner>
                     <AuthorizedUrlList
                         query={'?__experiment_id=' + experiment?.id + '&__experiment_variant=' + variant}

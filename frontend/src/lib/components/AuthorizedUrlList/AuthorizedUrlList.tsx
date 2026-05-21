@@ -181,9 +181,9 @@ export function AuthorizedUrlList({
                                                                           The preview opens the page in a new tab with{' '}
                                                                           <code>__experiment_id</code> and{' '}
                                                                           <code>__experiment_variant</code> query
-                                                                          parameters. The target site's PostHog SDK
-                                                                          must be configured to consume these
-                                                                          parameters for the variant to render.
+                                                                          parameters. The target site's PostHog SDK must
+                                                                          be configured to consume these parameters for
+                                                                          the variant to render.
                                                                       </p>
                                                                       <LemonButton
                                                                           icon={<IconCopy />}
@@ -212,8 +212,8 @@ export function AuthorizedUrlList({
                                                                   <div className="px-2 py-1">
                                                                       <h3>If launching the toolbar didn't work, </h3>
                                                                       <p>
-                                                                          You can copy the launch code and paste it
-                                                                          into the browser console on your site.
+                                                                          You can copy the launch code and paste it into
+                                                                          the browser console on your site.
                                                                       </p>
                                                                       <p>
                                                                           NB you need to have added posthog to the
