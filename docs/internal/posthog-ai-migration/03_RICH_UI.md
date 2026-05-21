@@ -1,921 +1,568 @@
-# 03 — Rich UI migration
+# 03 — Rich UI (MCP tool-name dispatch)
 
-This spec covers the migration of PostHog AI's *rich tool-call rendering* layer from the current `ui_payload`-on-`AssistantToolCallMessage` model onto the ACP `tool_call` / `tool_call_update` event stream produced by `@posthog/agent` inside the sandbox.
+This spec covers the frontend slice of the migration. The premise (locked by `00_OVERVIEW.md`): the chat scene under `frontend/src/scenes/max/` stays. No new scene, no new dispatcher framework, no callback channel from agent to scene. The only structural change is a tool-name → renderer registry plus a handful of adapter wrappers around the renderers we already have.
 
-Read [`00_OVERVIEW.md`](./00_OVERVIEW.md) first.
-The SSE transport, watcher, message reducer, and slash-command UI are owned by [`02_CORE.md`](./02_CORE.md) — that spec produces the typed event stream this spec consumes.
-The set of MCP servers and their tool schemas is owned by [`04_PROMPTS.md`](./04_PROMPTS.md) — that spec defines which tool *names* show up on the wire; this spec defines what to *render* when they do.
+You are also reading this because the wire format is now ACP frames carried inside `StoredLogEntry` envelopes (see `02_CORE.md` § 4 — sketched in `00_OVERVIEW.md` § 5 / § 7 until the full doc lands). What flows in is:
 
-Scope here: the *interception layer*, the *tool→renderer mapping table*, the *client-side tool replacement for `useMaxTool`*, the *approval and plan-mode UI rewiring*, the *progress-event wiring*, and the *file-by-file move plan* for the `messages/` folder.
+- `session/update` notifications with `params.update.sessionUpdate === 'tool_call' | 'tool_call_update'`. The frontend dispatches off these, mirroring `Twig/apps/code/.../cloudToolChanges.ts`.
+- `permission_request` events the SSE relay hoists out of upstream agent-server JSON-RPC requests.
+- `_posthog/progress`, `_posthog/run_started`, `_posthog/turn_complete` for thinking messages, run boundaries, stop reasons.
+- `session/update` with `sessionUpdate === 'agent_message_chunk' | 'agent_thought_chunk'` for streamed assistant text (kept folded into `AssistantMessage` shape on the wire — frontend keeps treating them as today).
 
----
-
-## 1. Today: how ui_payload rendering works
-
-### 1.1 The Thread.tsx dispatch path
-
-Source: `posthog/frontend/src/scenes/max/Thread.tsx`.
-
-The current flow:
-
-1. `maxThreadLogic.threadGrouped` produces a flat `ThreadMessage[]` keyed by `id`. Each entry is one of `HumanMessage`, `AssistantMessage`, `AssistantToolCallMessage`, `FailureMessage`, `ArtifactMessage`, `MultiVisualizationMessage`, or a multi-question-form variant.
-2. `Thread.tsx` maps over `threadGrouped` and dispatches each entry to a renderer based on type predicates (`isAssistantMessage`, `isAssistantToolCallMessage`, `isArtifactMessage`, `isMultiVisualizationMessage`, …) defined in `posthog/frontend/src/scenes/max/utils.ts`.
-3. For `AssistantMessage`, the renderer additionally walks `message.tool_calls: AssistantToolCall[]` (enhanced with `status` + `result` + `updates` by `threadGrouped`) and renders each via `ToolCallsAnswer` → `AssistantActionComponent`. `AssistantActionComponent` is the "action chip" — icon, status, expandable substeps, optional widget.
-4. The corresponding *tool result* is an `AssistantToolCallMessage` carrying `ui_payload` (a Record<toolName, payload>). `Thread.tsx` first filters out non-renderable payloads via `isRenderableUIPayloadTool` (`UIPayloadAnswer.tsx:51`), then either:
-   - Renders the tool-call message inline at the top level of the thread (legacy path — `<UIPayloadAnswer toolCallId toolName toolPayload />`), or
-   - Surfaces the payload *inside* the expandable accordion of the matching `AssistantActionComponent` via the same `UIPayloadAnswer` (Thread.tsx:1113–1131).
-5. Special-case widgets (`SummarizeSessionsWidget`, `RecordingsWidget` driven by `filter_session_recordings`, `SessionSummarizationProgress`) are emitted by `TOOL_DEFINITIONS[toolName].displayFormatter()` (in `max-constants.tsx`) which returns `[text, { widget, args }]`. The widget tag is consumed by `getToolCallDescriptionAndWidget` (Thread.tsx:1652–1685).
-
-The key invariants:
-
-- Every renderable tool has its *args* (from `AssistantToolCall.args`) and its *result payload* (from `AssistantToolCallMessage.ui_payload`) co-located by `tool_call_id`. The `threadGrouped` selector pairs them.
-- `status` is `pending` | `in_progress` | `completed` | `failed`. It is derived (today) from "did the tool result arrive yet?" plus a few special cases for streaming `updates`.
-- `updates: string[]` is a per-tool-call live stream of progress strings (today: each one is a discrete SSE event with `type: 'update'` carrying a stringified payload). `SessionSummarizationProgress` reconstructs typed progress events from these.
-
-### 1.2 messages/* renderer catalog
-
-| File | Renders for | Inputs |
-|---|---|---|
-| `VisualizationArtifactAnswer.tsx` | `ArtifactMessage` with `VisualizationArtifactContent`. *Not* a tool-call renderer — driven by a dedicated message type. | `content: VisualizationArtifactContent`, `status`, `isEditingInsight` |
-| `NotebookArtifactAnswer.tsx` | `ArtifactMessage` with `NotebookArtifactContent`. *Not* a tool-call renderer either. | `content: NotebookArtifactContent`, `status`, `artifactId` |
-| `UIPayloadAnswer.tsx` | Top-level dispatcher for `AssistantToolCallMessage.ui_payload` and dangerous-op approvals. Currently handles `search_session_recordings`, `search_error_tracking_issues`, dangerous-ops. Exports `RecordingsWidget`, `ErrorTrackingFiltersWidget`, `SummarizeSessionsWidget`, `isRenderableUIPayloadTool`, `RENDERABLE_UI_PAYLOAD_TOOLS`. | `toolCallId`, `toolName`, `toolPayload` |
-| `RecordingsFiltersSummary.tsx` | Header chip strip on the recordings widget — pure presentation of `RecordingUniversalFilters`. | `filters: RecordingUniversalFilters` |
-| `ErrorTrackingIssueCard.tsx` | One row in the error-tracking widget list. | `issue: MaxErrorTrackingIssuePreview`, `showUserCount?` |
-| `ErrorTrackingFiltersSummary.tsx` | Header chip strip on the error-tracking widget. | `filters: MaxErrorTrackingSearchResponse` |
-| `MultiQuestionForm.tsx` (`MultiQuestionFormRecap`) | Read-only recap of a submitted `create_form` form (the *interactive* form lives in the input area). | `form: MultiQuestionForm`, `savedAnswers?`, `formStatus?` |
-| `SessionSummarizationProgress.tsx` | Live progress display for `summarize_sessions` — derives state from a list of `sessions_discovered` / `progress` updates. | `updates: SessionSummarizationUpdate[]` |
-| `MessageTemplate.tsx` | The shared chat-bubble shell (border, padding, avatar gutter). All renderers wrap in it. | `type: 'human' \| 'ai'`, `children`, `boxClassName?`, `wrapperClassName?`, `action?` |
-| `maxErrorTrackingWidgetLogic.ts` | Kea logic bound by `<ErrorTrackingFiltersWidget>` to drive pagination of the issues list. | `MaxErrorTrackingWidgetLogicProps` (`toolCallId`, `filters`) |
-
-All of these are *presentation-shaped* — they care about a payload shape, not about a transport. The migration just needs to feed them from a new source.
-
-### 1.3 useMaxTool's client-side tool callback model
-
-Source: `posthog/frontend/src/scenes/max/useMaxTool.ts`, `MaxTool.tsx`, `max-constants.tsx` (`ToolRegistration` interface), `maxGlobalLogic.tsx` (the `registeredToolMap` reducer, lines 144–157).
-
-Today a scene component opts in via:
-
-```tsx
-useMaxTool({
-    identifier: 'filter_session_recordings',
-    context: { current_filters: filters },
-    contextDescription: { text: 'Current recording filters', icon: <IconReplay /> },
-    suggestions: ['Find rage clicks', '...'],
-    callback: async (toolOutput, conversationId) => {
-        // toolOutput is whatever the backend tool returned for this scene
-        recordingsLogic.actions.setFilters(toolOutput)
-    },
-})
-```
-
-Mechanics:
-
-- `useMaxTool` calls `maxGlobalLogic.actions.registerTool({ identifier, name, description, context, contextDescription, introOverride, suggestions, callback })` on mount.
-- `registeredToolMap` is a `Record<identifier, ToolRegistration>` reducer. Plus there's a `STATIC_TOOLS` array (`maxGlobalLogic.tsx:27–73`) of always-on identifiers.
-- Backend reads the registered set from the stream POST body (`contextual_tools`) so the agent can decide which tools to expose.
-- When the agent calls the tool and returns a result, the frontend looks up `registeredToolMap[toolName].callback` and invokes it with the *parsed* `ui_payload` (today this happens inside `maxThreadLogic`).
-- `context` (e.g. current filters) is included in the prompt round-trip so the agent has the scene state.
-
-Both the *registration* and the *invocation* are deprecated by the new architecture but the *concept* (scenes participate in the agent's tool surface) is not.
-
-### 1.4 Approval card flow
-
-Source: `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts`, `maxThreadLogic` (reducers `pendingApprovalsData` and `resolvedApprovalStatuses`), `Thread.tsx:411–440` (the `approvalCardElements` `useMemo`).
-
-Mechanics:
-
-1. The backend tool decides "this is dangerous" and returns a `DangerousOperationResponse` shape (`schema-assistant-messages.ts:439–445`) as the tool's `ui_payload`. The shape: `{ status: 'pending_approval', proposalId, toolName, preview, payload }`.
-2. `UIPayloadAnswer` detects this via `isDangerousOperationResponse(toolPayload)` and renders `<DangerousOperationApprovalCard operation={normalizeDangerousOperationResponse(toolPayload)} />`.
-3. The *interactive* approve/reject UI is actually rendered in the chat input area (`DangerousOperationInput`, not in this spec's scope) — the card is a *summary chip* keyed by `proposalId`.
-4. The card reads two reducers from `maxThreadLogic`: `pendingApprovalsData[proposalId]: PendingApproval` (backend state) and `resolvedApprovalStatuses[proposalId]` (optimistic local state). Either one having a non-`pending` status flips the card to "approved / rejected / responded".
-
-The shapes that need to bridge to the ACP world:
-
-| Field today | ACP equivalent |
-|---|---|
-| `proposalId` | `tool_call.toolCallId` *plus* `permission_request.requestId` (two ids, related but distinct — see § 5) |
-| `toolName` | `tool_call.title` or `_meta.toolName` |
-| `preview` | derived from `tool_call.content[]` (markdown / diff blocks) |
-| `payload` | `tool_call.rawInput` |
-| `decision_status` | `'pending' \| 'approved' \| 'rejected' \| 'auto_rejected'` — keyed off whether `permission_response` has been sent, plus `optionId` echo back |
+The deprecated `useMaxTool` / `MaxTool` system goes away. Only the static MCP tool set is callable. Scenes contribute `AttachedContext` items (see `01_CONTEXT.md`) and may subscribe read-only to `maxThreadLogic`. They cannot expose callbacks.
 
 ---
 
-## 2. Tomorrow: ACP-driven rendering
+## 1. Today: how rendering works
 
-### 2.1 Event shapes
+### 1.1 Thread.tsx dispatch path
 
-The watcher (`runWatcherLogic`, owned by `02_CORE.md` § 5) is the one source of truth.
-It emits a typed event stream to `posthogAiThreadLogic`.
-The events we care about for rich UI are (lifted from `CLOUD_AGENTS_FRONTEND_SPEC.md` §§ 5, 10.8–10.9):
+`frontend/src/scenes/max/Thread.tsx` consumes `threadGrouped: ThreadMessage[]` from `maxThreadLogic`. Each `ThreadMessage` is one of:
 
-```ts
-// session/update with sessionUpdate = "tool_call"  (the first time the agent calls a tool)
-interface AcpToolCallStart {
-    sessionUpdate: 'tool_call'
-    toolCallId: string
-    title: string                           // e.g. "Reading data warehouse schema"
-    kind?: string                           // 'read' | 'write' | 'edit' | 'execute' | 'think' | 'fetch' | 'search' | 'delete' | 'move' | 'switch_mode' | 'question' | string
-    status?: 'pending' | 'in_progress' | 'completed' | 'failed'
-    rawInput?: Record<string, unknown>      // the actual tool args
-    locations?: ToolCallLocation[]
-    content?: ToolCallContent[]
-    _meta?: {
-        toolName?: string                   // the MCP-qualified name, e.g. "posthog-data.read_taxonomy"
-        mcpServer?: string                  // e.g. "posthog-data"
-        claudeCode?: { toolName?: string }  // built-in Claude Code tool, e.g. "Write"
-        [k: string]: unknown
-    }
-}
+- `HumanMessage` — `MarkdownMessage` (or slash-command pill).
+- `AssistantMessage` — `TextAnswer` (markdown), plus reasoning blocks via `getThinkingMessageFromResponse()`, plus `ToolCallsAnswer` rendered from `message.tool_calls[]`. Each tool call dispatches into `AssistantActionComponent` with description / icon / widget computed by `getToolCallDescriptionAndWidget()` against `TOOL_DEFINITIONS`.
+- `AssistantToolCallMessage` — only rendered when `message.ui_payload` has a key in `RENDERABLE_UI_PAYLOAD_TOOLS` or matches `isDangerousOperationResponse()`. Dispatch goes through `UIPayloadAnswer` (kind-based — see § 1.3).
+- `ArtifactMessage` — branches on artifact content type: `VisualizationArtifactAnswer` or `NotebookArtifactAnswer`.
+- `MultiVisualizationMessage` — `MultiVisualizationAnswer`.
+- `FailureMessage` — error pill.
 
-// session/update with sessionUpdate = "tool_call_update" (subsequent patches)
-interface AcpToolCallUpdate {
-    sessionUpdate: 'tool_call_update'
-    toolCallId: string                      // matches a prior tool_call
-    title?: string
-    status?: 'pending' | 'in_progress' | 'completed' | 'failed'
-    content?: ToolCallContent[]             // appended/replaced — see § 2.3
-    rawOutput?: unknown                     // present on final update
-    _meta?: { ... }
-}
+`Thread.tsx` also fishes pending-approval cards out of `pendingApprovalsData` by `tool_call_id`, rendering `DangerousOperationApprovalCard` next to the assistant message that originated the call.
 
-// session/update with sessionUpdate = "agent_message" or "agent_message_chunk"
-interface AcpAgentMessage {
-    sessionUpdate: 'agent_message' | 'agent_message_chunk'
-    content: ToolCallContent[]               // typically [{ type: 'text', text: '...' }]
-}
+`SandboxActivityPanel` is a transitional element (driven by `PHAI_SANDBOX_MODE` flag and the `sandboxEntries: LogEntry[]` selector). It collapses raw sandbox tool/console traffic into a debug panel. The MCP-tool-call work supersedes it for tool entries — once the registry handles real cards, this panel is deleted.
 
-// permission_request event (separate kind on the cloud SSE frame — not session/update)
-interface CloudPermissionRequest {
-    kind: 'permission_request'
-    requestId: string
-    toolCall: {
-        toolCallId: string
-        title: string
-        kind: string                         // e.g. "switch_mode" for plan approvals
-        content?: ToolCallContent[]
-        rawInput?: Record<string, unknown>
-        _meta?: { ... }
-    }
-    options: CloudPermissionOption[]         // see § 5
-}
-```
+### 1.2 messages/\* renderer catalog
 
-`ToolCallContent` is the ACP variant union: `{ type: 'text', text }` | `{ type: 'markdown', markdown }` | `{ type: 'diff', path, oldText, newText }` | `{ type: 'image', ... }` | `{ type: 'resource_link', ... }` | etc.
-Twig already parses these in `Twig/apps/code/src/renderer/features/task-detail/utils/cloudToolChanges.ts` — the `ParsedToolCall` interface there is structurally what we want.
+| File                               | Component                      | Today's props                                                                                                                     | What it visualizes                                                                                                                                     |
+| ---------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `MessageTemplate.tsx`              | `MessageTemplate`              | `type: 'human' \| 'ai'`, `boxClassName`, `wrapperClassName`, `action`, children                                                   | Bubble shell. Used by every other renderer. Reused untouched.                                                                                          |
+| `VisualizationArtifactAnswer.tsx`  | `VisualizationArtifactAnswer`  | `message: ArtifactMessage`, `content: VisualizationArtifactContent`, `status`, `isEditingInsight`, `activeTabId`, `activeSceneId` | A finished insight artifact (query + viz). Reads from `content.query`, source = `Insight` vs inline.                                                   |
+| `NotebookArtifactAnswer.tsx`       | `NotebookArtifactAnswer`       | `content: NotebookArtifactContent`, `status`, `artifactId`                                                                        | Multi-block notebook artifact (markdown / visualization / session_replay / loading / error). Save-to-notebook button.                                  |
+| `UIPayloadAnswer.tsx`              | `UIPayloadAnswer`              | `toolCallId`, `toolName`, `toolPayload: any`                                                                                      | Kind-based dispatcher. See § 1.3.                                                                                                                      |
+| `UIPayloadAnswer.tsx`              | `RecordingsWidget`             | `toolCallId`, `filters: RecordingUniversalFilters`                                                                                | Embedded recordings playlist for a `search_session_recordings` / `filter_session_recordings` result.                                                   |
+| `UIPayloadAnswer.tsx`              | `ErrorTrackingFiltersWidget`   | `toolCallId`, `filters: MaxErrorTrackingSearchResponse \| null`                                                                   | Embedded issue list driven by `maxErrorTrackingWidgetLogic`. Optionally pushes filters into the error-tracking scene if active.                        |
+| `UIPayloadAnswer.tsx`              | `SummarizeSessionsWidget`      | `payload: { session_group_summary_id?, title? }`, `title?`                                                                        | Single "Open analysis of sessions" button — rendered next to the in-progress `summarize_sessions` tool card.                                           |
+| `ErrorTrackingFiltersSummary.tsx`  | `ErrorTrackingFiltersSummary`  | `filters: MaxErrorTrackingSearchResponse`                                                                                         | Filter chip row for an issue search.                                                                                                                   |
+| `ErrorTrackingIssueCard.tsx`       | `ErrorTrackingIssueCard`       | `issue: MaxErrorTrackingIssuePreview`, `showUserCount?`                                                                           | Single-row issue preview.                                                                                                                              |
+| `RecordingsFiltersSummary.tsx`     | `RecordingsFiltersSummary`     | `filters: RecordingUniversalFilters`                                                                                              | Filter chip row for a recording search.                                                                                                                |
+| `MultiQuestionForm.tsx`            | `MultiQuestionFormRecap`       | `form: MultiQuestionForm`, `savedAnswers?`, `formStatus?`                                                                         | Read-only recap of a previously-submitted in-chat form. The live form lives in the input area, not the thread.                                         |
+| `SessionSummarizationProgress.tsx` | `SessionSummarizationProgress` | `updates: SessionSummarizationUpdate[]`                                                                                           | Live progress for `summarize_sessions` — derives per-session status, phase, ETA, patterns from a stream of `progress` / `sessions_discovered` updates. |
+| `maxErrorTrackingWidgetLogic.ts`   | (kea logic)                    | `toolCallId`, `filters`                                                                                                           | Paginates issues for `ErrorTrackingFiltersWidget`.                                                                                                     |
 
-### 2.2 The interception layer
+Outside `messages/`: `MarkdownMessage.tsx`, `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts`. All reused untouched.
 
-New file: `posthog/frontend/src/scenes/posthog-ai/toolCallsLogic.ts`.
+### 1.3 UIPayloadAnswer's kind-based dispatch
 
-This logic owns the *current* state of all tool calls in the active Task, keyed by `toolCallId`.
-It subscribes to `runWatcherLogic` (which forwards typed events out of the SSE/log stream) and merges `tool_call` and `tool_call_update` events into a single `ToolInvocation` record.
+Today every `AssistantToolCallMessage` arrives with a `ui_payload: Record<toolName, payload>` synthesized server-side. `Thread.tsx` flattens the first key, `UIPayloadAnswer` switches on `toolName`:
+
+- `search_session_recordings` → `RecordingsWidget`.
+- `search_error_tracking_issues` → `ErrorTrackingFiltersWidget`.
+- `summarize_sessions` → `SummarizeSessionsWidget` (rendered outside the accordion in `Thread.tsx`).
+- `create_form` → no widget; the form is handled in input area.
+- Anything matching `isDangerousOperationResponse()` → `DangerousOperationApprovalCard`.
+
+That's it. Most tools have no `ui_payload` entry and only ever render through the description text in `AssistantActionComponent`. `RENDERABLE_UI_PAYLOAD_TOOLS` is the canonical allowlist.
+
+### 1.4 The deprecated useMaxTool model
+
+`useMaxTool` (`useMaxTool.ts`) and the `MaxTool` wrapper component (`MaxTool.tsx`) let scenes call `registerTool(...)` on `maxGlobalLogic.toolMap`. The agent could read the registered tools' `context`/`suggestions` (compiled into a system prompt by the LangGraph runtime) and invoke `callback(toolOutput, conversationId)` on the scene's side when the tool completed. That whole loop is gone — the sandbox runtime can't reach back into a scene. Only static MCP tools exist after this migration.
+
+`TOOL_DEFINITIONS` (`max-constants.tsx`) maps tool names to display metadata (icon, name, `displayFormatter`, optional `subtools`). It lives alongside `ToolDefinition` / `ToolRegistration` types and the `registerTool` / `deregisterTool` reducers in `maxGlobalLogic`. All of it goes — § 8.
+
+---
+
+## 2. Tomorrow: tool-name dispatch
+
+### 2.1 Incoming shapes — sandboxStreamLogic output
+
+The SSE relay (`02_CORE.md` § 4) passes ACP frames through raw, wrapped in a `StoredLogEntry` envelope. The merging from `tool_call` + N × `tool_call_update` into one coherent record happens **client-side** in `sandboxStreamLogic.ts` (`02_CORE.md` § 6). That module exposes `ToolInvocation` records — the input to this spec's registry — keyed by `toolCallId`:
 
 ```ts
 interface ToolInvocation {
-    toolCallId: string
-    runId: string                            // useful when filtering by current run
-    title: string
-    kind?: string
-    status: 'pending' | 'in_progress' | 'completed' | 'failed'
-    rawInput?: Record<string, unknown>
-    /** Concatenated content blocks across the lifetime of the call. */
-    content: ToolCallContent[]
-    /** Captured final tool output if present on the last update. */
-    rawOutput?: unknown
-    /** Stream of `progress` notifications attached to this call (see § 6.1). */
-    progress: PosthogProgressEvent[]
-    locations?: ToolCallLocation[]
-    /** MCP server identifier — derived from `_meta.mcpServer` if present, else inferred from title prefix. */
-    mcpServer?: string
-    /** MCP-qualified tool name, e.g. "posthog-data.read_taxonomy". Derived from `_meta.toolName`. */
-    toolName?: string
-    /** First-seen timestamp; preserved across updates. */
-    firstSeenAt: string
-    lastUpdatedAt: string
+  toolCallId: string
+  serverName: string // e.g. 'posthog-data'
+  toolName: string // e.g. 'create_insight'
+  qualifiedName: string // `${serverName}.${toolName}` — registry key
+  input: Record<string, unknown> // rawInput at tool_call
+  output?: unknown // rawOutput on the final tool_call_update
+  progress?: unknown // partial result from intermediate updates
+  status: 'pending' | 'in_progress' | 'completed' | 'failed'
+  title?: string // ACP toolCall.title
+  kind?: string // ACP toolCall.kind (e.g. 'switch_mode' for plan approvals)
+  locations?: { path: string; line?: number }[]
+  contentBlocks: unknown[] // accumulated ACP `content[]` from updates
 }
 
-interface PendingPermission {
-    requestId: string
-    toolCallId: string                       // link back to the ToolInvocation
-    options: CloudPermissionOption[]
-    /** Local-optimistic resolution state. */
-    resolution?:
-        | { status: 'approved'; optionId: string }
-        | { status: 'rejected'; optionId: string; customInput?: string }
+interface PermissionRequestRecord {
+  requestId: string
+  toolCallId: string // links back to the ToolInvocation
+  options: PermissionOption[] // {optionId, name, kind} where kind ∈ allow_once|allow_always|reject|reject_with_feedback
+  title?: string
+  description?: string
+  rawToolCall: ToolInvocation // the gated tool call, for preview/payload rendering
 }
 ```
 
-Logic sketch:
+The registry described below dispatches on `ToolInvocation.qualifiedName`. The discriminator pattern mirrors `Twig/apps/code/src/renderer/features/task-detail/utils/cloudToolChanges.ts` — `sandboxStreamLogic` ports its walk: read `params.update.sessionUpdate`, key by `params.update.toolCallId`, merge subsequent `tool_call_update`s into the same record. **All merging is frontend-side**; the backend relay never reads tool semantics.
 
-```ts
-interface ToolCallsLogicValues {
-    invocationsByCallId: Record<string, ToolInvocation>
-    /** Stable, ordered list — order = first-seen `firstSeenAt`. */
-    invocations: ToolInvocation[]
-    pendingPermissions: Record<string, PendingPermission>     // keyed by requestId
-    permissionByToolCallId: Record<string, string>            // toolCallId → requestId
-}
+> **Why frontend merge:** the relay stays a thin passthrough that knows nothing about tools. Adding a new MCP tool requires zero backend change beyond exposing it as an MCP server — the frontend registry and the (optional) adapter cover the rest. See `00_OVERVIEW.md` § 2 and `02_CORE.md` § 6 for the rationale.
 
-interface ToolCallsLogicActions {
-    upsertToolCall: (event: AcpToolCallStart | AcpToolCallUpdate) => { event }
-    recordPermissionRequest: (request: CloudPermissionRequest) => { request }
-    recordProgress: (progress: PosthogProgressEvent) => { progress }
-    resolvePermission: (requestId: string, optionId: string, customInput?: string) => {
-        requestId
-        optionId
-        customInput
-    }
-    clearInvocationsForRun: (runId: string) => { runId }
-}
-```
+### 2.2 The qualified-name discriminator
 
-Wiring (see `02_CORE.md` for the watcher contract):
+The registry key is `toolName` as it appears on the wire — the full MCP qualified name `<server_name>.<tool_name>`, e.g. `posthog-data.read_taxonomy`, `posthog-data.execute_sql`, `posthog-notebook.create_notebook`. Backend MCP server slugs are owned by `04_PROMPTS.md` § 5; the registry must match exactly what those servers register. Built-in agent tools that aren't MCP (e.g. Claude's `web_search_20250305`) ship without a server prefix and are keyed directly by name (`web_search`).
 
-- `runWatcherLogic` listener for `session/update` events: if `sessionUpdate ∈ {tool_call, tool_call_update}`, fire `upsertToolCall`. Reducer merges into `invocationsByCallId[toolCallId]` using the same `mergeToolCall` semantics as Twig's `cloudToolChanges.ts:43–61` — patch-wins-when-present.
-- `runWatcherLogic` listener for `permission_request` SSE frames: fire `recordPermissionRequest`. Reducer puts it into `pendingPermissions[requestId]` and indexes by `toolCallId`.
-- `runWatcherLogic` listener for `_posthog/progress` notifications: fire `recordProgress`. The progress payload carries `toolCallId` (see § 6.1); merge into `invocationsByCallId[toolCallId].progress[]`.
-- Resolver: when `permission_response` is sent over the command channel (`02_CORE.md` § 6), set optimistic `resolution` on the pending permission. When the next status/SSE update echoes the resolution back (e.g. the next `tool_call_update` for the same `toolCallId` arriving in non-`pending` status), remove from `pendingPermissions` and rely on the invocation record.
+Bare-name fallback: the registry also matches against the unqualified `tool_name` so we don't break if backend renames a server. The lookup is `registry[toolName] ?? registry[toolName.split('.').at(-1)!] ?? FallbackRenderer`.
 
-The thread renderer (`posthog-ai/Thread.tsx`) does **not** read `invocationsByCallId` directly. Instead, `posthogAiThreadLogic.threadGrouped` *interleaves* tool invocations and agent messages into a single ordered list, using the timestamps emitted on each event.
+### 2.3 Thread.tsx additive case
 
-### 2.3 toolCallId-keyed records in thread state
-
-`posthogAiThreadLogic.threadGrouped` is structurally the same selector as today's, but its inputs are different.
-
-Inputs:
-
-- The persisted message log (built from `StoredLogEntry[]` returned by `GET /session_logs/`).
-- The live invocation map from `toolCallsLogic`.
-- The progress map.
-- The pending-permission map.
-
-It produces:
-
-```ts
-type PostHogAiThreadItem =
-    | { kind: 'human'; id: string; content: string; ui_context?: MaxUIContext; timestamp: string }
-    | { kind: 'ai'; id: string; content: string; timestamp: string; status: 'streaming' | 'completed' | 'failed' }
-    | { kind: 'tool'; toolCallId: string; invocation: ToolInvocation; timestamp: string }
-    | { kind: 'permission'; requestId: string; permission: PendingPermission; invocation: ToolInvocation; timestamp: string }
-    | { kind: 'failure'; id: string; content: string; timestamp: string }
-    | { kind: 'progress_group'; groupId: string; progress: PosthogProgressEvent[]; timestamp: string }
-```
-
-This is **the dispatch shape** for the new `Thread.tsx` — single source of truth, no second-pass enrichment in the renderer.
-
-### 2.4 Rendering policy: when does a tool call become a card vs inline
-
-Three policies, all keyed off `ToolInvocation.kind` (the ACP kind, not our backend-tool name):
-
-1. **Inline action chip** — default. Render `<AssistantActionComponent>` (lifted from `Thread.tsx`, see § 8.2) with `icon`, `description`, `status`, `widget?`, `result?`. This is the equivalent of today's "tool call ribbon" inside `ToolCallsAnswer`.
-2. **Full-width card** — for any tool whose result is "an artifact the user interacts with directly" — recordings list, error-tracking list, multi-question form, dashboard preview, visualization. Use `<MessageTemplate type="ai" wrapperClassName="w-full">` (the same shell `RecordingsWidget` uses today).
-3. **Progress widget** — for any tool that has matching `_posthog/progress` notifications (see § 6). Render an inline action chip with the progress widget inlined via the same `displayFormatter[1].widget` mechanism that's in use today.
-
-The decision is a single function `pickToolRendering(invocation: ToolInvocation): ToolRenderingMode` defined in `posthog-ai/toolRenderingPolicy.ts` and driven by a lookup table whose source of truth is the mapping table in § 3.
-
-```ts
-type ToolRenderingMode =
-    | { mode: 'chip'; renderer?: ChipRendererKey; widget?: 'recordings' | 'session_summarization' | 'plan' }
-    | { mode: 'card'; renderer: CardRendererKey }
-    | { mode: 'fallback' }                   // generic content-block dump
-
-type ChipRendererKey = 'planning' | 'switch_mode' | 'generic'
-type CardRendererKey =
-    | 'recordings_search'
-    | 'error_tracking_search'
-    | 'visualization'
-    | 'notebook'
-    | 'multi_question_form'
-    | 'summarize_sessions'
-    | 'dashboard'
-    | 'session_summary_link'
-```
-
-`pickToolRendering` keys off `invocation.toolName` first (the MCP-qualified name), falling back to `invocation.kind` second, falling back to `{ mode: 'fallback' }`.
-
----
-
-## 3. Tool → renderer mapping
-
-This is the canonical mapping table.
-Anything not in this table renders via the generic fallback in § 3.2.
-
-The MCP server column is owned by [`04_PROMPTS.md`](./04_PROMPTS.md) — the names are my best guess; expect minor renames.
-The "renderer file" column points at the file that exists today (which we will keep, with at most a thin adapter — see § 8).
-
-### 3.1 Complete table
-
-| # | Backend tool (today) | MCP server | MCP tool name | ACP `tool_call.kind` | Renderer (today's file) | Rendering mode | `rawInput` → renderer props | `tool_call_update.content` / `rawOutput` → renderer props |
-|---|---|---|---|---|---|---|---|---|
-| 1 | `read_taxonomy` | `posthog-data` | `read_taxonomy` | `read` | inline chip — no body | chip / generic | shown in expanded substeps as JSON (`rawInput.entity`, `rawInput.event_name`, `rawInput.property_name`) | result text → expanded substeps, no widget |
-| 2 | `read_data` (subtools: `billing_info`, `data_warehouse_schema`, `data_warehouse_table`, `artifacts`, `insight`, `dashboard`) | `posthog-data` | `read_data` (single tool, subtype via `rawInput.kind` / `rawInput.query.kind`) | `read` (default) or `execute` (when `rawInput.query.execute`) | inline chip + conditional card for `insight` / `dashboard` subtypes | chip / `visualization` card when subtype = `insight` and result is a query | `rawInput.query.kind` switches the chip text via `displayFormatter` (same as today). For `kind === 'insight'` with `execute: true`, pass the rebuilt `InsightVizNode \| DataVisualizationNode` to `VisualizationArtifactAnswer` | result content includes the query node — see § 3.1.7 for assembly |
-| 3 | `list_data` | `posthog-data` | `list_data` | `read` | inline chip — no body | chip / generic | `rawInput.kind`, `rawInput.offset` drive the description ("Listing surveys (page 2)…") | none — text only |
-| 4 | `search` (subtools: `docs`, `insights`, `dashboards`, `cohorts`, `actions`, `experiments`, `feature_flags`, `notebooks`, `surveys`, `error_tracking_issues`, `all`) | `posthog-search` | `search` | `search` | inline chip — no body | chip / generic | `rawInput.kind` switches chip text | result content → expanded substeps as JSON |
-| 5 | `search_session_recordings` *(today contextual)* | `posthog-replay` | `search_session_recordings` | `search` | `messages/UIPayloadAnswer.tsx → RecordingsWidget` | card / `recordings_search` | none (server-side filters built from `rawInput.query`) | `rawOutput.filters: RecordingUniversalFilters` → `<RecordingsWidget filters />`. Reuse `MaxRecordingsLogic` props as-is. |
-| 6 | `filter_session_recordings` *(today client-callback tool — see § 4)* | client-hosted MCP (see § 4) | `filter_session_recordings` | `write` | inline chip with `recordings` widget (the side preview that mutates the scene's filters) | chip / `recordings` widget | `rawInput.recordings_filters: RecordingUniversalFilters` → widget shows the filters the agent *proposes*; the scene callback applies them | none — the *act* of calling this tool is the result; widget shows the proposed filters |
-| 7 | `search_error_tracking_issues` | `posthog-error-tracking` | `search_issues` | `search` | `messages/UIPayloadAnswer.tsx → ErrorTrackingFiltersWidget` | card / `error_tracking_search` | server-side filters built from `rawInput` | `rawOutput: MaxErrorTrackingSearchResponse` → `<ErrorTrackingFiltersWidget filters />`. `maxErrorTrackingWidgetLogic` props remain (`toolCallId`, `filters`). |
-| 8 | `filter_error_tracking_issues` | client-hosted MCP | `filter_error_tracking_issues` | `write` | inline chip (no widget today) | chip / generic | `rawInput` → applied to scene via client callback | none |
-| 9 | `find_error_tracking_impactful_issue_event_list` | `posthog-error-tracking` | `find_impactful_issues` | `search` | inline chip — no body | chip / generic | `rawInput` shown in expanded substeps | result list → expanded substeps |
-| 10 | `summarize_sessions` | `posthog-replay` | `summarize_sessions` | `execute` | `messages/SessionSummarizationProgress.tsx` (inline progress widget) + `messages/UIPayloadAnswer.tsx → SummarizeSessionsWidget` (out-of-accordion CTA) | chip / `session_summarization` widget + persistent CTA on completion | `rawInput.summary_title` → chip text | live `_posthog/progress` notifications drive the widget (see § 6); on completion `rawOutput.session_group_summary_id` → `SummarizeSessionsWidget` CTA |
-| 11 | `experiment_session_replays_summary` | `posthog-experiments` | `summarize_experiment_replays` | `execute` | same as #10 | chip / `session_summarization` widget | same wiring as #10 | same wiring as #10 |
-| 12 | `experiment_results_summary` | `posthog-experiments` | `summarize_experiment_results` | `execute` | inline chip — no body | chip / generic | `rawInput.experiment_id` → chip text | result markdown → expanded substeps |
-| 13 | `analyze_user_interviews` | `posthog-user-interviews` | `analyze_interviews` | `execute` | inline chip | chip / generic | — | result text in expanded substeps |
-| 14 | `create_user_interview_topic` | client-hosted MCP (writes to scene) | `create_interview_topic` | `write` | inline chip | chip / generic | client callback applies to scene | — |
-| 15 | `create_insight` *(today contextual)* | client-hosted MCP | `create_or_edit_insight` | `write` | inline chip — *plus* the scene-level `<VisualizationArtifactAnswer>` triggered from the *artifact* the tool produces | chip / generic; the actual rendering of the produced insight goes through an `ArtifactMessage`-equivalent (see § 3.1.6) | `rawInput.query` → preview / client callback | `rawOutput` is the saved-insight short ID; the *visualization* shows up as a separate `ArtifactMessage`-shaped event (see below) |
-| 16 | `upsert_dashboard` | `posthog-dashboards` | `upsert_dashboard` | `write` | `messages/UIPayloadAnswer.tsx` extension — *today* a plain "Created the dashboard" chip; **new**: a real card with a dashboard preview. **TODO — confirm with AI team** if the card already exists in the codebase. | chip / `dashboard` card (new — extends current behavior) | `rawInput.action.dashboard_id` (when editing) | `rawOutput.dashboard_id` → link out, optional embedded preview |
-| 17 | `create_notebook` | `posthog-notebook` | `create_notebook` | `write` | `messages/NotebookArtifactAnswer.tsx` (today reached via `ArtifactMessage`, not via `ui_payload`) | card / `notebook` | `rawInput.draft_content` (when set) | `rawOutput` carries the `NotebookArtifactContent` *plus* `artifact_id`. The renderer assembles a `NotebookArtifactAnswer` props bag from these. See § 3.1.5 for assembly. |
-| 18 | `create_form` | `posthog-forms` (or a built-in agent capability — **TODO — confirm with AI team**) | `create_form` | `question` | input area (interactive) + `messages/MultiQuestionForm.tsx → MultiQuestionFormRecap` (read-only recap in the chat) | card / `multi_question_form` *only* for the recap; the *interactive* form is in input area (owned by `02_CORE.md` § 8) | `rawInput.questions: MultiQuestionForm['questions']` → form definition | `rawOutput.answers: Record<string,string\|string[]>`, `rawOutput.status` → recap props |
-| 19 | `create_survey` | `posthog-surveys` or client-hosted MCP | `create_survey` | `write` | inline chip + scene side-effect (the scene's `useMaxTool` callback opens the survey form) | chip / generic | `rawInput` → client callback applies to scene | result → link |
-| 20 | `edit_survey` | client-hosted MCP | `edit_survey` | `write` | inline chip | chip / generic | `rawInput` → client callback | — |
-| 21 | `analyze_survey_responses` | `posthog-surveys` | `analyze_responses` | `execute` | inline chip | chip / generic | `rawInput.survey_id` → chip text | result text → substeps |
-| 22 | `create_message_template` | client-hosted MCP | `create_message_template` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | — |
-| 23 | `create_hog_function_filters` | client-hosted MCP | `create_hog_function_filters` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | — |
-| 24 | `create_hog_transformation_function` | client-hosted MCP | `create_hog_transformation_function` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | — |
-| 25 | `create_hog_function_inputs` | client-hosted MCP | `create_hog_function_inputs` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | — |
-| 26 | `fix_hogql_query` | client-hosted MCP | `fix_hogql_query` | `write` | inline chip + scene callback (the SQL editor swaps in the corrected query) | chip / generic | `rawInput.broken_query` → chip text | `rawOutput.fixed_query` → applied via callback |
-| 27 | `execute_sql` | client-hosted MCP (the SQL editor *is* the runtime) | `execute_sql` | `execute` | inline chip; **plus**: SQL pretty-print in the substeps via `executedSQLQuery` (see `Thread.tsx:1015–1020`, `:1131–1138`) | chip / generic | `rawInput.query` → SQL block in substeps | `rawOutput` → "Executed SQL" |
-| 28 | `filter_revenue_analytics` | client-hosted MCP | `filter_revenue_analytics` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | — |
-| 29 | `filter_web_analytics` | client-hosted MCP | `filter_web_analytics` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | — |
-| 30 | `web_analytics_doctor` | `posthog-doctor` | `diagnose_web_analytics` | `execute` | inline chip | chip / generic | `rawInput.team_id` → chip text | result markdown → substeps |
-| 31 | `diagnose_proxy` | `posthog-doctor` | `diagnose_proxy` | `execute` | inline chip + scene callback | chip / generic | — | result markdown → substeps |
-| 32 | `create_feature_flag` | client-hosted MCP | `create_feature_flag` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | result → link |
-| 33 | `create_experiment` | client-hosted MCP | `create_experiment` | `write` | inline chip + scene callback | chip / generic | `rawInput` → client callback | result → link |
-| 34 | `upsert_alert` | client-hosted MCP | `upsert_alert` | `write` | inline chip + scene callback | chip / generic | `rawInput.action` (with `alert_id` for edits) | result → link |
-| 35 | `create_task` / `run_task` / `get_task_run` / `get_task_run_logs` / `list_tasks` / `list_task_runs` / `list_repositories` | `posthog-tasks` | each maps 1:1 (`create_task`, …) | `read` / `write` | inline chip — no body today | chip / generic | per-tool inputs shown in substeps | per-tool outputs shown in substeps |
-| 36 | `todo_write` | `posthog-tasks` *or* built into systemPrompt as a planning tool — **TODO — confirm with AI team** | `todo_write` | `think` | `Thread.tsx` `PlanningAnswer` (today: a custom planning UI with `LemonCheckbox` per todo) | special chip / `planning` | `rawInput.todos: Array<{content, status, activeForm}>` → planning list | none — the *args* are the result |
-| 37 | `task` (subagent runner) | built-in to the agent runtime (not an MCP server) | — | `execute` | inline chip — title is "Running a task: …" | chip / generic | `rawInput.title` → chip text | result → substeps |
-| 38 | `switch_mode` | not an MCP tool — **promoted to a `permission_request` with `kind: 'switch_mode'`** (see § 5.2) | — | `switch_mode` | `PlanApprovalCard.tsx` (new — see § 5.2) | card / `plan` | `rawInput.new_mode` → which mode is being entered | none — the *act* of selecting a permission option is the result |
-| 39 | `manage_memories` | `posthog-memories` | `manage_memories` | `write` | inline chip | chip / generic | `rawInput.action` (create/update/delete), `rawInput.text` | result confirmation → substeps |
-| 40 | `call_mcp_server` | *the agent natively calls MCP servers; this LangGraph wrapper goes away entirely.* The fact that a user-installed MCP server got called now shows up as a generic `tool_call` with `_meta.mcpServer = '<user-installed-slug>'`. | — | per the MCP server's tool | inline chip — title from the MCP tool's name | chip / generic (fallback path) | `rawInput` shown raw in substeps | result content blocks shown raw in substeps |
-| 41 | `finalize_plan` | not an MCP tool — replaced by `switch_mode` permission_request to "execution" mode (see § 5.2) | — | `switch_mode` | same as #38 | card / `plan` | — | — |
-| 42 | `web_search` | built into the LLM provider (Anthropic web search 20250305 in current code) | — | `search` | inline chip with `updates[]` showing search results as Markdown links | chip / generic | `rawInput.query` → chip text | each result becomes a substep |
-| 43 | `search_llm_traces` | `posthog-llm-analytics` | `search_traces` | `search` | inline chip | chip / generic | `rawInput` → chip text | result → substeps |
-| 44 | `run_hog_eval_test` | `posthog-llm-analytics` | `run_hog_eval_test` | `execute` | inline chip + scene callback | chip / generic | `rawInput` → client callback | result → substeps |
-
-#### 3.1.5 Notebook artifact assembly
-
-`NotebookArtifactAnswer` (a.k.a. the rich notebook renderer) is *not* fed from `ui_payload` today — it's fed from a dedicated `ArtifactMessage` carrying `NotebookArtifactContent.blocks: (MarkdownBlock | VisualizationBlock | SessionReplayBlock | DocumentBlock | ErrorBlock | LoadingBlock)[]`.
-
-In the new world there is no `ArtifactMessage` type.
-The flow is:
-
-1. Agent calls the `posthog-notebook.create_notebook` MCP tool.
-2. The MCP server streams `tool_call_update` events with `content` blocks. Each content block is one of the existing notebook block types (or normalized to one).
-3. On completion, `rawOutput` contains `{ notebook_id, artifact_id, is_saved, title, ... }`.
-4. The renderer assembles `NotebookArtifactContent` props by mapping `content[]` → `blocks[]` and `rawOutput` → metadata.
-
-Adapter function (sketch):
-
-```ts
-function invocationToNotebookContent(inv: ToolInvocation): NotebookArtifactContent | null {
-    if (inv.toolName !== 'posthog-notebook.create_notebook') return null
-    const blocks = inv.content.flatMap(adaptToNotebookBlock)
-    return {
-        blocks,
-        notebook_id: inv.rawOutput?.notebook_id,
-        is_saved: inv.rawOutput?.is_saved ?? false,
-        title: inv.rawOutput?.title,
-    }
-}
-```
-
-`adaptToNotebookBlock` is the only new code — it maps an ACP `ToolCallContent` block to a `NotebookArtifactContent` block. `{ type: 'markdown' }` → `MarkdownBlock`. `{ type: 'resource_link', ... }` with a recognized URL → `SessionReplayBlock` or `VisualizationBlock`. Everything else → `DocumentBlock` as a fallback.
-
-#### 3.1.6 Visualization assembly
-
-Same shape as notebook.
-The agent calls `posthog-data.read_data` (subtype `insight` with `execute: true`) or a dedicated `posthog-insights.preview_insight` MCP tool (**TODO — confirm with AI team**).
-The renderer assembles a `VisualizationArtifactContent`:
-
-```ts
-function invocationToVisualizationContent(inv: ToolInvocation): VisualizationArtifactContent | null {
-    if (!isVizCapableInvocation(inv)) return null
-    const queryBlock = inv.content.find(c => c.type === 'json' && c.subtype === 'insight_viz_node')
-    if (!queryBlock) return null
-    return {
-        query: queryBlock.json as InsightVizNode | DataVisualizationNode,
-        source: ArtifactSource.Agent,
-        // ...other fields preserved
-    }
-}
-```
-
-The block subtype convention (`type: 'json', subtype: 'insight_viz_node'`) is a PostHog-side extension to `ToolCallContent`. Define it in `posthog-ai/types.ts` once and reuse for every PostHog-typed payload (insight, dashboard, recording-filters, error-tracking-search-response).
-
-#### 3.1.7 Inline data results (no widget)
-
-Many `posthog-data` tools return *plain text* tool results.
-These don't need a widget — they belong in the existing "expanded substeps" of `AssistantActionComponent` (the inline `<MarkdownMessage>` block rendered when the chip is expanded; see `Thread.tsx:1077–1104`).
-
-The adapter is: `inv.content` where `content[i].type === 'text' | 'markdown'` → concatenated and rendered with `<MarkdownMessage content={…} />`.
-
-### 3.2 Unknown / fallback
-
-If a tool call's `toolName` is not in the mapping table (e.g. a user-installed MCP server, or a brand-new tool we haven't mapped yet), render via:
+The dispatch is purely additive — drop a new branch into the `Message` IIFE in `Thread.tsx`, just above the `isMultiVisualizationMessage` branch. Sketch:
 
 ```tsx
-<GenericToolCallChip
-    title={invocation.title}
-    kind={invocation.kind}
-    status={invocation.status}
-    rawInput={invocation.rawInput}
-    content={invocation.content}
-/>
+} else if (isMcpToolCallMessage(message)) {
+    const entry = lookupMcpToolRenderer(message.toolName)
+    return <entry.Renderer key={key} message={message} isLastInGroup={isLastInGroup} />
+} else if (isPermissionRequestMessage(message)) {
+    return <PermissionRequestRouter key={key} message={message} />
+} else if (isMultiVisualizationMessage(message)) {
+    // …existing…
+}
 ```
 
-Behavior:
+`isMcpToolCallMessage` / `isPermissionRequestMessage` go into `frontend/src/scenes/max/utils.ts` alongside the existing `isAssistantMessage` etc. Lookups are pure functions exported from `mcpToolRegistry.tsx`.
 
-- Header: `invocation.title` (e.g. "Reading data warehouse schema") — falls back to `${invocation.toolName ?? 'Tool'}`.
-- Status icon: same logic as `AssistantActionComponent` today.
-- Body (expanded by default while `status === 'in_progress'`; collapsed when `completed`):
-  - Render `content` blocks via `renderToolCallContentBlock(block)` — text/markdown → `MarkdownMessage`, diff → existing `PatchedFileDiff` (won't apply for Max), image → `<img>`, resource_link → link, json → `CodeSnippet language={JSON}`.
-  - "Inputs" sub-section (collapsed by default) with `rawInput` as JSON in a `CodeSnippet`.
+No other change in `Thread.tsx` is required for the core path. The existing `AssistantToolCallMessage` branch and `ToolCallsAnswer` stay during the soak — they're the LangGraph code path. Once `agent_runtime === 'sandbox'` becomes the default, those become dead code and can be deleted.
 
-This matches what today's `AssistantActionComponent` already does in its bottom half (`Thread.tsx:1113–1205`) — basically reuse that block as `GenericToolCallChip`.
+The `SandboxActivityPanel` in Thread.tsx is removed at the same time — its function is subsumed by individual tool cards (with the fallback renderer covering unknown tools).
+
+### 2.4 Streaming + status mapping
+
+ACP carries `tool_call.status: 'pending' | 'in_progress' | 'completed' | 'failed'` (`pending` before any progress, `in_progress` while running, terminal at the end). The renderer receives the same `status` field on every render and is responsible for showing the right state. Convention for all renderers:
+
+| Status        | Visual                                                                                              |
+| ------------- | --------------------------------------------------------------------------------------------------- |
+| `pending`     | Card placeholder, muted text, no spinner yet.                                                       |
+| `in_progress` | Shimmering header + spinner; partial `content` shown if useful (e.g. session list as it discovers). |
+| `completed`   | Final widget; check icon on header; expandable raw output.                                          |
+| `failed`      | Red header; `error.message` shown verbatim; raw output if available.                                |
+
+Renderers that already have streaming behavior (`NotebookArtifactAnswer` shows skeleton + `Generating…`, `SessionSummarizationProgress` derives from progress updates) keep doing what they do — the renderer-adapter feeds them the same shape they expect via the input/output extractor.
 
 ---
 
-## 4. Client-side MCP tools (replacing useMaxTool)
+## 3. The mcpToolRegistry
 
-This is the substantial new design question.
+New file: `frontend/src/scenes/max/mcpToolRegistry.tsx`.
 
-Today (§ 1.3) `useMaxTool` registers a *scene-local callback* — when the agent's response carries a `ui_payload` for the registered tool, the frontend invokes the callback locally, e.g. to mutate filters in the page.
-
-In the new architecture the agent never sends `ui_payload` — it issues an ACP `tool_call`.
-Two architectures can deliver this to a browser-side handler:
-
-### 4.1 Option A: browser-hosted MCP server bridged via the relay
-
-The browser hosts a tiny in-process MCP server.
-The agent in the sandbox sees this MCP server via the relay and treats it like any other MCP tool.
-
-Plumbing:
-
-1. On mount, `usePostHogAiTool()` registers a tool spec `{ name, description, inputSchema }` *plus* a local handler `async (args) => result` in a `clientMcpRegistry` Kea logic.
-2. `posthogAiThreadLogic` exposes the current list of registered client tools to the backend when starting a run (via the `Task` state's `client_mcp_tools` — see `02_CORE.md` § 7 for the channel — or via `_posthog/refresh_session` between turns).
-3. The sandbox-side relay knows the run has a "client MCP" channel; when the agent calls `client-mcp.<toolName>` with args, the sandbox forwards the call to PostHog cloud, which forwards to the browser via a new SSE frame `client_mcp_invoke`.
-4. The browser executes the handler, returns the result via `POST /command/` `method: client_mcp_result, params: { invocationId, result | error }`.
-5. The relay returns the result to the agent.
-
-Pros: matches the MCP model end-to-end; user-installed MCPs and scene-hosted tools are indistinguishable from the agent's POV; works with any agent runtime that speaks MCP.
-
-Cons: meaningful infrastructure work — needs a new SSE frame type, a new command method, a new sandbox-side relay path. Not yet in `CLOUD_AGENTS_FRONTEND_SPEC.md` § 6.1's command methods list.
-
-### 4.2 Option B: backend-mediated "client tool" content blocks
-
-Keep the agent oblivious. The systemPrompt declares the contract: "to mutate the user's current scene, emit a special content block of `type: 'client_tool_request'` with `{ tool: '<name>', args: {...} }`."
-
-Plumbing:
-
-1. The agent emits `agent_message` content blocks where one block is `{ type: 'client_tool_request', tool, args, invocationId }`.
-2. `posthogAiThreadLogic` listener intercepts these blocks on arrival, looks up `clientToolRegistry[tool]`, runs the handler, and (optionally) sends the result back via `POST /command/` `method: user_message` carrying a follow-up "Result: …" prompt.
-3. The renderer suppresses the `client_tool_request` block from the visible message (so the user just sees the side-effect plus an inline `<AssistantActionComponent>` recording what the agent asked to do).
-
-Pros: zero infra changes — the agent just emits a content block; the frontend reacts.
-
-Cons: not a real MCP tool, so the agent's tool schema can't reason about it; type-safety is by convention. The agent can hallucinate the tool name. The result has to be re-injected as a user message (or a chat-side ACK), which can disrupt streaming.
-
-### 4.3 Recommendation
-
-**Pursue Option A.** The client-side tools are *real* tools the agent should be able to discover and call programmatically (and have a typed input schema). The infrastructure work is small (one SSE frame, one command method) and pays for itself the first time we need it for any other browser-side capability (e.g. "let the agent ask the user to confirm an action" without a permission round-trip).
-
-Option B can be a *temporary backup* for very simple scene callbacks if we want to ship before A is ready — but treat it as transitional.
-
-**For both options the systemPrompt change is owned by `04_PROMPTS.md` § 6.** This spec just consumes whichever channel exists.
-
-### 4.4 The new `usePostHogAiTool.ts` hook
-
-New file: `posthog/frontend/src/scenes/posthog-ai/usePostHogAiTool.ts`.
-
-Public API stays compatible with today's `useMaxTool` so existing call sites only need to swap the import.
+### 3.1 Shape
 
 ```ts
-import type { JsonSchema } from '~/queries/schema/json-schema'
+import type { ComponentType } from 'react'
+import type { McpToolCallMessage } from './maxTypes'
 
-export interface UsePostHogAiToolOptions<TArgs = unknown, TResult = unknown> {
-    /** MCP tool name as seen by the agent. Use the same `identifier` strings as TOOL_DEFINITIONS today
-     *  for one-to-one parity during the migration window. */
-    identifier: keyof typeof TOOL_DEFINITIONS
-
-    /** Input schema for the MCP tool. Required when registering — the agent uses this to construct args. */
-    inputSchema: JsonSchema
-
-    /** Local handler — runs in the browser when the agent calls this tool. */
-    handler: (args: TArgs) => TResult | Promise<TResult>
-
-    /** Live context to attach to the registration (visible to the agent as MCP "resources" or as systemPrompt insertions — see 04_PROMPTS § 7). */
-    context?: Record<string, unknown>
-
-    /** Display-only label for the input area chip showing "the agent can use this". */
-    contextDescription?: { text: string; icon: JSX.Element }
-
-    /** Suggested prompts surfaced when Max is opened from this scene. */
-    suggestions?: string[]
-
-    /** When false, the tool is unregistered. */
-    active?: boolean
-
-    /** Initial prompt to seed the chat with on open. */
-    initialMaxPrompt?: string
-
-    /** Side-effect: called when the side-panel Max opens because of this scene. */
-    onMaxOpen?: () => void
-
-    /** Optional override for the introduction shown when Max is opened from this scene. */
-    introOverride?: { headline: string; description: string }
+export interface McpToolRendererProps {
+  message: McpToolCallMessage
+  isLastInGroup: boolean
 }
 
-export interface UsePostHogAiToolReturn {
-    isMaxOpen: boolean
-    openMax: (() => void) | null
+export interface McpToolRegistryEntry {
+  /** Full qualified MCP tool name, e.g. "posthog-data.execute_sql", "web_search". */
+  toolName: string
+  /** Display name / icon for fallback rendering and for the tool-call header line. */
+  displayName: string
+  icon: JSX.Element
+  Renderer: ComponentType<McpToolRendererProps>
+  /**
+   * If true, the registry will also match the unqualified tail of `toolName` (everything after the last dot).
+   * Used to bridge server-renames during rollout.
+   */
+  matchUnqualified?: boolean
 }
 
-export function usePostHogAiTool<TArgs, TResult>(
-    options: UsePostHogAiToolOptions<TArgs, TResult>
-): UsePostHogAiToolReturn
-```
-
-Implementation sketch:
-
-```ts
-// inside usePostHogAiTool — pseudocode
-const { registerClientTool, deregisterClientTool, updateClientToolContext } = useActions(clientMcpRegistryLogic)
-
-useEffect(() => {
-    if (!active) return
-    registerClientTool({
-        identifier,
-        inputSchema,
-        handler,
-        context,
-        contextDescription,
-        suggestions,
-        introOverride,
-    })
-    return () => deregisterClientTool(identifier)
-}, [active, identifier, inputSchema, handler, /* ... */])
-
-// Update context independently (cheap — just patches state, doesn't re-register).
-useEffect(() => {
-    if (!active) return
-    updateClientToolContext({ identifier, context })
-}, [active, identifier, JSON.stringify(context)])
-```
-
-`clientMcpRegistryLogic` (new) maintains the same shape as today's `registeredToolMap` but with the addition of `inputSchema` and an actual `handler` function (kept in a `cache` so kea doesn't try to serialize it).
-
-The hook's `openMax` behavior is unchanged — it starts a new conversation, surfaces suggestions, opens the side panel. The only thing that changes underneath is the transport.
-
-#### 4.4.1 Existing call sites that need migrating
-
-Inventory (from a quick `grep -rn "identifier:" frontend/src/scenes`):
-
-- `scenes/data-warehouse/editor/QueryWindow.tsx:215` — `execute_sql`
-- `scenes/data-warehouse/editor/SQLEditor.tsx:412` — `execute_sql`
-- `scenes/insights/InsightPageHeader.tsx:65, :80` — `read_data`, `upsert_alert`
-- `scenes/settings/environment/ManagedReverseProxy.tsx:69` — `diagnose_proxy`
-- `scenes/experiments/Experiments.tsx:554` — `create_feature_flag`
-- `scenes/experiments/components/SummarizeExperimentButton.tsx:61` — `experiment_results_summary`
-- `scenes/experiments/hooks/useSessionReplaySummaryMaxTool.ts:40` — `experiment_session_replays_summary`
-- `scenes/dashboard/DashboardHeader.tsx:62` — `upsert_dashboard`
-- `scenes/web-analytics/WebAnalyticsScene.tsx:15` — `web_analytics_doctor`
-- `scenes/surveys/{Survey, Surveys, wizard/SurveyWizard, wizard/steps/TemplateStep, components/SurveyOpportunityButton, components/AnalyzeResponsesButton, components/empty-state/SurveysEmptyState}.tsx` — `create_survey`, `edit_survey`, `analyze_survey_responses`
-- `scenes/hog-functions/{filters, configuration/components/HogFunctionCode, configuration/components/HogFunctionInputs}.tsx` — `create_hog_function_filters`, `create_hog_transformation_function`, `create_hog_function_inputs`
-
-Migration mechanics per call site:
-
-1. Swap the import `useMaxTool` → `usePostHogAiTool`.
-2. Add an `inputSchema` (write it once per identifier — collect them in `posthog-ai/clientToolSchemas.ts`).
-3. Adapt `callback: (toolOutput, conversationId) => …` → `handler: (args) => … return result`. The shape change is from "you receive the tool's *result payload* and apply it" to "you receive the tool's *args* and *return* a result". This is a meaningful semantic flip — confirm each call site individually.
-4. Delete the now-unused `MaxTool` wrapper UI (the `+` overlay button) — replace with the new contextual cue (owned by `02_CORE.md`'s context topbar).
-
-There are ~20 call sites total. Each is 3–10 lines of change.
-
----
-
-## 5. Approval & plan-mode UIs
-
-### 5.1 permission_request → DangerousOperationApprovalCard rewiring
-
-The card UI in `DangerousOperationApprovalCard.tsx` is *kept*. Only the data feed changes.
-
-Flow today:
-```
-backend tool → ui_payload with status='pending_approval' → UIPayloadAnswer detects it
-   → DangerousOperationApprovalCard rendered inline
-   → reads maxThreadLogic.pendingApprovalsData[proposalId] for resolution
-```
-
-Flow tomorrow:
-```
-agent calls MCP tool → MCP tool returns an ACP requestPermission call
-   → cloud relay broadcasts `permission_request` SSE frame (see CLOUD_AGENTS_FRONTEND_SPEC § 5.3.4)
-   → toolCallsLogic.recordPermissionRequest indexes by requestId AND toolCallId
-   → posthogAiThreadLogic.threadGrouped surfaces a `kind: 'permission'` item next to the matching `kind: 'tool'` item
-   → DangerousOperationApprovalCard.tsx is rendered with adapted props
-```
-
-Adapter `permissionRequestToDangerousOperation(perm, invocation)`:
-
-```ts
-function permissionRequestToDangerousOperation(
-    perm: CloudPermissionRequest,
-    invocation: ToolInvocation | undefined
-): DangerousOperationResponse {
-    return {
-        status: PENDING_APPROVAL_STATUS,
-        proposalId: perm.requestId,                            // NB: was proposalId, now requestId — same meaning
-        toolName: perm.toolCall.title || invocation?.toolName || perm.toolCall.kind,
-        preview: extractPreview(perm.toolCall.content),         // first text/markdown block, falling back to title
-        payload: (perm.toolCall.rawInput ?? {}) as Record<string, any>,
-    }
+export interface McpToolRegistry {
+  register(entry: McpToolRegistryEntry): void
+  lookup(toolName: string): McpToolRegistryEntry | null
 }
 ```
 
-The card's reducer references (`pendingApprovalsData`, `resolvedApprovalStatuses` in `maxThreadLogic`) get replaced by their `posthogAiThreadLogic` equivalents — same shape, different owner:
+`lookup` returns `null` when nothing matches; `Thread.tsx` falls back to the generic renderer in that case (§ 3.4).
 
-- `pendingApprovalsData: Record<requestId, PendingPermission>` — owned by `toolCallsLogic` (§ 2.2).
-- `resolvedApprovalStatuses: Record<requestId, { status: 'approved' | 'rejected'; feedback?: string }>` — owned by `posthogAiThreadLogic` reducer keyed off the optimistic `resolution` field and the result echo from the next `tool_call_update`.
+### 3.2 Registration
 
-The interactive approve/reject UI in the input area (today: `DangerousOperationInput`) is **owned by `02_CORE.md` § 6** — it dispatches `permission_response` JSON-RPC commands. This spec only owns the *in-thread chip*.
+Single module-level `mcpToolRegistry` instance. All entries registered at module load — no dynamic registration, no hooks, no scene callbacks:
 
-### 5.2 switch_mode permissions → PlanApprovalCard
+```ts
+// mcpToolRegistry.tsx
+class MapBackedRegistry implements McpToolRegistry {
+  /* ... */
+}
+export const mcpToolRegistry = new MapBackedRegistry()
 
-Today: `switch_mode` is a *tool*. The agent calls it; the backend's reducer literally switches modes. There's no user-facing approval moment.
+mcpToolRegistry.register({
+  toolName: 'posthog-data.execute_sql',
+  displayName: 'Execute SQL',
+  icon: iconForType('insight/hog'),
+  Renderer: ExecuteSqlRenderer,
+  matchUnqualified: true,
+})
+// ...one block per tool, grouped by MCP server with a header comment.
+```
 
-Tomorrow (per `CLOUD_AGENTS_FRONTEND_SPEC § 10.7`): the agent-server intercepts ACP `requestPermission` calls with `toolCall.kind === "switch_mode"` and *always* relays them as `permission_request` events — even in `bypassPermissions` mode. This is how the "approve plan before executing" gate works in PostHog Code.
+The static MCP tool universe is bounded by `04_PROMPTS.md` § 5 + Claude built-ins; the registry has one entry per row in the § 4 table. Locality matters more than abstraction here — keep all registrations in this one file so the surface is greppable.
 
-We want the same gate for PostHog AI's plan mode:
+### 3.3 Adapter pattern — worked examples
 
-1. The plan-mode prompt instructs the agent to call `requestPermission` with `kind: 'switch_mode'` and `_meta: { fromMode: 'plan', toMode: 'execution' }` once the plan is ready.
-2. The cloud SSE delivers a `permission_request` frame with `toolCall.kind === 'switch_mode'`.
-3. `posthogAiThreadLogic.threadGrouped` surfaces a `{ kind: 'permission', permission, invocation }` item *at the position of the corresponding `tool_call` event*.
-4. The renderer dispatches to `PlanApprovalCard.tsx` (new) instead of `DangerousOperationApprovalCard.tsx`.
+Adapters are thin wrappers (5–15 lines) that extract props from `message.rawInput` / `message.content` / `message.rawOutput` and call the existing component. They live next to the registry in a `frontend/src/scenes/max/messages/adapters/` directory, one file per MCP tool.
 
-`PlanApprovalCard.tsx`:
+**Example A — Visualization artifact adapter** (covers `posthog-data.create_insight`):
 
 ```tsx
-interface PlanApprovalCardProps {
-    permission: PendingPermission
-    /** Optional: the preceding todo_write / planning content to show as the plan summary. */
-    planContent?: PlanningStep[]
-}
+// messages/adapters/CreateInsightAdapter.tsx
+import { VisualizationArtifactAnswer } from '../VisualizationArtifactAnswer'
+import type { McpToolRendererProps } from '../../mcpToolRegistry'
+import { extractVisualizationArtifact } from './extractors'
 
-export function PlanApprovalCard({ permission, planContent }: PlanApprovalCardProps): JSX.Element
+export function CreateInsightAdapter({ message }: McpToolRendererProps): JSX.Element | null {
+  const artifact = extractVisualizationArtifact(message)
+  if (!artifact) {
+    return <PendingToolCard message={message} />
+  }
+  return (
+    <VisualizationArtifactAnswer
+      message={artifact.envelope}
+      content={artifact.content}
+      status={message.status === 'completed' ? 'completed' : 'streaming'}
+      isEditingInsight={false}
+      activeTabId={null}
+      activeSceneId={null}
+    />
+  )
+}
 ```
 
-Renders:
+`extractVisualizationArtifact(message)` pulls the artifact id and `VisualizationArtifactContent` out of `message.rawOutput` (the MCP tool returns it directly; backend MCP server is responsible for matching the existing shape). `isEditingInsight` / `activeTabId` / `activeSceneId` collapse to `false`/`null` because the contextual-edit flow is dead — only the static "create new insight" path remains. (Open question § 10: how does the user re-target an existing insight from chat? Likely a separate MCP tool `posthog-data.edit_insight` that ships the same artifact content with `source: ArtifactSource.Insight` and the `artifact_id`. Same adapter, same component.)
 
-- Header: "PostHog AI has prepared a plan. Review before executing."
-- Plan summary: re-use `PlanningAnswer` (today in `Thread.tsx:843–928`) — extract to `posthog-ai/messages/PlanningAnswer.tsx` for reuse here.
-- Action row: one `LemonButton` per `permission.options[]` entry. Map `optionId` → label using the kind mapping in § 5.3.
-- Once a button is clicked: optimistically set `permission.resolution`, fire `posthogAiThreadLogic.actions.respondToPermission(requestId, optionId, customInput?)` (which dispatches `POST /command/ permission_response`).
+**Example B — Notebook adapter** (covers `posthog-notebook.create_notebook`):
 
-Where does the plan content come from? Walk backwards from the `permission_request`'s `toolCallId` in the thread and pick up the most recent `tool_call` with `toolName === 'posthog-tasks.todo_write'` (or built-in todo) — its `rawInput.todos` is the plan.
+```tsx
+export function CreateNotebookAdapter({ message }: McpToolRendererProps): JSX.Element | null {
+  const content = extractNotebookContent(message)
+  if (!content) {
+    return <PendingToolCard message={message} />
+  }
+  return <NotebookArtifactAnswer content={content} status={mapStatus(message.status)} artifactId={message.id} />
+}
+```
 
-If no plan content is found, just show "Approve plan and continue?" with no body — better than nothing.
+Notebook tool emits blocks as it goes (the backend MCP server should stream them through ACP `tool_call_update.content` as text content with a structured payload, or via a side-channel `_posthog/notebook_block` notification — see open question § 10). For phase 3 we can ship batch-only first (blocks arrive on `completed`) and add streaming later — `NotebookArtifactAnswer` already handles the `isStreaming && !hasContent` case.
 
-### 5.3 Option-kind mapping table
+**Example C — Session summarization adapter** (covers `posthog-data.summarize_sessions`):
 
-The cloud emits options with kinds: `allow_once | allow_always | reject | reject_with_feedback` (and the sandbox may emit custom kinds via `_meta.customKind`).
+`SessionSummarizationProgress` expects `updates: SessionSummarizationUpdate[]`. The adapter accumulates the structured updates the backend MCP server emits as text-content frames in `tool_call_update.content` (mirroring how `summarize_sessions.updates` work today):
 
-Bridge table:
+```tsx
+export function SummarizeSessionsAdapter({ message }: McpToolRendererProps): JSX.Element {
+  const updates = useMemo(() => parseSessionSummarizationUpdates(message.content), [message.content])
+  const completedPayload =
+    message.status === 'completed'
+      ? (message.rawOutput as { session_group_summary_id?: string; title?: string } | undefined)
+      : undefined
+  return (
+    <MessageTemplate type="ai">
+      <SessionSummarizationProgress updates={updates} />
+      {completedPayload?.session_group_summary_id && (
+        <SummarizeSessionsWidget payload={completedPayload} title={completedPayload?.title} />
+      )}
+    </MessageTemplate>
+  )
+}
+```
 
-| Cloud option `kind` | UI label (PostHog AI) | Action |
-|---|---|---|
-| `allow_once` | "Approve" | `respondToPermission(requestId, optionId)`. Optimistic status `'approved'`. |
-| `allow_always` | "Always approve this tool" | Same, plus persist "auto-approve for this tool name" in user prefs (out of scope for migration — keep behavior parity by ignoring the persistence today). |
-| `reject` | "Decline" | `respondToPermission(requestId, optionId)`. Optimistic status `'rejected'`. |
-| `reject_with_feedback` | "Decline with feedback…" | Opens a small inline textbox; on submit, `respondToPermission(requestId, optionId, customInput)`. Optimistic status `'rejected'`, `feedback` = `customInput`. |
-| (any other) | "{ option.name }" | Pass through; treat like `allow_once`. |
+`parseSessionSummarizationUpdates(content)` walks `content` looking for `{ type: 'text', text }` frames whose JSON parse matches `{ type: 'sessions_discovered' | 'progress', … }`. The adapter owns the streaming shape so `SessionSummarizationProgress` stays unchanged.
 
-For plan approval (`kind: 'switch_mode'`) the *labels* should be specific to the mode transition, not the generic verbs:
+The same pattern applies to every other renderer — adapter does the shape mapping; component stays the way it is.
 
-| `_meta.toMode` | Approve label | Decline label |
-|---|---|---|
-| `'execution'` (from `'plan'`) | "Execute plan" | "Keep planning" |
-| `'plan'` (from any other) | "Switch to plan mode" | "Stay here" |
-| (any other) | "Switch mode" | "Cancel" |
+### 3.4 Fallback renderer
+
+When `mcpToolRegistry.lookup(toolName)` returns `null` (user-installed MCP, unknown server, etc.), `Thread.tsx` falls back to `FallbackMcpToolRenderer` defined in `UIPayloadAnswer.tsx` (repurposed as the registry's spillover home — the kind-based dispatcher inside it is gone, replaced by this single fallback). It renders a generic tool card:
+
+- Header line: `<icon> <message.title || message.toolName>` plus status badge.
+- Expandable accordion: `rawInput` JSON, then `content[]` (text frames pretty-printed; non-text frames as JSON), then `rawOutput` if present.
+- For `failed` status, top-level red message with `error.message`.
+
+This is the catch-all that lets us ship the registry incrementally — every backend MCP tool that's enabled but not yet wired through an adapter still renders something sensible.
+
+The `RecordingsWidget`, `ErrorTrackingFiltersWidget`, `SummarizeSessionsWidget` exports stay (`Thread.tsx` and adapters import them), but `UIPayloadAnswer` itself shrinks to just `FallbackMcpToolRenderer` + those widget exports.
+
+---
+
+## 4. Tool → renderer mapping table
+
+Every backend tool from `ee/hogai/chat_agent/toolkit.py` (`DEFAULT_TOOLS` + `TASK_TOOLS` + `TaskTool` + Claude built-ins) gets a row. The `MCP qualified name` column is the working name; final slugs come from `04_PROMPTS.md` § 5. Where a tool's MCP-side shape isn't pinned down yet, the row is marked **TODO — confirm**.
+
+| MCP qualified name                                            | Frontend renderer                                                                             | Input extractor (`rawInput`)               | Output extractor (`rawOutput` / `content`)                                                                                   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog-data.read_taxonomy`                                  | Fallback card                                                                                 | `kind`, `entity`                           | `content[]` text frames                                                                                                      | Description-only today; no widget needed. Header text via `displayName`.                                                                                                                                                                                                                                                                                                                                                                                  |
+| `posthog-data.read_data`                                      | Fallback card                                                                                 | `query: { kind, … }`                       | `content[]` text frames; large tabular results truncated                                                                     | Today `read_data.subtools` drives the description (`Read billing data`, `Retrieved an insight`, etc.). Keep that copy via the registry's `displayName(message)` callback (introduce on registry entry) — **TODO — confirm** whether we promote the sub-tool-kinds to first-class MCP tools (cleaner) or keep them folded under one tool with `rawInput.query.kind` dispatch.                                                                              |
+| `posthog-data.list_data`                                      | Fallback card                                                                                 | `kind`, `offset`                           | List excerpts in `content[]`                                                                                                 | Description shows `Listed surveys (page 2)` etc. Reuse the existing string-formatting helper.                                                                                                                                                                                                                                                                                                                                                             |
+| `posthog-data.search`                                         | Fallback card                                                                                 | `kind`, `query`                            | List excerpts in `content[]`                                                                                                 | Same as `list_data`. Sub-tool granularity per `TOOL_DEFINITIONS.search.subtools` may also collapse to one tool with `rawInput.kind` — **TODO — confirm**.                                                                                                                                                                                                                                                                                                 |
+| `posthog-data.execute_sql`                                    | `ExecuteSqlAdapter` (new)                                                                     | `query: string`                            | Either a `VisualizationArtifactContent` (when results are tabular) or a HogQL result blob in `content[]`                     | Renders a code snippet of the input query plus the result; for now delegate the result rendering to `Query` with a `HogQLQuery` source when the output indicates a runnable query. Equivalent to the inline `executedSQLQuery` path in today's `AssistantActionComponent`.                                                                                                                                                                                |
+| `posthog-data.create_insight`                                 | `CreateInsightAdapter` (new) → `VisualizationArtifactAnswer`                                  | `query` shape                              | `rawOutput` → `VisualizationArtifactContent` (`{ query, source, artifact_id? }`)                                             | See § 3.3 Example A.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `posthog-data.upsert_dashboard`                               | `UpsertDashboardAdapter` (new)                                                                | `action`, `dashboard` payload              | `rawOutput` → `{ dashboard_id, url? }`                                                                                       | **TODO — confirm** whether the result is rendered as a "View dashboard" CTA or a full embedded dashboard preview. Today's UI only shows a status line — keep that for v1.                                                                                                                                                                                                                                                                                 |
+| `posthog-data.create_form`                                    | (no renderer — fallback hidden)                                                               | `questions`                                | n/a                                                                                                                          | Live form lives in input area. The thread-side recap is `MultiQuestionFormRecap`, rendered when a _later_ assistant message refers back to the previously-answered form. Wire that recap path through a sibling adapter that reads the parent `McpToolCallMessage`'s `rawInput.questions` plus the user's answers from the next human message's `attached_context` (or a dedicated `_posthog/form_answer` event). **TODO — confirm** the answers channel. |
+| `posthog-data.search_session_recordings`                      | `SearchSessionRecordingsAdapter` (new) → `RecordingsWidget`                                   | `query`/`filters`                          | `rawOutput.filters: RecordingUniversalFilters`                                                                               | One-line adapter.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `posthog-data.filter_session_recordings`                      | `FilterSessionRecordingsAdapter` (new) → `RecordingsWidget`                                   | `recordings_filters`                       | `rawOutput.filters`                                                                                                          | Same renderer, different display text.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `posthog-data.summarize_sessions`                             | `SummarizeSessionsAdapter` (new) → `SessionSummarizationProgress` + `SummarizeSessionsWidget` | `session_ids?`, `summary_title?`           | `content[]` streamed `SessionSummarizationUpdate` JSON frames; `rawOutput.{ session_group_summary_id, title }` on completion | See § 3.3 Example C.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `posthog-data.search_error_tracking_issues`                   | `SearchErrorTrackingIssuesAdapter` (new) → `ErrorTrackingFiltersWidget`                       | `search_query`, `status`, etc.             | `rawOutput: MaxErrorTrackingSearchResponse` (existing schema)                                                                | One-liner.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-data.filter_error_tracking_issues`                   | Same renderer as above                                                                        | `filters`                                  | `rawOutput: MaxErrorTrackingSearchResponse`                                                                                  | Reuses `ErrorTrackingFiltersWidget`.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `posthog-data.find_error_tracking_impactful_issue_event_list` | Fallback card                                                                                 | `events`, `period`                         | List                                                                                                                         | **TODO — confirm** whether a custom widget is worthwhile vs. text. Probably stay on fallback until product validates.                                                                                                                                                                                                                                                                                                                                     |
+| `posthog-data.experiment_results_summary`                     | Fallback card                                                                                 | `experiment_id`                            | Summary text in `content[]`                                                                                                  | Today text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `posthog-data.experiment_session_replays_summary`             | `SessionSummarizationAdapter` variant or fallback                                             | `experiment_id`, `variant`                 | Mirrors `summarize_sessions`                                                                                                 | **TODO — confirm** if backend reuses the same progress shape; if yes reuse the adapter; otherwise fallback.                                                                                                                                                                                                                                                                                                                                               |
+| `posthog-data.analyze_user_interviews`                        | Fallback card                                                                                 | `topic_id`                                 | Summary text + extracted themes in `content[]`                                                                               | Could later get a themes widget.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `posthog-data.create_user_interview_topic`                    | Fallback card                                                                                 | `name`, `questions`                        | `rawOutput.topic_id`, `rawOutput.url`                                                                                        | "Open in user interviews" CTA via fallback `rawOutput.url`.                                                                                                                                                                                                                                                                                                                                                                                               |
+| `posthog-data.fix_hogql_query`                                | `ExecuteSqlAdapter` reused                                                                    | `query`, `error`                           | Patched query in `rawOutput.query`                                                                                           | Display old query + new query side-by-side. **TODO — confirm** UX — initial v1 is one code snippet of the patched query.                                                                                                                                                                                                                                                                                                                                  |
+| `posthog-data.filter_revenue_analytics`                       | Fallback card                                                                                 | `filters`                                  | `rawOutput.url`                                                                                                              | "Open revenue analytics" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `posthog-data.filter_web_analytics`                           | Fallback card                                                                                 | `filters`                                  | `rawOutput.url`                                                                                                              | "Open web analytics" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `posthog-data.web_analytics_doctor`                           | Fallback card                                                                                 | n/a                                        | Diagnostic text in `content[]`                                                                                               | Text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-data.diagnose_proxy`                                 | Fallback card                                                                                 | n/a                                        | Diagnostic text in `content[]`                                                                                               | Text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-data.search_llm_traces`                              | Fallback card                                                                                 | `query`, `period`                          | List + `rawOutput.url`                                                                                                       | "Open in LLM analytics" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `posthog-data.run_hog_eval_test`                              | Fallback card                                                                                 | `evaluation_id`, `event_id`                | Pass/fail + reasoning in `content[]`                                                                                         | Text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-data.upsert_alert`                                   | Fallback card                                                                                 | `action`, `alert`                          | `rawOutput.alert_id`                                                                                                         | "View alert" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `posthog-feature-flags.create_feature_flag`                   | Fallback card                                                                                 | `key`, `filters`                           | `rawOutput.flag_id`, `rawOutput.url`                                                                                         | "Open flag" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `posthog-feature-flags.create_experiment`                     | Fallback card                                                                                 | `name`, `flag_key`, etc.                   | `rawOutput.experiment_id`, `rawOutput.url`                                                                                   | "Open experiment" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `posthog-surveys.create_survey`                               | Fallback card                                                                                 | `template`, `questions`                    | `rawOutput.survey_id`, `rawOutput.url`                                                                                       | "Open survey" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `posthog-surveys.edit_survey`                                 | Fallback card                                                                                 | `survey_id`, `patch`                       | `rawOutput.survey_id`, `rawOutput.url`                                                                                       | "Open survey" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `posthog-surveys.analyze_survey_responses`                    | Fallback card                                                                                 | `survey_id`                                | Themes in `content[]`                                                                                                        | Same shape as user-interview analysis.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `posthog-notebook.create_notebook`                            | `CreateNotebookAdapter` → `NotebookArtifactAnswer`                                            | `title`, `prompt`                          | `rawOutput.blocks: DocumentBlock[]`, `rawOutput.title`, `rawOutput.artifact_id`                                              | See § 3.3 Example B.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `posthog-notebook.create_message_template`                    | Fallback card                                                                                 | `name`, `prompt`                           | `rawOutput.template_id`                                                                                                      | Text-only for now.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `posthog-tasks.todo_write`                                    | `TodoWriteAdapter` (new) → `PlanningAnswer` (extract from `Thread.tsx`)                       | `todos: { content, status, activeForm }[]` | n/a                                                                                                                          | `PlanningAnswer` already exists in `Thread.tsx`. Lift it to its own file (`messages/PlanningAnswer.tsx`) so the adapter can import it cleanly.                                                                                                                                                                                                                                                                                                            |
+| `posthog-tasks.task`                                          | Fallback card with sub-task spinner                                                           | `title`, `prompt`                          | Streamed updates in `content[]`; `rawOutput.result` on completion                                                            | **TODO — confirm**; equivalent of today's `task` tool. Keep on fallback until product validates a dedicated card.                                                                                                                                                                                                                                                                                                                                         |
+| `posthog-tasks.create_task`                                   | Fallback card                                                                                 | `title`, `repository`, `prompt`            | `rawOutput.task_id`, `rawOutput.url`                                                                                         | "Open task" CTA. (PHAI_TASKS feature.)                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `posthog-tasks.run_task`                                      | Fallback card                                                                                 | `task_id`                                  | `rawOutput.run_id`, `rawOutput.url`                                                                                          | "Open task run" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `posthog-tasks.get_task_run`                                  | Fallback card                                                                                 | `run_id`                                   | Status text in `content[]`                                                                                                   | Text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-tasks.get_task_run_logs`                             | Fallback card                                                                                 | `run_id`                                   | Logs in `content[]`                                                                                                          | Text-only. Truncate aggressively.                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `posthog-tasks.list_tasks`                                    | Fallback card                                                                                 | `repository?`, `status?`                   | List in `content[]`                                                                                                          | Text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-tasks.list_task_runs`                                | Fallback card                                                                                 | `task_id`                                  | List in `content[]`                                                                                                          | Text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-tasks.list_repositories`                             | Fallback card                                                                                 | n/a                                        | List                                                                                                                         | Text-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-transformations.create_hog_function_filters`         | Fallback card                                                                                 | `filters`                                  | `rawOutput.url`                                                                                                              | "Open transformation" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-transformations.create_hog_transformation_function`  | Fallback card                                                                                 | `name`, `code`                             | `rawOutput.url`                                                                                                              | "Open transformation" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `posthog-transformations.create_hog_function_inputs`          | Fallback card                                                                                 | `inputs`                                   | `rawOutput.url`                                                                                                              | "Open transformation" CTA.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `web_search` (Claude built-in)                                | `WebSearchAdapter` (new)                                                                      | `query`                                    | `rawOutput.results: { title, url }[]`                                                                                        | Same display as today's `server_tool_use` block — header `Searched the web for **<query>**` plus a list of titles linking out.                                                                                                                                                                                                                                                                                                                            |
+| `switch_mode` (built-in, soft-deprecated)                     | Hidden or minimal                                                                             | `new_mode`                                 | n/a                                                                                                                          | Single-line "Switched to plan mode" status row. Or hidden entirely if we collapse modes (`04_PROMPTS.md` § 4). **TODO — confirm.**                                                                                                                                                                                                                                                                                                                        |
+| `finalize_plan` (built-in)                                    | Fallback card                                                                                 | n/a                                        | n/a                                                                                                                          | One-line status.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `manage_memories` (built-in, deprecated for sandbox)          | Hidden                                                                                        | n/a                                        | n/a                                                                                                                          | Tool isn't exposed in sandbox runtime. If a stale conversation references it, render as fallback.                                                                                                                                                                                                                                                                                                                                                         |
+| `call_mcp_server` (built-in proxy, soft-deprecated)           | Hidden                                                                                        | n/a                                        | n/a                                                                                                                          | Tool is replaced by direct MCP tool invocation now that MCP is first-class. Stale conversations fall back.                                                                                                                                                                                                                                                                                                                                                |
+| `<user-installed MCP server>.<tool>`                          | Fallback card                                                                                 | n/a                                        | `content[]` text                                                                                                             | Default for any tool name not in the registry.                                                                                                                                                                                                                                                                                                                                                                                                            |
+
+Two tools intentionally don't appear: `read_billing_tool` (billing context is dropped — `00_OVERVIEW.md` § 3 `core_memory`/billing row) and `ManageMemoriesTool` (memory is dropped). If they come back via a future MCP server, add rows then.
+
+---
+
+## 5. Approval flow rewiring
+
+### 5.1 permission_request → DangerousOperationApprovalCard
+
+ACP raises a JSON-RPC _request_ (not notification) when a tool wants permission. The cloud-agent SSE relay surfaces this as a discrete `permission_request` event (one of the four convenience events the SSE relay hoists alongside the raw `acp` stream — see `02_CORE.md` § 4.1). `sandboxStreamLogic.ingestPermissionRequest` consumes it, persists the request as a `PendingApproval` row (existing model, slight schema extension to carry `options[]`), and exposes it as `pendingPermissionRequest` for `maxThreadLogic` to merge into the existing `pendingApprovalsData` keyed by `proposal_id`.
+
+For each `ToolInvocation` whose `toolCallId` matches an active `PermissionRequestRecord`, `Thread.tsx` (existing code path) renders a `DangerousOperationApprovalCard` next to the tool card. That part of the existing flow stays — the only new work is populating `pendingApprovalsData` from the new event.
+
+The card itself reads `resolvedApprovalStatuses` (frontend) + `pendingApprovalsData` (backend) and shows either "Awaiting approval…" or the resolved status. No change.
+
+### 5.2 Option-kind mapping
+
+ACP permission options have `kind` ∈ `allow_once | allow_always | reject | reject_with_feedback`. Today's `DangerousOperationApprovalCard` only knows "approved / declined / auto_rejected". Mapping:
+
+| ACP option kind        | UI affordance                                                                                                      | Resolution status sent back                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `allow_once`           | Primary "Approve" button                                                                                           | `approved` (one-shot)                                       |
+| `allow_always`         | Secondary "Approve always" button — sent only if the tool's preview includes a `remember: true` flag (else hidden) | `approved` + `_posthog/permission_response.remember = true` |
+| `reject`               | "Decline" button                                                                                                   | `declined`                                                  |
+| `reject_with_feedback` | "Decline with feedback…" — opens text input, sends feedback string back                                            | `declined` + feedback string                                |
+
+The send path goes through `maxThreadLogic.resolveApproval(proposalId, decision, feedback?)`, which `POST`s to the existing approval-resolution endpoint. The sandbox-runtime branch of that endpoint forwards to ACP `POST /command/` `permission_response` (cloud spec § 6.5). Same wire shape as today on the React side; new wire shape only at the SSE-relay↔agent boundary.
+
+The card UI lives in the _input area_ today (per the comment in `DangerousOperationApprovalCard.tsx`), with the in-thread element only summarizing status. That split stays — the input-area component reads the same `options[]` and renders the four buttons accordingly. Feedback input shows when `reject_with_feedback` is chosen.
+
+### 5.3 switch_mode / plan approval
+
+Plan mode is now an ACP-level permission mode (`permissionMode: 'plan'`) rather than a tool call (`04_PROMPTS.md` § 4). When the agent finalizes a plan it raises a permission request with a single `allow_once` option ("Continue with plan") and an optional `reject_with_feedback` ("Refine plan"). That maps cleanly onto the existing `DangerousOperationApprovalCard` — no separate `PlanApprovalCard` needed.
+
+**Recommendation: reuse `DangerousOperationApprovalCard` with different copy.** Add an optional `variant: 'dangerous_operation' | 'plan_approval'` prop that just swaps the title (`Approve this action?` → `Approve this plan?`), the icon (`IconWarning` → `IconNotebook`), and the body (preview is a markdown plan render instead of a JSON diff). Everything else — the options handling, the resolution path, the resolved-state styling — is identical. Keeps the surface area small.
+
+### 5.4 Cancel from frontend
+
+Today the user can interrupt a streaming reply via a Stop button in the input area. The sandbox-runtime branch routes that to `POST /command/` with method `cancel` (cloud spec § 6.3). `Thread.tsx` does not need to know about cancel — it's an input-area concern. Once a turn is cancelled the agent emits a `_posthog/turn_complete` with `stopReason: 'cancelled'`, which the thread renders the same way as an end-of-turn (§ 7.2).
 
 ---
 
 ## 6. Progress / thinking messages
 
-### 6.1 `_posthog/progress` → thinkingMessages.ts wiring
+### 6.1 \_posthog/progress → thinkingMessages
 
-`_posthog/progress` notifications (§ 10.8 in `CLOUD_AGENTS_FRONTEND_SPEC.md`) are *structured backend progress events*. They group into one card on the client when emitted in the same turn.
+`_posthog/progress` notifications carry `{ category, message, eventGroupId, payload? }`. The SSE relay passes them through as `event: acp` frames; `sandboxStreamLogic` captures the latest one as `currentProgress` state and exposes a selector via `maxThreadLogic`.
 
-Shape (lifted from current sandbox-side emitters):
+`Thread.tsx` already renders thinking copy when `threadLoading && isLastInGroup` and an assistant turn has no text yet — `getRandomThinkingMessage()` returns a verb like "Pondering…". Replace that with: if `currentProgress?.message` is set, render that string; otherwise fall back to `getRandomThinkingMessage()`. Tiny diff — one ternary inside `MessageGroupSkeleton` / the placeholder.
 
-```ts
-interface PosthogProgressEvent {
-    method: '_posthog/progress'
-    params: {
-        toolCallId?: string                  // when scoped to a tool call (e.g. summarize_sessions)
-        sessionId: string
-        runId: string
-        kind: 'thinking' | 'tool_progress' | 'phase' | string
-        text?: string                        // free-form copy ("Pondering the data…")
-        payload?: Record<string, unknown>    // structured payload — driver of widgets
-        timestamp: string
-    }
-}
-```
+When the progress event's `eventGroupId` matches the in-flight `McpToolCallMessage.id`, the _renderer_ gets to display the progress (e.g. `SessionSummarizationProgress` already does this from its accumulated updates). Otherwise the message floats at thread bottom as the global "what's it doing right now" line.
 
-Two consumers in the new architecture:
+### 6.2 Status indicators on in-flight tool cards
 
-#### Consumer A — top-of-thread "PostHog AI is thinking" copy
+The header on each `McpToolCallRenderer` shows status via the convention in § 2.4. Shimmering header + spinner during `in_progress`; check icon on `completed`; red X on `failed`. The existing `AssistantActionComponent` is the natural template — extract its header bits (`<IconChevronRight/>` toggle, shimmering content) into a `ToolCardHeader` component the adapters reuse.
 
-Today `getThinkingMessageFromResponse` (in `posthog/frontend/src/scenes/max/utils/thinkingMessages.ts`) cycles through whimsical loading copy ("Pondering", "Hobsnobbing") while *no other tool chip is in flight*.
-
-New behavior:
-
-- `posthogAiThreadLogic` selector `currentThinkingCopy: string | null` returns:
-  1. If the latest `_posthog/progress` event in the current turn has `kind === 'thinking'` and a non-empty `text`, return that text.
-  2. Else, if `streamingActive` and no `in_progress` tool invocation, return a cycling whimsical message from `THINKING_MESSAGES` (the array stays — it's still a fallback).
-  3. Else `null`.
-- The thread renders `currentThinkingCopy` as a `<ReasoningAnswer animate>` (the same `ShimmeringContent`-wrapped component used today for in-progress reasoning).
-
-The whimsical messages array doesn't need to move — keep it at `posthog-ai/utils/thinkingMessages.ts` (verbatim copy).
-
-#### Consumer B — per-tool progress widgets (SessionSummarizationProgress etc.)
-
-For tools with rich progress (e.g. `summarize_sessions`), the agent server emits multiple `_posthog/progress` notifications carrying structured `payload` over the lifetime of the tool call. The `toolCallId` ties them back to a specific invocation.
-
-`toolCallsLogic.recordProgress` appends to `invocationsByCallId[toolCallId].progress[]`.
-
-The renderer for these widgets reads `invocation.progress` directly:
-
-```tsx
-function SessionSummarizationProgressAdapter({ invocation }: { invocation: ToolInvocation }): JSX.Element {
-    const updates: SessionSummarizationUpdate[] = useMemo(
-        () => invocation.progress
-            .map(p => p.params.payload)
-            .filter(isSessionSummarizationUpdate),
-        [invocation.progress]
-    )
-    return <SessionSummarizationProgress updates={updates} />
-}
-```
-
-`isSessionSummarizationUpdate` is a runtime type guard — keep it simple and forgiving (matches `type === 'sessions_discovered' || type === 'progress'`, ignores everything else).
-
-This means **no changes** to `SessionSummarizationProgress.tsx` itself — only an adapter wrapper.
-
-### 6.2 SessionSummarizationProgress and similar adapters
-
-Adapter modules in `posthog-ai/messages/adapters/`:
-
-| Adapter | Source events | Target component |
-|---|---|---|
-| `SessionSummarizationProgressAdapter.tsx` | `invocation.progress` for `posthog-replay.summarize_sessions` | `messages/SessionSummarizationProgress.tsx` |
-| `RecordingsCardAdapter.tsx` | `invocation.rawOutput.filters` (`RecordingUniversalFilters`) | `messages/UIPayloadAnswer.tsx → RecordingsWidget` |
-| `ErrorTrackingCardAdapter.tsx` | `invocation.rawOutput` (`MaxErrorTrackingSearchResponse`) | `messages/UIPayloadAnswer.tsx → ErrorTrackingFiltersWidget` |
-| `NotebookArtifactAdapter.tsx` | `invocation.content[]` + `invocation.rawOutput` | `messages/NotebookArtifactAnswer.tsx` |
-| `VisualizationArtifactAdapter.tsx` | `invocation.content[]` + `invocation.rawOutput.query` | `messages/VisualizationArtifactAnswer.tsx` |
-| `MultiQuestionFormRecapAdapter.tsx` | `invocation.rawInput.questions` + `invocation.rawOutput.answers` | `messages/MultiQuestionForm.tsx → MultiQuestionFormRecap` |
-
-Each adapter is ~15 lines, isolated, easy to unit-test against fixtures captured from real `_posthog/progress` + `tool_call_update` streams.
+The fallback renderer uses the same header — that's where the per-tool `displayName` is shown, with the qualified MCP name as a tooltip on hover.
 
 ---
 
-## 7. The boundary events
+## 7. Boundary events
 
-### 7.1 `_posthog/turn_complete`
+### 7.1 \_posthog/run_started
 
-Marker that the current turn has ended (`CLOUD_AGENTS_FRONTEND_SPEC § 10.6`, payload `{ sessionId, stopReason }`).
+Emitted once per Run by the agent-server. The SSE relay passes it through. The only UI behavior is to invalidate any in-flight "Starting…" thinking message; nothing renders directly. Useful for telemetry (Phase 5 metric: time-to-first-token).
 
-When received:
+### 7.2 \_posthog/turn_complete
 
-- `posthogAiThreadLogic.actions.finalizeTurn({ stopReason })` fires.
-- Effects:
-  - Flip any in-flight `in_progress` invocations whose `tool_call_update` never arrived to a terminal status — `completed` if `stopReason === 'end_turn'`, `failed` otherwise. Without this, the UI can leave a spinning chip forever.
-  - Trigger the "rating + retry + copy" `<SuccessActions>` block (today this happens via the `isFinal` prop in `Thread.tsx:618–658`).
-  - Stop the whimsical thinking copy cycle (the selector in § 6.1.A naturally returns `null` when `streamingActive` becomes false).
-  - Lock the assistant's last message — `status: 'completed'` — so subsequent rerenders don't re-stream.
-  - Drain the queue (combine pending follow-ups and send — owned by `02_CORE.md` § 6).
-  - Trigger feedback / ticket / multi-question-form-input affordances (today driven by `streamingActive` flip — see Thread.tsx:256–278).
-- For per-tool consumers: `posthogAiThreadLogic` exposes `currentTurnEndedAt: string | null`. Renderers that want to *fade out* progress widgets after turn end can subscribe.
+End-of-turn marker. Carries `stopReason: 'end_turn' | 'tool_use' | 'cancelled' | 'error' | 'max_tokens'`. `maxThreadLogic` clears `threadLoading` on this event (today it clears on the conversation-stream's terminal message — same effect, different wire trigger).
 
-### 7.2 `_posthog/run_started`
+`Thread.tsx` already conditions on `threadLoading` to show / hide actions, retry buttons, etc. No additional render logic — the stop reason is passed to the `SuccessActions` / `RetriableFailureActions` blocks via existing message status:
 
-Marker that a fresh run has begun (`{ sessionId, runId, taskId, agentVersion }`).
-
-When received:
-
-- `posthogAiThreadLogic.actions.markRunStarted({ runId, sessionId, taskId, agentVersion })`.
-- Effects:
-  - `streamingActive = true`.
-  - `currentRunId = runId`.
-  - Telemetry: emit `trace_id = runId` (this is the migration from per-turn `trace_id` — see `00_OVERVIEW.md` § 9.5).
-  - Clear any cached "stale invocation" state from the previous run (call `toolCallsLogic.actions.clearInvocationsForRun(previousRunId)` for housekeeping — but keep invocations from prior runs of the *same task* visible in the thread).
+| stopReason   | Existing behavior                                                                                    |
+| ------------ | ---------------------------------------------------------------------------------------------------- |
+| `end_turn`   | Show `SuccessActions` (rate / retry).                                                                |
+| `tool_use`   | Should not surface — turn isn't actually complete; the agent is mid-tool. Treat as no-op.            |
+| `cancelled`  | Show "Try again" + greyed-out user message.                                                          |
+| `error`      | Last assistant message gets `status: 'error'`; existing red banner.                                  |
+| `max_tokens` | Show a one-time toast "Reply truncated — ask for more to continue", reuse the existing error banner. |
 
 ### 7.3 Stop-reason handling
 
-`stopReason` values to anticipate on `_posthog/turn_complete`:
-
-| `stopReason` | UI state |
-|---|---|
-| `end_turn` | Normal completion. Show `<SuccessActions>` on the last AI message. |
-| `error` | Show `<RetriableFailureActions>` (retry button). The last assistant block — if there is one — gets `status: 'failed'`. If no assistant message exists, append a synthetic `kind: 'failure'` thread item with the error text from `_posthog/error` (which arrives separately — see `02_CORE.md` § 5 for routing). |
-| `cancelled` | Show "Cancelled" annotation; no retry button. Pending invocations flip to `failed`. |
-| `tool_use` *(rare — interrupted before tool completion)* | Treat as `error` for now. |
-| `max_tokens` | Treat as `end_turn` but surface a soft warning banner. |
-| `queued` | Should not appear at `turn_complete` — log and ignore. |
+Stop reason lives on the assistant message envelope (adapter copies it onto the trailing `AssistantMessage`'s `meta.stop_reason`). `Thread.tsx` reads it from there if it needs to differentiate the failure pill copy. None of the renderers in `messages/*` need to know about it.
 
 ---
 
-## 8. File-by-file move plan
+## 8. Deletions — **deferred to post-default-on cleanup**
 
-`scenes/max/` → `scenes/posthog-ai/` (per the overview).
+> **Coexistence mode** (per [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) #6–#8, #14). Nothing in this section is in scope for the migration. `useMaxTool`, `MaxTool`, `toolMap`, `TOOL_DEFINITIONS`, the 17 call-site files, and the existing `UIPayloadAnswer.tsx` dispatcher all **stay untouched** during the soak. They're the LangGraph runtime's tool layer and they continue to work for LangGraph conversations.
+>
+> The sandbox runtime gets its tool rendering via the new registry path described in §§ 2–7, layered _alongside_ the existing dispatcher in `Thread.tsx` via an `if (agent_runtime === 'sandbox')` branch.
 
-### 8.1 Reused unchanged (verbatim copy)
+The cleanup work below runs **only after** the `posthog-ai-sandbox` flag is default-on for everyone _and_ a soak period confirms parity. It is tracked separately, not in this migration's phasing.
 
-| Source | Destination |
-|---|---|
-| `messages/MessageTemplate.tsx` | `posthog-ai/messages/MessageTemplate.tsx` |
-| `messages/RecordingsFiltersSummary.tsx` | `posthog-ai/messages/RecordingsFiltersSummary.tsx` |
-| `messages/ErrorTrackingFiltersSummary.tsx` | `posthog-ai/messages/ErrorTrackingFiltersSummary.tsx` |
-| `messages/ErrorTrackingIssueCard.tsx` | `posthog-ai/messages/ErrorTrackingIssueCard.tsx` |
-| `messages/maxErrorTrackingWidgetLogic.ts` | `posthog-ai/messages/postHogAiErrorTrackingWidgetLogic.ts` (rename only) |
-| `messages/SessionSummarizationProgress.tsx` | `posthog-ai/messages/SessionSummarizationProgress.tsx` (the *renderer* — only the input wiring changes; see § 6.2 for the adapter) |
-| `messages/MultiQuestionForm.tsx` (the `Recap`) | `posthog-ai/messages/MultiQuestionForm.tsx` |
-| `MarkdownMessage.tsx` | `posthog-ai/MarkdownMessage.tsx` |
-| `DangerousOperationApprovalCard.tsx` | `posthog-ai/DangerousOperationApprovalCard.tsx` (still reads from the renamed logic; props unchanged) |
-| `approvalOperationUtils.ts` | `posthog-ai/approvalOperationUtils.ts` |
-| `utils/thinkingMessages.ts` (the THINKING_MESSAGES array) | `posthog-ai/utils/thinkingMessages.ts` |
-| `utils/markdownToTiptap.ts` | `posthog-ai/utils/markdownToTiptap.ts` |
-| `max-constants.tsx` `ToolDefinition` + display formatters | `posthog-ai/tool-constants.tsx` (kept for chip text + icons; the new path drives `toolName`-based lookup) |
-| `TraceIdContext.tsx` | `posthog-ai/TraceIdContext.tsx` |
+### 8.1 useMaxTool / MaxTool (cleanup phase only)
 
-### 8.2 Reused with a thin adapter
+Both files deleted outright:
 
-| Source | Adapter | Notes |
-|---|---|---|
-| `messages/VisualizationArtifactAnswer.tsx` | `messages/adapters/VisualizationArtifactAdapter.tsx` | The renderer keeps its props (`content`, `status`, `isEditingInsight`, `activeTabId`, `activeSceneId`). Adapter pulls these from a `ToolInvocation` (see § 3.1.6). |
-| `messages/NotebookArtifactAnswer.tsx` | `messages/adapters/NotebookArtifactAdapter.tsx` | Renderer keeps `content`, `status`, `artifactId`. Adapter pulls these from a `ToolInvocation` (§ 3.1.5). |
-| `messages/UIPayloadAnswer.tsx → RecordingsWidget` | `messages/adapters/RecordingsCardAdapter.tsx` | Renderer keeps `toolCallId`, `filters`. Adapter pulls `toolCallId` from invocation, `filters` from `rawOutput`. |
-| `messages/UIPayloadAnswer.tsx → ErrorTrackingFiltersWidget` | `messages/adapters/ErrorTrackingCardAdapter.tsx` | Same idea. |
-| `messages/UIPayloadAnswer.tsx → SummarizeSessionsWidget` | `messages/adapters/SessionSummaryLinkAdapter.tsx` | Just reads `rawOutput.session_group_summary_id` + `rawInput.summary_title`. |
-| `messages/SessionSummarizationProgress.tsx` | `messages/adapters/SessionSummarizationProgressAdapter.tsx` | Reads `invocation.progress` (see § 6.2). |
-| `messages/MultiQuestionForm.tsx → MultiQuestionFormRecap` | `messages/adapters/MultiQuestionFormRecapAdapter.tsx` | Reads `rawInput.questions`, `rawOutput.answers`, `rawOutput.status`. |
-| `Thread.tsx → AssistantActionComponent` | extract to `posthog-ai/components/ToolCallChip.tsx` | The "chip with expandable substeps + optional widget" component. Reused for every chip-mode invocation. |
-| `Thread.tsx → PlanningAnswer` | extract to `posthog-ai/messages/PlanningAnswer.tsx` | Used both in-thread (for `todo_write`-equivalent calls) and inside `PlanApprovalCard` (§ 5.2). |
-| `Thread.tsx → MultiVisualizationAnswer` | `posthog-ai/messages/MultiVisualizationAnswer.tsx` | Today's input is `MultiVisualizationMessage` — a dedicated message type. In the new world this maps to *the assembly of multiple visualization invocations within a single turn*. Specifically: when a single agent turn produces N `posthog-data.read_data` invocations with `kind === 'insight'` + `execute: true`, group them into one `MultiVisualizationMessage`-equivalent. Owned by the selector in `posthogAiThreadLogic.threadGrouped`. |
+- `frontend/src/scenes/max/MaxTool.tsx`
+- `frontend/src/scenes/max/useMaxTool.ts`
 
-### 8.3 Replaced
+### 8.2 toolMap / TOOL_DEFINITIONS / ToolDefinition / ToolRegistration (cleanup phase only)
 
-| Source | Replacement | Reason |
-|---|---|---|
-| `messages/UIPayloadAnswer.tsx` (top-level dispatcher) | `posthog-ai/Thread.tsx`'s renderer table + adapters | The whole `ui_payload`-detection logic is gone — replaced by `toolName`-keyed lookup (§ 3). |
-| `Thread.tsx` (dispatch logic) | `posthog-ai/Thread.tsx` (new, but reuses extracted sub-components from § 8.2) | Different input model (`PostHogAiThreadItem[]` vs `ThreadMessage[]`). |
-| `useMaxTool.ts` + `MaxTool.tsx` | `usePostHogAiTool.ts` (§ 4.4) | Different transport model. |
-| The `getToolCallDescriptionAndWidget` function (`Thread.tsx:1652–1685`) | `posthog-ai/components/ToolCallChip.tsx`'s internal helpers | Keyed by `toolName` (MCP) now, not by `toolCall.name` (LangGraph). |
-| `TOOL_DEFINITIONS[…].displayFormatter` (`max-constants.tsx`) | Same shape, keyed by MCP-qualified name | Keep the formatter style (it's nice). Just add `toolName: 'posthog-data.read_taxonomy'` → formatter mapping alongside the legacy `read_taxonomy` keys for the migration window. |
+- `frontend/src/scenes/max/max-constants.tsx` — `TOOL_DEFINITIONS`, `ToolDefinition`, `ToolRegistration`, `RecordingsWidgetDef`, `SessionSummarizationWidgetDef`, `DEFAULT_TOOL_KEYS`, `getToolDefinition()`, `getToolDefinitionFromToolCall()`. **Kept:** `MODE_DEFINITIONS`, `SPECIAL_MODES`, `AI_GENERALLY_CAN`, `AI_GENERALLY_CANNOT`, `getToolsForMode()` — these are UI metadata for the picker / intro screen and aren't tied to runtime tool dispatch.
+- `frontend/src/scenes/max/maxGlobalLogic.tsx` — `registerTool`, `deregisterTool` actions; `registeredToolMap`, `toolMap`, `tools`, `availableStaticTools`, `editInsightToolRegistered`, `toolSuggestions` selectors; `STATIC_TOOLS` constant.
+- `frontend/src/scenes/max/Thread.tsx` — drop the LangGraph-only dispatch branch and the legacy `ToolCallsAnswer`, `PlanningAnswer`, `AssistantActionComponent`, `EnhancedToolCall`, `getToolCallDescriptionAndWidget`.
 
-### 8.4 Deleted
+### 8.3 Call-site migration (cleanup phase only)
 
-| File | Reason |
-|---|---|
-| `messages/UIPayloadAnswer.tsx` (after callers migrate) | Top-level dispatcher; no consumers in the new model. |
-| `MaxTool.tsx` | `@deprecated` in source today; just remove. |
-| `useMaxTool.ts` | Replaced by `usePostHogAiTool.ts`. |
-| `maxGlobalLogic.tsx` STATIC_TOOLS section | Static tools' identity now lives in the MCP server registry, not in the frontend. |
-| `Thread.tsx` (the file at `scenes/max/Thread.tsx`) | Replaced by `posthog-ai/Thread.tsx`. |
+`useMaxTool` is imported by 17 files (from `grep -rn "useMaxTool\b" frontend/src/`):
 
-(Deletion happens in the Phase-5 cleanup PR, not in Phase-3.)
+```
+frontend/src/scenes/insights/InsightPageHeader.spec.tsx
+frontend/src/scenes/insights/InsightPageHeader.tsx
+frontend/src/scenes/settings/environment/ManagedReverseProxy.tsx
+frontend/src/scenes/experiments/Experiments.tsx
+frontend/src/scenes/experiments/components/SummarizeExperimentButton.tsx
+frontend/src/scenes/experiments/hooks/useSessionReplaySummaryMaxTool.ts
+frontend/src/scenes/max/MaxTool.tsx
+frontend/src/scenes/max/useMaxTool.ts
+frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx
+frontend/src/scenes/surveys/Survey.tsx
+frontend/src/scenes/surveys/wizard/SurveyWizard.tsx
+frontend/src/scenes/surveys/wizard/steps/TemplateStep.tsx
+frontend/src/scenes/surveys/components/SurveyOpportunityButton.tsx
+frontend/src/scenes/surveys/components/AnalyzeResponsesButton.tsx
+frontend/src/scenes/surveys/components/empty-state/SurveysEmptyState.tsx
+frontend/src/layout/scenes/components/SceneTitleSection.tsx
+frontend/src/layout/navigation-3000/Navigation.tsx
+```
+
+When (and only when) the cleanup phase runs, the per-call-site disposition is:
+
+1. **Pure "Open Max with this prompt"** (`SummarizeExperimentButton`, `SurveyOpportunityButton`, `AnalyzeResponsesButton`, `SurveysEmptyState`, navigation entry points): drop `useMaxTool`. Replace with a direct `openSidePanel(SidePanelTab.Max, initialMaxPrompt)` + (if needed) `setActiveGroup(...)`. The "is this tool registered?" gate becomes a static check against an exported MCP tool registry.
+2. **Scene "intro override"** (`InsightPageHeader`, `WebAnalyticsScene`, `Survey`, `SurveyWizard`, `TemplateStep`, `Experiments`, `ManagedReverseProxy`, `SceneTitleSection`): drop `useMaxTool`. Intro override moves to a static lookup keyed by `sceneId` in `Intro.tsx`. The `context` payload moves to the scene's `maxContext` selector (`01_CONTEXT.md` § 3).
+3. **`callback` consumer — `useSessionReplaySummaryMaxTool.ts`** (experiments): the one site where a scene actually reacts to tool output. Migrate to a **read-only `useValues(maxThreadLogic)` subscription** that filters for `McpToolCallMessage`s with `toolName === 'posthog-data.experiment_session_replays_summary'` and `status === 'completed'`. Same UX, no agent-to-scene callback.
+4. **Tests** (`InsightPageHeader.spec.tsx`): delete the `useMaxTool` mock and the assertions on registered tools.
+
+That covers all 17 import sites — but again, this is **cleanup-phase work, not migration work**.
 
 ---
 
-## 9. Open questions
+## 9. File-by-file move plan
 
-1. **MCP tool naming convention.** Do we go `posthog-data.read_taxonomy` (dotted) or `posthog_data__read_taxonomy` (underscored) on the wire? The mapping table assumes dotted; verify with `04_PROMPTS.md`. *Owner: AI.*
+Only additive changes during the migration. Every column-2 entry is one of:
 
-2. **`read_data` subtypes — keep as one MCP tool or split?** Today `read_data` is one LangGraph tool with `args.kind` discriminator and seven subtypes including `insight` (which can `execute: true` to materialize a query). Cleanest MCP design is seven separate tools (`read_billing`, `read_warehouse_schema`, `read_insight`, …) — but it bloats the tool count. Recommendation: keep as one and route in the renderer via `rawInput.kind`. *Owner: AI + frontend.*
+- **Unchanged** — touched only by LangGraph path; not modified during the migration.
+- **Modified (additive)** — branch is added; existing code path preserved verbatim.
+- **New** — brand-new file.
+- **Cleanup-phase only** — deferred until after default-on per § 8.
 
-3. **Client-side MCP infra (§ 4.1).** Need a green light from infra/backend on the new SSE frame `client_mcp_invoke` and command method `client_mcp_result`. Twig spec doesn't have these. *Owner: infra + AI.*
+### Migration scope
 
-4. **`useMaxTool` semantic flip.** Migrating each call site requires understanding "given the args the agent sent, what's the right *result* shape to return". For pure side-effect tools (`filter_session_recordings` — applies filters, no real result), what do we return? Empty `{}`? `{ applied: true, filters }`? Standardize. *Owner: frontend.*
+| Path                                                                             | Disposition                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/src/scenes/max/Thread.tsx`                                             | **Modified (additive).** Add an `if (agent_runtime === 'sandbox')` dispatch branch above the existing LangGraph branch. Existing `isAssistantToolCallMessage` + `ToolCallsAnswer` + `getToolCallDescriptionAndWidget` rendering stays untouched.                                                                            |
+| `frontend/src/scenes/max/DangerousOperationApprovalCard.tsx`                     | **Modified (additive).** Optional `variant: 'langgraph' \| 'sandbox-permission' \| 'sandbox-plan'` prop, defaults to `'langgraph'`. Existing call sites unchanged.                                                                                                                                                          |
+| `frontend/src/scenes/max/approvalOperationUtils.ts`                              | **Modified (additive).** Add a parser for ACP `permission_request` payloads next to the existing `DangerousOperationResponse` parser. Existing parser unchanged.                                                                                                                                                            |
+| `frontend/src/scenes/max/maxThreadLogic.tsx`                                     | **Modified (additive).** New SSE event handlers for `mcp_tool_call` / `mcp_tool_call_update` / `permission_request` / `_posthog/progress` / `_posthog/run_started` / `_posthog/turn_complete`, plus a `currentProgress` selector. Existing handlers (including `AssistantEventType.SANDBOX` already in the file) preserved. |
+| `frontend/src/scenes/max/mcpToolRegistry.tsx`                                    | **New.** Registry + all `register()` calls + fallback renderer wiring.                                                                                                                                                                                                                                                      |
+| `frontend/src/scenes/max/messages/adapters/CreateInsightAdapter.tsx`             | **New.** § 3.3 Example A.                                                                                                                                                                                                                                                                                                   |
+| `frontend/src/scenes/max/messages/adapters/CreateNotebookAdapter.tsx`            | **New.** § 3.3 Example B.                                                                                                                                                                                                                                                                                                   |
+| `frontend/src/scenes/max/messages/adapters/SummarizeSessionsAdapter.tsx`         | **New.** § 3.3 Example C.                                                                                                                                                                                                                                                                                                   |
+| `frontend/src/scenes/max/messages/adapters/SearchSessionRecordingsAdapter.tsx`   | **New.** Wraps `RecordingsWidget`.                                                                                                                                                                                                                                                                                          |
+| `frontend/src/scenes/max/messages/adapters/SearchErrorTrackingIssuesAdapter.tsx` | **New.** Wraps `ErrorTrackingFiltersWidget`.                                                                                                                                                                                                                                                                                |
+| `frontend/src/scenes/max/messages/adapters/ExecuteSqlAdapter.tsx`                | **New.** Renders SQL + result.                                                                                                                                                                                                                                                                                              |
+| `frontend/src/scenes/max/messages/adapters/TodoWriteAdapter.tsx`                 | **New.** Mirrors `PlanningAnswer` for the sandbox runtime; does not modify the original.                                                                                                                                                                                                                                    |
+| `frontend/src/scenes/max/messages/adapters/WebSearchAdapter.tsx`                 | **New.** Renders Claude `web_search` result list.                                                                                                                                                                                                                                                                           |
+| `frontend/src/scenes/max/messages/adapters/extractors.ts`                        | **New.** Shape-mapping helpers per § 3.3.                                                                                                                                                                                                                                                                                   |
+| `frontend/src/scenes/max/messages/adapters/FallbackMcpToolRenderer.tsx`          | **New.** Generic "tool was called" card for tools without a dedicated adapter.                                                                                                                                                                                                                                              |
+| `frontend/src/scenes/max/utils.ts`                                               | **Modified (additive).** Add `isMcpToolCallMessage`, `isPermissionRequestMessage` type guards.                                                                                                                                                                                                                              |
+| `frontend/src/scenes/max/maxTypes.ts`                                            | **Modified (additive).** Add `McpToolCallMessage`, `PermissionRequestMessage`, `PermissionOption`, `AttachedContext` interfaces. No existing type modified or deleted.                                                                                                                                                      |
 
-5. **Plan content backreference for `PlanApprovalCard`.** § 5.2 says we walk backwards from the `permission_request` to find the most recent `todo_write` invocation. This is fragile — if the agent calls other tools between the plan and the permission request, the chronological "most recent" might not be the right one. Cleaner: have the permission request's `_meta.planSnapshot` carry the plan directly. *Owner: AI (prompt) + 04_PROMPTS.md.*
+### Unchanged (migration scope)
 
-6. **`MultiVisualizationMessage` equivalent.** Today this is a dedicated message type with a `commentary` field — the *agent* explicitly chose to render multiple visualizations together. In the new world this isn't a message type; it's a *grouping decision*. Do we always group N consecutive `read_data → insight (execute)` invocations within one turn, or is there a "render as group" signal from the agent? *Owner: AI + frontend.*
+These files are not touched at all:
 
-7. **Streaming `tool_call_update` semantics.** ACP says `tool_call_update.content` patches the prior content. Twig's `mergeToolCall` replaces wholesale when `patch.content` is non-empty (`cloudToolChanges.ts:53–59`). For diff/text streaming we might want to *append* instead. Pick one and document. Recommendation: replace-on-patch (Twig parity) — every MCP server is expected to send its full content on each update. *Owner: AI + frontend.*
+- `frontend/src/scenes/max/MaxTool.tsx`
+- `frontend/src/scenes/max/useMaxTool.ts`
+- `frontend/src/scenes/max/max-constants.tsx`
+- `frontend/src/scenes/max/maxGlobalLogic.tsx`
+- `frontend/src/scenes/max/MarkdownMessage.tsx`
+- `frontend/src/scenes/max/messages/UIPayloadAnswer.tsx` (continues to dispatch on `ui_payload.kind` for LangGraph)
+- `frontend/src/scenes/max/messages/VisualizationArtifactAnswer.tsx`
+- `frontend/src/scenes/max/messages/NotebookArtifactAnswer.tsx`
+- `frontend/src/scenes/max/messages/ErrorTrackingFiltersSummary.tsx`
+- `frontend/src/scenes/max/messages/ErrorTrackingIssueCard.tsx`
+- `frontend/src/scenes/max/messages/RecordingsFiltersSummary.tsx`
+- `frontend/src/scenes/max/messages/SessionSummarizationProgress.tsx`
+- `frontend/src/scenes/max/messages/MultiQuestionForm.tsx`
+- `frontend/src/scenes/max/messages/MessageTemplate.tsx`
+- `frontend/src/scenes/max/messages/maxErrorTrackingWidgetLogic.ts`
+- `frontend/src/scenes/max/utils/thinkingMessages.ts`
+- All 17 `useMaxTool` call-site files (`InsightPageHeader.tsx`, `WebAnalyticsScene.tsx`, etc.)
 
-8. **Generic fallback richness.** § 3.2 sketches `<GenericToolCallChip>` reusing today's `AssistantActionComponent`. Today's component is overloaded — should we split into a "lean" version for unknown tools (no JSON dump button, no SQL block) and keep the rich version for known tools? Decision deferred to implementation. *Owner: frontend.*
+### Cleanup-phase only (deferred until after default-on)
 
-9. **Switching tools mid-stream.** When an MCP server crashes mid-call, the user-visible state is an invocation stuck at `status: 'in_progress'` with no further updates. We rely on `_posthog/turn_complete` to flip stuck invocations to `failed` (§ 7.3). Is that always emitted on crash? *Owner: AI + sandbox.*
+Everything listed in § 8 plus the cleanups in the table — all gated behind a separate cleanup phase that runs after the soak confirms parity. No deletions land during the migration window.
 
-10. **Filter `_posthog/console`** events from the rich-UI layer. Per `CLOUD_AGENTS_FRONTEND_SPEC § 17` these are dev-only (toggled by `debugLogsCloudRuns`). PostHog AI's equivalent toggle goes in user settings (or a feature flag). Until then, the watcher (`02_CORE.md`) silently drops them; this spec doesn't render them. Confirm. *Owner: AI + product.*
+Phasing: ship the registry + adapters + new dispatch branch behind the existing `posthog-ai-sandbox` flag; flip the flag per-tool via `posthog-ai-sandbox-tool-{slug}`; the soak runs with both paths live. Once the flag defaults on for everyone, kick off the cleanup phase tracked in [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) § "Cleanup roadmap".
 
-11. **`call_mcp_server` removal.** Today there's a `CallMCPServerTool` (LangGraph tool that wraps user-installed MCP servers as one meta-tool). In the new world the agent calls user MCPs directly; the meta-tool disappears. Verify no fronted code keys off `'call_mcp_server'` as a special identifier (the only mention is the entry in `TOOL_DEFINITIONS` with a generic chip; safe to drop). *Owner: AI.*
+---
 
-12. **`web_search` event surface.** Today this is a built-in Anthropic web search whose results stream as `updates: string[]` (each update is a Markdown-formatted link). In the ACP world, do these stream as `tool_call_update.content` blocks of type `text` with the same link format? Confirm wire shape before keeping the `displayFormatter` logic as-is. *Owner: AI.*
+## 10. Open questions
 
-13. **`finalize_plan` shape.** Today a `FinalizePlanTool` exists in `ee/hogai/tools/finalize_plan/`. Tomorrow this becomes a `switch_mode` `requestPermission` (§ 5.2). Confirm the prompt-side change. *Owner: 04_PROMPTS.md.*
-
-14. **Telemetry — `traceId` per tool call.** Today each tool call has a per-call `trace_id`. Tomorrow, a tool call's identity is `(runId, toolCallId)`. Confirm with LLM Analytics that this is the new dimension key. *Owner: AI + LLM Analytics.*
-
-15. **Tool icons.** `TOOL_DEFINITIONS[*].icon` is keyed by today's identifier. New MCP-qualified names need an icon lookup (e.g. `posthog-data.read_taxonomy` → `iconForType('data_warehouse')`). Plan: add a parallel `MCP_TOOL_ICONS: Record<string, JSX.Element>` map alongside `TOOL_DEFINITIONS` and migrate over time, falling back to `<IconWrench />`. *Owner: frontend.*
+1. **Adapter envelope vs raw frames.** The text of this spec assumes the Django adapter merges `tool_call` + N `tool_call_update`s into one `McpToolCallMessage` envelope before emitting on SSE. The alternative is to forward each frame and merge in `maxThreadLogic`. Pre-merging is simpler for renderers but slightly worse for streaming latency on partial content (e.g. notebook block-by-block). Recommendation: pre-merge, but include `content[]` partials as they arrive. _Owner: backend._
+2. **Read/list/search sub-tool flattening.** `read_data`, `list_data`, `search` today have N sub-kinds driven by `rawInput.kind`. We can either (a) keep one MCP tool per top-level and dispatch on `rawInput.kind` inside the renderer-adapter, or (b) promote sub-kinds to first-class MCP tools (`posthog-data.read_data_warehouse_schema`, etc.). (b) gives cleaner registry rows; (a) keeps backend smaller. Recommendation: (a) for now, revisit if the dispatcher grows ugly. _Owner: AI._
+3. **Edit-existing-insight path.** Today `create_insight` shadowed by a contextual tool meant the agent edited the insight you were viewing. Without contextual tools we need either a separate `edit_insight` MCP tool (preferred) or `create_insight` with an optional `artifact_id` in `rawInput`. _Owner: AI._
+4. **MultiQuestionForm answer channel.** Today the form is rendered in the input area and the answers come back via `UIPayloadAnswer.ui_payload.create_form.answers`. In the new world the form's `rawInput.questions` is on the tool call; where do the answers live? Probably an `_posthog/form_answer` ACP notification or a synthetic next-message `attached_context` entry. _Owner: AI._
+5. **Notebook block streaming.** `NotebookArtifactAnswer` already handles streaming, but only if blocks arrive as they're generated. Whether the backend MCP server streams blocks via `tool_call_update.content` frames or via a `_posthog/notebook_block` notification is unresolved. _Owner: AI._
+6. **`switch_mode` rendering.** Once modes collapse to one prompt + ACP `permission_mode` (`04_PROMPTS.md` § 4), `switch_mode` may not be a visible tool at all. Hide it from the thread or show a one-line mode-change badge? Recommendation: hide. _Owner: AI._
+7. **`fix_hogql_query` UX.** Current rendering is just a description line. With raw SQL in / out, do we show a unified diff, side-by-side, or a single new query block? Recommendation: single new query block + collapsible old query, mirroring the existing `executedSQLQuery` snippet. _Owner: AI + Insights team._
+8. **Per-tool feature-flag flow.** `posthog-ai-sandbox-tool-{slug}` gates whether the backend exposes the MCP tool. Should the registry also gate (i.e. hide the renderer-adapter and fall back) when the flag is off, or trust backend exclusion? Recommendation: trust backend; the registry has every adapter unconditionally. Saves wiring `featureFlags` into the registry. _Owner: AI._
+9. **`SandboxActivityPanel` retirement.** This was a transitional debug surface for `PHAI_SANDBOX_MODE`. Once the registry handles real tool cards, delete it from `Thread.tsx` and `parse-logs.ts` (in `products/tasks/frontend/lib/`). Confirm no other consumers. _Owner: AI._
+10. **`mcp_tool_call` envelope on the existing `message` stream or its own event-name.** `02_CORE.md` § 4 needs to pick one. Either works for the dispatch branch in `Thread.tsx`. Recommendation: piggyback on the existing `message` event with a new `type` discriminator (less SSE wire churn). _Owner: backend._
