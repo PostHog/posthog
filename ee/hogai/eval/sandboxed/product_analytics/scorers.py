@@ -31,6 +31,20 @@ QUERY_FUNNEL_TOOL_NAME = "query-funnel"
 READ_DATA_SCHEMA_TOOL_NAME = "read-data-schema"
 TOOL_SEARCH_TOOL_NAME = "ToolSearch"
 
+# Insight query tools the agent should run before saving an insight. The
+# insight-create / insight-update tool descriptions explicitly instruct the
+# agent to validate the query payload through one of these tools first.
+QUERY_INSIGHT_TOOLS = frozenset(
+    {
+        QUERY_TRENDS_TOOL_NAME,
+        QUERY_FUNNEL_TOOL_NAME,
+        QUERY_RETENTION_TOOL_NAME,
+        "query-paths",
+        "query-stickiness",
+        "query-lifecycle",
+    }
+)
+
 BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
 
 GRADED_ALIGNMENT_CHOICE_SCORES = {
@@ -744,3 +758,76 @@ class SchemaDiscoveryOrder(Scorer):
             if call.name == query_tool:
                 return call.position
         return None
+
+
+class QueryBeforeInsightSave(Scorer):
+    """Binary deterministic scorer: was every ``insight-create`` / ``insight-update``
+    call preceded by a successful ``query-*`` call in the same run?
+
+    Mirrors the nudge baked into the ``insight-create`` and ``insight-update``
+    tool descriptions: the agent must run the query through the matching
+    ``query-trends`` / ``query-funnel`` / ``query-retention`` / ``query-paths`` /
+    ``query-stickiness`` / ``query-lifecycle`` tool to confirm the schema is
+    valid and executable, then save the exact payload that ran successfully.
+
+    Score 1.0 if every successful ``insight-create``/``insight-update`` call
+    had a successful ``query-*`` call earlier in the run. 0.0 if any save
+    happened with no prior validated query. ``None`` if the agent never
+    attempted a save — that's covered by ``CalledTargetTool`` upstream.
+    """
+
+    SAVE_TOOLS: frozenset[str] = frozenset({"insight-create", "insight-update", "insight-partial-update"})
+
+    def __init__(self, *, name: str = "query_before_insight_save"):
+        self._label = name
+
+    def _name(self) -> str:
+        return self._label
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output)
+
+    def _evaluate(self, output: dict | None) -> Score:
+        parser = parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        ordered = sorted(parser.get_tool_calls(), key=lambda c: c.position)
+        seen_query = False
+        offenders: list[str] = []
+        save_count = 0
+        for call in ordered:
+            if call.is_error:
+                continue
+            if call.name in QUERY_INSIGHT_TOOLS:
+                seen_query = True
+                continue
+            if call.name in self.SAVE_TOOLS:
+                save_count += 1
+                if not seen_query:
+                    offenders.append(call.call_id)
+
+        if save_count == 0:
+            return Score(
+                name=self._name(),
+                score=None,
+                metadata={"reason": "No insight-create / insight-update call attempted"},
+            )
+        if offenders:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "Insight saved without a prior successful query-* call",
+                    "offenders": offenders,
+                    "total_saves": save_count,
+                },
+            )
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={"total_saves": save_count},
+        )

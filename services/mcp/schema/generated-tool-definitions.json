@@ -2396,7 +2396,7 @@
         }
     },
     "insight-create": {
-        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
+        "description": "Create a new saved insight from a name and query definition. DO NOT hand-write the `query` payload from assumptions — first run it through the matching query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle tool. Those tools validate the schema and return executable results; only save the exact payload that ran successfully there. Skipping this step produces invalid or wrong-shape insights. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Create insight",
@@ -2441,7 +2441,7 @@
         }
     },
     "insight-update": {
-        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
+        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. When changing the `query` payload, DO NOT edit JSON in place — first call insight-get to read the current query, then run the modified payload through the matching query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle tool to confirm the schema and that it executes, then save the exact payload that succeeded. Skipping this step produces invalid or wrong-shape insights. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Update insight",
