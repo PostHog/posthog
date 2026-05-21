@@ -1,7 +1,7 @@
 import string
 import secrets
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from django.db import IntegrityError, models
 from django.utils import timezone
@@ -10,8 +10,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
 
-if TYPE_CHECKING:
-    from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import TaskRun
 
 
 def generate_short_id():
@@ -93,6 +92,16 @@ class Conversation(UUIDTModel):
         default=None,
         help_text="Stored messages for non-LangGraph modes (e.g., sandbox).",
     )
+    sandbox_task_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Permanent link to Task for sandbox conversations.",
+    )
+    sandbox_run_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Permanent link to current TaskRun for sandbox conversations.",
+    )
     agent_runtime = models.CharField(
         max_length=16,
         choices=AgentRuntime.choices,
@@ -100,28 +109,19 @@ class Conversation(UUIDTModel):
         db_index=True,
         help_text="Which agent runtime backs this conversation. Stamped at create time from the posthog-ai-sandbox flag; never re-read on an existing row.",
     )
-    sandbox_task = models.ForeignKey(
-        "tasks.Task",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="+",
-        db_index=True,
-        help_text="Cloud-agent Task backing this conversation when agent_runtime is 'sandbox'. One Task per conversation; current Run is derived from the Task's latest TaskRun.",
-    )
 
     @property
-    def current_sandbox_run(self) -> Optional["TaskRun"]:
+    def current_sandbox_run(self) -> Optional[TaskRun]:
         """Latest TaskRun on the sandbox Task by created_at, or None.
 
         Derived rather than stored: two concurrent tabs creating successor Runs after a
-        terminal predecessor would race a stored FK update; deriving from the data closes
-        that hole — ORDER BY created_at DESC LIMIT 1 always picks the most recent Run
-        deterministically.
+        terminal predecessor would race a stored pointer update; deriving from the data
+        closes that hole — ORDER BY created_at DESC LIMIT 1 always picks the most recent
+        Run deterministically.
         """
         if self.sandbox_task_id is None:
             return None
-        return self.sandbox_task.runs.order_by("-created_at").first()
+        return TaskRun.objects.filter(task_id=self.sandbox_task_id).order_by("-created_at").first()
 
 
 class ConversationCheckpoint(UUIDTModel):

@@ -65,13 +65,11 @@ def handle_sandbox_message(
     mapping = get_sandbox_mapping(conversation_id)
 
     # Reconstruct mapping from conversation fields if Redis expired
-    if not mapping and conversation.sandbox_task_id:
-        current_run = conversation.current_sandbox_run
-        if current_run is not None:
-            mapping = {
-                "task_id": str(conversation.sandbox_task_id),
-                "run_id": str(current_run.id),
-            }
+    if not mapping and conversation.sandbox_task_id and conversation.sandbox_run_id:
+        mapping = {
+            "task_id": str(conversation.sandbox_task_id),
+            "run_id": str(conversation.sandbox_run_id),
+        }
 
     start_id = "0"
 
@@ -100,8 +98,8 @@ def handle_sandbox_message(
             )
             run_id = str(new_run.id)
 
-            # Current Run is derived from sandbox_task.runs ordered by created_at desc;
-            # inserting the new TaskRun is enough — no explicit pointer to update.
+            conversation.sandbox_run_id = new_run.id
+            conversation.save(update_fields=["sandbox_run_id"])
 
             set_sandbox_mapping(conversation_id, str(task.id), run_id)
 
@@ -167,8 +165,9 @@ def handle_sandbox_message(
         run_id = str(task_run.id)
         set_sandbox_mapping(conversation_id, str(task.id), run_id)
 
-        conversation.sandbox_task = task
-        conversation.save(update_fields=["sandbox_task"])
+        conversation.sandbox_task_id = task.id
+        conversation.sandbox_run_id = task_run.id
+        conversation.save(update_fields=["sandbox_task_id", "sandbox_run_id"])
 
         _seed_sandbox_stream(run_id)
 

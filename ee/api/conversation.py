@@ -230,7 +230,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
         if self.action == "list":
-            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task")
+            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
 
     def get_throttles(self):
