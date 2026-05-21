@@ -487,6 +487,12 @@ describe('ErrorTrackingConsumer', () => {
         const producedCount = (): number =>
             mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test').length
 
+        // The Lua script reads time via `Date.now()`. `beforeEach` mocks it to a
+        // fixed value; bumping the same spy advances "now" so the bucket refills.
+        const advanceTime = (seconds: number): void => {
+            jest.spyOn(Date, 'now').mockReturnValue(Date.now() + seconds * 1000)
+        }
+
         it('per-team limit lets early batches through and rate-limits once the budget is exhausted', async () => {
             await upsertSettings({ projectRateLimit: 15 })
             await enableRateLimiter()
@@ -565,6 +571,32 @@ describe('ErrorTrackingConsumer', () => {
             await send('foo', 'different')
             await drainProduces()
 
+            expect(producedCount()).toBe(4)
+        })
+
+        it('refills tokens over time once the bucket window has elapsed', async () => {
+            await upsertSettings({ perIssueRateLimit: 4 })
+            await enableRateLimiter()
+
+            const send = (fn: string) => consumer.handleKafkaBatch(createKafkaMessages([exceptionEvent(fn)]))
+
+            // tokens 4 → 3
+            await send('foo')
+            // 3 → 2
+            await send('foo')
+            // 2 → 1
+            await send('foo')
+            // 1 → 0 → rate-limited
+            await send('foo')
+            await drainProduces()
+            expect(producedCount()).toBe(3)
+
+            // Advance one full bucket window (60 min); refillRate = 4 / 3600s → bucket back to full.
+            advanceTime(60 * 60)
+
+            // tokens 4 → 3
+            await send('foo')
+            await drainProduces()
             expect(producedCount()).toBe(4)
         })
     })
