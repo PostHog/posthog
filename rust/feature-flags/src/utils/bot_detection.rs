@@ -176,10 +176,6 @@ pub fn classify(user_agent: &str) -> Option<BotCategory> {
         .map(|idx| BOT_PATTERNS[idx].1)
 }
 
-pub fn is_blocked_ua(user_agent: &str) -> bool {
-    classify(user_agent).is_some()
-}
-
 /// Published bot IP ranges. Refresh from the provider source-of-truth files:
 ///   Googlebot:  https://developers.google.com/search/apis/ipranges/googlebot.json
 ///   Bingbot:    https://www.bing.com/toolbox/bingbot.json
@@ -420,7 +416,6 @@ mod tests {
     )]
     fn classify_returns_expected_category(#[case] ua: &str, #[case] expected: BotCategory) {
         assert_eq!(classify(ua), Some(expected), "UA: {}", ua);
-        assert!(is_blocked_ua(ua), "is_blocked_ua should be true for {}", ua);
     }
 
     #[rstest]
@@ -440,13 +435,11 @@ mod tests {
             "Should not match real client UA: {}",
             ua
         );
-        assert!(!is_blocked_ua(ua));
     }
 
     #[test]
     fn empty_user_agent_is_not_a_bot() {
         assert_eq!(classify(""), None);
-        assert!(!is_blocked_ua(""));
     }
 
     #[rstest]
