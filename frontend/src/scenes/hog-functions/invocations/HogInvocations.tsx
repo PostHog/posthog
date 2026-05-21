@@ -679,6 +679,7 @@ function RunDetail({
                     {...logsLogicProps}
                     hideDateFilter
                     hideInstanceIdColumn
+                    defaultAscending
                     renderMessage={(message) => renderHogFunctionMessage(message)}
                 />
             </div>

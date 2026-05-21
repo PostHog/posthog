@@ -66,6 +66,8 @@ export type LogsViewerProps = LogsViewerLogicProps & {
     hideDateFilter?: boolean
     hideLevelsFilter?: boolean
     hideInstanceIdColumn?: boolean
+    /** Initial display order. Defaults to newest-first; pass true for oldest-first. */
+    defaultAscending?: boolean
 }
 
 /**
@@ -79,6 +81,7 @@ export function LogsViewer({
     hideDateFilter,
     hideLevelsFilter,
     hideInstanceIdColumn,
+    defaultAscending = false,
     ...props
 }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
@@ -97,10 +100,11 @@ export function LogsViewer({
     const { revealHiddenLogs, loadOlderLogs, setFilters, setRowExpanded, setIsGrouped } = useActions(logic)
 
     // Display order is a UI-only toggle — the fetch still pulls newest-first
-    // (that's what powers "load older" pagination). Ascending = oldest at the
-    // top, which is what most users want for following execution order; we
-    // just reverse the array before handing it to LemonTable.
-    const [ascending, setAscending] = useState(true)
+    // (that's what powers "load older" pagination). Ascending puts oldest at
+    // the top for following execution order; surfaces opt in via
+    // `defaultAscending`. We just reverse the array before handing it to
+    // LemonTable.
+    const [ascending, setAscending] = useState(defaultAscending)
     const orderedUngroupedLogs = useMemo(
         () => (ascending ? [...unGroupedLogs].reverse() : unGroupedLogs),
         [ascending, unGroupedLogs]
