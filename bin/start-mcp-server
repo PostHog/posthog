@@ -15,19 +15,17 @@ else
     if [ ! -f .dev.vars ]; then
         cp .dev.vars.example .dev.vars
 
-        # SITE_URL on devboxes points at the public per-workspace subdomain.
-        # Append overrides (dotenv is last-write-wins) so MCP's OAuth metadata
-        # advertises a host browsers can actually reach. Appending — rather
-        # than editing — sidesteps every URL-character escaping concern.
+        # SITE_URL on devboxes points at the public per-workspace subdomain;
+        # append overrides so MCP's OAuth metadata advertises a host browsers
+        # can actually reach.
         loopback_re='^https?://(localhost|127\.0\.0\.1)([:/]|$)'
         if [ -n "${SITE_URL:-}" ] && ! [[ "${SITE_URL}" =~ $loopback_re ]]; then
-            {
-                echo ""
-                echo "# Devbox override: rewrites the loopback defaults above."
-                echo "POSTHOG_API_BASE_URL=${SITE_URL}"
-                echo "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${SITE_URL}"
-                echo "POSTHOG_ANALYTICS_HOST=${SITE_URL}"
-            } >> .dev.vars
+            # Leading \n guards against .dev.vars.example missing a trailing newline.
+            printf '\n%s\n%s\n%s\n' \
+                "POSTHOG_API_BASE_URL=${SITE_URL}" \
+                "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${SITE_URL}" \
+                "POSTHOG_ANALYTICS_HOST=${SITE_URL}" \
+                >> .dev.vars
         fi
     fi
     exec pnpm run dev
