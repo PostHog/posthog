@@ -97,6 +97,7 @@ export function Editor(): JSX.Element {
     }
 
     const useCollab = collabEnabled && !!notebook && !previewContent
+    // Collab suffix forces editor to re-initialize so the collab plugin is present
     const editorLogicKey = `Notebook.${shortId}${useCollab ? '-collab' : ''}`
 
     const extensions = [
@@ -196,7 +197,6 @@ export function Editor(): JSX.Element {
 
     return (
         <RichContentEditor
-            // Key forces editor to unmount/remount when moving between live collab and history preview.
             key={editorLogicKey}
             logicKey={editorLogicKey}
             extensions={extensions}
