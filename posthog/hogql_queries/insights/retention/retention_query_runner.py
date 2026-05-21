@@ -50,9 +50,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithInter
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
+
+from products.actions.backend.models.action import Action
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7

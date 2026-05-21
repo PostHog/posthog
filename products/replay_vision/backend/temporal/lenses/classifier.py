@@ -17,7 +17,10 @@ class ClassifierOutput(BaseLensOutput, frozen=True):
 
 class ClassifierLens(BaseLens, frozen=True):
     lens_type: Literal[LensType.CLASSIFIER] = LensType.CLASSIFIER
+    prompt: str
     prompt_template: ClassVar[str] = "classifier.jinja"
+    citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
+    output_cls: ClassVar[type[BaseLensOutput]] = ClassifierOutput
     tags: list[str] = Field(min_length=1, description="Fixed vocabulary the model picks from.")
     multi_label: bool = True
 
