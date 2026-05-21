@@ -46,26 +46,22 @@ pub struct KafkaLogRow {
 /// payload is counted. Distinct from the Kafka header `bytes_uncompressed`, which
 /// is the raw HTTP body size for the whole batch.
 pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
-    let mut total: i64 = 0;
-    total = total.saturating_add(row.uuid.len() as i64);
-    total = total.saturating_add(row.trace_id.len() as i64);
-    total = total.saturating_add(row.span_id.len() as i64);
-    total = total.saturating_add(row.body.len() as i64);
-    total = total.saturating_add(row.severity_text.len() as i64);
-    total = total.saturating_add(row.service_name.len() as i64);
-    total = total.saturating_add(row.instrumentation_scope.len() as i64);
-    total = total.saturating_add(row.event_name.len() as i64);
+    let mut total: usize = 0;
+    total = total.saturating_add(row.uuid.len());
+    total = total.saturating_add(row.trace_id.len());
+    total = total.saturating_add(row.span_id.len());
+    total = total.saturating_add(row.body.len());
+    total = total.saturating_add(row.severity_text.len());
+    total = total.saturating_add(row.service_name.len());
+    total = total.saturating_add(row.instrumentation_scope.len());
+    total = total.saturating_add(row.event_name.len());
     for (k, v) in &row.resource_attributes {
-        total = total
-            .saturating_add(k.len() as i64)
-            .saturating_add(v.len() as i64);
+        total = total.saturating_add(k.len()).saturating_add(v.len());
     }
     for (k, v) in &row.attributes {
-        total = total
-            .saturating_add(k.len() as i64)
-            .saturating_add(v.len() as i64);
+        total = total.saturating_add(k.len()).saturating_add(v.len());
     }
-    total
+    i64::try_from(total).unwrap_or(i64::MAX)
 }
 
 impl KafkaLogRow {

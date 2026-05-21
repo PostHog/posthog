@@ -56,33 +56,29 @@ pub struct KafkaTraceRow {
 /// only variable-length payload is counted. Distinct from the Kafka header
 /// `bytes_uncompressed`, which is the raw HTTP body size for the whole batch.
 pub fn compute_kafka_trace_row_bytes(row: &KafkaTraceRow) -> i64 {
-    let mut total: i64 = 0;
-    total = total.saturating_add(row.uuid.len() as i64);
-    total = total.saturating_add(row.trace_id.len() as i64);
-    total = total.saturating_add(row.span_id.len() as i64);
-    total = total.saturating_add(row.parent_span_id.len() as i64);
-    total = total.saturating_add(row.trace_state.len() as i64);
-    total = total.saturating_add(row.name.len() as i64);
-    total = total.saturating_add(row.service_name.len() as i64);
-    total = total.saturating_add(row.instrumentation_scope.len() as i64);
-    total = total.saturating_add(row.status_message.len() as i64);
+    let mut total: usize = 0;
+    total = total.saturating_add(row.uuid.len());
+    total = total.saturating_add(row.trace_id.len());
+    total = total.saturating_add(row.span_id.len());
+    total = total.saturating_add(row.parent_span_id.len());
+    total = total.saturating_add(row.trace_state.len());
+    total = total.saturating_add(row.name.len());
+    total = total.saturating_add(row.service_name.len());
+    total = total.saturating_add(row.instrumentation_scope.len());
+    total = total.saturating_add(row.status_message.len());
     for (k, v) in &row.resource_attributes {
-        total = total
-            .saturating_add(k.len() as i64)
-            .saturating_add(v.len() as i64);
+        total = total.saturating_add(k.len()).saturating_add(v.len());
     }
     for (k, v) in &row.attributes {
-        total = total
-            .saturating_add(k.len() as i64)
-            .saturating_add(v.len() as i64);
+        total = total.saturating_add(k.len()).saturating_add(v.len());
     }
     for event in &row.events {
-        total = total.saturating_add(event.len() as i64);
+        total = total.saturating_add(event.len());
     }
     for link in &row.links {
-        total = total.saturating_add(link.len() as i64);
+        total = total.saturating_add(link.len());
     }
-    total
+    i64::try_from(total).unwrap_or(i64::MAX)
 }
 
 impl KafkaTraceRow {
