@@ -153,6 +153,18 @@ All OpenAI, Anthropic, OpenRouter, and Fireworks AI chat models are supported.
 OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
 The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
 
+## OpenAI organization
+
+Set `LLM_GATEWAY_OPENAI_ORGANIZATION` to attribute all outbound OpenAI traffic
+to a specific OpenAI organization (e.g. a HIPAA-covered organization with
+Zero Data Retention enabled). The gateway exports this as `OPENAI_ORG_ID` at
+startup so the OpenAI SDK (via litellm) forwards it on every request.
+
+When unset, no organization is sent and OpenAI infers the org from the API key.
+
+The `organization` field is also in `FORBIDDEN_REQUEST_PARAMS`, so caller-supplied
+values are stripped — only the gateway-configured organization reaches OpenAI.
+
 ## Bedrock provider
 
 AWS Bedrock is available as an alternative provider for the Anthropic endpoints.
