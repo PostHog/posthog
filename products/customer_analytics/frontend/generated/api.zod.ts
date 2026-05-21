@@ -41,10 +41,15 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                         email: zod.string(),
                     })
                     .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())
@@ -85,10 +90,15 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
                         email: zod.string(),
                     })
                     .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())
@@ -133,10 +143,15 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                         email: zod.string(),
                     })
                     .nullish(),
+                stripe_customer_id: zod.string().nullish(),
+                hubspot_deal_id: zod.string().nullish(),
+                billing_id: zod.string().nullish(),
+                sfdc_id: zod.string().nullish(),
+                zendesk_id: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())
@@ -144,33 +159,6 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
-
-/**
- * Bulk update tags on multiple objects.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
- */
-export const accountsBulkUpdateTagsCreateBodyIdsMax = 500
-
-export const AccountsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number())
-        .max(accountsBulkUpdateTagsCreateBodyIdsMax)
-        .describe('List of object IDs to update tags on.'),
-    action: zod
-        .enum(['add', 'remove', 'set'])
-        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
-        .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
-        ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
-})
 
 export const customerJourneysCreateBodyNameMax = 400
 

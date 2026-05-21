@@ -67,6 +67,7 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
     scope_object = "account"
     queryset = Account.objects.unscoped().order_by("-created_at")
     serializer_class = AccountSerializer
+    bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
 
     @extend_schema(
         parameters=[
