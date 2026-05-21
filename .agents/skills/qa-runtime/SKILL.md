@@ -43,7 +43,8 @@ instructions, and explicit user approval in the current conversation.
 2. In PR mode, require a clean working tree before doing anything else.
 3. Require a reachable local stack and working Playwright MCP session. If the
    stack is down, ask whether to start it in detached mode or let the user start
-   it manually.
+   it manually. If the agent starts it, stop it during cleanup unless the user
+   asks to keep it running.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
 5. Plan tests from the diff and runtime route mapping.
@@ -183,6 +184,7 @@ Set:
 
 ```bash
 BASE_URL="${BASE_URL:-http://localhost:8010}"
+STACK_STARTED_BY_AGENT=0
 ```
 
 First check whether PostHog is already reachable:
@@ -191,9 +193,16 @@ First check whether PostHog is already reachable:
 curl -sf "$BASE_URL/_preflight"
 ```
 
-If that succeeds, continue. If it fails, try `mcp__phrocs__get_process_status`
-to inspect the local process manager. If phrocs reports that it is not running,
-or if both checks fail, ask the user:
+If that succeeds, continue to the process checks below. If it fails, try
+process-specific phrocs MCP checks:
+
+- `mcp__phrocs__get_process_status(process="backend")`
+- `mcp__phrocs__get_process_status(process="frontend")`
+
+Do not rely on the all-process status call as the first check during startup;
+it can report phrocs as unavailable while process-specific calls already work.
+If phrocs reports that `backend` is not running, or if both HTTP and MCP checks
+fail, ask the user:
 
 ```text
 PostHog is not reachable at $BASE_URL. Should I start the local dev stack in
@@ -203,25 +212,55 @@ detached mode, or would you prefer to start it yourself?
 If the user wants to start it themselves, stop and give this hint:
 
 ```bash
-flox activate -- bin/hogli up -d
-flox activate -- bin/hogli wait --timeout 180
+hogli start
 ```
 
-If the user approves agent startup, prefer detached mode. In Codex and other
-headless shells, do not run the interactive `./bin/start` TUI. Use the
-repo-local `bin/hogli` command through Flox so required tools such as `flock`
-are on PATH:
+If they prefer background mode, `hogli up -d` is the detached equivalent. Do
+not mention team-specific env vars such as billing service URLs unless the user
+already asked for them.
+
+If the user approves agent startup, use detached mode. In Codex and other
+headless shells, do not run the interactive `hogli start` / `./bin/start` TUI.
+Use the repo-local `bin/hogli` command through Flox so required tools such as
+`flock` are on PATH:
 
 ```bash
-flox activate -- bin/hogli up -d
-flox activate -- bin/hogli wait --timeout 180
+flox activate -- bin/hogli up -d -y
+flox activate -- bin/hogli wait --timeout 180 -y
 ```
 
-Then re-check `$BASE_URL/_preflight` and, if available,
-`mcp__phrocs__get_process_status`. Continue only after the stack is reachable.
-If startup or wait fails, summarize the failure, point at the relevant phrocs
-logs under `.posthog/.generated/logs/`, and stop before checkout, edits,
-uploads, comments, or pushes.
+Set `STACK_STARTED_BY_AGENT=1` after detached startup succeeds.
+
+Treat `hogli wait` as a useful diagnostic, not the only readiness source. It may
+fail because a configured but irrelevant process crashed while the UI is usable.
+After startup or a wait failure, check:
+
+```bash
+curl -sf "$BASE_URL/_preflight"
+```
+
+And query:
+
+- `mcp__phrocs__get_process_status(process="backend")`
+- `mcp__phrocs__get_process_status(process="frontend")`
+- Any process directly relevant to the changed surface, for example `mcp` when
+  testing MCP changes.
+
+Continue only when `_preflight` is reachable and the required process set is
+ready. If backend or frontend is not ready, stop before checkout, edits,
+uploads, comments, or pushes. If other processes crashed, treat the stack as
+degraded: read their phrocs logs, record the degradation in `run-notes.md`, and
+continue only when those processes are unrelated to the QA target. A migration
+crash is higher risk; continue only if the affected migration/storage layer is
+clearly unrelated to the target and call that out in the final report.
+
+Prefer phrocs MCP logs:
+
+- `mcp__phrocs__get_process_logs(process="backend")`
+- `mcp__phrocs__get_process_logs(process="frontend")`
+
+Fallback to repo-local logs under `.posthog/.generated/logs/` only when phrocs
+MCP is unavailable.
 
 ## Checkout
 
@@ -436,3 +475,13 @@ failure.
 
 Local mode - no checkout happened; nothing to restore. Leave the run directory
 in place.
+
+If `STACK_STARTED_BY_AGENT=1`, stop the detached stack during cleanup unless
+the user explicitly asked to keep it running:
+
+```bash
+flox activate -- bin/hogli down -y
+```
+
+If the user started the stack themselves, do not stop or restart it without
+explicit approval.

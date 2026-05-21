@@ -50,18 +50,34 @@ or whether they prefer to start it themselves.
 When the user approves agent startup, use detached mode:
 
 ```bash
-flox activate -- bin/hogli up -d
-flox activate -- bin/hogli wait --timeout 180
+flox activate -- bin/hogli up -d -y
+flox activate -- bin/hogli wait --timeout 180 -y
 ```
 
-Do not run the interactive `./bin/start` terminal UI from a headless agent
-session. In Codex, bare `hogli` may not be on PATH, and `./bin/start` may miss
-Flox-provided dependencies such as `flock`; prefer the repo-local `bin/hogli`
-through Flox.
+Do not run the interactive `hogli start` / `./bin/start` terminal UI from a
+headless agent session. In Codex, bare `hogli` may not be on PATH, and
+`./bin/start` may miss Flox-provided dependencies such as `flock`; prefer the
+repo-local `bin/hogli` through Flox.
 
-If detached startup succeeds but readiness does not, stop before checkout,
-edits, uploads, comments, or pushes. Summarize the failure and point at
-`.posthog/.generated/logs/`.
+If the agent starts detached phrocs, stop it in cleanup with:
+
+```bash
+flox activate -- bin/hogli down -y
+```
+
+Do not stop a stack the user started themselves unless they explicitly approve.
+
+After startup, use `_preflight` plus process-specific phrocs MCP checks
+(`backend`, `frontend`, and any target-specific process) as the readiness gate.
+Do not rely only on the all-process status call or on `hogli wait`; both can
+report failures while the UI is usable, especially when an unrelated configured
+process crashed. If backend or frontend is not ready, stop before checkout,
+edits, uploads, comments, or pushes. If unrelated processes crashed, read their
+phrocs logs, record the degraded stack in the run notes, and continue only when
+the crash is unrelated to the QA target.
+
+Prefer phrocs MCP logs. Fall back to `.posthog/.generated/logs/` only when MCP
+is unavailable.
 
 ## Fork PRs
 
