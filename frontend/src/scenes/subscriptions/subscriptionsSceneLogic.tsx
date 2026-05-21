@@ -22,7 +22,7 @@ import {
     type PaginatedSubscriptionListApi,
     type SubscriptionsListTargetType,
 } from '~/generated/core/api.schemas'
-import { Breadcrumb } from '~/types'
+import { AvailableFeature, Breadcrumb } from '~/types'
 
 import type { subscriptionsSceneLogicType } from './subscriptionsSceneLogicType'
 
@@ -196,7 +196,7 @@ function buildSubscriptionsListOrdering(sorting: Sorting | null): string {
 export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
     path(['scenes', 'subscriptions', 'subscriptionsSceneLogic']),
     tabAwareScene(),
-    connect(() => ({ values: [userLogic, ['user']] })),
+    connect(() => ({ values: [userLogic, ['user', 'hasAvailableFeature']] })),
     actions({
         loadSubscriptions: true,
         setSearch: (search: string) => ({ search }),
@@ -300,6 +300,11 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             null as PaginatedSubscriptionListApi | null,
             {
                 loadSubscriptions: async () => {
+                    // The UI renders a PayGateMini upsell for non-premium users; short-circuit the
+                    // API call so the gated 402 doesn't surface in error tracking.
+                    if (!values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
+                        return { count: 0, next: null, previous: null, results: [] }
+                    }
                     const projectId = String(getCurrentTeamId())
                     let resourceType: SubscriptionsListResourceType | undefined
                     if (values.currentTab === SubscriptionsTab.Dashboard) {

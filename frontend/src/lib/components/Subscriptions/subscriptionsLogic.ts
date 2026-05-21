@@ -1,11 +1,12 @@
-import { BreakPointFunction, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { BreakPointFunction, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightId } from 'scenes/insights/utils'
+import { userLogic } from 'scenes/userLogic'
 
-import { SubscriptionType } from '~/types'
+import { AvailableFeature, SubscriptionType } from '~/types'
 
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
@@ -18,6 +19,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
     key(({ insightShortId, dashboardId }) =>
         insightShortId ? `insight-${insightShortId}` : dashboardId ? `dashboard-${dashboardId}` : 'subscriptions'
     ),
+    connect(() => ({ values: [userLogic, ['hasAvailableFeature']] })),
     actions({
         deleteSubscription: (id: number) => ({ id }),
         deliverSubscription: (id: number) => ({ id }),
@@ -28,11 +30,16 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         setSubscriptionEnabledFailure: true,
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         subscriptions: {
             __default: [] as SubscriptionType[],
             loadSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
                 if (!props.dashboardId && !props.insightShortId) {
+                    return []
+                }
+                // Subscriptions is a premium-gated endpoint; skip the call so non-premium users
+                // don't surface a 402 in error tracking when the modal/list is mounted.
+                if (!values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
                     return []
                 }
 
