@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
@@ -307,6 +308,144 @@ impl<F> PinnedDrop for GrpcMetricsFuture<F> {
     }
 }
 
+// ============================================================
+// Load shedding layer
+// ============================================================
+
+/// Tower layer that sheds gRPC requests when the server is at capacity.
+///
+/// Tracks in-flight requests with an atomic counter shared across all
+/// connections on the pod. When the count exceeds `max_requests`,
+/// immediately returns gRPC `UNAVAILABLE` so the router retries on
+/// another pod. When `max_requests` is 0, the layer is a pass-through.
+#[derive(Clone)]
+pub struct GrpcLoadShedLayer {
+    max_requests: usize,
+    in_flight: Arc<AtomicUsize>,
+}
+
+impl GrpcLoadShedLayer {
+    pub fn new(max_requests: usize) -> Self {
+        Self {
+            max_requests,
+            in_flight: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+}
+
+impl<S> Layer<S> for GrpcLoadShedLayer {
+    type Service = GrpcLoadShedService<S>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        GrpcLoadShedService {
+            inner: service,
+            max_requests: self.max_requests,
+            in_flight: self.in_flight.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct GrpcLoadShedService<S> {
+    inner: S,
+    max_requests: usize,
+    in_flight: Arc<AtomicUsize>,
+}
+
+impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GrpcLoadShedService<S>
+where
+    S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+    ResBody: Default,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = GrpcLoadShedFuture<S::Future, ResBody>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
+        if self.max_requests == 0 {
+            return GrpcLoadShedFuture::Inner {
+                inner: self.inner.call(request),
+                in_flight: None,
+            };
+        }
+
+        let current = self.in_flight.fetch_add(1, Ordering::Relaxed);
+        if current >= self.max_requests {
+            self.in_flight.fetch_sub(1, Ordering::Relaxed);
+
+            let client = extract_client_name(&request);
+            let method = extract_grpc_method(request.uri().path());
+            counter!("grpc_server_load_shed_total",
+                "method" => method,
+                "client" => client,
+            )
+            .increment(1);
+
+            let response = Response::builder()
+                .status(200)
+                .header("content-type", "application/grpc")
+                .header("grpc-status", "14") // UNAVAILABLE
+                .header("grpc-message", "Server at capacity")
+                .body(ResBody::default())
+                .unwrap();
+
+            return GrpcLoadShedFuture::Shed {
+                response: Some(response),
+            };
+        }
+
+        GrpcLoadShedFuture::Inner {
+            inner: self.inner.call(request),
+            in_flight: Some(self.in_flight.clone()),
+        }
+    }
+}
+
+#[pin_project(project = GrpcLoadShedFutureProj, PinnedDrop)]
+pub enum GrpcLoadShedFuture<F, ResBody> {
+    Shed {
+        response: Option<Response<ResBody>>,
+    },
+    Inner {
+        #[pin]
+        inner: F,
+        in_flight: Option<Arc<AtomicUsize>>,
+    },
+}
+
+impl<F, ResBody, E> Future for GrpcLoadShedFuture<F, ResBody>
+where
+    F: Future<Output = Result<Response<ResBody>, E>>,
+{
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.project() {
+            GrpcLoadShedFutureProj::Shed { response } => {
+                Poll::Ready(Ok(response.take().unwrap()))
+            }
+            GrpcLoadShedFutureProj::Inner { inner, .. } => inner.poll(cx),
+        }
+    }
+}
+
+#[pinned_drop]
+impl<F, ResBody> PinnedDrop for GrpcLoadShedFuture<F, ResBody> {
+    fn drop(self: Pin<&mut Self>) {
+        if let GrpcLoadShedFutureProj::Inner {
+            in_flight: Some(counter),
+            ..
+        } = self.project()
+        {
+            counter.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
 /// Extract the gRPC method name from the URI path.
 ///
 /// gRPC paths look like: `/package.Service/MethodName`
@@ -320,4 +459,155 @@ fn extract_grpc_method(path: &str) -> String {
         .filter(|m| !m.is_empty())
         .unwrap_or("unknown")
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::convert::Infallible;
+    use std::sync::atomic::AtomicUsize;
+    use std::task::{Context, Poll};
+    use tower::Layer;
+
+    fn grpc_request(path: &str) -> Request<()> {
+        Request::builder().uri(path).body(()).unwrap()
+    }
+
+    /// Minimal service that immediately returns an empty 200 response.
+    #[derive(Clone)]
+    struct OkService;
+
+    impl Service<Request<()>> for OkService {
+        type Response = Response<()>;
+        type Error = Infallible;
+        type Future = std::future::Ready<Result<Response<()>, Infallible>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: Request<()>) -> Self::Future {
+            std::future::ready(Ok(Response::new(())))
+        }
+    }
+
+    /// Service that never resolves — useful for testing cancellation/drop.
+    #[derive(Clone)]
+    struct PendingService;
+
+    impl Service<Request<()>> for PendingService {
+        type Response = Response<()>;
+        type Error = Infallible;
+        type Future = std::future::Pending<Result<Response<()>, Infallible>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: Request<()>) -> Self::Future {
+            std::future::pending()
+        }
+    }
+
+    #[tokio::test]
+    async fn passthrough_when_disabled() {
+        let layer = GrpcLoadShedLayer::new(0);
+        let mut svc = layer.layer(OkService);
+
+        let resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
+        assert_eq!(resp.status(), 200);
+        assert!(resp.headers().get("grpc-status").is_none());
+    }
+
+    #[tokio::test]
+    async fn allows_requests_under_limit() {
+        let layer = GrpcLoadShedLayer::new(2);
+        let mut svc = layer.layer(OkService);
+
+        let resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
+        assert_eq!(resp.status(), 200);
+        assert!(resp.headers().get("grpc-status").is_none());
+    }
+
+    #[tokio::test]
+    async fn sheds_at_capacity() {
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let layer = GrpcLoadShedLayer {
+            max_requests: 2,
+            in_flight: in_flight.clone(),
+        };
+        in_flight.store(2, Ordering::Relaxed);
+
+        let mut svc = layer.layer(OkService);
+
+        let resp = svc
+            .call(grpc_request("/pkg.Svc/GetPerson"))
+            .await
+            .unwrap();
+        assert_eq!(resp.headers().get("grpc-status").unwrap(), "14");
+        assert_eq!(
+            resp.headers().get("grpc-message").unwrap(),
+            "Server at capacity"
+        );
+        // Shed path: increment then immediate decrement, net zero change
+        assert_eq!(in_flight.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn counter_decrements_on_completion() {
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let layer = GrpcLoadShedLayer {
+            max_requests: 10,
+            in_flight: in_flight.clone(),
+        };
+        let mut svc = layer.layer(OkService);
+
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+
+        let resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
+        assert!(resp.headers().get("grpc-status").is_none());
+
+        // Future completed and dropped — counter back to 0
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn counter_decrements_on_drop() {
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let layer = GrpcLoadShedLayer {
+            max_requests: 10,
+            in_flight: in_flight.clone(),
+        };
+        let mut svc = layer.layer(PendingService);
+
+        let future = svc.call(grpc_request("/pkg.Svc/Method"));
+        assert_eq!(in_flight.load(Ordering::Relaxed), 1);
+
+        // Drop without polling to completion — simulates request cancellation
+        drop(future);
+        assert_eq!(in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn shed_response_does_not_decrement_existing() {
+        let in_flight = Arc::new(AtomicUsize::new(5));
+        let layer = GrpcLoadShedLayer {
+            max_requests: 5,
+            in_flight: in_flight.clone(),
+        };
+        let mut svc = layer.layer(OkService);
+
+        let _resp = svc.call(grpc_request("/pkg.Svc/Method")).await.unwrap();
+
+        // Existing in-flight count unchanged after shed
+        assert_eq!(in_flight.load(Ordering::Relaxed), 5);
+    }
+
+    #[test]
+    fn extract_method_from_grpc_path() {
+        assert_eq!(extract_grpc_method("/package.Service/GetPerson"), "GetPerson");
+        assert_eq!(extract_grpc_method("/a.b.c/Method"), "Method");
+        assert_eq!(extract_grpc_method("/"), "unknown");
+        assert_eq!(extract_grpc_method(""), "unknown");
+    }
 }
