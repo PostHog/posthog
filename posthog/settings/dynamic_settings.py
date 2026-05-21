@@ -286,7 +286,7 @@ CONSTANCE_CONFIG = {
     ),
     "WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS": (
         get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", default=[], type_cast=list[int]),
-        "Team IDs that route eligible web analytics queries through the lazy_computation precompute path",
+        "Team IDs enrolled in the web_overview_query lazy precompute path. Admin-controlled rollout gate.",
         list[int],
     ),
 }

@@ -146,9 +146,9 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     the lazy path. Returns None on success."""
     query = runner.query
 
-    # Gate rollout per-team via instance setting (defaults to empty list = disabled).
-    # `get_instance_setting` is backed by the Constance Redis cache, so this is
-    # a single Redis hit per call — cheap enough on the hot path.
+    # Rollout gate: team must be enrolled in the
+    # `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` instance setting (admin-controlled
+    # via Django admin / instance settings UI). Defaults to empty list = disabled.
     enabled_team_ids = get_instance_setting("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS") or []
     if runner.team.pk not in enabled_team_ids:
         raise TeamNotInAllowlist()
