@@ -39,6 +39,11 @@ AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
     description="AI subscription prompt or creator is invalid",
     user_message="Cannot re-enable AI subscription: the original creator is unavailable or the prompt is invalid. Edit the subscription with a valid prompt to re-enable.",
 )
+AI_CONSENT_REVOKED_DISABLE_REASON = DisableReason(
+    key="ai_consent_revoked",
+    description="Organization has not approved AI data processing",
+    user_message="Cannot re-enable AI subscription: your organization has not approved AI data processing. Approve it in your organization settings, then re-enable this subscription.",
+)
 
 logger = structlog.get_logger(__name__)
 

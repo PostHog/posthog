@@ -45,6 +45,7 @@ from ee.tasks.subscriptions.ai_subscription.delivery import (
 )
 from ee.tasks.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from ee.tasks.subscriptions.auto_disable import (
+    AI_CONSENT_REVOKED_DISABLE_REASON,
     AI_PROMPT_INVALID_DISABLE_REASON,
     SLACK_DISCONNECTED_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
@@ -627,6 +628,17 @@ async def _deliver_ai_subscription(
         # disable reason already captures the full failure, so one entry suffices.
         return await _auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
 
+    # Re-check AI-data-processing consent at delivery time. Creation gates fire only on
+    # create, so an org that revokes approval afterwards would otherwise keep shipping
+    # project data to the LLM on every scheduled tick. Auto-disable (rather than silently
+    # skip) so it stops re-firing and the creator is told how to restore it.
+    consent_approved = await database_sync_to_async(
+        lambda: subscription.team.organization.is_ai_data_processing_approved, thread_sensitive=False
+    )()
+    if not consent_approved:
+        LOGGER.warning("deliver_subscription.ai_consent_revoked", subscription_id=subscription.id)
+        return await _auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, recipient_results)
+
     cached_markdown = await _load_cached_ai_markdown(inputs.delivery_id)
     if cached_markdown is not None:
         await LOGGER.ainfo(
@@ -661,9 +673,10 @@ async def _deliver_ai_subscription(
         await _persist_ai_markdown(inputs.delivery_id, markdown)
 
     if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
-        emails = subscription.target_value.split(",")
+        emails = [e.strip() for e in subscription.target_value.split(",") if e.strip()]
         if inputs.is_new_subscription_target and inputs.previous_value is not None:
-            emails = list(set(emails) - set(inputs.previous_value.split(",")))
+            previous_emails = {e.strip() for e in inputs.previous_value.split(",") if e.strip()}
+            emails = [e for e in emails if e not in previous_emails]
         rendered_html = render_ai_email_html(markdown)
         # Use the Temporal workflow_run_id as the MessagingRecord dedup disambiguator:
         # stable across activity retries within one run (scheduled tick dedups correctly)
