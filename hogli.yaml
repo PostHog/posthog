@@ -13,6 +13,14 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+    env:
+        files:
+            - .env.development
+            - .env.services
+        secrets:
+            file: .env.local
+            marker: 'op://'
+            wrap: [op, run, --env-file, '{file}', --]
     telemetry:
         # Write-only project token for PostHog's internal hogli project.
         # It cannot read data; safe to commit. Standalone hogli users get a blank

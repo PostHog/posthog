@@ -439,7 +439,7 @@ SPECTACULAR_SETTINGS = {
         "LensProviderEnum": "products.replay_vision.backend.models.replay_lens.LensProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
-        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.api.SEARCH_DOCUMENT_TYPES",
+        "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -684,6 +684,9 @@ PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop"
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly
 DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)
+
+# one-click passwordless login on the login page (also requires DEBUG)
+ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 
 ####
 # Random/temporary
