@@ -136,7 +136,7 @@ async def _create_alert_check(
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestPrepareAlert:
     async def test_skip_when_alert_not_found(self) -> None:
         env = ActivityEnvironment()
@@ -265,7 +265,7 @@ class TestPrepareAlert:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestEvaluateAlert:
     async def test_evaluate_not_firing_no_breaches(self, alert) -> None:
         with patch(
@@ -350,7 +350,7 @@ class TestEvaluateAlert:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestNotifyAlert:
     async def test_noop_when_not_firing(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.NOT_FIRING)
@@ -572,7 +572,7 @@ class TestNotifyAlert:
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestCleanupAlertChecks:
     async def test_delegates_to_model_classmethod(self) -> None:
         with patch.object(AlertCheck, "clean_up_old_checks", return_value=7) as mock_cleanup:
