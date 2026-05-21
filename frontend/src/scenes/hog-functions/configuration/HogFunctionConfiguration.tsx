@@ -114,9 +114,9 @@ export function HogFunctionConfiguration({
                     <div>
                         <LemonBanner type="warning">
                             <p>
-                                This {humanizeHogFunctionType(type)} is currently in an experimental state. For many
-                                cases this will work just fine but for others there may be unexpected issues and we do
-                                not offer official customer support for it in these cases.
+                                This {humanizeHogFunctionType(type)} is in alpha — feature support and behavior may
+                                change. It works well for most setups, but edge cases may surface unexpected issues
+                                and we don't offer official customer support for it yet.
                             </p>
                             {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(
                                 templateId ?? hogFunction?.template?.id ?? ''
