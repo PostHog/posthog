@@ -16,7 +16,6 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -132,6 +131,7 @@ import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
+import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -576,14 +576,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Higher confidence level reduces false positives but requires more data. Can be overridden per experiment.',
                 component: <DefaultExperimentConfidenceLevel />,
                 keywords: ['confidence', 'significance', 'p-value', 'false positive'],
-            },
-            {
-                id: 'environment-experiment-mde',
-                title: 'Default minimum detectable effect',
-                description:
-                    'The smallest effect size you want to detect with statistical significance. Lower values require more data and longer run times. Can be overridden per experiment.',
-                component: <DefaultMinimumDetectableEffect />,
-                keywords: ['mde', 'effect size', 'sensitivity', 'power', 'sample size'],
             },
             {
                 id: 'environment-experiment-recalculation-time',
@@ -1466,7 +1458,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'organization-ai-consent',
-                title: 'PostHog AI data analysis',
+                title: 'AI service providers',
                 description: (
                     <>
                         PostHog AI features, such as the PostHog AI chat, use{' '}
@@ -1478,7 +1470,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                         This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
                         below.
                         <br />
-                        <strong>Your data will not be used for training models.</strong>
+                        <strong>Your data will not be used for training third-party models.</strong>
                         <br />
                         <br />
                         <AIHipaaDisclaimer />
@@ -1488,6 +1480,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
                 searchDescription:
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
+            },
+            {
+                id: 'organization-ai-training-opt-out',
+                title: 'Internal AI training',
+                component: <OrganizationAITrainingOptOut />,
+                flag: 'AI_TRAINING',
+                keywords: ['ai', 'training', 'opt-out', 'opt-in', 'model', 'max'],
+                searchDescription:
+                    'Control whether PostHog can use your data to train AI models. Turning this off disables AI features for your organization.',
             },
             {
                 id: 'organization-ip-anonymization-default',
