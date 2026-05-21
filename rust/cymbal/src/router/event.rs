@@ -23,10 +23,10 @@ use crate::{
     types::{batch::Batch, event::AnyEvent, stage::Stage},
 };
 
-struct ProcessInFlightGuard;
+pub(super) struct ProcessInFlightGuard;
 
 impl ProcessInFlightGuard {
-    fn start() -> Self {
+    pub(super) fn start() -> Self {
         metrics::gauge!(PROCESS_IN_FLIGHT).increment(1.0);
         Self
     }
@@ -38,7 +38,7 @@ impl Drop for ProcessInFlightGuard {
     }
 }
 
-fn get_request_id(headers: &HeaderMap) -> String {
+pub(super) fn get_request_id(headers: &HeaderMap) -> String {
     headers
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
@@ -148,7 +148,10 @@ pub async fn process_events(
         })?;
 
     let slow_log_threshold_ms = ctx.config.process_slow_log_threshold_ms;
-    let pipeline = HttpEventPipeline::new(ctx.clone());
+    // Legacy /process flow: no shared batch cache (each call gets its own
+    // per-batch cache inside LinkingStage) and no spike-alert accumulator
+    // (spike detection runs inline at the end of this batch).
+    let pipeline = HttpEventPipeline::new(ctx.clone(), None, None);
     let input = Batch::from(events);
     let output = pipeline.process(input).await;
 

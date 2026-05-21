@@ -1,9 +1,11 @@
 mod event;
+mod event_v2;
 
 use axum::routing::{get, post};
 use axum::{extract::State, response::IntoResponse, Router};
 
 pub use event::*;
+pub use event_v2::*;
 
 use health::HealthStatus;
 use reqwest::StatusCode;
@@ -28,6 +30,7 @@ pub fn get_router(context: Arc<AppContext>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/process", post(process_events))
+        .route("/v2/process", post(process_events_v2))
         .route("/_readiness", get(index))
         .route("/_liveness", get(liveness))
         .fallback(not_found)

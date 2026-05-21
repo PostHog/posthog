@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
 use common_types::ClickHouseEvent;
+use moka::future::Cache;
 
 use crate::{
     app_context::AppContext,
     error::EventError,
+    issue_resolution::Issue,
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
-        alerting::AlertingStage,
+        alerting::{AlertingStage, SpikeAlertAccumulator},
         grouping::GroupingStage,
         linking::LinkingStage,
         post_processing::{PostProcessingHandler, PostProcessingStage},
@@ -17,17 +19,38 @@ use crate::{
     types::{
         batch::Batch,
         exception_properties::ExceptionProperties,
+        operator::TeamId,
         stage::{Stage, StageResult},
     },
 };
 
 pub struct ExceptionEventPipeline {
     app_context: Arc<AppContext>,
+    /// Optional override for `LinkingStage::batch_issue_cache`. When `Some`,
+    /// the supplied cache is reused; when `None`, the linking stage allocates
+    /// a fresh per-batch cache. The `/v2/process` handler creates one cache
+    /// per request and threads it through so every per-event invocation
+    /// shares the same fingerprint -> Issue dedup.
+    batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
+    /// Optional accumulator for deferring spike-alert work. When `Some`, the
+    /// alerting stage records events into shared state instead of calling
+    /// Redis; the `/v2` handler runs spike detection once at end-of-request
+    /// with the merged inputs. When `None`, spike detection runs inline at
+    /// the end of this batch (legacy `/process` behaviour).
+    spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
 }
 
 impl ExceptionEventPipeline {
-    pub fn new(app_context: Arc<AppContext>) -> Self {
-        Self { app_context }
+    pub fn new(
+        app_context: Arc<AppContext>,
+        batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
+        spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
+    ) -> Self {
+        Self {
+            app_context,
+            batch_issue_cache,
+            spike_alert_accumulator,
+        }
     }
 }
 
@@ -53,10 +76,13 @@ impl Stage for ExceptionEventPipeline {
             .apply_stage(GroupingStage::from(&self.app_context))
             .await?
             // Link events to issues and suppress
-            .apply_stage(LinkingStage::from(&self.app_context))
+            .apply_stage(LinkingStage::new(&self.app_context, self.batch_issue_cache))
             .await?
-            // Send internal events for alerting
-            .apply_stage(AlertingStage::from(&self.app_context))
+            // Send internal events for alerting (deferred if accumulator is Some)
+            .apply_stage(AlertingStage::new(
+                self.app_context,
+                self.spike_alert_accumulator,
+            ))
             .await
     }
 }
