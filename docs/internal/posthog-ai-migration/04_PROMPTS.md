@@ -151,7 +151,7 @@ For PostHog AI we want **the string form, with no `claude_code` preset**. The Cl
 [`adapters/claude/session/instructions.ts`](../../Twig/packages/agent/src/adapters/claude/session/instructions.ts) defines an unconditional `APPENDED_INSTRUCTIONS` constant that's concatenated to any system prompt (`buildSystemPrompt` glues it on — both for string-form and object-form input). Three sub-blocks:
 
 1. **`BRANCH_NAMING`** — tells the agent to create a branch prefixed `posthog-code/` whenever in detached HEAD. **Wrong for PostHog AI** — there's no repository, no detached HEAD, no need to think about branches at all.
-2. **`PLAN_MODE`** — instructs the agent on Claude Code's built-in `EnterPlanMode` tool. **Partially overlaps** with PostHog AI's own plan-mode concept (see § 4). Could be acceptable if we map "plan mode" onto the ACP `permission_mode: "plan"` channel (option C below).
+2. **`PLAN_MODE`** — instructs the agent on Claude Code's built-in `EnterPlanMode` tool. With the deprecated mode disposition in § 4, the agent decides when to enter plan mode on its own (no `permission_mode` mapping); the appended instructions about `EnterPlanMode` survive unchanged.
 3. **`MCP_TOOLS`** — "If MCP returns a denial, relay it. If MCP errors, troubleshoot — don't blame settings." **Always correct.** Keep.
 
 Combined with `buildSessionSystemPrompt` ([`agent-server.ts:1529-1726`](../../Twig/packages/agent/src/server/agent-server.ts)), which appends a `cloudAppend` block per the table below, the unmodified pipeline would dilute PostHog AI's system prompt with several KB of repository/PR copy.
@@ -253,7 +253,7 @@ The "target" column names the slot in the new prompt (see § 6.2 for ordering) o
 | `PROACTIVENESS_PROMPT` | Keep | New prompt § 4 (Proactiveness). | Behavior guidance, transport-agnostic. |
 | `BASIC_FUNCTIONALITY_PROMPT` | Edit | New prompt § 5 (Capabilities and data model). | Remove the line "Do not generate any code like Python scripts. Users don't have the ability to run code." — in the sandbox the agent *can* run code locally via the Bash tool (if surfaced via `posthog-code` MCP). Replace with "You may compute small things inline; do not produce code for the user unless asked." Otherwise verbatim. `{{{groups_prompt}}}` interpolated server-side (§ 6.3). |
 | `SLASH_COMMANDS_PROMPT` | Edit | New prompt § 6 (Slash commands). | Drop `/usage` if `02_CORE.md` § 8 routes it differently (cloud-agent usage is computed from `_posthog/usage_update` notifications, not a slash command). Otherwise verbatim. Confirm with `02_CORE.md` owner. |
-| `SWITCHING_MODES_PROMPT` | Drop | — | The "modes" concept changes shape in the sandbox (see § 4). The replacement is either zero text (option A), per-Task profile (option B), or a short note about `permission_mode` (option C). The 2.5 KB of "when/how to switch modes" copy goes away regardless. |
+| `SWITCHING_MODES_PROMPT` | Drop | — | The "modes" concept is deprecated for the sandbox runtime (see § 4 — it's reduced to a one-line hint inside `<posthog_context>`). The 2.5 KB of "when/how to switch modes" copy goes away. |
 | `TASK_MANAGEMENT_PROMPT` | Move-to-tool | `todo_write` MCP tool description. | The two narrative examples belong on the tool's `description` field — that's where Claude Code reads them from. The system prompt then just has one line "Use `todo_write` to plan multi-step work; mark items done as you finish." |
 | `DOING_TASKS_PROMPT` | Edit | New prompt § 7 (Doing tasks). | Drop the `<system_reminder>` paragraph — that's a LangChain idiom we don't need in MCP-tool-result land. Keep the "use search and read extensively" guidance. |
 | `PRODUCT_ADVOCACY_PROMPT` | Keep | New prompt § 8 (Product advocacy). | Verbatim. Keep the explicit competitor list. |
@@ -261,18 +261,18 @@ The "target" column names the slot in the new prompt (see § 6.2 for ordering) o
 | `AGENT_PROMPT` (the wrapper) | Drop | — | Replaced by `build_posthog_ai_system_prompt` (§ 6). The Mustache wrapper is now a Python f-string concatenation in the build function. |
 | `AGENT_CORE_MEMORY_PROMPT` | **Drop** | — | Core memory is dropped entirely from the sandbox runtime (per `00_OVERVIEW.md` § 3). No core-memory block in the unified prompt; no `{{core_memory}}` resolution. See `TODO.md` for the backfill conversation. |
 | `CONTEXTUAL_TOOLS_REMINDER_PROMPT` | Drop | — | Replaced by `01_CONTEXT.md`'s active-context manifest + the MCP server tool surface. The model learns "what tools are available" by reading the tool list, not a system-reminder block; the model learns "what's pinned" from the per-turn `<attached_context>` block. |
-| `CHAT_PLAN_AGENT_PROMPT` (wrapper) | Drop | — | Plan mode reconciliation (§ 4) decides whether this content survives and in what form. With the recommended option C, only `CHAT_PLAN_MODE_PROMPT`, `CHAT_ONBOARDING_TASK_PROMPT`, `PLANNING_TASK_PROMPT` survive — and they're gated behind `permission_mode === "plan"`. |
-| `CHAT_PLAN_MODE_PROMPT` | Keep (gated) | New prompt § 10 (Plan-mode addendum), only emitted when `permission_mode === "plan"`. | Conditional segment. The "three tasks" enumeration (clarify → plan → switch to execution) still applies. |
-| `CHAT_ONBOARDING_TASK_PROMPT` | Keep (gated) | New prompt § 10. | Same gating. |
-| `SWITCHING_TO_EXECUTION_PROMPT` | Edit (gated) | New prompt § 10. | Rephrase from "use `switch_mode` to flip to execution" to "call `posthog_plan_finalize_plan` to lock the plan; the user will be prompted to approve". The actual transition is `ExitPlanMode` (Claude Code's built-in) when option C is chosen — see § 4. |
-| `SWITCHING_TO_PLAN_PROMPT` | Edit (gated) | New prompt § 9b (Plan-mode hint). | Convert "Use `switch_mode` to enter plan mode" to "Use `EnterPlanMode` (built-in) when the task warrants planning — see below for criteria". Conditional on `posthog-plan-mode` flag. |
-| `PLANNING_TASK_PROMPT` | Keep (gated) | New prompt § 10. | Plan-notebook template stays. |
+| `CHAT_PLAN_AGENT_PROMPT` (wrapper) | Drop | — | Per § 4, mode-switching is deprecated; the plan-mode prompt wrapper has no equivalent in the sandbox runtime. Claude Code's built-in `EnterPlanMode` handles plan-mode behavior when the agent judges it appropriate. |
+| `CHAT_PLAN_MODE_PROMPT` | Drop | — | Same — no plan-mode-gated system-prompt section. |
+| `CHAT_ONBOARDING_TASK_PROMPT` | Drop | — | Same. |
+| `SWITCHING_TO_EXECUTION_PROMPT` | Drop | — | Same. |
+| `SWITCHING_TO_PLAN_PROMPT` | Drop | — | Same. |
+| `PLANNING_TASK_PROMPT` | Drop | — | The plan-notebook template was tied to `FinalizePlanTool`, which is also dropped (§ 5.1). |
 | `EXECUTION_CAPABILITIES_PROMPT` | Drop | — | Listing every default tool and every available mode in the system prompt is no longer needed — Claude SDK exposes the tool list directly to the model. Drop the `{{{default_tools}}}` and `{{{available_modes}}}` placeholders entirely. (Confirm by snapshot-testing that the model still finds the right tools without the enumeration — it should, given MCP discovery happens automatically.) |
 | `ROOT_GROUPS_PROMPT` | Keep | Interpolated into `BASIC_FUNCTIONALITY_PROMPT` via the `{{groups_prompt}}` slot in § 6.3. | Same content. |
 | `ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT` | Keep | New prompt § 11 (Billing). One of three variants. | Selection logic identical to `BillingPromptMixin._get_billing_prompt`. |
 | `ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT` | Keep | New prompt § 11. | — |
 | `ROOT_BILLING_CONTEXT_ERROR_PROMPT` | Keep | New prompt § 11. | — |
-| `SWITCH_MODE_PROMPT` | Drop or move | Tool description for the legacy `switch_mode` tool. | If option A or option C is chosen (§ 4), the `switch_mode` tool goes away entirely → drop. If option B is chosen, the tool description moves to the MCP server that surfaces it. |
+| `SWITCH_MODE_PROMPT` | Drop | — | Per § 4, the `switch_mode` tool goes away entirely. |
 | `HOGQL_GENERATOR_SYSTEM_PROMPT` | Move-to-tool | `posthog-data` MCP server: `execute_sql` tool description, plus a "system instructions" preface returned with every tool call. | This 36 KB prompt was the SQL sub-agent's *own* system prompt — it never sat in the main chat agent's prompt. In the new world, the SQL sub-agent is the `execute_sql` MCP tool. Two delivery shapes available: (a) embed the function-casing rules and join-limitation guidance in the tool's `description` field (sub-1-KB summary) and stash the full docs in an MCP resource (`schema://hogql/functions`, `schema://hogql/aggregations`, `schema://hogql/expressions`) that the model fetches on first SQL question; (b) pass the whole thing as a "system reminder" `_meta` block on each `execute_sql` tool result. Recommendation: (a) — better caching, agent can read once and reuse via Claude's context window. |
 | `POSITIVE_TODO_EXAMPLES` (per-mode) | Move-to-tool | `todo_write` MCP tool description. | The dashboard-creation example, the SQL examples — they're examples of how to use `todo_write` for a given domain. They belong on the tool's description, picked dynamically based on installed MCP servers (see § 5.3). |
 | `SQL_EXPRESSIONS_DOCS`, `SQL_SUPPORTED_FUNCTIONS_DOCS`, `SQL_SUPPORTED_AGGREGATIONS_DOCS` | Move-to-tool | MCP resources under `posthog-data`. | The model fetches via the standard MCP resource flow. Don't inline. |
@@ -280,98 +280,44 @@ The "target" column names the slot in the new prompt (see § 6.2 for ordering) o
 
 ---
 
-## 4. Mode-switching: keep, drop, or transform
+## 4. Mode-switching: dumb-simple context hint (deprecated)
 
-This is the highest-leverage decision in the spec. PostHog AI's `SwitchModeTool` is a hot-loop mechanism — the model calls it, the LangGraph executor flips `state.mode`, the next iteration uses a different toolkit and prompt template. The sandbox has no equivalent hook: a Run is single-session, tool list is fixed at `newSession()` time (modulo `_posthog/refresh_session`).
+Note for internal devs: PostHog AI's mode concept (`SwitchModeTool`, `mode_manager`, the per-preset toolkits and prompt sections) is on a removal track and doesn't carry over to the sandbox runtime in any structural form. Don't build new mode-aware features. The interim behavior below keeps the existing mode dropdown working as a soft hint until the cleanup phase removes the UI entirely.
 
-### 4.1 Option A — unified prompt
+### 4.1 The interim behavior
 
-**Idea:** Drop modes entirely. One long systemPrompt that describes the agent's full capability set. The toolkit at Run start contains every tool from every mode.
+For sandbox-runtime conversations, the user's selected mode is injected as a single line inside the same `<posthog_context>` block that carries attached entities (`01_CONTEXT.md` § 1). That's the whole thing. No prompt branching, no tool gating, no permission-mode flipping.
 
-**Pros:**
+Today's chat surface lets the user pick a mode (Product analytics, SQL, Error tracking, Session replay, etc.). When `agent_runtime === 'sandbox'`, the relay reads the currently-selected mode off the `/conversations/stream/` request body (already sent today as `agent_mode`) and renders it as a hint inside the per-message wrapper:
 
-- Simplest mental model. One Run, one prompt, all tools.
-- No transitions to engineer; no transition latency.
-- The model picks tools based on the user's question alone, without a mode-routing step.
+```
+<posthog_context>
+The user attached the following PostHog entities. Use the appropriate tools to retrieve their details only if relevant to the request.
+Selected area: SQL — the user picked the SQL workspace; this is a hint about what they want help with, not a constraint on which tools you may call.
+- Dashboard #123 ("Marketing Funnel")
+</posthog_context>
 
-**Cons:**
+<user's actual message>
+```
 
-- Prompt bloat. Concatenating the static prose for product-analytics, SQL, error-tracking, session-replay, LLM-analytics, surveys, and flags — even just the 1-paragraph descriptions of each — adds ~5 KB. Each preset's `POSITIVE_TODO_EXAMPLES` adds another 3-4 KB. The SQL prompt alone (if moved into the main prompt) adds 36 KB.
-- Tool-selection confusion. With ~25 tools available simultaneously, Claude routinely picks suboptimal tools (model-quality observation from production usage of similar wide toolkits — confirm with AI team's eval data).
-- Auth scope creep. Some modes today expose write tools (`UpsertDashboardTool`, `UpsertAlertTool`, `UpsertExperimentTool`) that we currently gate behind `acceptEdits` permission mode. Always-on means always-asked, increasing dangerous-operation prompts (`03_RICH_UI.md` § 5).
+That's the entire mode contract for the sandbox runtime. The agent has every MCP tool available regardless of the selected mode; the hint just nudges intent.
 
-**When this works:** if the AI team's evals show Claude-with-bigger-toolkit performs as well as Claude-with-mode-routing, this is the simplest path.
+If the user hasn't picked a mode (or picked the generic default), the relay omits the line. The block degrades to the entity-only form from `01_CONTEXT.md` § 1.
 
-### 4.2 Option B — multiple sandbox profiles
+### 4.2 What this means for prompt composition
 
-**Idea:** User picks a mode at Task creation. The Task records `mode: "sql"` (etc.). Sandbox launches with that mode's `systemPrompt` and `mcpServers`. Mode cannot change mid-Task.
+- **No `permission_mode === "plan"` mapping.** Plan mode in the sandbox is whatever Claude Code's built-in `EnterPlanMode` does, exposed as an ordinary tool. The agent enters plan mode when it judges the task warrants it; the user does not select plan mode from a dropdown in the new world.
+- **No "Capabilities by domain" section in the system prompt.** All mode-related prose drops from `build_posthog_ai_system_prompt` (§ 6.2 below).
+- **No tool gating by mode.** Every team gets every MCP server in `--mcpServers` that's feature-flag-enabled for them; mode selection does not filter that list.
+- **All preset prompt prose** — `PRODUCT_ANALYTICS_MODE_DESCRIPTION`, `SQL_MODE_DESCRIPTION`, `ERROR_TRACKING_MODE_DESCRIPTION`, `SESSION_REPLAY_MODE_DESCRIPTION`, `LLM_ANALYTICS_MODE_DESCRIPTION`, `SURVEY_MODE_DESCRIPTION`, `FLAGS_MODE_DESCRIPTION` and the per-preset `POSITIVE_TODO_EXAMPLES` — **drops from the system prompt entirely.** The genuinely evergreen content (SQL function casing rules, person_id join limitation) stays, but on the relevant **MCP tool descriptions** where it belongs (and benefits from per-tool prompt caching). See § 5.3 for tool-description authoring guidance.
 
-**Pros:**
+### 4.3 Frontend disposition
 
-- Smaller per-Task prompt: only the relevant mode's prose.
-- Smaller toolkit: only the relevant mode's tools, lower miss-tool rate.
-- Cheaper: smaller prompt = cheaper prompt cache.
+`MODE_DEFINITIONS`, `SPECIAL_MODES`, `AI_GENERALLY_CAN`, `AI_GENERALLY_CANNOT`, `getToolsForMode()` in `max-constants.tsx` — kept untouched per `BACKWARD_COMPAT.md` (LangGraph runtime still consumes them). When the sandbox runtime defaults on and the cleanup phase runs, the entire mode picker and these constants go away. Until then they coexist; the sandbox path just reads the selected mode value and forwards it to the relay.
 
-**Cons:**
+### 4.4 Open question — what does "Selected area" actually shift?
 
-- Loses today's most-loved property: fluid mode switching. User types "find users who spent $50, then build a funnel for them" — today that's a `sql → product_analytics` flip, in option B that's "sorry, please start a new chat in product-analytics mode and reference the user list".
-- Forces a mode picker at Task creation, in a chat surface that today has none.
-- Cross-mode work requires multiple Tasks, which makes history confusing.
-
-**When this works:** if PostHog AI's user behavior is dominated by single-mode chats (data point we don't yet have — `posthog-ai-mode-distribution` query in PostHog itself can answer it).
-
-### 4.3 Option C — permission_mode reuse + content sections
-
-**Idea:** Map the user-facing "plan vs execute" axis to ACP `permission_mode: "plan" | "default" | "acceptEdits" | "bypassPermissions"` (`CLOUD_AGENTS_FRONTEND_SPEC.md` § 10.5). The other axes (`sql / product_analytics / error_tracking / …`) **collapse into tool-availability gates plus prompt sections in one unified prompt**, but with two key affordances:
-
-1. The unified prompt has a section "Capabilities by domain" with a one-line summary of each mode and a pointer to the corresponding MCP server / tools. The model reads this and routes to tools accordingly.
-2. The sandbox starts with **all** MCP servers connected, but feature-flag-gated. If a server isn't applicable (e.g. the user doesn't have LLM analytics enabled), it's not in the `--mcpServers` list.
-3. Plan mode uses Claude Code's built-in `EnterPlanMode` tool (already in the `claude_code` preset). When `permission_mode` flips to `plan`, the agent-server's `_posthog/mode_change` notification fires; the frontend shows the plan-mode banner.
-4. The user can switch the permission mode mid-Run via `set_config_option("mode", "plan" | "default" | …)` ([`CLOUD_AGENTS_FRONTEND_SPEC.md` § 6.6](../CLOUD_AGENTS_FRONTEND_SPEC.md)). The agent picks up the change without a session restart.
-
-**Pros:**
-
-- Reuses an existing mechanism (`permission_mode`) instead of inventing one.
-- Single Run per chat; conversation history never fragments.
-- The "plan" UX (today's biggest mode-switching use case) is preserved with first-class agent-server support.
-- Other "modes" (product analytics, SQL, error tracking) become MCP tool groupings, which is what they actually are in implementation today.
-
-**Cons:**
-
-- Sub-mode-specific prompt augmentations (e.g. SQL's "person_id join limitation" guidance) must live on the tool descriptions or MCP resources, not in the system prompt. This is a stricter architectural constraint than today.
-- The "I'm now in SQL mode" affordance is gone. We replace it with whatever UI the frontend renders when the agent calls into the `execute_sql` tool (`03_RICH_UI.md` § 4 owns the rendering).
-- Today's `switch_mode` tool disappears. Any in-flight conversations that reference "switch_mode" need a soft migration during the rollout (see § 7).
-
-### 4.4 Recommendation
-
-**Adopt option C.**
-
-Rationale:
-
-- It mirrors what PostHog Code does today on the same sandbox — proven shape.
-- It's the only option where today's most-loved property (fluid mid-conversation routing) survives unchanged.
-- The `permission_mode === "plan"` mapping captures the highest-value piece of today's mode system (plan/execute) and inherits the agent-server's built-in plan-mode plumbing (`EnterPlanMode`, `_posthog/mode_change` notification, mid-Run `set_config_option`).
-- Sub-domain "modes" become tool groupings, which is the simpler and more honest model — there was never a model-level difference between "SQL mode" and "product-analytics mode" except for which tools were available.
-
-The mode-specific prose that has real evergreen value (SQL function casing rules, person_id join limitation, dashboard-creation todo example) moves to MCP tool descriptions and MCP resources where it belongs (and where it benefits from per-tool prompt caching).
-
-The one piece we lose: the LangGraph executor's ability to *not* show the user "switching to SQL mode…" status updates while it's reasoning about which mode to switch to. We compensate by surfacing the `_posthog/progress` notifications driven by the agent's own narration ("I'll write a SQL query…"). This is what PostHog Code does today; it works.
-
-### 4.5 Mode-specific prompt migration plan (with option C)
-
-For each preset, decide where its prose lives:
-
-| Preset | Body today | Migration target |
-|---|---|---|
-| `product_analytics` | `ProductAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES` + `PRODUCT_ANALYTICS_MODE_DESCRIPTION` | The dashboard-creation example → `todo_write` MCP tool description (selected when the team has product analytics enabled). The mode description → tool description for `create_insight` and `upsert_dashboard` MCP tools. |
-| `sql` | `SQLAgentToolkit.POSITIVE_TODO_EXAMPLES` (3 examples) + `SQL_MODE_DESCRIPTION` + the full `HOGQL_GENERATOR_SYSTEM_PROMPT` (36 KB) | Examples → `todo_write` tool description (SQL-team-flagged). Function-casing rules → `execute_sql` MCP tool description (always sent). Person_id join limitation → ditto. Expressions/functions/aggregations docs → MCP resources (`schema://hogql/...`) fetched lazily. Mode description → `execute_sql` tool description. |
-| `error_tracking` | Toolkit + `ERROR_TRACKING_MODE_DESCRIPTION` | Tool descriptions for `posthog_data_get_error_tracking_issue` etc. |
-| `session_replay` | Toolkit + `SESSION_REPLAY_MODE_DESCRIPTION` | Tool descriptions for `posthog_data_query_session_recordings_list` etc. |
-| `llm_analytics` | Toolkit + `LLM_ANALYTICS_MODE_DESCRIPTION` | Tool descriptions for `posthog_data_query_llm_*` etc. |
-| `survey` | Toolkit + `SURVEY_MODE_DESCRIPTION` | Tool descriptions for survey-related tools. |
-| `flags` | Toolkit + `FLAGS_MODE_DESCRIPTION` | Tool descriptions for `feature-flag-*` tools. |
-
-The shared "Capabilities by domain" section in the unified system prompt (§ 6.2 § C) gets *one line per domain*, pointing at the corresponding MCP server. The detailed prose lives on the tool — read once by the model, cached.
+The hint phrasing in § 4.1 is intentionally weak ("a hint about what they want help with, not a constraint"). If evals show that adding any mode hint biases the agent toward wrong tools, drop the line entirely and let the user's typed question speak for itself. The fallback is zero — the mode dropdown becomes a vestigial UI element until cleanup removes it.
 
 ---
 
@@ -398,8 +344,8 @@ Every tool in [`ee/hogai/chat_agent/toolkit.py`](../../posthog/ee/hogai/chat_age
 | `TaskTool` (PostHog Code integration) | [`tools/task.py`](../../posthog/ee/hogai/tools/task.py) | **`posthog-code`** | `posthog_code_create_task`, `posthog_code_get_task`, etc. | Routes PostHog AI → PostHog Code. The team-flag `task_tool` already gates today; carry forward. |
 | `CreateTaskTool`, `RunTaskTool`, `GetTaskRunTool`, `GetTaskRunLogsTool`, `ListTasksTool`, `ListTaskRunsTool`, `ListRepositoriesTool` | `products/tasks/backend/max_tools.py` | `posthog-code` (same server as `TaskTool`) | `posthog_code_*` | All seven — grouped under `posthog-code`. Behind the `has_phai_tasks` flag today. |
 | `CreateFormTool` | [`tools/create_form.py`](../../posthog/ee/hogai/tools/create_form.py) | **Client-side tool — see `03_RICH_UI.md` § 4** | (renders UI; not a backend MCP) | We mention it here only as boundary. The form-submit answers come back as user-message follow-ups. Owned by `03_RICH_UI.md`. |
-| `FinalizePlanTool` | [`tools/finalize_plan/`](../../posthog/ee/hogai/tools/finalize_plan/) | Built-in: `ExitPlanMode` (Claude Code) | — | With option C (§ 4), Claude Code's built-in `ExitPlanMode` does the job. Drop our custom tool. The plan body it would have written goes via a notebook the agent creates (per `PLANNING_TASK_PROMPT`'s template). |
-| `SwitchModeTool` | [`tools/switch_mode.py`](../../posthog/ee/hogai/tools/switch_mode.py) | n/a (drop) | — | With option C (§ 4), drop entirely. The mode concept is gone; the permission-mode toggle is via `set_config_option`. |
+| `FinalizePlanTool` | [`tools/finalize_plan/`](../../posthog/ee/hogai/tools/finalize_plan/) | Built-in: `ExitPlanMode` (Claude Code) | — | Per § 4, Claude Code's built-in `ExitPlanMode` handles plan-mode transitions. Drop our custom tool. |
+| `SwitchModeTool` | [`tools/switch_mode.py`](../../posthog/ee/hogai/tools/switch_mode.py) | n/a (drop) | — | Per § 4 (deprecated mode concept), drop entirely. |
 | Contextual tools (`useMaxTool`-registered) | various (e.g. `UpsertFlagFilterTool` lives next to the scene logic) | Frontend dispatched, see `03_RICH_UI.md` § 4 | — | Owned by `03_RICH_UI.md`. They're not backend MCP tools; they're browser-rendered actions the model calls. |
 So we end up with **four new MCP servers** (down from six in the prior iteration):
 
@@ -500,7 +446,6 @@ async def build_posthog_ai_system_prompt(
     team: Team,
     user: User,
     *,
-    permission_mode: Literal["default", "acceptEdits", "plan", "bypassPermissions"] = "default",
     context_summary: dict | None = None,  # NOT the full per-turn context — that goes elsewhere
     feature_flag_snapshot: FeatureFlagSnapshot | None = None,
 ) -> str:
@@ -515,9 +460,10 @@ Inputs:
 
 - **`team`** — for `groups_prompt` (group type names), `billing_context` (subscription state).
 - **`user`** — for `billing_context` (admin role), feature-flag evaluation.
-- **`permission_mode`** — drives whether the plan-mode section is included. Run-create takes `state.initial_permission_mode` if specified, else the default (`"default"` for Claude, `"auto"` for Codex — `CLOUD_AGENTS_FRONTEND_SPEC.md` § 10.5).
 - **`context_summary`** — *optional* small static slice of context that's truly per-Run-immutable (e.g. project name, default timezone). Anything that may change scene-by-scene goes via `01_CONTEXT.md`'s per-turn channel, not here.
 - **`feature_flag_snapshot`** — a frozen view of every flag that affects prompt composition. If omitted, the function reads flags itself (one round-trip). Threading the snapshot lets the Task-create endpoint share one flag-evaluation across many derived values.
+
+`permission_mode` is **not** a build-function input — per § 4, the system prompt is mode-agnostic. The sandbox runtime's `state.initial_permission_mode` is still set (per `CLOUD_AGENTS_FRONTEND_SPEC.md` § 10.5) but it does not affect prompt composition.
 
 Output: a single fully-formatted string, ready to pass through to `systemPrompt`.
 
@@ -562,18 +508,8 @@ The composed prompt structure, in order:
 
 {tool_usage_policy}                             # TOOL_USAGE_POLICY_PROMPT edited (§ 3)
 
-# Plan-mode addendum, emitted only when permission_mode == "plan":
-<plan_mode>
-{chat_plan_mode}                                # CHAT_PLAN_MODE_PROMPT
-{chat_onboarding_task}                          # CHAT_ONBOARDING_TASK_PROMPT
-{planning_task}                                 # PLANNING_TASK_PROMPT
-{switching_to_execution}                        # SWITCHING_TO_EXECUTION_PROMPT — rewritten per § 3
-</plan_mode>
-
-# Switching-to-plan hint, emitted only when has_plan_mode_feature_flag is true AND permission_mode != "plan":
-<plan_mode_hint>
-{switching_to_plan_rewritten}                   # SWITCHING_TO_PLAN_PROMPT rewritten to talk about EnterPlanMode
-</plan_mode_hint>
+# (No <plan_mode> or <plan_mode_hint> blocks — per § 4, plan-mode prose is dropped;
+# Claude Code's built-in EnterPlanMode is exposed as an ordinary tool with its own description.)
 
 <billing_context>
 {billing_context}                               # one of three variants — see § 6.3
@@ -607,8 +543,8 @@ All Mustache `{{{var}}}` placeholders get resolved at Run-create time and concat
 | `{{{doing_tasks}}}` | constant (edited) | inline |
 | `{{{product_advocacy}}}` | constant | inline |
 | `{{{tool_usage_policy}}}` | constant (edited) | inline |
-| `{{{chat_plan_mode}}}` / `{{{chat_onboarding_task}}}` / `{{{planning_task}}}` / `{{{switching_to_execution}}}` | constants | inline, gated on `permission_mode == "plan"` |
-| `{{{switching_to_plan_rewritten}}}` | constant | inline, gated on `feature_flag_snapshot.has_plan_mode_feature_flag` and `permission_mode != "plan"` |
+| ~~`{{{chat_plan_mode}}}` / `{{{chat_onboarding_task}}}` / `{{{planning_task}}}` / `{{{switching_to_execution}}}`~~ | **dropped** | n/a — per § 4. |
+| ~~`{{{switching_to_plan_rewritten}}}`~~ | **dropped** | n/a — per § 4. |
 | `{{{billing_context}}}` | dynamic | `await _resolve_billing_context(team, user)` — same logic as today's `BillingPromptMixin._get_billing_prompt`. |
 | `{{{project_name}}}` | dynamic | `team.name` |
 | `{{{project_timezone}}}` | dynamic | `team.timezone` |
@@ -618,7 +554,7 @@ All Mustache `{{{var}}}` placeholders get resolved at Run-create time and concat
 The resolution pattern in the function body:
 
 ```python
-async def build_posthog_ai_system_prompt(team, user, *, permission_mode, context_summary, feature_flag_snapshot):
+async def build_posthog_ai_system_prompt(team, user, *, context_summary, feature_flag_snapshot):
     flags = feature_flag_snapshot or await _snapshot_flags(team, user)
     context_manager = AssistantContextManager(team=team, user=user)
 
@@ -649,10 +585,8 @@ async def build_posthog_ai_system_prompt(team, user, *, permission_mode, context
     parts.append(PRODUCT_ADVOCACY_PROMPT)
     parts.append(TOOL_USAGE_POLICY_PROMPT_REWRITTEN)
 
-    if permission_mode == "plan":
-        parts.append(_build_plan_mode_block())
-    elif flags.has_plan_mode_feature_flag:
-        parts.append(_build_plan_mode_hint_block())
+    # No plan-mode block — see § 4 (mode-switching is a one-line hint inside
+    # <posthog_context>, not a systemPrompt section).
 
     parts.append(f"<billing_context>\n{billing_prompt}\n</billing_context>")
     parts.append(_build_project_context_block(team, context_summary))
@@ -671,17 +605,14 @@ The composed prompt is the most stable surface in the migration. Snapshot tests 
 
 **Coverage matrix (parameterized — per project convention to use `parameterized`):**
 
-| Test | `permission_mode` | Team configuration | Flags |
-|---|---|---|---|
-| baseline default mode | `"default"` | groups: `["organization", "instance"]`; core memory: empty; billing: with access | `has_plan_mode_feature_flag=True` |
-| baseline plan mode | `"plan"` | as above | as above |
-| no groups | `"default"` | groups: `[]`; core memory: empty | as above |
-| with core memory | `"default"` | groups: as above; core memory: 500 chars | as above |
-| billing — no access | `"default"` | as above; user not admin | as above |
-| billing — error | `"default"` | as above; no billing context fetched | as above |
-| no plan-mode flag | `"default"` | as above | `has_plan_mode_feature_flag=False` |
-| acceptEdits permission mode | `"acceptEdits"` | as above | as above |
-| bypassPermissions mode | `"bypassPermissions"` | as above | as above |
+| Test | Team configuration | Flags |
+|---|---|---|
+| baseline | groups: `["organization", "instance"]`; billing: with access | default |
+| no groups | groups: `[]`; billing: with access | default |
+| billing — no access | groups: as baseline; user not admin | default |
+| billing — error | groups: as baseline; no billing context fetched | default |
+
+Permission-mode variants are not tested because per § 4 the build function no longer reads `permission_mode`.
 
 Snapshot the full composed string. Use `pytest-snapshot` or `syrupy`. Snapshots live in `posthog/ee/hogai/chat_agent/test/__snapshots__/test_sandbox_prompt.ambr` (or equivalent).
 
@@ -717,8 +648,7 @@ Before flipping the flag for any internal user, the new prompt must pass the AI 
 | SQL generation eval | ≥ today's pass rate. Function casing and person_id join rules must be respected at ≥ today's frequency (these moved from system prompt to tool description; the test confirms the model still picks them up). |
 | Dashboard generation eval | ≥ today's. |
 | Error-tracking triage eval | ≥ today's. |
-| Plan-mode eval | ≥ today's pass rate. With option C, "plan mode" is `permission_mode === "plan"` + the addendum prompt — confirm the model still completes the clarify → finalize_plan → request approval → switch arc. |
-| Mode-routing eval (NEW) | Given a user question that today triggers a `switch_mode("sql")`, with the new prompt the model should call `posthog_data_execute_sql` directly. ≥ 90% accuracy. |
+| Mode-routing eval (NEW) | Given a user question that today triggers a `switch_mode("sql")`, with the new prompt the model should call `posthog_data_execute_sql` directly. ≥ 90% accuracy. Plan-mode is now driven by Claude Code's built-in `EnterPlanMode`; we don't gate a separate eval since the agent decides on its own. |
 | Slash command eval | `/init`, `/remember`, `/usage`, `/feedback`, `/ticket` — confirm the model continues to interpret them correctly. (Note: most are routed by the frontend before they hit the agent, so this is a degenerate test.) |
 
 In addition, run a 100-user beta with internal employees for two weeks, capturing:
@@ -751,7 +681,7 @@ Document the deletion plan in a tracking issue. Tag the AI team.
 ## 8. Open questions
 
 1. **Cloud-prompt extras opt-out.** Should we add `--no-cloud-prompt-extras` (or `--cloud-prompt-mode=posthog_ai`) to the agent-server to short-circuit the No-Repository-Mode block when running in PostHog AI? Pro: ~1 KB token savings per Run. Con: agent-server fork point. Recommendation: do it post-MVP if usage data shows the dead-weight matters. *Owner: AI + agent-server.*
-2. **Plan-mode UX.** Option C maps "plan mode" to ACP `permission_mode === "plan"`. The UI affordance today (`PlanModeBanner` in `scenes/max/`) needs to wire to `_posthog/mode_change` notifications instead of the LangGraph-emitted plan-mode signal. Confirm `03_RICH_UI.md` is aware. *Owner: AI + frontend.*
+2. **Plan-mode UX.** Per § 4, the LangGraph plan-mode pathway is deprecated and Claude Code's built-in `EnterPlanMode` runs as an ordinary tool. The `PlanModeBanner` in `scenes/max/` either becomes a passive "in plan mode" reflection (driven by ACP `current_mode_update` notifications surfaced via `sandboxStreamLogic.values.currentMode` per `02_CORE.md` § 6.3) or is dropped entirely when the mode UI cleanup ships. *Owner: AI + frontend.* |
 3. **TodoWrite: built-in or `posthog-tasks`?** Claude Code's built-in `TodoWrite` is close enough — but it doesn't persist across Runs. PostHog AI today persists todos with the conversation. If we want cross-Run persistence (which `02_CORE.md`'s Task-as-conversation model wants), we need our own `posthog-tasks` MCP. *Owner: AI.*
 4. **Slash command routing.** `/init`, `/remember`, `/usage`, `/feedback`, `/ticket` — `02_CORE.md` § 8 owns the routing decision. The prompt content (`SLASH_COMMANDS_PROMPT`) survives as-is, but if any command no longer exists, edit accordingly. *Owner: AI + frontend.*
 5. **HogQL prompt placement.** Inlining the 36 KB SQL prompt into the `execute_sql` tool description means every tool-call invocation hits a ~36 KB prompt-cache page. Acceptable if Claude's prompt-cache handles it (it should — same key per tool call). Alternative: split function-casing + person_id rules into the description (~1 KB), expose the rest as MCP resources (`schema://hogql/functions`, etc.) — agent fetches once and caches in conversation context. Recommendation: split. Confirm with AI team — the split needs eval validation. *Owner: AI.*
@@ -760,7 +690,7 @@ Document the deletion plan in a tracking issue. Tag the AI team.
 8. **Backward-compatible `switch_mode` sunset.** During the rollout window, some in-flight conversations will reference `switch_mode` in their message history. The new agent doesn't have that tool. The cleanest handling: do nothing — the model won't call a tool it doesn't see. The model may *say* it would switch modes; that's verbal-only narration. Acceptable. *Owner: AI.*
 9. **Region-specific copy.** `<project_context>` carries `region` (US/EU). Is there any region-specific copy we should inject (e.g. data residency reminders for EU, links to region-specific docs)? *Owner: AI + product.*
 10. **Web search tool placement.** Today, `web_search` is gated behind "no Bedrock primary" (`toolkit.py:147-151`). The same gating applies in the sandbox — Bedrock-routed sandboxes shouldn't expose `web_search`. Where does this decision live? Recommend: at Run-create, the Task-create endpoint inspects the LLM gateway routing for the team and conditionally omits `web_search` from `--mcpServers` (it's a Claude built-in, but it can be disabled). *Owner: AI.*
-11. **`{{{onboarding_task}}}` migration.** `CHAT_ONBOARDING_TASK_PROMPT` describes when to ask clarifying questions via `create_form`. `create_form` is a client-side tool (`03_RICH_UI.md` § 4). The system prompt mentions it; the tool is registered by the frontend via `usePostHogAiTool`; the model must see it in the tool list to call it. Confirm with `03_RICH_UI.md` that `create_form` is always registered. *Owner: AI + frontend.*
+11. **`{{{onboarding_task}}}` migration.** `CHAT_ONBOARDING_TASK_PROMPT` describes when to ask clarifying questions via `create_form`. With § 4's deprecation, the onboarding-task prompt drops; clarification-via-form behavior comes from the agent's default behavior plus the (still client-side) `create_form` tool. Confirm `03_RICH_UI.md` still surfaces `create_form` in the sandbox runtime; if it does, the system prompt can stay silent about it. *Owner: AI + frontend.*
 12. **Per-mode todo examples.** Today's per-preset `POSITIVE_TODO_EXAMPLES` (dashboard-creation, SQL-with-segmentation, churn analysis, multi-metrics) → move to `TodoWrite`'s description. But Claude Code's built-in description isn't ours to author. Resolution depends on Q3 (built-in vs `posthog-tasks`). If we go with the built-in, the examples either disappear or move into `BASIC_FUNCTIONALITY_PROMPT`/`DOING_TASKS_PROMPT` (which inflates the system prompt). *Owner: AI.*
 13. **Permission-mode default for PostHog AI.** Today's Max defaults to "behave as if `acceptEdits` for write tools" (we have `DangerousOperationApprovalCard`). The sandbox default is `"bypassPermissions"` for Claude (`CLOUD_AGENTS_FRONTEND_SPEC.md` § 10.5). Setting `state.initial_permission_mode = "default"` (which surfaces all permissions through `permission_request`) restores today's behavior. Confirm with AI which we want. *Owner: AI + product.*
 14. **Group-name truncation.** `ROOT_GROUPS_PROMPT` interpolates the team's group type names. If a team has many groups (some have 10+), the list is short but it's possible they've configured human-friendly names that are long. Truncate per-name at, say, 64 chars? Defer to AI team.
