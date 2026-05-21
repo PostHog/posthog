@@ -267,9 +267,9 @@ describe('createXAxisTickCallback', () => {
                 scenario: 'allDays contains unparseable date strings',
                 allDays: ['not-a-date'] as (string | number)[],
             },
-        ])('returns null when $scenario, deferring to Chart.js default label rendering', ({ allDays }) => {
+        ])('returns undefined when $scenario, deferring to Chart.js default label rendering', ({ allDays }) => {
             const callback = createXAxisTickCallback({ interval: 'day', allDays, timezone: 'UTC' })
-            expect(callback).toBeNull()
+            expect(callback).toBeUndefined()
         })
 
         it('returns raw value when index is out of bounds', () => {

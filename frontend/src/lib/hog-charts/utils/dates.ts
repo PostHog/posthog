@@ -21,11 +21,11 @@ export function createXAxisTickCallback({
     interval,
     allDays,
     timezone,
-}: CreateXAxisTickCallbackArgs): ((value: string | number, index: number) => string | null) | null {
-    // Not a date axis — return null so Chart.js's built-in category-scale default
+}: CreateXAxisTickCallbackArgs): ((value: string | number, index: number) => string | null) | undefined {
+    // Not a date axis — bail so Chart.js's built-in category-scale default
     // (`_getLabelForValue`) renders whatever's in `data.labels` directly.
     if (allDays.length === 0 || typeof allDays[0] !== 'string') {
-        return null
+        return
     }
 
     const parsedDates = allDays.map((d) => parseDateForAxis(String(d), timezone))
@@ -33,7 +33,7 @@ export function createXAxisTickCallback({
     const last = parsedDates[parsedDates.length - 1]
 
     if (!first?.isValid() || !last?.isValid()) {
-        return null
+        return
     }
 
     const resolvedInterval = interval ?? inferInterval(parsedDates)

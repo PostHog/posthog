@@ -66,7 +66,7 @@ function truncateString(str: string, num: number): string {
 
 /** Generate per-bucket labels for stickiness ("Day 0", "Day 1", …). The API's own labels include
  * a "X day(s)" suffix that's redundant when paired with the interval prefix, so we use the index. */
-function formatIntervalLabels(labels: string[], interval: string | undefined): string[] {
+function formatIntervalLabels(labels: string[], interval: string | null | undefined): string[] {
     const unit = interval ?? 'day'
     const prefix = `${unit.slice(0, 1).toUpperCase()}${unit.slice(1)}`
     return labels.map((_, i) => `${prefix} ${i}`)
