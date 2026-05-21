@@ -311,12 +311,15 @@ ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
 
 # Install Playwright Chromium browser for heatmap screenshots (as root for system deps)
-# Use cache mount directly at target path to avoid re-downloading on every build
-# sharing=locked prevents concurrent Depot builds from interfering with Playwright's lock file
+# Use cache mount to avoid re-downloading on every build
+# sharing=locked prevents concurrent Depot builds from racing on Playwright's __dirlock file
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN --mount=type=cache,id=playwright-browsers,target=/ms-playwright,sharing=locked \
+RUN --mount=type=cache,id=playwright-browsers,target=/tmp/playwright-cache,sharing=locked \
+    PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright-cache \
     /python-runtime/bin/python -m playwright install --with-deps chromium && \
+    mkdir -p /ms-playwright && \
+    cp -r /tmp/playwright-cache/. /ms-playwright/ && \
     chown -R posthog:posthog /ms-playwright
 USER posthog
 
