@@ -27,6 +27,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
+import { AccountsTab } from './components/Accounts/AccountsTab'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
@@ -96,14 +97,23 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
             </>
         )
 
-    const tabs: LemonTab<string>[] = [
-        {
-            key: 'dashboard',
-            label: 'Dashboard',
-            content: dashboardContent,
-            link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
-        },
-    ]
+    const tabs: LemonTab<string>[] = []
+
+    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+        tabs.push({
+            key: 'accounts',
+            label: 'Accounts',
+            content: <AccountsTab />,
+            link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+        })
+    }
+
+    tabs.push({
+        key: 'dashboard',
+        label: 'Dashboard',
+        content: dashboardContent,
+        link: combineUrl(urls.customerAnalyticsDashboard(), searchParams).url,
+    })
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]) {
         tabs.push({
@@ -201,7 +211,9 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                         </>
                     }
                 />
-                {tabs.length > 1 ? (
+                {activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] ? (
+                    <AccountsTab />
+                ) : tabs.length > 1 ? (
                     <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
                 ) : (
                     dashboardContent
