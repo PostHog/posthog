@@ -208,6 +208,7 @@ rules:
                               |Tagger
                               |Task
                               |TaskAutomation
+                              |TaskPresence
                               |TaskRun
                               |EmailChannel
                               |EvaluationReport
@@ -427,6 +428,7 @@ rules:
                         |Tagger
                         |Task
                         |TaskAutomation
+                        |TaskPresence
                         |TaskRun
                         |EmailChannel
                         |EvaluationReport

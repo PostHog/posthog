@@ -23,11 +23,14 @@ from typing import TYPE_CHECKING, Literal
 
 from django.core.cache import cache
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
 
 from posthog.tasks.push_notifications import send_user_push
+
+from products.tasks.backend.models import TaskPresence
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -135,7 +138,36 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
         return
 
     data = {"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)}
+    suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task_run.task_id)
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.
-    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data))
+    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed))
+
+
+def _suppressed_push_token_ids_for_task(*, user_id: int, task_id) -> list[str]:
+    """Return UserPushToken UUIDs (as strings) the recipient has beaconed as actively watching this task.
+
+    The push fanout drops these devices: if at least one of the user's devices
+    has a non-expired presence row for the task, every other device for the
+    same user is skipped (the "if any device is provably watching, suppress
+    the others" contract documented on the beacon endpoint). Computed at
+    enqueue time — the Celery dispatch is essentially instant so the race
+    window against the 30-second beacon cadence is irrelevant.
+
+    ``unscoped`` is the right escape hatch here: the dispatcher fires from a
+    mix of Temporal activities and model methods that don't have the DRF
+    team-context ContextVar set. The query is already scoped through
+    ``task_id`` + ``user_id``, and presence rows are tenant-safe by virtue of
+    their FK to a team-scoped Task.
+    """
+    return [
+        str(pid)
+        for pid in TaskPresence.objects.unscoped()
+        .filter(
+            task_id=task_id,
+            user_id=user_id,
+            expires_at__gt=timezone.now(),
+        )
+        .values_list("push_token_id", flat=True)
+    ]
