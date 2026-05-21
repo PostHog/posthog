@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { dataColorVars } from 'lib/colors'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
@@ -13,7 +13,13 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { DropRuleFilterEditor } from './DropRuleFilterEditor'
-import { logsSamplingFormLogic } from './logsSamplingFormLogic'
+import { RateLimitUnit, logsSamplingFormLogic } from './logsSamplingFormLogic'
+
+const RATE_LIMIT_UNIT_OPTIONS: { value: RateLimitUnit; label: string }[] = [
+    { value: 'KB/s', label: 'KB/s' },
+    { value: 'MB/s', label: 'MB/s' },
+    { value: 'GB/s', label: 'GB/s' },
+]
 
 const ACTION_OPTIONS: { value: RuleTypeEnumApi; label: string }[] = [
     { value: RuleTypeEnumApi.PathDrop, label: 'Drop' },
@@ -151,16 +157,23 @@ export function LogsSamplingForm(): JSX.Element {
                 </LemonField.Pure>
                 {isRateLimit && (
                     <LemonField.Pure
-                        label="Rate limit (kilobytes per second)"
-                        help="Whole number from 1 to 10,000,000."
-                        error={samplingFormErrors.rate_limit_logs_per_second}
+                        label="Rate limit"
+                        help="Minimum 1 KB/s, maximum 1 GB/s. Fractional values allowed (e.g. 1.5 MB/s)."
+                        error={samplingFormErrors.rate_limit_amount}
                     >
-                        <LemonInput
-                            value={samplingForm.rate_limit_logs_per_second}
-                            onChange={(v) => setSamplingFormValue('rate_limit_logs_per_second', v)}
-                            placeholder="e.g. 5000"
-                            className="max-w-xs"
-                        />
+                        <div className="flex gap-2 items-center max-w-sm">
+                            <LemonInput
+                                value={samplingForm.rate_limit_amount}
+                                onChange={(v) => setSamplingFormValue('rate_limit_amount', v)}
+                                placeholder="e.g. 5"
+                                inputMode="decimal"
+                            />
+                            <LemonSelect<RateLimitUnit>
+                                value={samplingForm.rate_limit_unit}
+                                onChange={(v) => v && setSamplingFormValue('rate_limit_unit', v)}
+                                options={RATE_LIMIT_UNIT_OPTIONS}
+                            />
+                        </div>
                     </LemonField.Pure>
                 )}
             </SceneSection>
