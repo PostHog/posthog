@@ -176,6 +176,7 @@ class RetrieveOutputSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(tags=["batch_exports"])
 class FileDownloadBatchExportOnDemandViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
 ):
