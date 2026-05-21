@@ -13,7 +13,7 @@ import {
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
 } from './activity-descriptions'
-import { StatusTag } from './ExperimentView/components'
+import { StatusTag } from './ExperimentView/StatusTag'
 
 //exporting so the linter doesn't complain about this not being used
 export const ExperimentDetails = ({
