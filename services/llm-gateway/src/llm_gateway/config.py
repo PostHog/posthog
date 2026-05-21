@@ -51,6 +51,12 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_limit_usd=1000.0,
         sustained_window_seconds=2592000,
     ),
+    "signals": UserCostLimit(
+        burst_limit_usd=500.0,
+        burst_window_seconds=604800,
+        sustained_limit_usd=1000.0,
+        sustained_window_seconds=2592000,
+    ),
 }
 
 FREE_PLAN_COST_LIMIT = UserCostLimit(
