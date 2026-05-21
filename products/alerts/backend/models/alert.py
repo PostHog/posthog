@@ -160,8 +160,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
     # When enabled and the alert transitions to FIRING, an investigation agent runs
-    # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
+    # and writes its findings to a linked Notebook. Supported for both detector-based
+    # (anomaly) and threshold alerts — the agent picks the appropriate framing based on
+    # whether `detector_config` is set. See posthog/temporal/alerts/workflows.py for the
+    # trigger logic.
     investigation_agent_enabled = models.BooleanField(default=False)
 
     # When enabled (and investigation_agent_enabled is on), notification dispatch is
@@ -172,8 +174,8 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     investigation_gates_notifications = models.BooleanField(default=False)
 
     # What to do with an "inconclusive" verdict when notifications are gated.
-    # Default is notify — safest for anomaly alerts where the agent not being sure
-    # is itself informative.
+    # Default is notify — safest because the agent not being sure is itself
+    # informative for both anomaly and threshold alerts.
     INVESTIGATION_INCONCLUSIVE_ACTION_CHOICES = [
         ("notify", "Notify"),
         ("suppress", "Suppress"),

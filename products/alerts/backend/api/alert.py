@@ -231,7 +231,7 @@ class AlertSerializer(serializers.ModelSerializer):
     )
     investigation_agent_enabled = serializers.BooleanField(
         required=False,
-        help_text="When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
+        help_text="When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Works for both detector-based (anomaly) and threshold alerts.",
     )
     investigation_gates_notifications = serializers.BooleanField(
         required=False,
@@ -525,28 +525,13 @@ class AlertSerializer(serializers.ModelSerializer):
         except ValueError as e:
             raise ValidationError(str(e))
 
-        # Investigation agent is only supported for detector-based alerts.
+        # Notification gating only makes sense when the investigation agent is on —
+        # otherwise there's no verdict to wait for and the safety-net task would
+        # end up being the only notifier, which defeats the feature.
         investigation_enabled = attrs.get(
             "investigation_agent_enabled",
             self.instance.investigation_agent_enabled if self.instance else False,
         )
-        if investigation_enabled:
-            detector_config = attrs.get(
-                "detector_config",
-                self.instance.detector_config if self.instance else None,
-            )
-            if not detector_config:
-                raise ValidationError(
-                    {
-                        "investigation_agent_enabled": [
-                            "Investigation agent is only supported for anomaly detection alerts."
-                        ]
-                    }
-                )
-
-        # Notification gating only makes sense when the investigation agent is on —
-        # otherwise there's no verdict to wait for and the safety-net task would
-        # end up being the only notifier, which defeats the feature.
         gates_notifications = attrs.get(
             "investigation_gates_notifications",
             self.instance.investigation_gates_notifications if self.instance else False,

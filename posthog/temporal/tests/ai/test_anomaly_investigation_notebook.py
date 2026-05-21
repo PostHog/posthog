@@ -4,7 +4,7 @@ from posthog.models import Insight
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 
 
 class TestAnomalyInvestigationNotebook(BaseTest):
@@ -20,6 +20,27 @@ class TestAnomalyInvestigationNotebook(BaseTest):
             alert_configuration=alert,
             calculated_value=123.0,
             triggered_dates=["2024-06-01", "2024-06-02"],
+            interval="day",
+        )
+        return NotebookRenderContext(alert=alert, alert_check=alert_check, insight=insight, report=report)
+
+    def _make_threshold_context(self, report: InvestigationReport) -> NotebookRenderContext:
+        insight = Insight.objects.create(team=self.team, name="pageviews/day")
+        threshold = Threshold.objects.create(
+            team=self.team,
+            insight=insight,
+            configuration={"type": "absolute", "bounds": {"upper": 100}},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="pageview threshold",
+            threshold=threshold,
+            detector_config=None,
+        )
+        alert_check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=150.0,
             interval="day",
         )
         return NotebookRenderContext(alert=alert, alert_check=alert_check, insight=insight, report=report)
@@ -72,3 +93,19 @@ class TestAnomalyInvestigationNotebook(BaseTest):
         assert "Hypotheses" not in heading_texts
         assert "Recommendations" not in heading_texts
         assert "Verdict" in heading_texts
+
+    def test_threshold_alert_summary_uses_threshold_framing(self) -> None:
+        report = InvestigationReport(
+            verdict="true_positive",
+            summary="Threshold breach confirmed.",
+            hypotheses=[],
+            recommendations=[],
+            tool_calls_used=0,
+        )
+        doc = build_investigation_notebook(self._make_threshold_context(report))
+        paragraphs = [node for node in doc["content"] if node.get("type") == "paragraph"]
+        # The first paragraph after the title is the summary line — should not call out
+        # "Detector" / "anomaly" framing on a threshold alert.
+        first_paragraph_text = paragraphs[0]["content"][0]["text"]
+        assert "Threshold breach" in first_paragraph_text
+        assert "Detector" not in first_paragraph_text

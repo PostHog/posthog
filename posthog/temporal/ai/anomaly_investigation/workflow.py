@@ -25,7 +25,7 @@ from posthog.models import Team, User
 from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
-from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
+from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context, build_threshold_context
 from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 from posthog.temporal.common.base import PostHogWorkflow
@@ -103,24 +103,39 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
 
     insight = alert.insight
     metric_description = insight.name or f"Insight {insight.short_id}"
-    detector_type = (alert.detector_config or {}).get("type") or "threshold"
 
-    anomaly_context_text = build_anomaly_context(
-        alert_name=alert.name or "Unnamed alert",
-        metric_description=metric_description,
-        detector_type=detector_type,
-        triggered_dates=list(alert_check.triggered_dates or []),
-        triggered_metadata=alert_check.triggered_metadata,
-        calculated_value=alert_check.calculated_value,
-        interval=alert_check.interval,
-    )
+    if alert.detector_config:
+        context_text = build_anomaly_context(
+            alert_name=alert.name or "Unnamed alert",
+            metric_description=metric_description,
+            detector_type=alert.detector_config.get("type") or "unknown",
+            triggered_dates=list(alert_check.triggered_dates or []),
+            triggered_metadata=alert_check.triggered_metadata,
+            calculated_value=alert_check.calculated_value,
+            interval=alert_check.interval,
+        )
+    else:
+        threshold_configuration: dict = {}
+        if alert.threshold and isinstance(alert.threshold.configuration, dict):
+            threshold_configuration = alert.threshold.configuration
+        context_text = build_threshold_context(
+            alert_name=alert.name or "Unnamed alert",
+            metric_description=metric_description,
+            condition_type=(alert.condition or {}).get("type"),
+            threshold_bounds=threshold_configuration.get("bounds"),
+            threshold_kind=threshold_configuration.get("type"),
+            calculated_value=alert_check.calculated_value,
+            interval=alert_check.interval,
+            triggered_metadata=alert_check.triggered_metadata,
+        )
 
-    # Render a chart of the metric with the detector's anomaly points marked and
-    # attach it to the HumanMessage so the multimodal model can reason visually
-    # before spending any tool-call budget.
+    # Render a chart of the metric and attach it to the HumanMessage so the
+    # multimodal model can reason visually before spending any tool-call budget.
+    # For anomaly alerts the chart includes the detector's flagged points and
+    # scores; for threshold alerts we render the bare series only.
     anomaly_context = await sync_to_async(_build_multimodal_context, thread_sensitive=False)(
         alert=alert,
-        context_text=anomaly_context_text,
+        context_text=context_text,
     )
 
     try:
@@ -146,9 +161,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         )
     )
 
+    fallback_label = "anomaly alert" if alert.detector_config else "threshold alert"
     notebook = await sync_to_async(Notebook.objects.create, thread_sensitive=False)(
         team=team,
-        title=f"Investigation — {alert.name or 'anomaly alert'}",
+        title=f"Investigation — {alert.name or fallback_label}",
         content=notebook_content,
         text_content=result.report.summary,
         created_by=user,
@@ -255,6 +271,8 @@ def _build_breach_descriptions(
     """
     lines: list[str] = []
     triggered_dates = alert_check.triggered_dates or []
+    # triggered_dates is only populated by the detector pipeline. Anomaly alerts
+    # get the dated framing; threshold alerts fall through to the value framing.
     if triggered_dates:
         if len(triggered_dates) == 1:
             lines.append(f"Anomaly detected on {triggered_dates[0]}.")
@@ -263,7 +281,7 @@ def _build_breach_descriptions(
     elif alert_check.calculated_value is not None:
         lines.append(f"Calculated value at fire: {alert_check.calculated_value}.")
     else:
-        lines.append("Anomaly detected.")
+        lines.append("Alert fired.")
 
     verdict_label = {"true_positive": "True positive", "inconclusive": "Inconclusive"}.get(verdict or "", "")
     if verdict_label:
@@ -308,10 +326,14 @@ def _build_multimodal_context(*, alert, context_text: str):
     """Return a LangChain HumanMessage content value — either a plain string or a
     list of content blocks with the text and a rendered chart PNG.
 
-    Best-effort: if the detector can't simulate or the chart fails to render, we
-    fall back to text-only so the investigation still runs.
+    Best-effort: if simulation/series fetch fails or the chart fails to render,
+    we fall back to text-only so the investigation still runs.
+
+    For anomaly alerts we overlay the detector's flagged points and scores on the
+    chart; for threshold alerts we render the bare metric series so the agent can
+    still get visual context for the breach.
     """
-    if alert.detector_config is None or alert.insight is None:
+    if alert.insight is None:
         return context_text
 
     sim = _run_detector_simulation(alert=alert, team=alert.team, date_from=None)
@@ -324,11 +346,20 @@ def _build_multimodal_context(*, alert, context_text: str):
     if not dates or not values:
         return context_text
 
+    if alert.detector_config:
+        triggered_indices = sim.get("triggered_indices") or []
+        scores = sim.get("scores") or None
+    else:
+        # Threshold alerts: don't overlay zscore-derived indices/scores — those
+        # don't correspond to the actual threshold breach. Show the bare series.
+        triggered_indices = []
+        scores = None
+
     png = render_series_chart(
         dates=dates,
         values=values,
-        triggered_indices=sim.get("triggered_indices") or [],
-        scores=sim.get("scores") or None,
+        triggered_indices=triggered_indices,
+        scores=scores,
         title=(alert.insight.name or alert.name or "Metric")[:80],
     )
     if not png:

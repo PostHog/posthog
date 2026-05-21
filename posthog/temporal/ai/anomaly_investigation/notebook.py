@@ -79,7 +79,7 @@ def build_investigation_notebook(ctx: NotebookRenderContext) -> dict[str, Any]:
 
 
 def _summary_line(ctx: NotebookRenderContext) -> str:
-    detector_type = (ctx.alert.detector_config or {}).get("type") or "threshold"
+    detector_type = (ctx.alert.detector_config or {}).get("type")
     triggered_dates = ctx.alert_check.triggered_dates or []
     window = ""
     if triggered_dates:
@@ -88,10 +88,12 @@ def _summary_line(ctx: NotebookRenderContext) -> str:
             window = f" from {triggered_dates[0]} to {triggered_dates[-1]}"
     value = ctx.alert_check.calculated_value
     value_str = f"{value:.4f}" if isinstance(value, (int, float)) else "n/a"
-    return (
-        f'Detector {detector_type} flagged an anomaly on insight "{ctx.insight.name or ctx.insight.short_id}"'
-        f"{window}. Latest value: {value_str}."
-    )
+    insight_name = ctx.insight.name or ctx.insight.short_id
+    if detector_type:
+        lead = f'Detector {detector_type} flagged an anomaly on insight "{insight_name}"'
+    else:
+        lead = f'Threshold breach on insight "{insight_name}"'
+    return f"{lead}{window}. Latest value: {value_str}."
 
 
 def _footer_line(ctx: NotebookRenderContext) -> str:

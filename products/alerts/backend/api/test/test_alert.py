@@ -897,14 +897,15 @@ class TestInvestigationAgentValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("enabled_without_detector_config", None, True, status.HTTP_400_BAD_REQUEST, "investigation_agent_enabled"),
-            ("disabled_without_detector_config", None, False, status.HTTP_201_CREATED, None),
+            # Threshold alerts (no detector_config) can now opt into the investigation
+            # agent — the agent picks the appropriate prompt based on the alert mode.
+            ("enabled_without_detector_config", None, True, status.HTTP_201_CREATED),
+            ("disabled_without_detector_config", None, False, status.HTTP_201_CREATED),
             (
                 "enabled_with_detector_config",
                 {"type": "zscore", "threshold": 0.95, "window": 30},
                 True,
                 status.HTTP_201_CREATED,
-                None,
             ),
         ]
     )
@@ -914,15 +915,12 @@ class TestInvestigationAgentValidation(APIBaseTest):
         detector_config: dict[str, Any] | None,
         enabled: bool,
         expected_status: int,
-        expected_error_attr: str | None,
     ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
             self._base_alert_body(detector_config=detector_config, enabled=enabled),
         )
         assert response.status_code == expected_status, response.content
-        if expected_error_attr:
-            assert expected_error_attr in response.json().get("attr", "")
 
     def test_investigation_gates_notifications_rejected_without_agent_enabled(self) -> None:
         body = self._base_alert_body(detector_config=None, enabled=False)
@@ -930,6 +928,19 @@ class TestInvestigationAgentValidation(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", body)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "investigation_gates_notifications" in response.json().get("attr", "")
+
+    def test_investigation_agent_enabled_persists_on_threshold_alert(self) -> None:
+        body = self._base_alert_body(detector_config=None, enabled=True)
+        body["investigation_gates_notifications"] = True
+        body["threshold"] = {
+            "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", body)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        data = response.json()
+        assert data["investigation_agent_enabled"] is True
+        assert data["investigation_gates_notifications"] is True
+        assert data["detector_config"] is None
 
 
 class TestAlertSimulate(APIBaseTest):

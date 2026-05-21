@@ -58,10 +58,12 @@ class TestShouldTriggerInvestigation(BaseTest):
             new_state=AlertState.FIRING,
         )
 
-    def test_does_not_trigger_for_threshold_only_alerts(self) -> None:
+    def test_triggers_for_threshold_only_alerts(self) -> None:
+        # Threshold alerts (no detector_config) opt in to the investigation agent
+        # the same way anomaly alerts do — see prompts.py for the per-mode framing.
         self.alert.detector_config = None
         self.alert.save()
-        assert not should_trigger_investigation(
+        assert should_trigger_investigation(
             self.alert,
             previous_state=AlertState.NOT_FIRING,
             new_state=AlertState.FIRING,

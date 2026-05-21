@@ -483,14 +483,18 @@ export function EditAlertModal({
                                         />
                                     )}
 
-                                    {alertMode === 'detector' &&
-                                        alertForm.detector_config &&
-                                        investigationAgentEnabled && (
+                                    {investigationAgentEnabled &&
+                                        (alertMode === 'threshold' ||
+                                            (alertMode === 'detector' && alertForm.detector_config)) && (
                                             <div className="deprecated-space-y-2">
                                                 <div className="flex items-center gap-1">
                                                     <h4 className="m-0">Investigation agent</h4>
                                                     <Tooltip
-                                                        title="An optional AI agent that investigates anomaly fires against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
+                                                        title={
+                                                            alertMode === 'detector'
+                                                                ? "An optional AI agent that investigates anomaly fires against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
+                                                                : "An optional AI agent that investigates threshold breaches against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
+                                                        }
                                                         placement="right"
                                                         delayMs={0}
                                                     >
@@ -508,7 +512,11 @@ export function EditAlertModal({
                                                             <span className="flex items-center gap-1">
                                                                 Run investigation agent when this alert fires
                                                                 <Tooltip
-                                                                    title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
+                                                                    title={
+                                                                        alertMode === 'detector'
+                                                                            ? 'On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition.'
+                                                                            : 'On the transition to firing, an agent validates the threshold breach with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition.'
+                                                                    }
                                                                     placement="right"
                                                                     delayMs={0}
                                                                 >

@@ -30,8 +30,6 @@ def should_trigger_investigation(
     """
     if not alert.investigation_agent_enabled:
         return False
-    if not alert.detector_config:
-        return False
     if previous_state == AlertState.FIRING:
         return False
     if new_state != AlertState.FIRING:

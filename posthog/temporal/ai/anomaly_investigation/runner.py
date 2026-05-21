@@ -26,7 +26,7 @@ from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
-from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
+from posthog.temporal.ai.anomaly_investigation.prompts import system_prompt_for_alert
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
     FetchMetricSeriesArgs,
@@ -85,7 +85,6 @@ async def run_investigation(
         "top_breakdowns": lambda raw: toolkit.top_breakdowns(TopBreakdownArgs.model_validate(raw)),
         "recent_events": lambda raw: toolkit.recent_events(RecentEventsArgs.model_validate(raw)),
         "fetch_metric_series": lambda raw: toolkit.fetch_metric_series(FetchMetricSeriesArgs.model_validate(raw)),
-        "simulate_detector": lambda raw: toolkit.simulate_detector(SimulateDetectorArgs.model_validate(raw)),
     }
 
     tools_spec: list[tuple[str, str, type[BaseModel]]] = [
@@ -109,20 +108,28 @@ async def run_investigation(
             (
                 "Return the alert's own insight time series (labels + values) at its configured "
                 "interval. Prefer this over run_hogql_query when you need the exact metric the "
-                "detector was scoring."
+                "alert was evaluating."
             ),
             FetchMetricSeriesArgs,
         ),
-        (
-            "simulate_detector",
-            (
-                "Run the alert's detector over a historical window and return the scored points "
-                "plus any timestamps the detector would have flagged. Use to check whether the "
-                "current fire is an isolated spike or part of a recurring pattern."
-            ),
-            SimulateDetectorArgs,
-        ),
     ]
+
+    # simulate_detector only makes sense for detector-based (anomaly) alerts —
+    # threshold alerts have no detector to re-run, so don't even surface the tool.
+    has_detector = bool(alert is not None and alert.detector_config)
+    if has_detector:
+        handlers["simulate_detector"] = lambda raw: toolkit.simulate_detector(SimulateDetectorArgs.model_validate(raw))
+        tools_spec.append(
+            (
+                "simulate_detector",
+                (
+                    "Run the alert's detector over a historical window and return the scored points "
+                    "plus any timestamps the detector would have flagged. Use to check whether the "
+                    "current fire is an isolated spike or part of a recurring pattern."
+                ),
+                SimulateDetectorArgs,
+            )
+        )
 
     final_report_tool = {
         "name": FINAL_REPORT_TOOL_NAME,
@@ -167,7 +174,7 @@ async def run_investigation(
     config: RunnableConfig = {"callbacks": _build_callbacks(team=team, alert=alert)}
 
     messages: list[Any] = [
-        SystemMessage(content=SYSTEM_PROMPT),
+        SystemMessage(content=system_prompt_for_alert(has_detector_config=has_detector)),
         HumanMessage(content=anomaly_context),
     ]
 

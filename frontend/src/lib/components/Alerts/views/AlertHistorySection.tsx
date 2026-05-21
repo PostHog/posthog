@@ -144,7 +144,7 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     } = useValues(logic)
     const { selectAlertHistoryView, alertHistoryTablePageForward, alertHistoryTablePageBackward } = useActions(logic)
 
-    const investigationAgentEnabled = alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled
+    const investigationAgentEnabled = !!alert?.investigation_agent_enabled
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [

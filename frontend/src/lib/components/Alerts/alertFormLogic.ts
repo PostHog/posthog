@@ -256,15 +256,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
                     detector_config: alert.detector_config ?? null,
-                    // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
-                    investigation_agent_enabled: alert.detector_config
-                        ? (alert.investigation_agent_enabled ?? false)
-                        : false,
+                    investigation_agent_enabled: alert.investigation_agent_enabled ?? false,
                     // Notification gating requires the investigation agent to be on.
-                    investigation_gates_notifications:
-                        alert.detector_config && alert.investigation_agent_enabled
-                            ? (alert.investigation_gates_notifications ?? false)
-                            : false,
+                    investigation_gates_notifications: alert.investigation_agent_enabled
+                        ? (alert.investigation_gates_notifications ?? false)
+                        : false,
                     investigation_inconclusive_action: alert.investigation_inconclusive_action ?? 'notify',
                     schedule_restriction:
                         (alert.schedule_restriction?.blocked_windows?.length ?? 0) > 0
