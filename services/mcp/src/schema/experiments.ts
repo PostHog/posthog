@@ -216,10 +216,7 @@ function toMetricSummary(
  */
 export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'secondary'): ResolvedMetricEntry[] {
     const inline = (slot === 'primary' ? experiment.metrics : experiment.metrics_secondary) ?? []
-    const shared = (experiment.saved_metrics ?? []).filter((sm) => {
-        const type = sm.metadata?.type
-        return type === 'primary' || type === 'secondary' ? type === slot : false
-    })
+    const shared = (experiment.saved_metrics ?? []).filter((sm) => sm.metadata?.type === slot)
     const entries: ResolvedMetricEntry[] = [
         ...inline.map((metric) => ({ metric: metric as unknown, summary: toMetricSummary(metric, 'inline') })),
         ...shared.map((sm) => ({
