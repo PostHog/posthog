@@ -7,17 +7,26 @@ def backfill_team_id(apps, schema_editor) -> None:
 
     Idempotent: only operates on rows where team_id IS NULL, so reruns after a
     partial failure simply pick up where the previous run stopped. Each batch
-    commits its own transaction (`RunPython` honors the migration's atomic
-    flag, which is True by default and produces a single transaction — but
-    psycopg's autocommit-on-cursor below avoids holding row locks across the
-    full backfill).
+    commits its own transaction because the Migration class sets `atomic = False`,
+    which puts the database connection in autocommit mode — every statement
+    commits immediately without an enclosing BEGIN/COMMIT, so no row locks are
+    held across the full backfill.
+
+    Uses keyset pagination (`id__gt=last_id`) so each batch query only scans
+    forward from the previous batch's last id. Without this, every iteration
+    would re-walk the PK index from id=0 filtering `team_id IS NULL`, and since
+    there is no partial index on that predicate the final batches would
+    approach a full table scan.
     """
     DashboardTile = apps.get_model("dashboards", "DashboardTile")
     batch_size = 5000
+    last_id = 0
 
     while True:
         batch_ids = list(
-            DashboardTile.objects.filter(team_id__isnull=True).order_by("id").values_list("id", flat=True)[:batch_size]
+            DashboardTile.objects.filter(team_id__isnull=True, id__gt=last_id)
+            .order_by("id")
+            .values_list("id", flat=True)[:batch_size]
         )
         if not batch_ids:
             break
@@ -33,6 +42,8 @@ def backfill_team_id(apps, schema_editor) -> None:
                 """,
                 [batch_ids],
             )
+
+        last_id = batch_ids[-1]
 
 
 class Migration(migrations.Migration):
