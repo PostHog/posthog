@@ -6,7 +6,7 @@ Owns the entire error-tracking surface for a per-case team:
     demo seed (which writes events through Kafka and never lands in the
     sandboxed-eval ClickHouse) can't leave stale, empty issues lying
     around to confuse the agent.
-  * Creates three deterministic ``ErrorTrackingIssue`` PSQL rows with
+  * Creates deterministic ``ErrorTrackingIssue`` PSQL rows with
     fresh UUIDs and matching ``ErrorTrackingIssueFingerprintV2`` rows.
   * Writes the matching ``$exception`` events directly to ClickHouse so
     concurrent setup hooks don't depend on the process-global ``settings.TEST``
@@ -98,6 +98,17 @@ _ISSUE_SPECS: tuple[dict[str, Any], ...] = (
         "function": "submitInvite",
         "source": "https://app.hedgebox.test/static/js/team-settings.js",
         "days_ago": (3, 7),
+    },
+    {
+        "name": "Legacy billing alert",
+        "fingerprint": "eval-legacy-billing-alert-v1",
+        "type": "BillingAlertError",
+        "value": "Legacy billing alert already resolved",
+        "url": "https://app.hedgebox.test/billing/history",
+        "function": "renderBillingAlert",
+        "source": "https://app.hedgebox.test/static/js/billing.js",
+        "days_ago": (6,),
+        "status": ErrorTrackingIssue.Status.RESOLVED,
     },
 )
 
@@ -191,7 +202,7 @@ def _insert_exception_event(
 
 
 def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    """Seed three deterministic error-tracking issues + events on the per-case team.
+    """Seed deterministic error-tracking issues + events on the per-case team.
 
     Synchronous — runs in a worker thread via ``asyncio.to_thread`` from
     ``base.py:task()``. Returns
@@ -215,7 +226,7 @@ def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str,
             id=issue_id,
             team=team,
             name=spec["name"],
-            status=ErrorTrackingIssue.Status.ACTIVE,
+            status=spec.get("status", ErrorTrackingIssue.Status.ACTIVE),
         )
         ErrorTrackingIssueFingerprintV2.objects.create(
             team=team,

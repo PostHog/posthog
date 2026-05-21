@@ -17,6 +17,7 @@ work identically in ``mcp_mode=tools`` (per-tool MCP) and ``mcp_mode=cli``
 
 from __future__ import annotations
 
+import re
 import json
 from typing import Any
 
@@ -66,6 +67,7 @@ SESSION_RECORDINGS_LIST_TOOL = "query-session-recordings-list"
 BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
 
 _JUDGE_MODEL = "gpt-5.4"
+_SESSION_ID_TEXT_RE = re.compile(r"""["']?\$?session_id["']?\s*[:=]\s*["']?([^"',\s}\]]+)""")
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +118,11 @@ def _session_ids_from_output(raw_output: str) -> set[str]:
     try:
         decoded = json.loads(raw_output)
     except json.JSONDecodeError:
-        return set()
+        return {
+            match.group(1)
+            for match in _SESSION_ID_TEXT_RE.finditer(raw_output)
+            if match.group(1) not in {"", "null", "None"}
+        }
     return _collect_session_ids(decoded)
 
 

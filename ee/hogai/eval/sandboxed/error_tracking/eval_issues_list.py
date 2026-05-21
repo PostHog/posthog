@@ -62,7 +62,7 @@ async def eval_issues_list(sandboxed_demo_data, pytestconfig, posthog_client, mc
         _list_case(
             name="issues_list_active_default",
             prompt="Which errors are happening in production right now?",
-            expected_input={"status": "active"},
+            expected_input={},
         ),
         _list_case(
             name="issues_list_top_by_users",
