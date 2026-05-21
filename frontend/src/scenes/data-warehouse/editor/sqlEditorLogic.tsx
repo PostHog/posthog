@@ -96,6 +96,32 @@ export interface SqlEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
 }
 
+// Look up a Monaco model by URI or create one for `tab-${tabId}`. Monaco's global ModelService
+// can hold a stale entry for the URI even when `getModel` returns null (race during dispose or
+// a re-mounted logic that shares a tabId), and a naive `createModel` then throws with
+// "Cannot add model because it already exists!". Recover by reusing the registered model.
+function getOrCreateMonacoModel(
+    monaco: Monaco,
+    query: string,
+    uri: Uri
+): { model: editor.ITextModel | null; created: boolean } {
+    const existing = monaco.editor.getModel(uri)
+    if (existing) {
+        return { model: existing, created: false }
+    }
+    try {
+        const model = monaco.editor.createModel(query, 'hogQL', uri)
+        return { model, created: true }
+    } catch (error) {
+        const stale = monaco.editor.getModel(uri)
+        if (stale) {
+            return { model: stale, created: false }
+        }
+        console.warn('[sqlEditorLogic] failed to create Monaco model', error)
+        return { model: null, created: false }
+    }
+}
+
 // Position the active-query outline overlay around `range` in viewport coords.
 // Monaco renders inline decorations per-line, so we can't get a single rectangular
 // border from a className. Instead, we maintain an absolutely-positioned `div`
@@ -910,43 +936,34 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Re-create the model to prevent it from being purged
                 if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.suggestedQueryInput,
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
+                    const { model, created } = getOrCreateMonacoModel(
+                        props.monaco,
+                        values.suggestedQueryInput,
+                        values.activeTab.uri
+                    )
+                    if (model) {
+                        if (created) {
+                            cache.createdModels = cache.createdModels || []
+                            cache.createdModels.push(model)
 
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.suggestedQueryInput,
-                                language: 'hogQL',
-                            })
-                        )
-
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(newModel)
+                            initModel(
+                                model,
+                                codeEditorLogic({
+                                    key: `hogql-editor-${props.tabId}`,
+                                    query: values.suggestedQueryInput,
+                                    language: 'hogQL',
+                                })
+                            )
                         }
-                    } else {
+
                         // Handle both diff editor and regular editor
                         if (props.editor && 'getModifiedEditor' in props.editor) {
                             // It's a diff editor, set model on the modified editor
                             const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
+                            modifiedEditor.setModel(model)
                         } else {
                             // Regular editor
-                            props.editor?.setModel(existingModel)
+                            props.editor?.setModel(model)
                         }
                     }
                 }
@@ -960,42 +977,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Re-create the model to prevent it from being purged
                 if (props.monaco && values.activeTab) {
-                    const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
-                    if (!existingModel) {
-                        const newModel = props.monaco.editor.createModel(
-                            values.queryInput ?? '',
-                            'hogQL',
-                            values.activeTab.uri
-                        )
-                        cache.createdModels = cache.createdModels || []
-                        cache.createdModels.push(newModel)
-                        initModel(
-                            newModel,
-                            codeEditorLogic({
-                                key: `hogql-editor-${props.tabId}`,
-                                query: values.queryInput ?? '',
-                                language: 'hogQL',
-                            })
-                        )
+                    const { model, created } = getOrCreateMonacoModel(
+                        props.monaco,
+                        values.queryInput ?? '',
+                        values.activeTab.uri
+                    )
+                    if (model) {
+                        if (created) {
+                            cache.createdModels = cache.createdModels || []
+                            cache.createdModels.push(model)
+                            initModel(
+                                model,
+                                codeEditorLogic({
+                                    key: `hogql-editor-${props.tabId}`,
+                                    query: values.queryInput ?? '',
+                                    language: 'hogQL',
+                                })
+                            )
+                        }
 
                         // Handle both diff editor and regular editor
                         if (props.editor && 'getModifiedEditor' in props.editor) {
                             // It's a diff editor, set model on the modified editor
                             const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
+                            modifiedEditor.setModel(model)
                         } else {
                             // Regular editor
-                            props.editor?.setModel(newModel)
-                        }
-                    } else {
-                        // Handle both diff editor and regular editor
-                        if (props.editor && 'getModifiedEditor' in props.editor) {
-                            // It's a diff editor, set model on the modified editor
-                            const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
-                        } else {
-                            // Regular editor
-                            props.editor?.setModel(existingModel)
+                            props.editor?.setModel(model)
                         }
                     }
                 }
@@ -1020,9 +1028,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 if (props.monaco) {
                     const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
-                    let model = props.monaco.editor.getModel(uri)
-                    if (!model) {
-                        model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                    const { model, created } = getOrCreateMonacoModel(props.monaco, query, uri)
+                    if (model && created) {
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
                         props.editor?.setModel(model)

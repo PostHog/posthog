@@ -547,6 +547,41 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('createTab recovers from stale Monaco model registrations', () => {
+        it('reuses the stale model when createModel throws "already exists"', async () => {
+            const staleModel = {
+                getValue: () => '',
+                setValue: jest.fn(),
+                onDidChangeContent: jest.fn(() => ({ dispose: jest.fn() })),
+                dispose: jest.fn(),
+            }
+
+            // First getModel returns null (the bug), createModel throws, second getModel
+            // returns the stale model from Monaco's internal ModelService registry.
+            const getModel = jest.fn().mockReturnValueOnce(null).mockReturnValue(staleModel)
+            const createModel = jest.fn(() => {
+                throw new Error('ModelService: Cannot add model because it already exists!')
+            })
+
+            const monaco: any = {
+                Uri: { parse: (uri: string) => ({ toString: () => uri, path: uri }) },
+                editor: { getModel, createModel },
+            }
+            const editorMock: any = { setModel: jest.fn(), focus: jest.fn(), getModel: () => null }
+
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco, editor: editorMock })
+            logic.mount()
+
+            // Should not throw, and should not track or re-initialize the stale model.
+            expect(() => logic.actions.createTab('SELECT 1')).not.toThrow()
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(createModel).toHaveBeenCalledTimes(1)
+            expect(logic.cache.createdModels ?? []).toHaveLength(0)
+            expect(editorMock.setModel).not.toHaveBeenCalled()
+        })
+    })
+
     describe('getDisplayTypeToSaveInsight', () => {
         it.each([
             {
