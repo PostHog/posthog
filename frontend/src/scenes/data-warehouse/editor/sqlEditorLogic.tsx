@@ -96,6 +96,32 @@ export interface SqlEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
 }
 
+// Swallow Monaco's `Canceled` errors thrown when disposing the previous model's
+// contributions (e.g. wordHighlighter's Delayer). Without this, swapping the
+// model while the editor is reachable from a synchronous event handler (such as
+// a drag-end → URL change → URL listener) lets the cancellation rejection
+// escape as an unhandled exception.
+function isMonacoCancellation(err: unknown): boolean {
+    const name = (err as { name?: string } | null)?.name
+    return name === 'Canceled' || name === 'CanceledError'
+}
+
+function safeSetModel(
+    editorInstance: editor.IEditor | { setModel: (model: editor.ITextModel) => void } | null | undefined,
+    model: editor.ITextModel
+): void {
+    if (!editorInstance) {
+        return
+    }
+    try {
+        editorInstance.setModel(model)
+    } catch (err) {
+        if (!isMonacoCancellation(err)) {
+            throw err
+        }
+    }
+}
+
 // Position the active-query outline overlay around `range` in viewport coords.
 // Monaco renders inline decorations per-line, so we can't get a single rectangular
 // border from a className. Instead, we maintain an absolutely-positioned `div`
@@ -933,20 +959,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         if (props.editor && 'getModifiedEditor' in props.editor) {
                             // It's a diff editor, set model on the modified editor
                             const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
+                            safeSetModel(modifiedEditor, newModel)
                         } else {
                             // Regular editor
-                            props.editor?.setModel(newModel)
+                            safeSetModel(props.editor, newModel)
                         }
                     } else {
                         // Handle both diff editor and regular editor
                         if (props.editor && 'getModifiedEditor' in props.editor) {
                             // It's a diff editor, set model on the modified editor
                             const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
+                            safeSetModel(modifiedEditor, existingModel)
                         } else {
                             // Regular editor
-                            props.editor?.setModel(existingModel)
+                            safeSetModel(props.editor, existingModel)
                         }
                     }
                 }
@@ -982,20 +1008,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         if (props.editor && 'getModifiedEditor' in props.editor) {
                             // It's a diff editor, set model on the modified editor
                             const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(newModel)
+                            safeSetModel(modifiedEditor, newModel)
                         } else {
                             // Regular editor
-                            props.editor?.setModel(newModel)
+                            safeSetModel(props.editor, newModel)
                         }
                     } else {
                         // Handle both diff editor and regular editor
                         if (props.editor && 'getModifiedEditor' in props.editor) {
                             // It's a diff editor, set model on the modified editor
                             const modifiedEditor = (props.editor as any).getModifiedEditor()
-                            modifiedEditor.setModel(existingModel)
+                            safeSetModel(modifiedEditor, existingModel)
                         } else {
                             // Regular editor
-                            props.editor?.setModel(existingModel)
+                            safeSetModel(props.editor, existingModel)
                         }
                     }
                 }
@@ -1025,7 +1051,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
-                        props.editor?.setModel(model)
+                        safeSetModel(props.editor, model)
                         initModel(
                             model,
                             codeEditorLogic({

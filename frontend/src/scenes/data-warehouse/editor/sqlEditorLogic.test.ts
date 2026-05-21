@@ -1274,4 +1274,43 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
     })
+
+    describe('createTab Monaco model swap', () => {
+        // Monaco's setModel synchronously disposes the previous model's
+        // contributions (e.g. wordHighlighter), which rejects a Delayer
+        // promise with a `Canceled` error. When createTab runs inside a
+        // URL listener triggered by a drag-end, that rejection used to
+        // escape as an unhandled exception. createTab must absorb the
+        // cancellation and still finish updating the tab so dependent
+        // listeners (updateTab, focus()) run.
+        it.each([{ name: 'Canceled' }, { name: 'CanceledError' }])(
+            'swallows Monaco $name errors thrown by editor.setModel and still updates the tab',
+            async ({ name }) => {
+                const cancelError = Object.assign(new Error(name), { name })
+                const setModelMock = jest.fn(() => {
+                    throw cancelError
+                })
+                const focusMock = jest.fn()
+                const mockEditor = {
+                    setModel: setModelMock,
+                    focus: focusMock,
+                    getModel: () => null,
+                }
+
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: mockEditor as any,
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.createTab('SELECT 1')
+                }).toDispatchActions(['createTab', 'updateTab'])
+
+                expect(setModelMock).toHaveBeenCalled()
+                expect(focusMock).toHaveBeenCalled()
+            }
+        )
+    })
 })
