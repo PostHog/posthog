@@ -165,7 +165,10 @@ class TestErrorTracking(APIBaseTest):
                 data={"status": deprecated_status},
             )
             assert response.status_code == 400, response.json()
-            assert deprecated_status in str(response.json()["status"])
+            body = response.json()
+            assert body["type"] == "validation_error", body
+            assert body["attr"] == "status", body
+            assert deprecated_status in body["detail"], body
 
         issue.refresh_from_db()
         assert issue.status == ErrorTrackingIssue.Status.ACTIVE
