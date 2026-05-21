@@ -10,7 +10,8 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import type { ResolvedState } from './request-state-resolver'
 
-import guidelines from '@shared/guidelines.md'
+// Use relative path — the @shared/* tsconfig alias isn't resolved by all test runners
+import guidelines from '../../shared/guidelines.md'
 
 const _guidelines = typeof guidelines === 'string' ? guidelines : ((guidelines as { default?: string })?.default ?? '')
 
