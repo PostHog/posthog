@@ -3,6 +3,7 @@ import './QuestionInput.scss'
 import { offset } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -166,6 +167,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
         useActions(maxThreadLogic)
     const { isActive: handsFreeActive } = useValues(handsFreeLogic({ tabId: maxTabId }))
+    // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
+    // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
+    // Keep the legacy items-start layout when the flag is off so existing screenshots
+    // (and the layout users without hands-free see) don't change.
+    const handsFreeFlagEnabled = useFeatureFlag('MAX_HANDS_FREE')
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
@@ -357,10 +363,22 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             // row would otherwise wrap UNDER the buttons.
                             <div className="pb-2 pr-20">
                                 {!isThreadVisible ? (
-                                    <div className="flex items-end justify-between flex-wrap gap-1">
+                                    <div
+                                        className={clsx(
+                                            'flex justify-between flex-wrap gap-1',
+                                            handsFreeFlagEnabled ? 'items-end' : 'items-start'
+                                        )}
+                                    >
                                         <ContextDisplay size={contextDisplaySize} />
 
-                                        <div className="flex items-end gap-1 mr-1">{topActions}</div>
+                                        <div
+                                            className={clsx(
+                                                'flex gap-1 mr-1',
+                                                handsFreeFlagEnabled ? 'items-end' : 'items-start h-full mt-1'
+                                            )}
+                                        >
+                                            {topActions}
+                                        </div>
                                     </div>
                                 ) : (
                                     <ContextDisplay size={contextDisplaySize} />
