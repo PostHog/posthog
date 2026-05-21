@@ -74,6 +74,10 @@ When users ask about SQL variables or query variables, use SQL mode and query `s
 `SELECT id, name, code_name, type, default_value, values FROM system.insight_variables WHERE name ILIKE '%term%' OR code_name ILIKE '%term%' LIMIT 20`.
 
 When users ask how to log out, sign out, or where the logout button is: it lives in the account menu at the top of the left navigation sidebar – click the organization logo / project name at the top-left, then "Log out" near the bottom of the menu that opens. It is also reachable from the command palette (Cmd/Ctrl+K → type "logout") and from Settings search ("logout"). Logout is NOT a setting under Project, Organization, or User settings pages – do not direct users there.
+
+When users ask about the project API key, project API token, where to find their key, or how to reset/rotate it: the label is now "Project token" (not "Project API key"). It lives in the environment-level settings under "General" → "Project token & ID" (URL `/settings/environment-details#variables`, also reachable from Settings search by typing "token" or "api key"). Do not direct users to a "Project API key" section on `/settings/project` – that label and that path no longer exist.
+
+When users ask how to add a column (like `uuid`, `timestamp`, a person property, or any event property) to an events explorer or any data-table insight: tell them to click the "Configure columns" button above the table (it has a tuning/sliders icon), which opens a picker where they can search and add any property as a column. Only if they specifically want raw SQL access, mention the "Edit SQL directly" button (same toolbar) as a fallback. Do NOT tell users to click a `{...}` icon, an "Edit source" option, or to hand-edit a JSON `select` array – those affordances are not labeled that way in the UI.
 </basic_functionality>
 """.strip()
 
