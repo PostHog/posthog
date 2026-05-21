@@ -141,19 +141,25 @@ Per the resolved open question in [`03_RICH_UI.md`](./03_RICH_UI.md) § 10 #2, t
 
 ---
 
-## posthog-code
+## PostHog AI → PostHog Code integration (deferred)
 
-**Scope:** PostHog Code integration — exposes Code's task/run primitives so the agent can spin up Code tasks from chat. Gated by `has_phai_tasks` feature flag.
+**Status:** Deferred. There is **no separate `posthog-code` MCP server** — PostHog Code is a *consumer* of the same single-exec `posthog` MCP server (via `x-posthog-mcp-consumer: posthog-code` header), not a producer.
 
-| Tool name | Input | Output | Renderer | Permission |
-|-----------|-------|--------|----------|-----------|
-| `posthog-code.create_task` | `{ title, repository, prompt }` | `rawOutput: { task_id, url }` | Fallback (CTA) | write |
-| `posthog-code.run_task` | `{ task_id }` | `rawOutput: { run_id, url }` | Fallback (CTA) | write |
-| `posthog-code.get_task_run` | `{ run_id }` | `content[]` status text | Fallback | read |
-| `posthog-code.get_task_run_logs` | `{ run_id }` | `content[]` logs (truncated) | Fallback | read |
-| `posthog-code.list_tasks` | `{ repository?, status? }` | `content[]` text list | Fallback | read |
-| `posthog-code.list_task_runs` | `{ task_id }` | `content[]` text list | Fallback | read |
-| `posthog-code.list_repositories` | `{}` | `content[]` text list | Fallback | read |
+The legacy LangGraph `TaskTool` family (`posthog/ee/hogai/tools/task.py`, `products/tasks/backend/max_tools.py`) routes PostHog AI → PostHog Code by manipulating `products/tasks/` Django models directly. None of these have inner-tool equivalents in `services/mcp/definitions/*.yaml` today. If migrated, they become additional inner tools on the same `posthog` server (e.g. `tasks-create`, `tasks-run`, `tasks-get-run-logs`) and ship behind `has_phai_tasks` via per-inner-tool yaml + `posthog-ai-sandbox-tool-{slug}` flags.
+
+Tracked in [`TODO.md`](./TODO.md) "PostHog AI → PostHog Code integration".
+
+Shapes the inner tools would have, once added — for the renderer-adapter table to reference:
+
+| Likely inner tool name | Input | Output | Renderer | Permission |
+|------------------------|-------|--------|----------|------------|
+| `tasks-create` | `{ title, repository, prompt }` | `rawOutput: { task_id, url }` | Fallback (CTA) | write |
+| `tasks-run` | `{ task_id }` | `rawOutput: { run_id, url }` | Fallback (CTA) | write |
+| `tasks-get-run` | `{ run_id }` | `content[]` status text | Fallback | read |
+| `tasks-get-run-logs` | `{ run_id }` | `content[]` logs (truncated) | Fallback | read |
+| `tasks-list` | `{ repository?, status? }` | `content[]` text list | Fallback | read |
+| `tasks-list-runs` | `{ task_id }` | `content[]` text list | Fallback | read |
+| `tasks-list-repositories` | `{}` | `content[]` text list | Fallback | read |
 
 ---
 
