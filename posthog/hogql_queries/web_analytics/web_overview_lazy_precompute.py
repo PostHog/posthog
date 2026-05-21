@@ -153,30 +153,26 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     # Rollout gate: shared PostHog feature flag AND per-query opt-in.
     #   - `web-analytics-precompute-toggle` (PostHog feature flag): the same
     #     flag the frontend already uses to show/hide the "Allow precompute"
-    #     button in the Web Analytics ScenePanel. Reusing it gives operators
-    #     one switch that controls both the UI surface and the backend gate.
-    #     Evaluated at the organization level here — set up an org-level
-    #     release condition on the flag to enable rollout.
+    #     button in the Web Analytics ScenePanel. One switch controls both the
+    #     UI surface and the backend gate. The flag is evaluated at the
+    #     organization level — set up an org-level release condition on the
+    #     flag to enable rollout per org. The SDK swallows its own exceptions
+    #     and returns None (falsy) on failure, so a flag-service outage
+    #     fails-closed (gate raised, fall back to v2 / raw) automatically.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
     #     "Allow precompute" toggle).
-    # When invoked from a user request the runner has `user` set — pass the
-    # user's distinct_id so the flag's user-level cohort condition (e.g. the
-    # PostHog Team cohort the existing toggle uses) can actually match. For
-    # cache-warmer / Celery / unauthenticated paths `user` is None; fall back
-    # to the team UUID so the call still has a stable distinct_id, and rely on
-    # the org-group condition to gate those requests.
-    # `only_evaluate_locally=False` is explicit because a user-cohort condition
-    # is not locally evaluable without person_properties — we want the SDK to
-    # hit `/decide` and resolve the cohort server-side. The SDK swallows its
-    # own exceptions and returns None (falsy) on failure, so a flag-service
-    # outage fails-closed (gate raised, fall back to v2/raw) automatically.
-    distinct_id = (runner.user and runner.user.distinct_id) or str(runner.team.uuid)
     if not posthoganalytics.feature_enabled(
         "web-analytics-precompute-toggle",
-        distinct_id,
-        groups={"organization": str(runner.team.organization_id)},
-        group_properties={"organization": {"id": str(runner.team.organization_id)}},
-        only_evaluate_locally=False,
+        str(runner.team.uuid),
+        groups={
+            "organization": str(runner.team.organization_id),
+            "project": str(runner.team.id),
+        },
+        group_properties={
+            "organization": {"id": str(runner.team.organization_id)},
+            "project": {"id": str(runner.team.id)},
+        },
+        only_evaluate_locally=True,
         send_feature_flag_events=False,
     ):
         raise OrgFeatureFlagDisabled()
