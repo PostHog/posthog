@@ -166,13 +166,25 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     # to the team UUID so the call still has a stable distinct_id, and rely on
     # the org-group condition to gate those requests.
     distinct_id = runner.user.distinct_id if runner.user else str(runner.team.uuid)
-    if not posthoganalytics.feature_enabled(
-        "web-analytics-precompute-toggle",
-        distinct_id,
-        groups={"organization": str(runner.team.organization_id)},
-        group_properties={"organization": {"id": str(runner.team.organization_id)}},
-        send_feature_flag_events=False,
-    ):
+    # Defensive: a flag-service outage or SDK exception must not break web
+    # analytics. Fail-closed (skip the lazy path, fall back to v2 / raw) so a
+    # bad flag eval can never serve stale or wrong data.
+    try:
+        flag_on = posthoganalytics.feature_enabled(
+            "web-analytics-precompute-toggle",
+            distinct_id,
+            groups={"organization": str(runner.team.organization_id)},
+            group_properties={"organization": {"id": str(runner.team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    except Exception as exc:
+        logger.warning(
+            "web_overview_lazy_precompute_flag_eval_error",
+            team_id=runner.team.pk,
+            error=str(exc),
+        )
+        flag_on = False
+    if not flag_on:
         raise OrgFeatureFlagDisabled()
 
     if query.useWebAnalyticsPrecompute is not True:
