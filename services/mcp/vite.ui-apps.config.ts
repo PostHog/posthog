@@ -63,10 +63,7 @@ export default defineConfig({
             // resolve them without frontend's node_modules being present.
             // String `find` matches both the exact specifier and any `<find>/<subpath>`
             // import — required for `dayjs/plugin/customParseFormat` etc.
-            { find: 'd3-array', replacement: resolve(__dirname, 'node_modules/d3-array') },
-            { find: 'd3-color', replacement: resolve(__dirname, 'node_modules/d3-color') },
-            { find: 'd3-scale', replacement: resolve(__dirname, 'node_modules/d3-scale') },
-            { find: 'd3-shape', replacement: resolve(__dirname, 'node_modules/d3-shape') },
+            { find: 'd3', replacement: resolve(__dirname, 'node_modules/d3') },
             { find: '@floating-ui/react', replacement: resolve(__dirname, 'node_modules/@floating-ui/react') },
             { find: 'dayjs', replacement: resolve(__dirname, 'node_modules/dayjs') },
             { find: 'simple-statistics', replacement: resolve(__dirname, 'node_modules/simple-statistics') },

@@ -1,4 +1,4 @@
-import { bisector } from 'd3-array'
+import { bisector } from 'd3'
 
 import type {
     ChartDimensions,
