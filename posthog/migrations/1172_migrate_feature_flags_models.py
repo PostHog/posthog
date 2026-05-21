@@ -56,9 +56,9 @@ class Migration(migrations.Migration):
         ("ee", "0044_migrate_feature_flags_models"),
         ("experiments", "0014_migrate_feature_flags_models"),
         ("feature_flags", "0002_migrate_feature_flags_models"),
-        ("posthog", "1169_organization_ai_training_fields"),
+        ("posthog", "1171_backfill_credentials_reviewed_at"),
         ("product_tours", "0007_migrate_feature_flags_models"),
-        ("surveys", "0003_migrate_feature_flags_models"),
+        ("surveys", "0004_migrate_feature_flags_models"),
     ]
 
     operations = [

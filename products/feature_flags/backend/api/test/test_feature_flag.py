@@ -1,4 +1,3 @@
-import os
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -17,6 +16,7 @@ from posthog.test.base import (
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -12952,7 +12952,7 @@ class TestFeatureFlagVersions(APIBaseTest):
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_happy_path(self, mock_get_person, mock_get_flags):
         """Test successful evaluation of a feature flag."""
         flag = FeatureFlag.objects.create(
@@ -13009,7 +13009,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_with_person_id_uses_smallest_distinct_id(self, mock_get_person, mock_get_flags):
         """When the caller passes person_id (no distinct_id), bucketing must
         pick the lexicographically smallest distinct_id so two calls with the
@@ -13049,7 +13049,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(response.json()["evaluation_distinct_id"])
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_with_timestamp(self, mock_get_flags):
         """Historical evaluation must drive the Rust call with reconstructed
         person properties + override definitions, not the live flag's data."""
@@ -13151,23 +13151,23 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="")
     def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
         """Test 500 when INTERNAL_REQUEST_TOKEN is not set."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        with patch("products.feature_flags.backend.api.feature_flag.os.getenv", return_value=None):
-            response = self.client.post(
-                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-                {"distinct_id": "test-user"},
-                format="json",
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_historical_missing_conditions_502(self, mock_get_flags):
         """Test 502 when historical evaluation returns no conditions (misconfigured token)."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13202,7 +13202,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["error"], "Historical evaluation unavailable. Check service configuration.")
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_current_missing_conditions_200(self, mock_get_flags):
         """Test 200 when current evaluation returns no conditions (no 502 for current evaluation)."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13252,7 +13252,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["error"], "Failed to build person properties at specified timestamp.")
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_filters_person_properties(self, mock_get_flags):
         """Test that person_properties are filtered to only flag-referenced keys."""
         flag = FeatureFlag.objects.create(
@@ -13300,7 +13300,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_unexpected_response_type(self, mock_get_flags):
         """Test 502 when flag service returns unexpected response format."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13353,7 +13353,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, 400)
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_build_properties_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from build_person_properties_at_time doesn't leak sensitive information."""
         mock_get_flags.return_value = {
@@ -13409,7 +13409,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         mock_build_props.assert_called_once()
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_reconstruct_flag_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from reconstruct_flag_at_timestamp doesn't leak sensitive information."""
         flag = FeatureFlag.objects.create(

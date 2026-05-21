@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import copy
 import json
@@ -2764,10 +2763,13 @@ class FeatureFlagViewSet(
         if not distinct_id:
             raise exceptions.ValidationError("User distinct_id is required")
 
+        # Authenticated Django UI handler (the flags list in the app), not customer SDK
+        # traffic. Pass the internal token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
         # Result from Rust service is always a dictionary. Parse it to get the flags data.
@@ -3509,11 +3511,14 @@ class FeatureFlagViewSet(
         if isinstance(groups, str):
             groups = json.loads(groups) if groups else {}
 
+        # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
+        # token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
             evaluation_runtime="all",
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
@@ -3794,7 +3799,7 @@ class FeatureFlagViewSet(
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
 
-            internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
+            internal_token = settings.INTERNAL_REQUEST_TOKEN
             if not internal_token:
                 return Response(
                     {"error": "Internal request token not configured"},

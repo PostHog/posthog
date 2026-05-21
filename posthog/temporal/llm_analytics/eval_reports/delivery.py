@@ -65,7 +65,7 @@ def _make_trace_link(project_id: int, generation_id: str, trace_id: str) -> str:
     """Build the trace URL for a cited generation."""
     from posthog.utils import absolute_uri
 
-    return absolute_uri(f"/project/{project_id}/llm-analytics/traces/{trace_id}?event={generation_id}")
+    return absolute_uri(f"/project/{project_id}/ai-observability/traces/{trace_id}?event={generation_id}")
 
 
 def _linkify_citations(text: str, project_id: int, citation_map: dict[str, str]) -> str:
@@ -232,7 +232,7 @@ def deliver_email_report(
         body_parts.append(_render_section_html(section.title, section.content, project_id, citation_map))
     body_html = "\n".join(body_parts)
 
-    evaluation_url = absolute_uri(f"/project/{project_id}/llm-analytics/evaluations/{evaluation_id}")
+    evaluation_url = absolute_uri(f"/project/{project_id}/ai-evals/evaluations/{evaluation_id}")
     period_start_display = _format_period_for_display(period_start)
     period_end_display = _format_period_for_display(period_end)
     subject_title = content.title or "Evaluation report"

@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("feature_flags", "0002_migrate_feature_flags_models"),
-        ("surveys", "0002_action_fk_repoint"),
+        ("surveys", "0003_survey_base_language_alter_survey_questions"),
     ]
 
     operations = [

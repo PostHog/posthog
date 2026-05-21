@@ -2365,8 +2365,7 @@ export interface ProjectSecretAPIKeyApi {
     /** @nullable */
     readonly mask_value: string | null
     readonly created_at: string
-    /** @nullable */
-    readonly created_by: number | null
+    readonly created_by: UserBasicApi
     /** @nullable */
     readonly last_used_at: string | null
     /** @nullable */
@@ -2391,8 +2390,7 @@ export interface PatchedProjectSecretAPIKeyApi {
     /** @nullable */
     readonly mask_value?: string | null
     readonly created_at?: string
-    /** @nullable */
-    readonly created_by?: number | null
+    readonly created_by?: UserBasicApi
     /** @nullable */
     readonly last_used_at?: string | null
     /** @nullable */
@@ -3122,6 +3120,8 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
+    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    readonly requires_credential_review: boolean
 }
 
 export interface PaginatedUserListApi {
@@ -3222,6 +3222,8 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
+    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    readonly requires_credential_review?: boolean
 }
 
 /**
