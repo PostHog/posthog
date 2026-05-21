@@ -1244,12 +1244,12 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         slack_config = SlackIntegration.slack_config()
         validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("posthog_code_event_invalid_request", error=str(e))
+        logger.warning("slack_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     retry_num = request.headers.get("X-Slack-Retry-Num")
     if retry_num:
-        logger.info("posthog_code_event_retry", retry_num=retry_num)
+        logger.info("slack_event_retry", retry_num=retry_num)
         return HttpResponse(status=200)
 
     try:
@@ -1634,7 +1634,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         slack_config = SlackIntegration.slack_config()
         validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
-        logger.warning("posthog_code_interactivity_invalid_request", error=str(e))
+        logger.warning("slack_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
     try:
