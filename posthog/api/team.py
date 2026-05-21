@@ -1686,7 +1686,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
         url_path="experiments_config",
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
@@ -1711,6 +1710,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
 
         if request.method == "PATCH":
+            if not self.user_access_control.check_access_level_for_resource("experiment", required_level="manager"):
+                raise exceptions.PermissionDenied(
+                    "You need manager access on experiments to modify experiment configuration."
+                )
             serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()

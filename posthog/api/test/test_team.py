@@ -44,6 +44,7 @@ from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -2828,6 +2829,39 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
+    @parameterized.expand(
+        [
+            ("member_get_allowed", OrganizationMembership.Level.MEMBER, "GET", status.HTTP_200_OK, False),
+            ("member_patch_forbidden", OrganizationMembership.Level.MEMBER, "PATCH", status.HTTP_403_FORBIDDEN, False),
+            # Org admins are auto-granted manager on every resource (see access_level_for_resource).
+            ("org_admin_patch_allowed", OrganizationMembership.Level.ADMIN, "PATCH", status.HTTP_200_OK, True),
+        ]
+    )
+    def test_experiments_config_permissions(
+        self,
+        _name: str,
+        level: OrganizationMembership.Level,
+        method: str,
+        expected_status: int,
+        expected_precomputation_after: bool,
+    ):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        url = f"/api/environments/{self.team.id}/experiments_config/"
+        if method == "PATCH":
+            response = self.client.patch(url, {"experiment_precomputation_enabled": True})
+        else:
+            response = self.client.get(url)
+
+        self.assertEqual(response.status_code, expected_status)
+
+        config = TeamExperimentsConfig.objects.filter(team=self.team).first()
+        if expected_precomputation_after:
+            assert config is not None and config.experiment_precomputation_enabled is True
+        else:
+            assert config is None
+
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
         _, team_in_other_project = Project.objects.create_with_team(
