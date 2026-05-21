@@ -928,7 +928,12 @@ class SignalReportArtefactViewSet(
     http_method_names = ["get", "put", "head", "options"]
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(report_id=self.parents_query_dict["report_id"], team=self.team)
+        # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
+        # its artefacts must be too (otherwise a known UUID would bypass deletion).
+        return queryset.filter(
+            report_id=self.parents_query_dict["report_id"],
+            team=self.team,
+        ).exclude(report__status=SignalReport.Status.DELETED)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -976,7 +981,10 @@ class SignalReportArtefactViewSet(
 
         # Resolve canonical login per entry. Fail loudly if a user_uuid does not
         # map to an org member with a GitHub identity on this team.
-        resolved_entries: list[tuple[str, str | None]] = []  # (login_lowercase, github_name or None)
+        # The third tuple element distinguishes "github_name explicitly supplied
+        # (incl. empty string to clear)" from "field absent" — the merge step below
+        # only falls back to the prior name when the field is absent.
+        resolved_entries: list[tuple[str, str | None, bool]] = []
         for idx, entry in enumerate(entries):
             user_uuid = entry.get("user_uuid")
             if user_uuid is not None:
@@ -1001,8 +1009,9 @@ class SignalReportArtefactViewSet(
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-            github_name = entry.get("github_name") or None
-            resolved_entries.append((login_lc, github_name))
+            explicit_name = "github_name" in entry
+            github_name = entry.get("github_name") if explicit_name else None
+            resolved_entries.append((login_lc, github_name, explicit_name))
 
         # Preserve relevant_commits for entries that survive the replace, keyed by login.
         try:
@@ -1028,12 +1037,13 @@ class SignalReportArtefactViewSet(
         # Dedupe by canonical login, preserve first-seen order.
         seen: set[str] = set()
         new_content: list[dict] = []
-        for login_lc, github_name in resolved_entries:
+        for login_lc, github_name, explicit_name in resolved_entries:
             if login_lc in seen:
                 continue
             seen.add(login_lc)
-            # Prefer the explicit github_name supplied; otherwise carry over the prior one.
-            effective_name = github_name if github_name is not None else prior_name_by_login.get(login_lc)
+            # If the client supplied github_name (incl. ""), honour it. Otherwise
+            # carry over the prior one so kept reviewers don't lose their name.
+            effective_name = github_name if explicit_name else prior_name_by_login.get(login_lc)
             new_content.append(
                 {
                     "github_login": login_lc,

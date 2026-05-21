@@ -255,9 +255,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not an org member" in response.json()["error"]
 
-    def test_put_user_uuid_from_other_org_returns_400(self):
-        other_org = self._create_org_member  # noqa: F841 — just to keep symmetry
-        # Random UUID not tied to anyone.
+    def test_put_user_uuid_not_in_org_returns_400(self):
+        # Random UUID not tied to anyone in this org.
         report = self._create_report()
         artefact = self._create_artefact(report, content=[])
 
@@ -421,6 +420,65 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         artefact = self._create_artefact(report, content=[])
         response = self.client.delete(self._detail_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    def test_list_excludes_artefacts_when_parent_report_deleted(self):
+        report = self._create_report()
+        self._create_artefact(report, content=[{"github_login": "alice"}])
+        report.status = SignalReport.Status.DELETED
+        report.save(update_fields=["status"])
+
+        response = self.client.get(self._list_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_put_on_deleted_report_artefact_returns_404(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[])
+        report.status = SignalReport.Status.DELETED
+        report.save(update_fields=["status"])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_put_empty_github_name_clears_prior_value(self):
+        # The pipeline stored a name; the client wants to clear it.
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[{"github_login": "alice", "github_name": "Alice A.", "relevant_commits": []}],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice", "github_name": ""}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        artefact.refresh_from_db()
+        stored = json.loads(artefact.content)
+        assert stored[0]["github_name"] == ""
+
+    def test_put_omitted_github_name_carries_over_prior_value(self):
+        # When the client doesn't mention github_name, keep what the pipeline had.
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[{"github_login": "alice", "github_name": "Alice A.", "relevant_commits": []}],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        artefact.refresh_from_db()
+        stored = json.loads(artefact.content)
+        assert stored[0]["github_name"] == "Alice A."
 
     def test_put_after_update_preserves_filter_jsonb_containment(self):
         """The list filter `?suggested_reviewers=<user-uuid>` reads the same field.
