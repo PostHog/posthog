@@ -34,22 +34,22 @@ class TestPostHogCodeEventHandler(TestCase):
             **extra_headers,
         )
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_url_verification(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         response = self._post_event({"type": "url_verification", "challenge": "test-challenge-123"})
         assert response.status_code == 200
         assert response.json() == {"challenge": "test-challenge-123"}
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_invalid_signature(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": "different-secret"}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "different-secret"}
         response = self._post_event({"type": "url_verification", "challenge": "test"})
         assert response.status_code == 403
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_retry_returns_200(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         body = json.dumps({"type": "event_callback", "event": {"type": "app_mention"}}).encode()
         signature, ts = sign_slack_request(body, self.signing_secret)
         response = self.client.post(
@@ -73,7 +73,7 @@ class TestPostHogCodeEventHandler(TestCase):
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_event_callback_dispatch(
         self,
         _name,
@@ -84,7 +84,7 @@ class TestPostHogCodeEventHandler(TestCase):
         mock_config,
         mock_route,
     ):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_route.return_value = route_result
         payload = {
             "type": "event_callback",
@@ -237,21 +237,6 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
                 assert pending_picker is None
         else:
             assert pending_picker is None
-
-    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @override_settings(DEBUG=False)
-    def test_local_match_flag_off_skips_workflow(self, mock_sync_connect, mock_asyncio_run, _mock_flag):
-        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
-
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
-
-        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        mock_sync_connect.assert_not_called()
-        mock_asyncio_run.assert_not_called()
 
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False)
