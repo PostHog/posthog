@@ -8,7 +8,7 @@ This rewrite supersedes the earlier hybrid (`A/B/C/D`) proposal. There is **one*
 
 ## 1. The model
 
-A user message carries an optional list of typed attachments. The Django SSE relay (`ee/hogai/sandbox/sse_relay.py` — see [`02_CORE.md`](./02_CORE.md) § 4) wraps the message with a `<posthog_context>` block — on both first messages and follow-ups — and forwards the wrapped text into the cloud-agent Task/Run. The frontend never sees the wrapped form on its own outbound requests; it speaks `/conversations/*` as today and just adds an `attached_context` field to the request body.
+A user message carries an optional list of typed attachments. The Django `POST /sandbox/` handler (`ee/hogai/sandbox/message_view.py` — see [`02_CORE.md`](./02_CORE.md) § 4) wraps the message with a `<posthog_context>` block — on both first messages and follow-ups — and forwards the wrapped text into the cloud-agent Task/Run. The frontend never sees the wrapped form on its own outbound requests; it speaks `/conversations/*` as today and just adds an `attached_context` field to the request body.
 
 ```ts
 interface AttachedContext {
@@ -173,7 +173,7 @@ The frontend talks to the public `/conversations/*` API as today. The only addit
 **First message** (conversation create + open stream — `02_CORE.md` § 5):
 
 ```http
-POST /api/environments/{teamId}/conversations/stream/
+POST /api/environments/{teamId}/conversations/{conversationId}/sandbox/
 {
     "content": "Why did checkout conversions drop last week?",
     "trace_id": "...",
@@ -184,10 +184,10 @@ POST /api/environments/{teamId}/conversations/stream/
 }
 ```
 
-**Follow-up** (same conversation, continued stream — `02_CORE.md` § 6):
+**Follow-up** (same conversation — `02_CORE.md` § 5.2 / 5.3):
 
 ```http
-POST /api/environments/{teamId}/conversations/{conversationId}/stream/
+POST /api/environments/{teamId}/conversations/{conversationId}/sandbox/
 {
     "content": "Show me the trend for last 30 days",
     "trace_id": "...",
@@ -197,13 +197,13 @@ POST /api/environments/{teamId}/conversations/{conversationId}/stream/
 }
 ```
 
-The shape is the same in both cases. The SSE relay is responsible for:
+The shape is the same in both cases. The `POST /sandbox/` handler is responsible for:
 
 1. Deduping `attached_context` against entity refs already named in the conversation's persisted ACP log (see § 4.3). Dedupe affects only the rendered prompt block — the structured record stays verbatim.
 2. Wrapping `content` with the `<posthog_context>` block built from the deduped list before sending it on (to either `POST /tasks/{id}/run/` `pending_user_message` for the first turn, or `POST /command/` `user_message` for follow-ups).
 3. Including the **full, undeduped** structured `attached_context` under the outbound payload's `state.attached_context` (first turn) or `params._meta.attached_context` (follow-up) so the persisted ACP log keeps a complete record per message.
 
-`ui_context` (today's rich-payload field) is **dropped** from the request shape for `agent_runtime === 'sandbox'` conversations. The LangGraph path keeps reading it for `agent_runtime === 'langgraph'`. The frontend can keep sending both during the soak — the sandbox SSE relay just ignores `ui_context`.
+`ui_context` (today's rich-payload field) is **dropped** from the request shape for `agent_runtime === 'sandbox'` conversations. The LangGraph path keeps reading it for `agent_runtime === 'langgraph'`. The frontend can keep sending both during the soak — the sandbox `POST /sandbox/` handler just ignores `ui_context`.
 
 ---
 
@@ -211,7 +211,7 @@ The shape is the same in both cases. The SSE relay is responsible for:
 
 ### 4.1 Storage
 
-Two places — both downstream of the SSE relay:
+Two places — both downstream of the `POST /sandbox/` handler:
 
 1. **`Run.state.attached_context: AttachedContext[]`** — set at Run-create time from the initial conversation request. Survives for the life of the Run.
 2. **`_posthog/user_message` log entries** — each follow-up user message logged with its own `attached_context` (and the wrapped content) so the persisted ACP log is a complete record.
@@ -224,12 +224,12 @@ The `Conversation` row in PostHog's database does **not** need an `attached_cont
 
 ### 4.2 Where wrapping happens
 
-The Django SSE relay (`ee/hogai/sandbox/sse_relay.py` — see [`02_CORE.md`](./02_CORE.md) § 4) calls the dedupe+wrap pair at two points:
+The Django `POST /sandbox/` handler (`ee/hogai/sandbox/message_view.py` — see [`02_CORE.md`](./02_CORE.md) § 4) calls the dedupe+wrap pair at two points:
 
 - **First message** — when constructing the `POST /tasks/{id}/run/` body. The relay computes `pending_user_message = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=[]))` (on a brand-new conversation the prior set is empty, so dedupe is a no-op) and sets `state.attached_context = attached_context` with the full list.
 - **Follow-up message** — when constructing the `POST /command/` body. The relay first walks prior `_posthog/user_message` entries on the conversation's persisted ACP log to collect already-named `(type, id)` pairs, then computes `params.content = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=seen))` and sets `params._meta.attached_context = attached_context` with the full list.
 
-There is no Temporal workflow involvement. The cloud-agent SSE relay and the sandbox JWT scheme handle the rest of the lifecycle.
+There is no Temporal workflow involvement. The cloud-agent `POST /sandbox/` handler and the sandbox JWT scheme handle the rest of the lifecycle.
 
 ### 4.3 The wrapping function
 
@@ -283,7 +283,7 @@ def prune_repeated_entity_refs(
 
 `_format_item` emits one line per attachment naming the entity type, ID, and (if present) human label. It does **not** name specific tool function signatures — naming is owned by `04_PROMPTS.md` § 5 — but the wrapper does name the tool *category* ("Use the appropriate tools..."). Tool descriptions on the MCP side carry the function signatures the agent reads.
 
-Both functions are pure, side-effect-free, snapshot-testable. `wrap_user_message` skips emitting the block entirely when its input is empty — so when dedupe removes everything, the user's message is forwarded without any wrapper noise. Called from the SSE relay at both first-message Run-create and follow-up `POST /command/` time (§ 4.2).
+Both functions are pure, side-effect-free, snapshot-testable. `wrap_user_message` skips emitting the block entirely when its input is empty — so when dedupe removes everything, the user's message is forwarded without any wrapper noise. Called from the `POST /sandbox/` handler at both first-message Run-create and follow-up `POST /command/` time (§ 4.2).
 
 **Template single-sourcing.** The `<posthog_context>` template lives only here, in Python. The frontend never builds it. If a future debug surface needs to show the wrapped form (§ 3.6), it calls a thin `GET /preview_wrap/` endpoint that delegates to `wrap_user_message` — no TypeScript mirror, no risk of the two copies drifting.
 
@@ -316,7 +316,7 @@ Ordered. Each step is a self-contained PR. **None of these steps modifies the ex
 
 1. **Types.** Add `AttachedContext` to `frontend/src/scenes/max/maxTypes.ts` (new export, no existing edits).
 2. **Backend wrapper + dedupe.** Add `ee/hogai/sandbox/context_wrapper.py` with both `wrap_user_message` and `prune_repeated_entity_refs`. Snapshot test for: empty, one-of-each-type, mixed-with-free-text, repeated-entity-ref dedupe, repeated-text not-deduped, length-capped, missing-name fallbacks. Pure functions — independent of relay plumbing.
-3. **SSE relay integration.** The SSE relay (`02_CORE.md` § 4) calls `prune_repeated_entity_refs` then `wrap_user_message` at Run-create and at every `POST /command/` — only on the sandbox branch. The full undeduped list goes to `state.attached_context` / `params._meta.attached_context`.
+3. **`POST /sandbox/` handler integration.** The `POST /sandbox/` handler (`02_CORE.md` § 4) calls `prune_repeated_entity_refs` then `wrap_user_message` at Run-create and at every `POST /command/` — only on the sandbox branch. The full undeduped list goes to `state.attached_context` / `params._meta.attached_context`.
 4. **New sandbox context logic.** Add `frontend/src/scenes/max/posthogAiContextLogic.ts` (sibling to `maxContextLogic.ts`). Includes `projectToAttachedContext` helper and the single `attachments` reducer with dedup-on-`attach`. Mounted by `maxThreadLogic` only when `conversation.agent_runtime === 'sandbox'`.
 5. **`Context.tsx` runtime branch.** Add a runtime-aware render branch — LangGraph path uses today's chips; sandbox path uses the new logic. Existing LangGraph branch is verbatim.
 6. **Wire send-message.** `maxThreadLogic.sendMessage` already builds the request body. Add an `if conversation.agent_runtime === 'sandbox'` branch that reads from `posthogAiContextLogic.values.attachments` and sets `attached_context` instead of `ui_context`. Send does not clear attachments. LangGraph branch unchanged.
@@ -328,7 +328,7 @@ Ordered. Each step is a self-contained PR. **None of these steps modifies the ex
 
 | Spec | Dependency |
 |---|---|
-| `02_CORE.md` | `/conversations/stream/` request body gains `attached_context` field for both first and follow-up messages. The SSE relay calls `prune_repeated_entity_refs` then `wrap_user_message` before forwarding to the cloud-agent. |
+| `02_CORE.md` | `POST /conversations/{id}/sandbox/` request body carries `attached_context` field for both first and follow-up messages. The handler calls `prune_repeated_entity_refs` then `wrap_user_message` before dispatching to the cloud-agent. The endpoint is non-streaming — frontend opens SSE directly against `/api/projects/{tid}/tasks/.../stream/` after the response returns. |
 | `03_RICH_UI.md` | Scene–agent interaction is one-directional: scenes contribute attachments via the existing `maxContext` selector and can subscribe to thread state read-only (`useValues(maxThreadLogic)`). No agent-side callbacks; `useMaxTool` / `MaxTool` are deleted (owned by `03`). |
 | `04_PROMPTS.md` | (a) Don't inject groups, billing, or core memory into `systemPrompt` — MCP tools handle it. (b) Tool naming used in `<posthog_context>` wrappers comes from § 5 of that spec — keep the wrapper template generic ("the appropriate tools") so renames don't break this. (c) Drop `ManageMemoriesTool` from the catalog (no core memory). |
 
