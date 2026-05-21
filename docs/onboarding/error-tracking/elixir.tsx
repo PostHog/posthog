@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'products/growth/frontend/onboarding/OnboardingDocsContentWrapper'
 
 import { getElixirSteps as getElixirStepsPA } from '../product-analytics/elixir'
 import { StepDefinition } from '../steps'
