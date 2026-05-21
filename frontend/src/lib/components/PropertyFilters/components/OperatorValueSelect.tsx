@@ -267,12 +267,20 @@ export function OperatorValueSelect({
         }
 
         // Restrict trace_id, span_id, kind, and status_code to only equals/not equals
-        if (['trace_id', 'span_id', 'kind', 'status_code'].includes(propertyKey) && type === PropertyFilterType.Span) {
+        if (
+            propertyKey &&
+            ['trace_id', 'span_id', 'kind', 'status_code'].includes(propertyKey) &&
+            type === PropertyFilterType.Span
+        ) {
             operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
         // Restrict log trace_id, span_id and severity_level to only equals/not equals
-        if (['trace_id', 'span_id', 'severity_level'].includes(propertyKey) && type === PropertyFilterType.Log) {
+        if (
+            propertyKey &&
+            ['trace_id', 'span_id', 'severity_level'].includes(propertyKey) &&
+            type === PropertyFilterType.Log
+        ) {
             operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
