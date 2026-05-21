@@ -77,8 +77,7 @@ async def eval_insight_save(sandboxed_demo_data, pytestconfig, posthog_client):
         SandboxedEvalCase(
             name="create_trends_pageview",
             prompt=(
-                "Save a new insight named 'Daily pageviews' that shows the daily $pageview trend "
-                "over the last 30 days."
+                "Save a new insight named 'Daily pageviews' that shows the daily $pageview trend over the last 30 days."
             ),
             expected={
                 "called_target_tool": {"tool": "insight-create"},
