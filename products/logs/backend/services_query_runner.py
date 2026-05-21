@@ -105,8 +105,12 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         try:
             matched = bool(re.search(str(value), sn, re.IGNORECASE | re.DOTALL))
         except re.error:
-            # Invalid regex permanently no-matches, mirroring the ingestion worker.
-            return _FALSE
+            # Invalid regex: for `regex` it can never match → FALSE.
+            # For `not_regex` it trivially never matches → the "not" condition is
+            # always satisfied → INDETERMINATE (shown on every service row), which
+            # is the conservative choice and consistent with the PR's invariant that
+            # only a provably-FALSE result hides the rule.
+            return _FALSE if operator == "regex" else _INDETERMINATE
         if operator == "regex":
             return _TRUE if matched else _FALSE
         return _FALSE if matched else _TRUE
