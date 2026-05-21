@@ -1114,8 +1114,8 @@ export const MODE_DEFINITIONS: Record<
         ]),
     },
     [AgentMode.LLMAnalytics]: {
-        name: 'LLM analytics',
-        description: 'Analyzes LLM traces and writes evaluation code for LLM analytics.',
+        name: 'AI observability',
+        description: 'Analyzes LLM traces and writes evaluation code for AI observability.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
             Scene.LLMAnalytics,

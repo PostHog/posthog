@@ -23,10 +23,42 @@ pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const S3_FETCH: &str = "cymbal_s3_fetch";
+// S3 GET body size, in bytes, taken from the `Content-Length` header on the GET response
+// (so it's recorded before we collect the body — sets us up to enforce a size cap here later).
+pub const S3_FETCHED_BYTES: &str = "cymbal_s3_fetched_bytes";
 pub const S3_PUT: &str = "cymbal_s3_put";
+// S3 PUT body size, in bytes, observed at the call site.
+pub const S3_PUT_BYTES: &str = "cymbal_s3_put_bytes";
 pub const SOURCEMAP_FETCH: &str = "cymbal_sourcemap_fetch";
+// Size of an external (non-S3) sourcemap or minified source fetch, in bytes after decoding
+// the HTTP response body. Labelled by `kind` (`source` / `sourcemap`).
+pub const SOURCEMAP_EXTERNAL_BYTES: &str = "cymbal_sourcemap_external_bytes";
 pub const SAVE_SYMBOL_SET: &str = "cymbal_save_symbol_set";
 pub const SOURCEMAP_PARSE: &str = "cymbal_sourcemap_parse";
+// Decompressed size of a parsed symbol set, in bytes. Labelled by `kind`
+// (`sourcemap` / `hermes` / `proguard` / `apple`).
+pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_bytes";
+
+// Histogram buckets for the byte-shaped metrics above. The default
+// `common_metrics` buckets are tuned for milliseconds of latency and saturate
+// at 10_000 — every multi-KB fetch would land in the `+Inf` bucket. These
+// cover 1 KiB → 1 GiB with extra granularity in the multi-MB range where any
+// reasonable size cap would live.
+pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
+    1_024.0,         // 1 KiB
+    10_240.0,        // 10 KiB
+    102_400.0,       // 100 KiB
+    524_288.0,       // 512 KiB
+    1_048_576.0,     // 1 MiB
+    5_242_880.0,     // 5 MiB
+    10_485_760.0,    // 10 MiB
+    26_214_400.0,    // 25 MiB
+    52_428_800.0,    // 50 MiB
+    104_857_600.0,   // 100 MiB
+    268_435_456.0,   // 256 MiB
+    536_870_912.0,   // 512 MiB
+    1_073_741_824.0, // 1 GiB
+];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";

@@ -256,7 +256,7 @@ def run_eval_report_agent(
     from posthog.temporal.llm_analytics.eval_reports.metrics import increment_errors, increment_report_generated
 
     # Tag every LLM call made by this agent run so they show up under `ai_product =
-    # llma_eval_reports` in LLM analytics, matching the convention used by other
+    # llma_eval_reports` in AI observability, matching the convention used by other
     # PostHog internal AI features. Trace id is unique per run so each invocation
     # is its own trace; distinct id is the team so traces group by project.
     callbacks: list[BaseCallbackHandler] = []

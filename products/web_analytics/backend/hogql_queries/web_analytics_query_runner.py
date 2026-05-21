@@ -40,11 +40,12 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, A
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action, User
+from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import generate_cache_key, get_safe_cache
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_COUNTER,
     WEB_ANALYTICS_QUERY_DURATION,
@@ -84,9 +85,9 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
 
     def calculate(self) -> WAR:
         # Every web analytics query runner produces user-facing dashboard
-        # queries. Tag here so all downstream `sync_execute` calls (live and
-        # preagg paths) inherit product/feature and don't trip DEBUG-mode
-        # `UntaggedQueryError`.
+        # queries. Tag here so all downstream `sync_execute` calls (live,
+        # preagg, lazy precompute) inherit `product`/`feature` and don't
+        # trip DEBUG-mode `UntaggedQueryError`.
         tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
 
         query_kind = getattr(self.query, "kind", "Unknown")

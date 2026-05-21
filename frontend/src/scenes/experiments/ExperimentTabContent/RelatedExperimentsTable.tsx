@@ -14,7 +14,7 @@ import type { Experiment, FeatureFlagType } from '~/types'
 import { ExperimentStatus } from '~/types'
 
 import { getExperimentStatus, getShippedVariantKey, isSingleVariantShipped } from '../experimentsLogic'
-import { StatusTag } from '../ExperimentView/components'
+import { StatusTag } from '../ExperimentView/StatusTag'
 import { isLegacyExperiment } from '../utils'
 import { featureFlagRelatedExperimentsLogic } from './featureFlagRelatedExperimentsLogic'
 

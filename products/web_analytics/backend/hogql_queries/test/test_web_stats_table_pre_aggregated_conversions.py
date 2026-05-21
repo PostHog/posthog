@@ -11,10 +11,10 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Action
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_STATS_INSERT_SQL
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
     WebAnalyticsPreAggregatedTestBase,

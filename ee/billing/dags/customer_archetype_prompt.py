@@ -9,7 +9,7 @@ companies (from Salesforce and product usage data) and must classify each as
 AI Native: The company's core product IS AI. Indicators:
 - Founded 2022+ OR core product is built on LLMs/generative AI/AI agents
 - Industry classified as "AI / Ml"
-- Uses LLM analytics (has_llm_analytics = true)
+- Uses AI observability (has_llm_analytics = true)
 - Small team (<50), high engineer density (30%+), YC-backed — common in AI startups
 
 Cloud Native: The company builds SaaS/fintech/dev tools where AI is NOT the core product. Indicators:
@@ -60,7 +60,7 @@ Input:
 {"sf_account_id": "001X", "name": "OpenRouter", "founded_year_c": 2023, "harmonic_headcount_c": 40, "pct_engineers_c": null, "harmonic_is_yc_company_c": false, "has_llm_analytics": 1, "distinct_products_used": 7, "harmonic_industry_c": null, "clay_industry_c": null, "harmonic_funding_stage_c": null, "harmonic_total_funding_c": 40000000, "number_of_employees": null, "tech_tag_c": null, "business_model_c": null, "clearbit_business_model_c": null, "billing_country": "United States", "total_funding_raised_c": null, "harmonic_headcount_engineering_c": null}
 
 Output:
-{"sf_account_id": "001X", "archetype": "AI Native", "ai_native_score": 5, "cloud_native_score": 1, "stage": "Early / Growth", "key_signals": "Founded 2023; LLM analytics user; small team (40); name and product indicate core LLM/AI infrastructure"}
+{"sf_account_id": "001X", "archetype": "AI Native", "ai_native_score": 5, "cloud_native_score": 1, "stage": "Early / Growth", "key_signals": "Founded 2023; AI observability user; small team (40); name and product indicate core LLM/AI infrastructure"}
 
 Input:
 {"sf_account_id": "001Y", "name": "n8n", "founded_year_c": 2019, "harmonic_headcount_c": 754, "pct_engineers_c": 37, "harmonic_is_yc_company_c": false, "has_llm_analytics": 1, "distinct_products_used": 4, "harmonic_industry_c": null, "clay_industry_c": null, "harmonic_funding_stage_c": null, "harmonic_total_funding_c": null, "number_of_employees": null, "tech_tag_c": null, "business_model_c": null, "clearbit_business_model_c": null, "billing_country": "Germany", "total_funding_raised_c": 259415455, "harmonic_headcount_engineering_c": null}
