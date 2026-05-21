@@ -152,6 +152,7 @@ services:
             - workspace:/workspace
             - ${SANDBOX_CLAUDE_AUTH}:/tmp/claude-auth:ro
             - ${SANDBOX_CLAUDE_JSON:-/dev/null}:/tmp/claude-auth.json:ro
+            - ${SANDBOX_MCP_SERVERS:-/dev/null}:/tmp/sandbox-mcp.json:ro
             - ${SANDBOX_HOST_GITCONFIG:-/dev/null}:/tmp/host-gitconfig:ro
             - ${SANDBOX_HOST_GIT_SIGNINGKEY:-/dev/null}:/tmp/host-git-signingkey:ro
             - ${SANDBOX_HOST_ALLOWED_SIGNERS:-/dev/null}:/tmp/host-allowed-signers:ro

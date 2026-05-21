@@ -19,6 +19,7 @@ import json
 import time
 import fcntl
 import shutil
+import getpass
 import argparse
 import platform
 import textwrap
@@ -347,7 +348,7 @@ def _claude_auth_dir() -> str:
     auth_dir = REGISTRY_DIR / "claude-auth"
     auth_dir.mkdir(parents=True, exist_ok=True)
     claude_dir = Path.home() / ".claude"
-    for filename in ("settings.json", "settings.local.json"):
+    for filename in ("settings.json", "settings.local.json", "CLAUDE.md"):
         src = claude_dir / filename
         if src.exists():
             shutil.copy2(src, auth_dir / filename)
@@ -669,6 +670,8 @@ def _host_compose_env() -> dict[str, str]:
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
         "SANDBOX_CLAUDE_JSON": str(claude_json) if claude_json.is_file() else "/dev/null",
+        # Remote MCP servers; entrypoint merges into ~/.claude.json.
+        "SANDBOX_MCP_SERVERS": str(MCP_FILE) if MCP_FILE.is_file() else "/dev/null",
         "SANDBOX_HOST_GITCONFIG": str(host_gitconfig) if host_gitconfig.is_file() else "/dev/null",
         # Signing paths — entrypoint rewrites the copied gitconfig to point here.
         "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
@@ -1906,6 +1909,73 @@ def cmd_tools(args) -> None:
         fatal("Run `sandbox tools --help` for usage.")
 
 
+# --- Remote MCP servers ---
+#
+# Stored as Claude's own mcpServers shape in mcps.json (0600 — holds auth
+# tokens) and merged at /workspace local scope by the entrypoint. For a
+# non-Bearer auth scheme, edit mcps.json directly; it is exactly the JSON
+# Claude expects under mcpServers.
+MCP_FILE = REGISTRY_DIR / "mcps.json"
+KNOWN_REMOTES = {"posthog": "https://mcp.posthog.com/mcp"}
+
+
+def _load_mcps() -> dict:
+    return json.loads(MCP_FILE.read_text()) if MCP_FILE.is_file() else {"mcpServers": {}}
+
+
+def _save_mcps(data: dict) -> None:
+    MCP_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MCP_FILE.write_text(json.dumps(data, indent=2) + "\n")
+    MCP_FILE.chmod(0o600)  # holds auth tokens
+
+
+def _mcp_add(name: str, url: str | None) -> None:
+    data = _load_mcps()
+    if name in data["mcpServers"]:
+        fatal(f"MCP '{name}' already exists. Run 'sandbox mcp remove {name}' first.")
+    url = url or KNOWN_REMOTES.get(name)
+    if not url:
+        fatal(f"No URL known for '{name}'. Pass one: sandbox mcp add {name} <url>")
+    server = {"type": "http", "url": url}
+    token = getpass.getpass("Bearer token (blank for none): ").strip()
+    if token:
+        server["headers"] = {"Authorization": f"Bearer {token}"}
+    data["mcpServers"][name] = server
+    _save_mcps(data)
+    success(f"Added MCP '{name}' ({url}).")
+    print("Next `sandbox create` will register it with Claude in the sandbox.")
+
+
+def _mcp_remove(name: str) -> None:
+    data = _load_mcps()
+    if data["mcpServers"].pop(name, None) is None:
+        warn(f"No MCP named '{name}' in {MCP_FILE}.")
+        return
+    _save_mcps(data)
+    success(f"Removed MCP '{name}'.")
+
+
+def _mcp_list() -> None:
+    servers = _load_mcps()["mcpServers"]
+    if not servers:
+        print(f"No MCP servers configured in {MCP_FILE}.")
+        print("Add one: sandbox mcp add posthog   (or: sandbox mcp add <name> <url>)")
+        return
+    print(f"MCP servers in {MCP_FILE}:")
+    for name, server in servers.items():
+        auth = " (auth)" if server.get("headers") else ""
+        print(f"  {name}: {server.get('url')}{auth}")
+
+
+def cmd_mcp(args) -> None:
+    if args.mcp_command == "add":
+        _mcp_add(args.name, args.url)
+    elif args.mcp_command == "remove":
+        _mcp_remove(args.name)
+    else:
+        _mcp_list()
+
+
 def cmd_nuke() -> None:
     warn("Destroying all sandboxes and clearing cache...")
     registry = Registry()
@@ -2064,6 +2134,23 @@ examples:
     tools_remove_p = tools_sub.add_parser("remove", help="Remove a tool")
     tools_remove_p.add_argument("name")
 
+    mcp_parser = sub.add_parser(
+        "mcp",
+        help="Manage remote MCP servers available to Claude in the sandbox",
+        description=(
+            "Manage ~/.posthog-sandboxes/mcps.json — remote MCP servers registered "
+            "with Claude in every sandbox at create time. Bearer tokens are prompted "
+            "for and stored locally (mode 0600), never in git."
+        ),
+    )
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command")
+    mcp_sub.add_parser("list", help="List configured MCP servers")
+    mcp_add_p = mcp_sub.add_parser("add", help="Add a remote MCP server (prompts for an optional bearer token)")
+    mcp_add_p.add_argument("name")
+    mcp_add_p.add_argument("url", nargs="?", help="Server URL (optional for known names like 'posthog')")
+    mcp_remove_p = mcp_sub.add_parser("remove", help="Remove an MCP server")
+    mcp_remove_p.add_argument("name")
+
     return parser
 
 
@@ -2095,6 +2182,7 @@ def main() -> None:
         "rebuild-cache": cmd_rebuild_cache,
         "nuke": cmd_nuke,
         "tools": lambda: cmd_tools(args),
+        "mcp": lambda: cmd_mcp(args),
     }
 
     try:
