@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
@@ -156,7 +157,9 @@ export function AuthorizedUrlList({
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS ||
                                                 type === AuthorizedUrlListType.WEB_ANALYTICS
                                                     ? 'Open the toolbar on this page'
-                                                    : 'Open the browser at this page'
+                                                    : type === AuthorizedUrlListType.WEB_EXPERIMENTS
+                                                      ? 'Open the page in a new tab with experiment preview parameters'
+                                                      : 'Open the browser at this page'
                                             }
                                             center
                                             data-attr="toolbar-open"
@@ -166,34 +169,74 @@ export function AuthorizedUrlList({
                                                     ? 'Wildcard domains cannot be launched'
                                                     : undefined
                                             }
-                                            sideAction={{
-                                                dropdown: {
-                                                    placement: 'bottom-start',
-                                                    overlay: (
-                                                        <div className="px-2 py-1">
-                                                            <h3>If launching the toolbar didn't work, </h3>
-                                                            <p>
-                                                                You can copy the launch code and paste it into the
-                                                                browser console on your site.
-                                                            </p>
-                                                            <p>NB you need to have added posthog to the `window`</p>
-                                                            <LemonButton
-                                                                icon={<IconCopy />}
-                                                                size="small"
-                                                                className="float-right"
-                                                                type="primary"
-                                                                data-attr="copy-manual-toolbar-launch-code"
-                                                                onClick={() => {
-                                                                    copyLaunchCode()
-                                                                }}
-                                                            >
-                                                                Copy launch code
-                                                            </LemonButton>
-                                                        </div>
-                                                    ),
-                                                },
-                                                'data-attr': 'launch-toolbar-sideaction-dropdown',
-                                            }}
+                                            sideAction={
+                                                type === AuthorizedUrlListType.WEB_EXPERIMENTS
+                                                    ? {
+                                                          dropdown: {
+                                                              placement: 'bottom-start',
+                                                              overlay: (
+                                                                  <div className="px-2 py-1 max-w-sm">
+                                                                      <h3>Preview not rendering?</h3>
+                                                                      <p>
+                                                                          The preview opens the page in a new tab with{' '}
+                                                                          <code>__experiment_id</code> and{' '}
+                                                                          <code>__experiment_variant</code> query
+                                                                          parameters. The target site's PostHog SDK
+                                                                          must be configured to consume these
+                                                                          parameters for the variant to render.
+                                                                      </p>
+                                                                      <LemonButton
+                                                                          icon={<IconCopy />}
+                                                                          size="small"
+                                                                          className="float-right"
+                                                                          type="primary"
+                                                                          data-attr="copy-web-experiment-preview-url"
+                                                                          onClick={() => {
+                                                                              void copyToClipboard(
+                                                                                  `${keyedURL.url}${query ?? ''}`,
+                                                                                  'preview URL'
+                                                                              )
+                                                                          }}
+                                                                      >
+                                                                          Copy preview URL
+                                                                      </LemonButton>
+                                                                  </div>
+                                                              ),
+                                                          },
+                                                          'data-attr': 'launch-web-experiment-sideaction-dropdown',
+                                                      }
+                                                    : {
+                                                          dropdown: {
+                                                              placement: 'bottom-start',
+                                                              overlay: (
+                                                                  <div className="px-2 py-1">
+                                                                      <h3>If launching the toolbar didn't work, </h3>
+                                                                      <p>
+                                                                          You can copy the launch code and paste it
+                                                                          into the browser console on your site.
+                                                                      </p>
+                                                                      <p>
+                                                                          NB you need to have added posthog to the
+                                                                          `window`
+                                                                      </p>
+                                                                      <LemonButton
+                                                                          icon={<IconCopy />}
+                                                                          size="small"
+                                                                          className="float-right"
+                                                                          type="primary"
+                                                                          data-attr="copy-manual-toolbar-launch-code"
+                                                                          onClick={() => {
+                                                                              copyLaunchCode()
+                                                                          }}
+                                                                      >
+                                                                          Copy launch code
+                                                                      </LemonButton>
+                                                                  </div>
+                                                              ),
+                                                          },
+                                                          'data-attr': 'launch-toolbar-sideaction-dropdown',
+                                                      }
+                                            }
                                         >
                                             Launch
                                         </LemonButton>
