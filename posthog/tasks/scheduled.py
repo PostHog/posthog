@@ -314,7 +314,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="send delayed org usage reports",
         )
 
-    # Send LLM Analytics usage reports daily at 4:15 AM UTC
+    # Send AI observability usage reports daily at 4:15 AM UTC
     sender.add_periodic_task(
         crontab(hour="4", minute="15"),
         send_llm_analytics_usage_reports.s(),

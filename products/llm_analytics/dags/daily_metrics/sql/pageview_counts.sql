@@ -1,7 +1,7 @@
 /*
-Pageview Counts - Page views by LLM Analytics page type
+Pageview counts - Page views by AI observability page type
 
-Counts $pageview events on LLM Analytics pages, categorized by page type.
+Counts $pageview events on AI observability pages, categorized by page type.
 URL patterns are mapped to page types via config.pageview_mappings.
 More specific patterns should be listed before general ones in config.
 

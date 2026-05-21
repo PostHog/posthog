@@ -697,7 +697,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-llm-analytics',
-        title: 'LLM analytics',
+        title: 'AI observability',
         group: 'Products',
         flag: 'LLM_ANALYTICS_EVALUATIONS',
         settings: [
@@ -705,9 +705,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'llm-analytics-byok',
                 title: 'Bring Your Own Key (BYOK)',
                 description:
-                    'Add and manage provider API keys for LLM analytics features, including evaluations and playground.',
+                    'Add and manage provider API keys for AI observability features, including evaluations and playground.',
                 component: <LLMProviderKeysSettings />,
-                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
             },
         ],

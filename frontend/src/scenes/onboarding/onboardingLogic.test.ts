@@ -193,7 +193,7 @@ describe('onboardingLogic — flow composition', () => {
     })
 
     describe('install-step — no dedup', () => {
-        it('LLM Analytics + Workflows produce two install steps (neither has a dedupKey)', () => {
+        it('AI observability + Workflows produce two install steps (neither has a dedupKey)', () => {
             logic.actions.setProductKey(ProductKey.LLM_ANALYTICS)
             logic.actions.setSecondaryProductKeys([ProductKey.WORKFLOWS])
 

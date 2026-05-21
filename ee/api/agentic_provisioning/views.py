@@ -124,7 +124,7 @@ SERVICES_CACHE_STORE_TTL = 86400
 
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, llm analytics, logs, posthog ai, emails, and more."
+_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, AI observability, logs, posthog ai, emails, and more."
 
 
 def _build_free_plan_service() -> dict[str, Any]:

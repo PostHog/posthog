@@ -356,7 +356,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
     [Scene.CustomerJourneyTemplates]: AccessControlResourceType.CustomerAnalytics,
 
-    // LLM Analytics
+    // AI observability
     [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDatasets]: AccessControlResourceType.LlmAnalytics,
