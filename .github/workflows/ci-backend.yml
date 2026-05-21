@@ -15,9 +15,9 @@ on:
     pull_request:
     merge_group:
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# No workflow-level concurrency — each job manages its own concurrency group.
+# This ensures check-migrations (schema save) always completes on every master
+# push, while test jobs can still be cancelled on PR force-pushes.
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -255,6 +255,9 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         timeout-minutes: 20
+        concurrency:
+            group: backend-turbo-discover-${{ github.head_ref || github.ref }}
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
         name: Discover product tests
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
@@ -333,6 +336,9 @@ jobs:
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
+        concurrency:
+            group: backend-turbo-tests-${{ matrix.group }}-${{ github.head_ref || github.ref }}
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
         timeout-minutes: 30
         name: Product tests (${{ matrix.group }})
         strategy:
@@ -559,6 +565,11 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
+        concurrency:
+            # Per-SHA group: every master push must save its schema cache.
+            # PRs use branch-based grouping but never cancel (migrations must complete).
+            group: backend-check-migrations-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+            cancel-in-progress: false
         # checks: write is needed so the "Publish Migration risk check" step
         # can POST to /repos/.../check-runs. Workflow-level perms only grant
         # contents:read + pull-requests:write.
@@ -1319,6 +1330,9 @@ jobs:
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
         timeout-minutes: 30
+        concurrency:
+            group: backend-django-${{ matrix.group }}-${{ github.head_ref || github.ref }}
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
@@ -1982,6 +1996,9 @@ jobs:
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
+        concurrency:
+            group: backend-async-migrations-${{ github.head_ref || github.ref }}
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
