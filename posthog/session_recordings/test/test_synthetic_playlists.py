@@ -197,6 +197,56 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
+    @parameterized.expand(
+        [
+            ("synthetic-watch-history",),
+            ("synthetic-frustrated",),
+            ("synthetic-commented",),
+        ]
+    )
+    def test_cannot_bulk_add_recordings_to_synthetic_playlist(self, short_id: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/recordings/bulk_add",
+            {"session_recording_ids": ["session_1", "session_2"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Synthetic playlists are read-only" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("synthetic-watch-history",),
+            ("synthetic-frustrated",),
+            ("synthetic-commented",),
+        ]
+    )
+    def test_cannot_bulk_delete_recordings_from_synthetic_playlist(self, short_id: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{short_id}/recordings/bulk_delete",
+            {"session_recording_ids": ["session_1", "session_2"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Synthetic playlists are read-only" in response.json()["detail"]
+
+    def test_cannot_add_single_recording_to_synthetic_playlist(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/synthetic-watch-history/recordings/session_1"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Synthetic playlists are read-only" in response.json()["detail"]
+
+    def test_cannot_delete_single_recording_from_synthetic_playlist(self) -> None:
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/session_recording_playlists/synthetic-watch-history/recordings/session_1"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Synthetic playlists are read-only" in response.json()["detail"]
+
     def test_synthetic_playlist_summarised_content(self) -> None:
         if not HAS_EE:
             # Skip test if EE is not available

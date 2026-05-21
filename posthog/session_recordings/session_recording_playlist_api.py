@@ -831,6 +831,9 @@ class SessionRecordingPlaylistViewSet(
     ) -> response.Response:
         playlist = self.get_object()
 
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError("Synthetic playlists are read-only and cannot be modified")
+
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
             if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
@@ -871,6 +874,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError("Synthetic playlists are read-only and cannot be modified")
 
         # Get session_recording_ids from request body
         session_recording_ids = request.data.get("session_recording_ids", [])
@@ -930,6 +936,9 @@ class SessionRecordingPlaylistViewSet(
         **kwargs: Any,
     ) -> response.Response:
         playlist = self.get_object()
+
+        if getattr(playlist, "_is_synthetic", False):
+            raise ValidationError("Synthetic playlists are read-only and cannot be modified")
 
         # Get session_recording_ids from request body
         session_recording_ids = request.data.get("session_recording_ids", [])

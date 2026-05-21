@@ -39,6 +39,8 @@ export function PlaylistPopoverButton({
     } = useValues(logic)
     const { setSearchQuery, setNewFormShowing, setShowPlaylistPopover, addToPlaylist, removeFromPlaylist } =
         useActions(logic)
+
+    const isCurrentPlaylistSynthetic = Boolean(currentPlaylistId?.startsWith('synthetic-'))
     return (
         <IconWithCount showZero={false} count={pinnedCount}>
             <Popover
@@ -90,6 +92,13 @@ export function PlaylistPopoverButton({
 
                         <LemonDivider className="my-1" />
 
+                        {isCurrentPlaylistSynthetic && (
+                            <div className="p-2 text-xs text-secondary border-b">
+                                You're viewing this recording inside a computed collection, which can't be edited.
+                                Create a new collection or pick another one below to pin this recording.
+                            </div>
+                        )}
+
                         {allPlaylists.length ? (
                             <div className="max-h-60 overflow-auto">
                                 {allPlaylists?.map(({ selected, playlist }) => (
@@ -128,6 +137,10 @@ export function PlaylistPopoverButton({
                             </div>
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
+                        ) : isCurrentPlaylistSynthetic ? (
+                            <div className="p-2 text-center text-secondary">
+                                Create a new collection above to pin this recording.
+                            </div>
                         ) : (
                             <div className="p-2 text-center text-secondary">No collections found</div>
                         )}
