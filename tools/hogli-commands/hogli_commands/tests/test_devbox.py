@@ -1397,16 +1397,14 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "port_forward_replace",
-            lambda name, local_port, remote_port: captured.update(
-                {"name": name, "local_port": local_port, "remote_port": remote_port}
-            ),
+            lambda name, forwards: captured.update({"name": name, "forwards": forwards}),
         )
 
         result = runner.invoke(cli, ["devbox:forward"])
 
         assert result.exit_code == 0
         assert "Forwarding devbox-test-user:8010 -> localhost:8010" in result.output
-        assert captured == {"name": "devbox-test-user", "local_port": 8010, "remote_port": 8010}
+        assert captured == {"name": "devbox-test-user", "forwards": [(8010, 8010)]}
 
     def test_devbox_forward_fails_early_when_local_port_is_in_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
@@ -1416,8 +1414,64 @@ class TestDevboxCommands:
         result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
 
         assert result.exit_code == 1
-        assert "Local port 8010 is already in use." in result.output
-        assert "hogli devbox:forward --port 8011" in result.output
+        assert "Local port(s) already in use: 8010" in result.output
+
+    def test_devbox_forward_handles_multiple_tcp_pairs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: True)
+        monkeypatch.setattr(
+            devbox_cli,
+            "port_forward_replace",
+            lambda name, forwards: captured.update({"name": name, "forwards": forwards}),
+        )
+
+        result = runner.invoke(cli, ["devbox:forward", "--tcp", "8010", "--tcp", "9000:8787"])
+
+        assert result.exit_code == 0
+        assert "Forwarding devbox-test-user:8010 -> localhost:8010" in result.output
+        assert "Forwarding devbox-test-user:8787 -> localhost:9000" in result.output
+        assert captured == {"name": "devbox-test-user", "forwards": [(8010, 8010), (9000, 8787)]}
+
+    def test_devbox_forward_rejects_combining_port_and_tcp(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+
+        result = runner.invoke(cli, ["devbox:forward", "--port", "8010", "--tcp", "8787"])
+
+        assert result.exit_code == 1
+        assert "Use either --port or --tcp" in result.output
+
+    def test_devbox_forward_lists_every_conflict_with_tcp(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: port not in {8010, 8787})
+
+        result = runner.invoke(cli, ["devbox:forward", "--tcp", "8010", "--tcp", "8787", "--tcp", "9999"])
+
+        assert result.exit_code == 1
+        assert "Local port(s) already in use: 8010, 8787" in result.output
+        assert "9999" not in result.output
+
+    @pytest.mark.parametrize(
+        "spec,expected",
+        [
+            ("8010", (8010, 8010)),
+            ("8010:8787", (8010, 8787)),
+        ],
+    )
+    def test_parse_tcp_spec_accepts_short_and_full_forms(self, spec: str, expected: tuple[int, int]) -> None:
+        assert devbox_cli._parse_tcp_spec(spec) == expected
+
+    @pytest.mark.parametrize(
+        "spec",
+        ["abc", "8010:abc", "8010:8787:1", "0", "70000", "8010:0"],
+    )
+    def test_parse_tcp_spec_rejects_invalid(self, spec: str) -> None:
+        with pytest.raises(SystemExit):
+            devbox_cli._parse_tcp_spec(spec)
 
 
 class TestStartExistingWorkspace:

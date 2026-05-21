@@ -1119,24 +1119,96 @@ def devbox_status(workspace: str | None) -> None:
         _print_connection_info(name)
 
 
-@click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
+@click.command(name="devbox:forward", help="Forward devbox ports to localhost")
 @workspace_argument
-@click.option("--port", default=8010, type=int, help="Local port to forward to")
-def devbox_forward(workspace: str | None, port: int) -> None:
-    """Forward the PostHog UI port to localhost."""
+@click.option(
+    "--port",
+    default=None,
+    type=int,
+    help="Local port to forward to remote 8010 (PostHog UI). Defaults to 8010.",
+)
+@click.option(
+    "--tcp",
+    "tcp_specs",
+    multiple=True,
+    metavar="LOCAL[:REMOTE]",
+    help=(
+        "Forward LOCAL to REMOTE (or LOCAL:LOCAL if REMOTE is omitted). Repeatable; "
+        "e.g. `--tcp 8010 --tcp 8787` forwards both PostHog UI and the MCP server."
+    ),
+)
+def devbox_forward(workspace: str | None, port: int | None, tcp_specs: tuple[str, ...]) -> None:
+    """Forward one or more devbox ports to localhost.
+
+    No flags forwards just the PostHog UI (devbox:8010 -> localhost:8010).
+    Use `--tcp` (repeatable) to forward arbitrary ports atomically — Ctrl+C
+    tears them all down together.
+    """
+    if port is not None and tcp_specs:
+        _fail("Use either --port or --tcp, not both.")
+
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
-    if not _local_port_is_available(port):
-        _fail(
-            f"Local port {port} is already in use.\n"
-            f"Stop the process using that port or rerun with `hogli devbox:forward --port {port + 1}`."
-        )
 
-    click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
-    click.echo(f"PostHog UI at http://localhost:{port}")
+    forwards = _resolve_port_forwards(port, tcp_specs)
+    _ensure_local_ports_available(forwards)
+
+    for local, remote in forwards:
+        click.echo(f"Forwarding {name}:{remote} -> localhost:{local}")
     click.echo("Ctrl+C to stop")
     click.echo()
-    port_forward_replace(name, port, 8010)
+    port_forward_replace(name, forwards)
+
+
+def _resolve_port_forwards(port: int | None, tcp_specs: tuple[str, ...]) -> list[tuple[int, int]]:
+    """Turn CLI flags into the (local, remote) pairs to forward.
+
+    The no-flag default (PostHog UI on 8010) lives here so the command body
+    stays a straight pipeline through validation and execution.
+    """
+    if tcp_specs:
+        return [_parse_tcp_spec(spec) for spec in tcp_specs]
+    return [(port if port is not None else 8010, 8010)]
+
+
+def _parse_tcp_spec(spec: str) -> tuple[int, int]:
+    """Parse a ``LOCAL[:REMOTE]`` token into a (local, remote) port pair."""
+    parts = spec.split(":")
+    if len(parts) == 1:
+        local_str = remote_str = parts[0]
+    elif len(parts) == 2:
+        local_str, remote_str = parts
+    else:
+        _fail(f"Invalid --tcp value '{spec}'. Expected LOCAL or LOCAL:REMOTE.")
+
+    try:
+        local = int(local_str)
+        remote = int(remote_str)
+    except ValueError:
+        _fail(f"Invalid --tcp value '{spec}'. Ports must be integers.")
+
+    if not (0 < local < 65536 and 0 < remote < 65536):
+        _fail(f"Invalid --tcp value '{spec}'. Ports must be between 1 and 65535.")
+
+    return local, remote
+
+
+def _ensure_local_ports_available(forwards: list[tuple[int, int]]) -> None:
+    """Fail fast if any local port in ``forwards`` is already bound.
+
+    Reporting every conflict in one pass avoids the half-up state you get
+    when coder would refuse one port mid-list, and saves the user from a
+    retry-and-rediscover loop when several ports collide.
+    """
+    conflicts = [local for local, _ in forwards if not _local_port_is_available(local)]
+    if not conflicts:
+        return
+
+    ports_str = ", ".join(str(p) for p in conflicts)
+    _fail(
+        f"Local port(s) already in use: {ports_str}.\n"
+        "Free the port(s) or pick different locals with `--port N` or `--tcp LOCAL:REMOTE`."
+    )
 
 
 def _gib(nbytes: int) -> str:

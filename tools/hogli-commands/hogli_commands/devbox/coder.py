@@ -1200,9 +1200,17 @@ def ssh_replace(name: str) -> None:
     _run_or_exit(["coder", "ssh", name])
 
 
-def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
-    """Port-forward to a workspace and replace the current process."""
-    _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])
+def port_forward_replace(name: str, forwards: list[tuple[int, int]]) -> None:
+    """Port-forward one or more (local, remote) pairs and replace the current process.
+
+    All pairs are handed to a single ``coder port-forward`` invocation so Ctrl+C
+    tears every forward down atomically — splitting across processes leaves
+    half-up state when one side dies.
+    """
+    args = ["coder", "port-forward", name]
+    for local_port, remote_port in forwards:
+        args.append(f"--tcp={local_port}:{remote_port}")
+    _run_or_exit(args)
 
 
 def logs_replace(name: str, follow: bool) -> None:
