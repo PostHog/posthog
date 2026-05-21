@@ -74,6 +74,10 @@ class Migration(migrations.Migration):
                                 blank=True,
                                 choices=[
                                     (
+                                        posthog.schema.AlertCalculationInterval["EVERY_15_MINUTES"],
+                                        "every_15_minutes",
+                                    ),
+                                    (
                                         posthog.schema.AlertCalculationInterval["HOURLY"],
                                         "hourly",
                                     ),
@@ -88,7 +92,7 @@ class Migration(migrations.Migration):
                                     ),
                                 ],
                                 default=posthog.schema.AlertCalculationInterval["DAILY"],
-                                max_length=10,
+                                max_length=20,
                                 null=True,
                             ),
                         ),
@@ -120,10 +124,6 @@ class Migration(migrations.Migration):
                             ),
                         ),
                         ("enabled", models.BooleanField(default=True)),
-                        (
-                            "is_calculating",
-                            models.BooleanField(blank=True, default=False, null=True),
-                        ),
                         ("last_notified_at", models.DateTimeField(blank=True, null=True)),
                         ("last_checked_at", models.DateTimeField(blank=True, null=True)),
                         ("next_check_at", models.DateTimeField(blank=True, null=True)),

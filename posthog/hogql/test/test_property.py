@@ -994,7 +994,7 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
-        with patch("posthog.models.Action.objects.get", return_value=action_mock):
+        with patch("products.actions.backend.models.action.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
             result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)
