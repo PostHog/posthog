@@ -1,4 +1,6 @@
+use metrics::counter;
 use personhog_proto::personhog::types::v1::{ConsistencyLevel, ReadOptions};
+use tonic::metadata::MetadataMap;
 use tonic::Status;
 
 /// Categories of data for routing decisions.
@@ -75,9 +77,94 @@ pub fn get_consistency(read_options: &Option<ReadOptions>) -> Option<Consistency
     read_options.as_ref().map(|opts| opts.consistency())
 }
 
+/// Extract consistency level from the `x-read-consistency` gRPC metadata header.
+pub fn get_consistency_from_header(metadata: &MetadataMap) -> Option<ConsistencyLevel> {
+    metadata
+        .get("x-read-consistency")
+        .and_then(|v| match v.to_str().ok()? {
+            "strong" => Some(ConsistencyLevel::Strong),
+            "eventual" => Some(ConsistencyLevel::Eventual),
+            _ => None,
+        })
+}
+
+/// Resolve consistency level: prefer the gRPC metadata header, fall back to body read_options.
+pub fn resolve_consistency(
+    metadata: &MetadataMap,
+    read_options: &Option<ReadOptions>,
+) -> Option<ConsistencyLevel> {
+    if let Some(level) = get_consistency_from_header(metadata) {
+        counter!("personhog_router_consistency_source", "source" => "header").increment(1);
+        return Some(level);
+    }
+    let level = get_consistency(read_options);
+    if level.is_some() {
+        counter!("personhog_router_consistency_source", "source" => "body").increment(1);
+    }
+    level
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_get_consistency_from_header_strong() {
+        let mut metadata = MetadataMap::new();
+        metadata.insert("x-read-consistency", "strong".parse().unwrap());
+        assert_eq!(
+            get_consistency_from_header(&metadata),
+            Some(ConsistencyLevel::Strong)
+        );
+    }
+
+    #[test]
+    fn test_get_consistency_from_header_eventual() {
+        let mut metadata = MetadataMap::new();
+        metadata.insert("x-read-consistency", "eventual".parse().unwrap());
+        assert_eq!(
+            get_consistency_from_header(&metadata),
+            Some(ConsistencyLevel::Eventual)
+        );
+    }
+
+    #[test]
+    fn test_get_consistency_from_header_missing() {
+        let metadata = MetadataMap::new();
+        assert_eq!(get_consistency_from_header(&metadata), None);
+    }
+
+    #[test]
+    fn test_get_consistency_from_header_unknown_value() {
+        let mut metadata = MetadataMap::new();
+        metadata.insert("x-read-consistency", "bogus".parse().unwrap());
+        assert_eq!(get_consistency_from_header(&metadata), None);
+    }
+
+    #[test]
+    fn test_resolve_consistency_header_takes_precedence() {
+        let mut metadata = MetadataMap::new();
+        metadata.insert("x-read-consistency", "strong".parse().unwrap());
+        let body_options = Some(ReadOptions {
+            consistency: ConsistencyLevel::Eventual.into(),
+        });
+        assert_eq!(
+            resolve_consistency(&metadata, &body_options),
+            Some(ConsistencyLevel::Strong)
+        );
+    }
+
+    #[test]
+    fn test_resolve_consistency_falls_back_to_body() {
+        let metadata = MetadataMap::new();
+        let body_options = Some(ReadOptions {
+            consistency: ConsistencyLevel::Strong.into(),
+        });
+        assert_eq!(
+            resolve_consistency(&metadata, &body_options),
+            Some(ConsistencyLevel::Strong)
+        );
+    }
 
     #[test]
     fn test_person_data_eventual_routes_to_replica() {

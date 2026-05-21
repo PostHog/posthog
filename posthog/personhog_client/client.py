@@ -10,7 +10,7 @@ import grpc
 import structlog
 from prometheus_client import Counter, Enum, Histogram
 
-from posthog.personhog_client.interceptor import ClientNameInterceptor, MetricsInterceptor
+from posthog.personhog_client.interceptor import ClientNameInterceptor, ConsistencyHeaderInterceptor, MetricsInterceptor
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
@@ -168,7 +168,10 @@ class PersonHogClient:
         ]
         channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
-            channel, ClientNameInterceptor(client_name), MetricsInterceptor(client_name)
+            channel,
+            ClientNameInterceptor(client_name),
+            ConsistencyHeaderInterceptor(),
+            MetricsInterceptor(client_name),
         )
         self._state_monitor = _ChannelStateMonitor(channel, client_name)
         self._stub = PersonHogServiceStub(self._channel)

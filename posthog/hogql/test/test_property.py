@@ -994,7 +994,7 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
-        with patch("posthog.models.Action.objects.get", return_value=action_mock):
+        with patch("products.actions.backend.models.action.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
             result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)
@@ -1165,6 +1165,41 @@ class TestProperty(BaseTest):
                 scope="event",
             ),
             self._parse_expr("distinct_id in ('p3', 'p4')"),
+        )
+
+    def test_property_to_expr_group_key_numeric_value(self):
+        # Group keys ($group_0–$group_4) are string columns. A numeric filter value
+        # would crash ClickHouse with NO_COMMON_TYPE, so it is coerced to a string.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_0", "value": 13, "operator": "exact"}, scope="event"
+            ),
+            self._parse_expr("$group_0 = '13'"),
+        )
+        # an integer-valued float coerces to the plain integer string (13.0 -> '13')
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_2", "value": 13.0, "operator": "is_not"}, scope="event"
+            ),
+            self._parse_expr("$group_2 != '13'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_0", "value": [13, 14], "operator": "exact"}, scope="event"
+            ),
+            self._parse_expr("$group_0 in ('13', '14')"),
+        )
+        # a string value is unchanged
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_0", "value": "13", "operator": "exact"}, scope="event"
+            ),
+            self._parse_expr("$group_0 = '13'"),
+        )
+        # a non-group-key property is left alone — the coercion is scoped to group keys
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "price", "value": 13, "operator": "exact"}),
+            self._parse_expr("properties.price = 13"),
         )
 
     def test_property_to_expr_event_metadata_invalid_scope(self):

@@ -244,7 +244,7 @@ import type {
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
-import { MaxUIContext } from '../scenes/max/maxTypes'
+import type { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
@@ -5490,6 +5490,7 @@ const api = {
                 | 'sync_frequency'
                 | 'sync_time_of_day'
                 | 'cdc_table_mode'
+                | 'enabled_columns'
             >[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({

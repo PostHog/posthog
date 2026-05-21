@@ -11,8 +11,7 @@ from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.models import Action, Filter, Team
-from posthog.models.action.util import format_action_filter
+from posthog.models import Filter, Team
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
@@ -22,6 +21,9 @@ from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns
 from posthog.utils import relative_date_parse
+
+from products.actions.backend.models.action import Action
+from products.actions.backend.models.util import format_action_filter
 
 
 def parse_timestamp(timestamp: str, tzinfo: ZoneInfo) -> datetime:
