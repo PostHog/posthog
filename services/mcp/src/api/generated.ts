@@ -37859,7 +37859,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsEndpointsOpenapiJsonRetrieveParams = {
+    export type EnvironmentsEndpointsOpenapiSpecRetrieveParams = {
     /**
      * Specific endpoint version to generate the spec for. Defaults to latest.
      */
@@ -42766,7 +42766,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EndpointsOpenapiJsonRetrieveParams = {
+    export type EndpointsOpenapiSpecRetrieveParams = {
     /**
      * Specific endpoint version to generate the spec for. Defaults to latest.
      */
