@@ -71,6 +71,9 @@ def create_default_modifiers_for_team(
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
 
+    if modifiers.optimizePresortedFetch is None:
+        modifiers.optimizePresortedFetch = True
+
     set_default_modifier_values(modifiers, team)
 
     return modifiers

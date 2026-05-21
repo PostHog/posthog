@@ -48,6 +48,7 @@ from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
+from posthog.hogql.transforms.presorted_fetch import do_presorted_fetch_transform
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 
@@ -363,6 +364,13 @@ class HogQLQueryExecutor:
 
                 transformer = DailyUniquePersonsPageviewsTransformer(self.hogql_context)
                 transformed_node = transformer.visit(self.select_query)
+                if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
+                    self.select_query = transformed_node
+
+        if self.query_modifiers.optimizePresortedFetch:
+            with self.timings.measure("presorted_fetch_transform"):
+                assert self.hogql_context is not None
+                transformed_node = do_presorted_fetch_transform(self.select_query, self.hogql_context)
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
 

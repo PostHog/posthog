@@ -12,7 +12,7 @@ from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQue
 
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
     has_aggregation,
@@ -48,9 +48,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "created_at",
     "person_mode",
 ]
-
-# Wide columns that defeat presorted optimization
-WIDE_COLUMNS = {"elements_chain", "properties"}
 
 
 class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
@@ -107,28 +104,6 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return select_input, [
             map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
         ]
-
-    def _can_use_presorted_optimization(self, order_by: list[ast.OrderExpr] | None) -> bool:
-        """
-        Check if ORDER BY can use presorted optimization.
-
-        We can optimize any ORDER BY that doesn't need wide columns directly.
-        - properties.$foo is fine (we extract just that value)
-        - elements_chain or raw properties blob is not fine
-        """
-        if not order_by:
-            return False
-
-        for order_expr in order_by:
-            if isinstance(order_expr.expr, ast.Field) and order_expr.expr.chain:
-                first = order_expr.expr.chain[0]
-                if first in WIDE_COLUMNS:
-                    # properties.$foo is fine - we extract just that property
-                    if first == "properties" and len(order_expr.expr.chain) >= 2:
-                        continue
-                    return False
-
-        return True
 
     def apply_pagination_cursor(self, cursor: str) -> None:
         # NB: This uses the last row's timestamp as the cursor, so events sharing
@@ -393,26 +368,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     order_by=order_by,
                 )
 
-                # Presorted optimization: sort narrow data (uuid) first, then fetch wide data for matched rows.
-                # Avoids sorting giant rows with properties and elements_chain cols - instead sorts uuids.
-                if self._can_use_presorted_optimization(order_by) and not has_any_aggregation:
-                    logger.info(
-                        "events_query_runner_presorted_optimization",
-                        team_id=self.team.pk,
-                    )
-                    inner_query = parse_select("SELECT uuid FROM events")
-                    assert isinstance(inner_query, ast.SelectQuery)
-                    inner_query.where = where
-                    inner_query.order_by = order_by
-                    inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
-
-                    prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
-
-                    if where is not None:
-                        stmt.where = ast.And(exprs=[prefilter_sorted, where])
-                    else:
-                        stmt.where = prefilter_sorted
-
+                # The presorted optimization (sort by narrow uuid, then fetch wide columns for the
+                # matched rows) now lives in the general do_presorted_fetch_transform pass, applied
+                # to every HogQL query during printing.
                 return stmt
 
     def _calculate(self) -> EventsQueryResponse:

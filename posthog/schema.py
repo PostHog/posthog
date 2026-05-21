@@ -7299,6 +7299,10 @@ class HogQLQueryModifiers(BaseModel):
     materializationMode: MaterializationMode | None = None
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
+    optimizePresortedFetch: bool | None = Field(
+        default=None,
+        description=("Resolve narrow row identifiers before fetching wide columns for ORDER BY ... LIMIT queries *"),
+    )
     optimizeProjections: bool | None = None
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
     personsJoinMode: PersonsJoinMode | None = None

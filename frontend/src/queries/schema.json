@@ -20963,6 +20963,10 @@
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
+                "optimizePresortedFetch": {
+                    "description": "Resolve narrow row identifiers before fetching wide columns for ORDER BY ... LIMIT queries *",
+                    "type": "boolean"
+                },
                 "optimizeProjections": {
                     "type": "boolean"
                 },
