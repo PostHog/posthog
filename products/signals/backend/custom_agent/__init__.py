@@ -7,6 +7,7 @@ importing them from here would create a circular dependency.
 
 from products.signals.backend.custom_agent.base import (
     NO_REPO,
+    AIDataProcessingNotApprovedError,
     CustomAgentRepositorySelectionError,
     CustomAgentValidationError,
     CustomSignalAgent,
@@ -19,6 +20,7 @@ from products.signals.backend.custom_agent.schemas import (
 )
 
 __all__ = [
+    "AIDataProcessingNotApprovedError",
     "CustomAgentAssignee",
     "CustomAgentFinalReport",
     "CustomAgentRepositorySelectionError",

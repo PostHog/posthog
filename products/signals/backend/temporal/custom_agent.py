@@ -13,19 +13,20 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.signals.backend.custom_agent.base import CustomSignalAgent
+from products.signals.backend.custom_agent.base import AIDataProcessingNotApprovedError, CustomSignalAgent
 from products.signals.backend.custom_agent.loader import import_agent_class, validate_agent_class_identity
 from products.signals.backend.custom_agent.schemas import (
     CustomAgentRunHandle,
     CustomAgentWorkflowInput,
     CustomAgentWorkflowOutput,
     validate_run_id,
+    validated_identifier,
 )
-from products.signals.backend.models import SignalReport
 
 logger = structlog.get_logger(__name__)
 
@@ -48,7 +49,7 @@ class CustomSignalAgentWorkflow:
 
 
 def _workflow_id_for(agent_class: type[CustomSignalAgent], team_id: int, run_id: str) -> str:
-    product, type_ = agent_class._validated_identifier()
+    product, type_ = validated_identifier(agent_class)
     return f"signals-custom-agent:{team_id}:{product}:{type_}-{validate_run_id(run_id)}"
 
 
@@ -82,10 +83,22 @@ async def arun_agent(
     carrying the workflow id, run id, and whether this call actually started a
     new workflow. Reusing the same ``id`` while a workflow is already running
     returns ``started=False`` instead of raising.
+
+    Raises :py:class:`AIDataProcessingNotApprovedError` when the team's
+    organization has not approved AI data processing.
     """
-    product, type_ = agent_class._validated_identifier()
+    product, type_ = validated_identifier(agent_class)
     run_id = validate_run_id(id) if id is not None else str(uuid.uuid4())
     team_id = int(team.id)
+    # Mirrors the consent gate in `emit_signal` / `_validate_ai_feature_access`.
+    # Custom agents send team data through LLMs and sandboxes, so refuse to launch
+    # without org-level consent. `team.organization` may be a deferred FK access.
+    organization = await database_sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
+        raise AIDataProcessingNotApprovedError(
+            f"Organization {organization.id} has not approved AI data processing; "
+            f"refusing to launch custom signal agent for team {team_id}"
+        )
     workflow_id = _workflow_id_for(agent_class, team_id, run_id)
     input_data = CustomAgentWorkflowInput(
         team_id=team_id,
@@ -167,7 +180,6 @@ async def run_custom_signal_agent_activity(inputs: CustomAgentWorkflowInput) -> 
                 task_id=task_id,
             )
             return CustomAgentWorkflowOutput(
-                status=SignalReport.Status.READY,
                 report_ids=report_ids,
                 repository=agent.repository,
                 task_id=task_id,

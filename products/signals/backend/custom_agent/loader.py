@@ -4,7 +4,7 @@ import inspect
 import importlib
 from typing import TYPE_CHECKING, Any, cast
 
-from products.signals.backend.custom_agent.schemas import validate_identifier
+from products.signals.backend.custom_agent.schemas import validate_identifier, validated_identifier
 
 if TYPE_CHECKING:
     from products.signals.backend.custom_agent.base import CustomSignalAgent
@@ -50,7 +50,7 @@ def import_agent_class(agent_path: str) -> type[CustomSignalAgent]:
 def validate_agent_class_identity(agent_class: type[CustomSignalAgent], product: str, type_: str) -> tuple[str, str]:
     """Validate that an imported class matches the workflow input identity."""
     expected = validate_identifier(product, type_)
-    actual = agent_class._validated_identifier()
+    actual = validated_identifier(agent_class)
     if actual != expected:
         raise CustomAgentLoadError(
             f"Custom signal agent identity mismatch: workflow requested {expected!r}, "

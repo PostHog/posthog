@@ -15,13 +15,7 @@ from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
     create_custom_agent_ready_report,
 )
-from products.signals.backend.custom_agent.schemas import (
-    CustomAgentAssignee,
-    CustomAgentFinalReport,
-    CustomAgentIdentifierError,
-    ResolvedCustomAgentRepository,
-    validate_identifier,
-)
+from products.signals.backend.custom_agent.schemas import CustomAgentAssignee, CustomAgentFinalReport
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -74,6 +68,16 @@ class CustomAgentRepositorySelectionError(RuntimeError):
     The agent ran with ``repository=None`` (free-form selection) and the
     selector returned no repository. Pass an explicit ``"owner/repo"`` or
     ``NO_REPO`` to bypass selection.
+    """
+
+
+class AIDataProcessingNotApprovedError(RuntimeError):
+    """Raised when the team's organization has not approved AI data processing.
+
+    Mirrors the consent gate enforced by ``emit_signal`` and the subscription
+    serializer (``organization.is_ai_data_processing_approved``). Custom
+    agents send team data through LLMs and sandboxes, so we refuse to launch
+    when consent is missing.
     """
 
 
@@ -179,10 +183,10 @@ class CustomSignalAgent:
         self.initial_prompt: str = initial_prompt
         self.user_id: int | None = user_id
         self.model: str | None = model
-        # Raw caller input; resolved into self.repository / self._resolved_repository by start().
+        # Raw caller input; resolved into self._resolved_repository by start().
+        # self.repository is a @property that reads from _resolved_repository.
         self._repository_input: str | None = repository
-        self.repository: str | None = None
-        self._resolved_repository: ResolvedCustomAgentRepository | None = None
+        self._resolved_repository: RepoSelectionResult | None = None
         self._session: MultiTurnSession | None = None
         self._title: str | None = None
         self._description: str | None = None
@@ -345,12 +349,16 @@ Rules:
     # 6. Internal — framework entry point + private helpers (do not override)
     # ------------------------------------------------------------------
 
+    @property
+    def repository(self) -> str | None:
+        """The selected subject repository, or ``None`` for ``NO_REPO`` runs. Available after :py:meth:`start`."""
+        return self._resolved_repository.repository if self._resolved_repository is not None else None
+
     async def start(self) -> list[PersistedCustomAgentReport]:
         """Framework entry point. Resolves user/repo, runs :py:meth:`run`, finalizes, closes the session."""
         if self.user_id is None:
             self.user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(self.team_id)
         self._resolved_repository = await self._resolve_repository()
-        self.repository = self._resolved_repository.selected_repository
         try:
             should_finalize = await self.run()
             if should_finalize:
@@ -363,23 +371,8 @@ Rules:
                 except Exception:
                     logger.warning("custom signal agent session cleanup failed", exc_info=True)
 
-    @classmethod
-    def _validated_identifier(cls) -> tuple[str, str]:
-        identifier = cls.identifier()
-        if not isinstance(identifier, tuple) or len(identifier) != 2:
-            raise CustomAgentIdentifierError("identifier() must return a (product, type) tuple")
-        return validate_identifier(identifier[0], identifier[1])
-
-    @staticmethod
-    def _normalize_repository(repository: str) -> str:
-        normalized = repository.strip().lower()
-        parts = normalized.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise ValueError("repository must be in 'owner/repo' format")
-        return normalized
-
-    async def _resolve_repository(self) -> ResolvedCustomAgentRepository:
-        """Resolve ``self._repository_input`` into a :py:class:`ResolvedCustomAgentRepository`.
+    async def _resolve_repository(self) -> RepoSelectionResult:
+        """Resolve ``self._repository_input`` into a :py:class:`RepoSelectionResult`.
 
         ``NO_REPO`` → no repo; ``"owner/repo"`` → normalized lowercase;
         ``None`` → free-form selection via :func:`select_repository_for_team`
@@ -388,24 +381,19 @@ Rules:
         """
         repository = self._repository_input
         if repository == NO_REPO:
-            return ResolvedCustomAgentRepository(
-                mode="no_repo",
-                repo_selection=RepoSelectionResult(
-                    repository=None,
-                    reason="NO_REPO provided by caller; running without a subject repository.",
-                ),
-                selected_repository=None,
+            return RepoSelectionResult(
+                repository=None,
+                reason="NO_REPO provided by caller; running without a subject repository.",
             )
 
         if repository is not None:
-            normalized = self._normalize_repository(repository)
-            return ResolvedCustomAgentRepository(
-                mode="explicit",
-                repo_selection=RepoSelectionResult(
-                    repository=normalized,
-                    reason="Repository provided by caller.",
-                ),
-                selected_repository=normalized,
+            normalized = repository.strip().lower()
+            parts = normalized.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError("repository must be in 'owner/repo' format")
+            return RepoSelectionResult(
+                repository=normalized,
+                reason="Repository provided by caller.",
             )
 
         if self.user_id is None:
@@ -427,11 +415,7 @@ Rules:
             raise CustomAgentRepositorySelectionError(
                 f"Free-form repository selection picked no repository: {selected.reason}"
             )
-        return ResolvedCustomAgentRepository(
-            mode="selected",
-            repo_selection=selected,
-            selected_repository=selected.repository,
-        )
+        return selected
 
     async def _resolve_missing_report_components(self) -> None:
         """Fill in actionability / priority / assignees if not registered.
@@ -471,7 +455,7 @@ Rules:
         persisted = await database_sync_to_async(create_custom_agent_ready_report, thread_sensitive=False)(
             team_id=self.team_id,
             final_report=final,
-            repo_selection=self._resolved_repository.repo_selection,
+            repo_selection=self._resolved_repository,
             task_id=task_id,
         )
         self._persisted_reports.append(persisted)

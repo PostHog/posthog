@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from products.signals.backend.report_generation.research import ActionabilityAssessment, PriorityAssessment
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 
-RepositoryMode = Literal["explicit", "no_repo", "selected"]
+if TYPE_CHECKING:
+    from products.signals.backend.custom_agent.base import CustomSignalAgent
 
 _IDENTIFIER_PART_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -40,6 +40,14 @@ def validate_identifier(product: str, type_: str) -> tuple[str, str]:
 
 def validate_run_id(value: str) -> str:
     return validate_identifier_part(value, field_name="id")
+
+
+def validated_identifier(agent_class: type[CustomSignalAgent]) -> tuple[str, str]:
+    """Call ``agent_class.identifier()`` and verify its shape + part syntax."""
+    identifier = agent_class.identifier()
+    if not isinstance(identifier, tuple) or len(identifier) != 2:
+        raise CustomAgentIdentifierError("identifier() must return a (product, type) tuple")
+    return validate_identifier(identifier[0], identifier[1])
 
 
 class CustomAgentAssignee(BaseModel):
@@ -81,17 +89,9 @@ class CustomAgentWorkflowInput:
 
 @dataclass
 class CustomAgentWorkflowOutput:
-    status: str
     report_ids: list[str]
     repository: str | None
     task_id: str | None
-
-
-@dataclass(frozen=True)
-class ResolvedCustomAgentRepository:
-    mode: RepositoryMode
-    repo_selection: RepoSelectionResult
-    selected_repository: str | None
 
 
 @dataclass(frozen=True)
