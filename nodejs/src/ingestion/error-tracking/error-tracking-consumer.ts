@@ -1,4 +1,3 @@
-import { createHash } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
@@ -36,6 +35,7 @@ import {
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
+import { preCymbalGroupKey } from './pre-cymbal-group-key'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -114,27 +114,6 @@ const latestOffsetTimestampGauge = new Gauge({
     labelNames: ['topic', 'partition', 'groupId'],
     aggregator: 'max',
 })
-
-// Stable-within-release grouping key. Drops `value` when a stack is available
-// (mirrors cymbal/src/types/mod.rs:218) so dynamic message interpolation
-// doesn't fragment. Across releases the hash drifts; the bucket's TTL absorbs it.
-function preCymbalGroupKey(event: PluginEvent): string | null {
-    const exc = event.properties?.$exception_list?.[0]
-    if (!exc) {
-        return null
-    }
-
-    const frames = exc.stacktrace?.frames
-    const payload = frames?.length ? JSON.stringify(frames) : (exc.value ?? '')
-    if (!payload) {
-        return null
-    }
-
-    return createHash('sha1')
-        .update(`${exc.type ?? ''}|${payload}`)
-        .digest('hex')
-        .slice(0, 16)
-}
 
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
