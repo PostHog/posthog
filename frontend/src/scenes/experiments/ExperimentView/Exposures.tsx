@@ -19,8 +19,8 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { useChartColors } from '../MetricsView/shared/colors'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
-import { VariantTag } from './components'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
+import { VariantTag } from './VariantTag'
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."

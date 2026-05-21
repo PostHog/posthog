@@ -3,12 +3,14 @@ from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.dispatch import receiver
 from django.utils import timezone
 
+import structlog
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
@@ -294,6 +296,17 @@ class OAuthAccessToken(AbstractAccessToken):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
+    # When set, this token was minted by a staff user impersonating `user`. Used to revoke
+    # tokens at impersonation end. SET_NULL so the customer's tokens survive admin deactivation.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
+
 
 class OAuthIDToken(AbstractIDToken):
     class Meta(AbstractIDToken.Meta):
@@ -329,6 +342,16 @@ class OAuthRefreshToken(AbstractRefreshToken):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
+    # See OAuthAccessToken.impersonated_by — propagated through token rotation.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
+
 
 class OAuthGrant(AbstractGrant):
     class Meta(AbstractGrant.Meta):
@@ -354,6 +377,16 @@ class OAuthGrant(AbstractGrant):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+    # See OAuthAccessToken.impersonated_by — propagated from grant to access token at code exchange.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
 
 
 def find_oauth_access_token(token: str) -> OAuthAccessToken | None:
@@ -492,6 +525,52 @@ class CIMDBlocklistEntry(models.Model):
     class Meta:
         verbose_name = "CIMD Blocklist Entry"
         verbose_name_plural = "CIMD Blocklist Entries"
+
+
+logger = structlog.get_logger(__name__)
+
+
+@receiver(user_logged_out)
+def _revoke_impersonation_oauth_tokens(sender, request, user, **kwargs):
+    """Revoke OAuth tokens minted during an impersonation session when it ends.
+
+    Fires on every logout, but only acts on impersonation logouts — when the loginas
+    session flag is still set and we can recover the original (staff) user. Tokens
+    are matched by `(user=<impersonated>, impersonated_by=<staff>)`, so only tokens
+    this admin minted during this kind of impersonation are revoked; the customer's
+    own pre-existing tokens (impersonated_by IS NULL) are untouched.
+
+    Lives in the model module so the receiver is registered as soon as Django
+    imports `OAuthAccessToken` — no explicit `apps.py` wiring required.
+    """
+    if request is None or user is None:
+        return
+
+    from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
+
+    if not is_impersonated_session(request):
+        return
+
+    impersonator = get_original_user_from_session(request)
+    if impersonator is None:
+        return
+
+    now = timezone.now()
+    access_deleted, _ = OAuthAccessToken.objects.filter(user=user, impersonated_by=impersonator).delete()
+    refresh_revoked = OAuthRefreshToken.objects.filter(
+        user=user, impersonated_by=impersonator, revoked__isnull=True
+    ).update(revoked=now)
+    grants_deleted, _ = OAuthGrant.objects.filter(user=user, impersonated_by=impersonator).delete()
+
+    if access_deleted or refresh_revoked or grants_deleted:
+        logger.info(
+            "impersonation_oauth_tokens_revoked",
+            impersonated_user_id=user.pk,
+            impersonator_user_id=impersonator.pk,
+            access_tokens_deleted=access_deleted,
+            refresh_tokens_revoked=refresh_revoked,
+            grants_deleted=grants_deleted,
+        )
 
 
 @receiver(models.signals.post_delete, sender=OAuthApplication)

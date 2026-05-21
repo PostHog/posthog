@@ -1,6 +1,6 @@
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
-import { VariantTag } from '../ExperimentView/components'
+import { VariantTag } from '../ExperimentView/VariantTag'
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,

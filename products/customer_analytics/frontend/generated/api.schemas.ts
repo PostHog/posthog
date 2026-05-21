@@ -8,7 +8,7 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type AccountApiProperties = {
@@ -27,6 +27,16 @@ export type AccountApiProperties = {
         id: number
         email: string
     } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
 } | null
 
 export interface AccountApi {
@@ -43,7 +53,7 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: AccountApiProperties
@@ -64,7 +74,7 @@ export interface PaginatedAccountListApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
@@ -83,6 +93,16 @@ export type PatchedAccountApiProperties = {
         id: number
         email: string
     } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
 } | null
 
 export interface PatchedAccountApi {
@@ -99,7 +119,7 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: PatchedAccountApiProperties

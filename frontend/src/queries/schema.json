@@ -371,7 +371,8 @@
                 "research",
                 "flags",
                 "llm_analytics",
-                "sandbox"
+                "sandbox",
+                "user_interview"
             ],
             "type": "string"
         },

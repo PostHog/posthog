@@ -103,6 +103,18 @@ pub struct ReleaseArgs {
     pub skip_release_on_fail: bool,
 }
 
+#[derive(clap::Args, Clone, Default)]
+pub struct UploadConflictArgs {
+    /// Allow overwriting an existing symbol set whose content has changed.
+    #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
+    pub force: bool,
+
+    /// Skip symbol sets that already exist with different content instead of failing.
+    /// Existing symbol sets are left unchanged.
+    #[arg(long, default_value_t = false, conflicts_with = "force")]
+    pub skip_on_conflict: bool,
+}
+
 /// Pack version and build into a single string for release uniqueness.
 /// Releases are keyed on (name, version), so "1.0+42" and "1.0+43" are
 /// distinct releases. The UI splits on "+" to display them separately.
