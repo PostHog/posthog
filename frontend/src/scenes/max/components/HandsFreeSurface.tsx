@@ -1,12 +1,12 @@
 import './HandsFreeSurface.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconMicrophone } from '@posthog/icons'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { cn } from 'lib/utils/css-classes'
 
 import { HandsFreeStatus, handsFreeLogic } from '../handsFreeLogic'
 
@@ -99,7 +99,7 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
                 onClick={toggleHandsFree}
                 aria-label="Exit hands-free"
                 data-attr="max-hands-free-exit"
-                className={clsx(
+                className={cn(
                     'hands-free-surface__mic',
                     `hands-free-surface__mic--${visualState}`,
                     pulseClass && 'hands-free-surface__mic--pulsing'
@@ -110,7 +110,7 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
 
             <div className="hands-free-surface__bottom">
                 <span
-                    className={clsx(
+                    className={cn(
                         'hands-free-surface__dot',
                         `hands-free-surface__dot--${visualState}`,
                         pulseClass && 'hands-free-surface__dot--pulsing'

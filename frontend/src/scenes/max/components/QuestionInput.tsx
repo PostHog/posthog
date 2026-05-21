@@ -1,9 +1,9 @@
 import './QuestionInput.scss'
 
 import { offset } from '@floating-ui/react'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -212,7 +212,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 containerClassName,
                 !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
@@ -221,7 +221,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             ref={ref}
         >
             <div
-                className={clsx(
+                className={cn(
                     'flex flex-col items-center',
                     isSticky && 'border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000'
                 )}
@@ -263,7 +263,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     )}
                     <label
                         htmlFor="question-input"
-                        className={clsx(
+                        className={cn(
                             'input-like flex flex-col cursor-text',
                             'border border-primary',
                             'bg-[var(--color-bg-fill-input)]',
@@ -364,7 +364,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             <div className="pb-2 pr-20">
                                 {!isThreadVisible ? (
                                     <div
-                                        className={clsx(
+                                        className={cn(
                                             'flex justify-between flex-wrap gap-1',
                                             handsFreeFlagEnabled ? 'items-end' : 'items-start'
                                         )}
@@ -372,7 +372,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         <ContextDisplay size={contextDisplaySize} />
 
                                         <div
-                                            className={clsx(
+                                            className={cn(
                                                 'flex gap-1 mr-1',
                                                 handsFreeFlagEnabled ? 'items-end' : 'items-start h-full mt-1'
                                             )}
@@ -387,7 +387,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
                     </label>
                     <div
-                        className={clsx(
+                        className={cn(
                             'absolute flex items-center gap-1',
                             isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
