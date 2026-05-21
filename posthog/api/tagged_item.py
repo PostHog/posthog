@@ -179,7 +179,7 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         request=BulkUpdateTagsRequestSerializer,
         responses={200: BulkUpdateTagsResponseSerializer},
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
     def bulk_update_tags(self, request, **kwargs):
         """
         Bulk update tags on multiple objects.

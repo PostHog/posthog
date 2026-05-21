@@ -7519,6 +7519,55 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "keys" in data
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
+    def test_bulk_keys_works_with_personal_api_key(self):
+        """Once enabled as MCP tool with feature_flag:read scope, PAT requests must succeed."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="pat-scope-test",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:read"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"keys": {str(flag.id): "pat-scope-test"}}
+
+    def test_bulk_update_tags_works_with_personal_api_key(self):
+        """Same scope-config bug on bulk_update_tags; same fix in tagged_item.py."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="pat-tag-test",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_tags/",
+            {"ids": [flag.id], "action": "add", "tags": ["foo"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def test_local_evaluation_caching_basic(self):
         """Test basic caching functionality for local_evaluation endpoint."""
         # Clear any existing flags for this team to avoid interference

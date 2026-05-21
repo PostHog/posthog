@@ -2851,7 +2851,7 @@ class FeatureFlagViewSet(
             400: OpenApiResponse(response=ErrorResponseSerializer, description="No valid IDs supplied."),
         },
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
     def bulk_keys(self, request: request.Request, **kwargs):
         """
         Get feature flag keys by IDs.
