@@ -1,7 +1,7 @@
 import string
 import secrets
 from datetime import timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError, models
 from django.utils import timezone
@@ -10,7 +10,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
 
-from products.tasks.backend.models import TaskRun
+if TYPE_CHECKING:
+    # Unavoidable cycle: products.tasks.backend.models -> posthog.event_usage ->
+    # posthog.models -> ee.models -> ee.models.assistant. Type-only here; runtime
+    # import is deferred to inside `current_sandbox_run`.
+    from products.tasks.backend.models import TaskRun
 
 
 def generate_short_id():
@@ -127,7 +131,7 @@ class Conversation(UUIDTModel):
     )
 
     @property
-    def current_sandbox_run(self) -> Optional[TaskRun]:
+    def current_sandbox_run(self) -> Optional["TaskRun"]:
         """Latest TaskRun on the sandbox Task by created_at, or None.
 
         Derived rather than stored: two concurrent tabs creating successor Runs after a
@@ -139,6 +143,10 @@ class Conversation(UUIDTModel):
         existing rows from the Redis-relay flow keep resolving while writers are
         migrated.
         """
+        # Deferred to method scope: top-level import would create a cycle through
+        # posthog.event_usage -> posthog.models -> ee.models.
+        from products.tasks.backend.models import TaskRun
+
         task_id = self.sandbox_task_fk_id or self.sandbox_task_id
         if task_id is None:
             return None
