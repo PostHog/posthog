@@ -64,9 +64,15 @@ export type ProcessBufferWithSamplingResult = {
     recordsDropped: number
     /** Counts dropped lines (drop / sample_dropped) attributed to the first matching rule UUID. */
     recordsDroppedByRuleId: Map<string, number>
+    /** Sum of per-row `bytes_uncompressed` for dropped lines. Rows from old producers contribute 0. */
+    bytesDropped: number
+    /** Sum of per-row `bytes_uncompressed` for dropped lines, attributed to the first matching rule UUID. */
+    bytesDroppedByRuleId: Map<string, number>
     /** When true, the caller must not produce this message to downstream Kafka (all lines sampled out). */
     allDropped: boolean
 }
+
+const recordBytes = (r: LogRecord): number => r.bytes_uncompressed ?? 0
 
 export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
@@ -94,6 +100,8 @@ export class LogsSamplingService {
         const kept: LogRecord[] = []
         let recordsDropped = 0
         const recordsDroppedByRuleId = new Map<string, number>()
+        let bytesDropped = 0
+        const bytesDroppedByRuleId = new Map<string, number>()
 
         const useRate = Boolean(ruleSet.hasRateLimitRules && teamId != null)
 
@@ -115,17 +123,23 @@ export class LogsSamplingService {
                 const c = classifications[i]!
                 if (c.kind === 'rate_limit') {
                     if (rateKeep.get(i) === false) {
+                        const rb = recordBytes(record)
                         recordsDropped++
+                        bytesDropped += rb
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
+                        bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
                         continue
                     }
                     kept.push(record)
                     continue
                 }
                 if (c.decision === SAMPLING_DECISION_DROP || c.decision === SAMPLING_DECISION_SAMPLE_DROPPED) {
+                    const rb = recordBytes(record)
                     recordsDropped++
+                    bytesDropped += rb
                     if (c.ruleId != null) {
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
+                        bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
                     }
                     continue
                 }
@@ -135,9 +149,12 @@ export class LogsSamplingService {
             for (const record of records) {
                 const { decision, ruleId } = safeEvaluateLogRecord(ruleSet, record, teamId ?? 0)
                 if (decision === SAMPLING_DECISION_DROP || decision === SAMPLING_DECISION_SAMPLE_DROPPED) {
+                    const rb = recordBytes(record)
                     recordsDropped++
+                    bytesDropped += rb
                     if (ruleId != null) {
                         recordsDroppedByRuleId.set(ruleId, (recordsDroppedByRuleId.get(ruleId) ?? 0) + 1)
+                        bytesDroppedByRuleId.set(ruleId, (bytesDroppedByRuleId.get(ruleId) ?? 0) + rb)
                     }
                     continue
                 }
@@ -155,10 +172,26 @@ export class LogsSamplingService {
         })
 
         if (kept.length === 0) {
-            return { value: Buffer.alloc(0), pii, recordsDropped, recordsDroppedByRuleId, allDropped: true }
+            return {
+                value: Buffer.alloc(0),
+                pii,
+                recordsDropped,
+                recordsDroppedByRuleId,
+                bytesDropped,
+                bytesDroppedByRuleId,
+                allDropped: true,
+            }
         }
         const value = await encodeLogRecords(logRecordType, compressionCodec, kept)
-        return { value, pii, recordsDropped, recordsDroppedByRuleId, allDropped: false }
+        return {
+            value,
+            pii,
+            recordsDropped,
+            recordsDroppedByRuleId,
+            bytesDropped,
+            bytesDroppedByRuleId,
+            allDropped: false,
+        }
     }
 
     /**
