@@ -9,6 +9,9 @@ from google.genai import types
 from posthoganalytics.ai.gemini import genai
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.session_replay.session_summary.activities.video_based.gemini_retry import (
+    raise_retryable_for_transient_gemini_error,
+)
 from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -227,6 +230,9 @@ async def analyze_video_segment_activity(
                 "model": inputs.model_to_use,
             },
         )
+        # Reclassify transient Gemini/network/SSL failures so Temporal retries them with a
+        # longer backoff than the default; non-transient errors fall through to the bare raise.
+        raise_retryable_for_transient_gemini_error(e, context="analyze_video_segment")
         raise
 
 

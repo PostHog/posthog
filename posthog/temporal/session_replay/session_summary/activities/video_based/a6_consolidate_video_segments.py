@@ -16,6 +16,9 @@ from google.genai import types
 from posthoganalytics.ai.gemini import genai
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.session_replay.session_summary.activities.video_based.gemini_retry import (
+    raise_retryable_for_transient_gemini_error,
+)
 from posthog.temporal.session_replay.session_summary.types.video import (
     AI_TAGS_FIXED_TAXONOMY,
     ConsolidatedVideoAnalysis,
@@ -142,12 +145,15 @@ async def consolidate_video_segments_activity(
             tagging=tagging,
         )
 
-    except Exception:
+    except Exception as e:
         logger.exception(
             f"Failed to consolidate segments for session {inputs.session_id}",
             session_id=inputs.session_id,
             signals_type="session-summaries",
         )
+        # Reclassify transient Gemini/network/SSL failures so Temporal retries them with a
+        # longer backoff than the default; non-transient errors fall through to the bare raise.
+        raise_retryable_for_transient_gemini_error(e, context="consolidate_video_segments")
         # Re-raise to let the workflow retry with proper retry policy
         raise
 
@@ -187,6 +193,12 @@ async def _call_llm_to_consolidate_segments(
             return ConsolidatedVideoAnalysis.model_validate(parsed), response_text
 
         except Exception as e:
+            # Transient Gemini / network failures aren't an LLM output problem — bouncing
+            # them through this inner retry loop pollutes the prompt with HTTP error text
+            # and burns the activity's attempts before Temporal's backoff can kick in.
+            # Let them propagate to the outer ``except`` so the helper reclassifies and
+            # Temporal retries the whole activity with the longer Gemini backoff.
+            raise_retryable_for_transient_gemini_error(e, context="consolidate_video_segments")
             if attempt == max_attempts - 1:
                 logger.exception(
                     f"Failed to parse/validate LLM response after {max_attempts} attempts",

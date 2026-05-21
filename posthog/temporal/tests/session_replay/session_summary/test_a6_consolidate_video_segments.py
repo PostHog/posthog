@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
+from google.genai import errors as genai_errors
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -137,3 +139,56 @@ def test_validate_tagging_output_drops_custom_tags_not_in_team_taxonomy(team_tax
     )
     result = _validate_tagging_output(output, custom_tags=team_taxonomy)
     assert result.tags_custom == expected
+
+
+@pytest.mark.asyncio
+async def test_transient_failures_during_consolidation_skip_inner_retry_loop():
+    # A 503 from the first consolidation generate_content call should propagate straight
+    # out as a retryable ApplicationError — not get swallowed by the parse-retry loop
+    # (which would pollute the prompt with HTTP error text).
+    server_error = genai_errors.ServerError(
+        code=503,
+        response_json={"error": {"code": 503, "status": "UNAVAILABLE", "message": "high demand"}},
+    )
+
+    client = MagicMock()
+    client.models.generate_content = AsyncMock(side_effect=server_error)
+    factory = MagicMock(return_value=client)
+
+    with patch(f"{ACTIVITY_MODULE}.genai.AsyncClient", new=factory):
+        with pytest.raises(ApplicationError) as exc_info:
+            await ActivityEnvironment().run(consolidate_video_segments_activity, _inputs(), _raw_segments(), "trace")
+
+    assert exc_info.value.type == "GeminiTransientError"
+    # Should fail fast — not exhaust the inner 3-attempt parse-retry loop.
+    assert client.models.generate_content.await_count == 1
+
+
+@pytest.mark.parametrize(
+    "transient_exc_factory",
+    [
+        # Gemini server-side 503 from the tagging follow-up turn
+        lambda: genai_errors.ServerError(
+            code=503,
+            response_json={"error": {"code": 503, "status": "UNAVAILABLE", "message": "service unavailable"}},
+        ),
+        # aiohttp transport error from generate_content (e.g. tagging follow-up)
+        lambda: aiohttp.ServerDisconnectedError("server disconnected"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transient_failures_during_tagging_are_reclassified_as_retryable(transient_exc_factory):
+    # Consolidation succeeds, tagging fails with a transient Gemini error.
+    consolidation_resp = MagicMock()
+    consolidation_resp.text = json.dumps(_consolidated_response())
+
+    client = MagicMock()
+    client.models.generate_content = AsyncMock(side_effect=[consolidation_resp, transient_exc_factory()])
+    factory = MagicMock(return_value=client)
+
+    with patch(f"{ACTIVITY_MODULE}.genai.AsyncClient", new=factory):
+        with pytest.raises(ApplicationError) as exc_info:
+            await ActivityEnvironment().run(consolidate_video_segments_activity, _inputs(), _raw_segments(), "trace")
+
+    assert exc_info.value.type == "GeminiTransientError"
+    assert exc_info.value.non_retryable is False

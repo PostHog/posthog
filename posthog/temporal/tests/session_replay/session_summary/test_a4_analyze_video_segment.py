@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
+from google.genai import errors as genai_errors
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -194,3 +196,35 @@ async def test_omits_events_section_when_redis_returns_empty_events():
         )
 
     assert "<tracked_events>" not in captured_prompt[0]
+
+
+@pytest.mark.parametrize(
+    "transient_exc_factory",
+    [
+        # Gemini server-side 503 / 'high demand' / deadline-expired
+        lambda: genai_errors.ServerError(
+            code=503,
+            response_json={"error": {"code": 503, "status": "UNAVAILABLE", "message": "Deadline expired"}},
+        ),
+        # aiohttp connection reset during generate_content
+        lambda: aiohttp.ClientPayloadError("TransferEncodingError"),
+        lambda: ConnectionResetError("Connection reset"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transient_failures_are_reclassified_as_retryable(transient_exc_factory):
+    client = MagicMock()
+    client.models.generate_content = AsyncMock(side_effect=transient_exc_factory())
+    factory = MagicMock(return_value=client)
+
+    with (
+        _patch_redis_no_events(),
+        patch(f"{ACTIVITY_MODULE}.genai.AsyncClient", new=factory),
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await ActivityEnvironment().run(
+                analyze_video_segment_activity, _inputs(), _uploaded(), _segment(), "trace", "team"
+            )
+
+    assert exc_info.value.type == "GeminiTransientError"
+    assert exc_info.value.non_retryable is False

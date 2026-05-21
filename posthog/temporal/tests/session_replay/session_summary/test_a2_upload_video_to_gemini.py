@@ -1,6 +1,11 @@
+import ssl
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+from google.genai import errors as genai_errors
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import REDIS_INDEX_KEY, REDIS_KEY_PREFIX
@@ -129,3 +134,36 @@ async def test_raises_when_gemini_processing_fails():
     ):
         with pytest.raises(RuntimeError, match="File processing failed"):
             await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+
+@pytest.mark.parametrize(
+    "transient_exc_factory",
+    [
+        # SSL bundle load failure during Gemini client construction
+        lambda: ssl.SSLError("[X509] PEM lib"),
+        # httpx transport error during sync files.upload
+        lambda: httpx.RemoteProtocolError("Server disconnected"),
+        lambda: httpx.ProxyError("504 Gateway timeout"),
+        # Gemini server-side error during upload
+        lambda: genai_errors.ServerError(
+            code=503,
+            response_json={"error": {"code": 503, "status": "UNAVAILABLE", "message": "high demand"}},
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transient_failures_are_reclassified_as_retryable(transient_exc_factory):
+    asset = _make_asset(content=b"video-bytes")
+    fake_client = MagicMock()
+    fake_client.files.upload.side_effect = transient_exc_factory()
+
+    with (
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.aget", new=AsyncMock(return_value=asset)),
+        patch(f"{ACTIVITY_MODULE}.get_video_duration_s", return_value=42),
+        patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+    assert exc_info.value.type == "GeminiTransientError"
+    assert exc_info.value.non_retryable is False

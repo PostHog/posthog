@@ -18,6 +18,9 @@ from posthog.schema import ReplayInactivityPeriod
 from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
+from posthog.temporal.session_replay.session_summary.activities.video_based.gemini_retry import (
+    raise_retryable_for_transient_gemini_error,
+)
 from posthog.temporal.session_replay.session_summary.types.video import (
     UploadedVideo,
     UploadVideoToGeminiOutput,
@@ -162,4 +165,7 @@ async def upload_video_to_gemini_activity(
             session_id=inputs.session_id,
             signals_type="session-summaries",
         )
+        # Reclassify transient Gemini/network/SSL failures so Temporal retries them with a
+        # longer backoff than the default; non-transient errors fall through to the bare raise.
+        raise_retryable_for_transient_gemini_error(e, context="upload_video_to_gemini")
         raise

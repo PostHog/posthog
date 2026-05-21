@@ -315,6 +315,17 @@ async def ensure_llm_single_session_summary(
 ):
     """Single-session summary flow. ``progress`` populated only by the video flow."""
     retry_policy = RetryPolicy(maximum_attempts=3)
+    # Gemini routinely throws transient 503/UNAVAILABLE/'high demand' / proxy 504 /
+    # SSL resets — 3 attempts on the default backoff isn't enough to ride those out.
+    # The activities themselves reclassify these via raise_retryable_for_transient_gemini_error
+    # and inject a 30s next_retry_delay; pair that with a higher attempt budget so a
+    # multi-minute Gemini blip doesn't tank a whole summary.
+    gemini_retry_policy = RetryPolicy(
+        maximum_attempts=5,
+        initial_interval=timedelta(seconds=2),
+        backoff_coefficient=2.0,
+        maximum_interval=timedelta(minutes=2),
+    )
     trace_id = temporalio.workflow.info().workflow_id
 
     # Must run before the a5* fan-out — embeddings/signals/tags would otherwise re-emit on retried runs.
@@ -387,7 +398,7 @@ async def ensure_llm_single_session_summary(
         upload_video_to_gemini_activity,
         args=(video_inputs, asset_id),
         start_to_close_timeout=timedelta(minutes=10),
-        retry_policy=retry_policy,
+        retry_policy=gemini_retry_policy,
     )
     uploaded_video = upload_result["uploaded_video"]
     team_name = export_result.team_name
@@ -413,15 +424,19 @@ async def ensure_llm_single_session_summary(
         if progress is not None:
             progress["segments_total"] = len(segment_specs)
             progress["segments_completed"] = 0
-        semaphore = asyncio.Semaphore(100)
+        # Capped lower than the previous 100-way fan-out: heavy concurrent pressure on
+        # Gemini correlates with the 503 / 'high demand' / deadline-expired bursts that
+        # used to fail whole summaries. 20 still parallelizes well for typical session
+        # lengths (a few dozen segments).
+        semaphore = asyncio.Semaphore(20)
 
         async def _analyze_segment_with_semaphore(segment_spec: VideoSegmentSpec):
             async with semaphore:
                 result = await temporalio.workflow.execute_activity(
                     analyze_video_segment_activity,
                     args=(video_inputs, uploaded_video, segment_spec, trace_id, team_name),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=retry_policy,
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=gemini_retry_policy,
                 )
                 if progress is not None:
                     progress["segments_completed"] += 1
@@ -457,8 +472,8 @@ async def ensure_llm_single_session_summary(
         consolidation_output = await temporalio.workflow.execute_activity(
             consolidate_video_segments_activity,
             args=(video_inputs, raw_segments, trace_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=retry_policy,
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=gemini_retry_policy,
         )
 
         consolidated_analysis = consolidation_output["consolidated_analysis"]
