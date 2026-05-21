@@ -10,7 +10,7 @@ import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { UUID, UUIDT } from '../../utils/utils'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherFunctionState, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -84,13 +84,19 @@ export class SourceWebhookError extends Error {
 
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpSourceWebhooksConsumer'
-    private cyclotronJobQueue: CyclotronJobQueue
+    private hogQueue: JobQueue
+    private hogflowQueue: JobQueue
     private promiseScheduler: PromiseScheduler
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+    ) {
         super(config, deps)
         this.promiseScheduler = new PromiseScheduler()
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.hogQueue = jobQueues.hogQueue
+        this.hogflowQueue = jobQueues.hogflowQueue
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -295,7 +301,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     count: 1,
                 })
 
-                await this.cyclotronJobQueue.queueInvocations([hogFlowInvocation])
+                await this.hogflowQueue.queueInvocations([hogFlowInvocation])
             } else {
                 addMetric({
                     metric_kind: 'failure',
@@ -344,7 +350,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             if (hogFunctionState?.state === HogWatcherState.degraded) {
                 // Degraded functions are not executed immediately
                 invocation.queue = 'hogoverflow'
-                await this.cyclotronJobQueue.queueInvocations([invocation])
+                await this.hogQueue.queueInvocations([invocation])
 
                 result = createInvocationResult<CyclotronJobInvocationHogFunction>(
                     invocation,
@@ -374,7 +380,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {
-                    await this.cyclotronJobQueue.queueInvocationResults([result])
+                    await this.hogQueue.queueInvocationResults([result])
                 }
 
                 const customHttpResponse = getCustomHttpResponse(result)
@@ -464,11 +470,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     public override async start(): Promise<void> {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
-        await this.cyclotronJobQueue.startAsProducer()
+        await Promise.all([this.hogQueue.startAsProducer(), this.hogflowQueue.startAsProducer()])
     }
 
     public override async stop(): Promise<void> {
-        await this.cyclotronJobQueue.stop()
+        await Promise.all([this.hogQueue.stopProducer(), this.hogflowQueue.stopProducer()])
         await this.promiseScheduler.waitForAllSettled()
         // IMPORTANT: super always comes last
         await super.stop()
