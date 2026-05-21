@@ -5,7 +5,7 @@
         "./tailwind.config.js": "./tailwind.config.js"
     },
     "scripts": {
-        "build": "tailwindcss -i ./tailwind.css -o ./dist/tailwind.css"
+        "build": "pnpm exec tailwindcss -i ./tailwind.css -o ./dist/tailwind.css"
     },
     "dependencies": {
         "@tailwindcss/container-queries": "0.1.1",
