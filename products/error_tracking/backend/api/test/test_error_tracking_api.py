@@ -521,8 +521,8 @@ class TestErrorTracking(APIBaseTest):
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.error_tracking.backend.api.issues.dispatch_issue_assigned_realtime")
-    @patch("products.error_tracking.backend.api.issues.send_error_tracking_issue_assigned")
+    @patch("products.error_tracking.backend.presentation.issues.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.presentation.issues.send_error_tracking_issue_assigned")
     def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
         issue = self.create_issue()
         other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")

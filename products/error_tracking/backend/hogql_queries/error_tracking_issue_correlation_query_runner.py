@@ -20,8 +20,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.error_tracking.backend.api.issues import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.presentation.issues import ErrorTrackingIssuePreviewSerializer
 
 logger = structlog.get_logger(__name__)
 
