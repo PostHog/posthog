@@ -48,6 +48,37 @@ pub struct KafkaTraceRow {
     pub dropped_links_count: i32,
     pub status_code: i32,
     pub status_message: String,
+    pub bytes_uncompressed: Option<i64>,
+}
+
+/// Sum byte lengths of the row's string, map, and array content. Fixed-width
+/// fields (timestamps, kind, flags, status_code, dropped_*_count) are excluded —
+/// only variable-length payload is counted. Distinct from the Kafka header
+/// `bytes_uncompressed`, which is the raw HTTP body size for the whole batch.
+pub fn compute_kafka_trace_row_bytes(row: &KafkaTraceRow) -> i64 {
+    let mut total: usize = 0;
+    total = total.saturating_add(row.uuid.len());
+    total = total.saturating_add(row.trace_id.len());
+    total = total.saturating_add(row.span_id.len());
+    total = total.saturating_add(row.parent_span_id.len());
+    total = total.saturating_add(row.trace_state.len());
+    total = total.saturating_add(row.name.len());
+    total = total.saturating_add(row.service_name.len());
+    total = total.saturating_add(row.instrumentation_scope.len());
+    total = total.saturating_add(row.status_message.len());
+    for (k, v) in &row.resource_attributes {
+        total = total.saturating_add(k.len()).saturating_add(v.len());
+    }
+    for (k, v) in &row.attributes {
+        total = total.saturating_add(k.len()).saturating_add(v.len());
+    }
+    for event in &row.events {
+        total = total.saturating_add(event.len());
+    }
+    for link in &row.links {
+        total = total.saturating_add(link.len());
+    }
+    i64::try_from(total).unwrap_or(i64::MAX)
 }
 
 impl KafkaTraceRow {
@@ -161,7 +192,7 @@ impl KafkaTraceRow {
             .map(|s| s.message.clone())
             .unwrap_or_default();
 
-        let row = Self {
+        let partial = Self {
             uuid: Uuid::now_v7().to_string(),
             trace_id,
             span_id,
@@ -184,6 +215,12 @@ impl KafkaTraceRow {
             dropped_links_count: span.dropped_links_count as i32,
             status_code,
             status_message,
+            bytes_uncompressed: None,
+        };
+        let bytes_uncompressed = Some(compute_kafka_trace_row_bytes(&partial));
+        let row = Self {
+            bytes_uncompressed,
+            ..partial
         };
         debug!("trace span: {:?}", row);
 
@@ -208,11 +245,14 @@ fn extract_string_from_resource(attributes: &HashMap<String, String>, key: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use apache_avro::{Codec, Reader, Schema, Writer};
     use chrono::{TimeDelta, Utc};
     use opentelemetry_proto::tonic::{
         common::v1::{any_value, AnyValue, KeyValue},
         trace::v1::{span::Event, span::Link, Span, Status},
     };
+
+    use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
 
     fn make_span() -> Span {
         let now_nanos = Utc::now().timestamp_nanos_opt().unwrap() as u64;
@@ -242,6 +282,87 @@ mod tests {
                 code: 1, // OK
             }),
         }
+    }
+
+    #[test]
+    fn test_compute_kafka_trace_row_bytes_sums_string_map_and_array_lengths() {
+        let mut resource_attributes = HashMap::new();
+        resource_attributes.insert("host.name".to_string(), "localhost".to_string());
+        let mut attributes = HashMap::new();
+        attributes.insert("a".to_string(), "b".to_string());
+        let row = KafkaTraceRow {
+            uuid: "uuid-1".to_string(),
+            trace_id: "tid".to_string(),
+            span_id: "sid".to_string(),
+            parent_span_id: "psid".to_string(),
+            trace_state: "ts".to_string(),
+            name: "op".to_string(),
+            kind: 0,
+            flags: 0,
+            timestamp: Utc::now(),
+            end_time: Utc::now(),
+            observed_timestamp: Utc::now(),
+            service_name: "svc".to_string(),
+            resource_attributes,
+            instrumentation_scope: "scope".to_string(),
+            attributes,
+            dropped_attributes_count: 0,
+            events: vec!["{}".to_string()],
+            dropped_events_count: 0,
+            links: vec!["{}".to_string()],
+            dropped_links_count: 0,
+            status_code: 0,
+            status_message: "ok".to_string(),
+            bytes_uncompressed: None,
+        };
+        // strings: uuid(6) + tid(3) + sid(3) + psid(4) + ts(2) + op(2) + svc(3) + scope(5) + ok(2) = 30
+        // resource_attributes: host.name(9)+localhost(9)=18; attributes a(1)+b(1)=2
+        // events 1 entry of "{}"(2); links 1 entry of "{}"(2) = 4
+        // total = 30 + 18 + 2 + 4 = 54
+        assert_eq!(compute_kafka_trace_row_bytes(&row), 54);
+    }
+
+    #[test]
+    fn test_bytes_uncompressed_serialises_into_avro_payload() {
+        // Decode to raw Avro Value rather than struct: apache_avro's `from_value` can't
+        // resolve `["null", T]` unions into the existing non-Option fields on KafkaTraceRow.
+        use apache_avro::types::Value;
+
+        let (row, _) = KafkaTraceRow::new(make_span(), None, None).expect("ok");
+        let expected = row.bytes_uncompressed.expect("populated");
+
+        let schema = Schema::parse_str(TRACES_AVRO_SCHEMA).expect("schema parses");
+        let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
+        writer.append_ser(&row).expect("append_ser ok");
+        let payload = writer.into_inner().expect("flush ok");
+
+        let reader = Reader::new(payload.as_slice()).expect("reader ok");
+        let mut found_long: Option<i64> = None;
+        for value in reader {
+            let value = value.expect("decode ok");
+            if let Value::Record(fields) = value {
+                for (name, field_value) in fields {
+                    if name == "bytes_uncompressed" {
+                        if let Value::Union(_, inner) = field_value {
+                            if let Value::Long(v) = *inner {
+                                found_long = Some(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(found_long, Some(expected));
+    }
+
+    #[test]
+    fn test_new_populates_bytes_uncompressed() {
+        let (row, _) = KafkaTraceRow::new(make_span(), None, None).expect("ok");
+        assert!(row.bytes_uncompressed.is_some());
+        assert_eq!(
+            row.bytes_uncompressed.unwrap(),
+            compute_kafka_trace_row_bytes(&row),
+        );
     }
 
     #[test]

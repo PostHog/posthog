@@ -38,6 +38,30 @@ pub struct KafkaLogRow {
     pub instrumentation_scope: String,
     pub event_name: String,
     pub attributes: HashMap<String, String>,
+    pub bytes_uncompressed: Option<i64>,
+}
+
+/// Sum byte lengths of the row's string and map content. Fixed-width fields
+/// (timestamps, trace_flags, severity_number) are excluded — only variable-length
+/// payload is counted. Distinct from the Kafka header `bytes_uncompressed`, which
+/// is the raw HTTP body size for the whole batch.
+pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
+    let mut total: usize = 0;
+    total = total.saturating_add(row.uuid.len());
+    total = total.saturating_add(row.trace_id.len());
+    total = total.saturating_add(row.span_id.len());
+    total = total.saturating_add(row.body.len());
+    total = total.saturating_add(row.severity_text.len());
+    total = total.saturating_add(row.service_name.len());
+    total = total.saturating_add(row.instrumentation_scope.len());
+    total = total.saturating_add(row.event_name.len());
+    for (k, v) in &row.resource_attributes {
+        total = total.saturating_add(k.len()).saturating_add(v.len());
+    }
+    for (k, v) in &row.attributes {
+        total = total.saturating_add(k.len()).saturating_add(v.len());
+    }
+    i64::try_from(total).unwrap_or(i64::MAX)
 }
 
 impl KafkaLogRow {
@@ -114,7 +138,7 @@ impl KafkaLogRow {
 
         let observed_timestamp = Utc::now();
 
-        let log_row = Self {
+        let partial = Self {
             uuid: Uuid::now_v7().to_string(),
             trace_id: BASE64_STANDARD.encode(trace_id),
             span_id: BASE64_STANDARD.encode(span_id),
@@ -129,6 +153,12 @@ impl KafkaLogRow {
             event_name,
             service_name,
             attributes,
+            bytes_uncompressed: None,
+        };
+        let bytes_uncompressed = Some(compute_kafka_log_row_bytes(&partial));
+        let log_row = Self {
+            bytes_uncompressed,
+            ..partial
         };
         debug!("log: {:?}", log_row);
 
@@ -318,6 +348,107 @@ pub fn any_value_to_string(value: AnyValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use apache_avro::{Codec, Reader, Schema, Writer};
+
+    use crate::avro_schema::AVRO_SCHEMA;
+
+    fn sample_row() -> KafkaLogRow {
+        let mut resource_attributes = HashMap::new();
+        resource_attributes.insert("host.name".to_string(), "localhost".to_string());
+        let mut attributes = HashMap::new();
+        attributes.insert("k".to_string(), "v".to_string());
+        KafkaLogRow {
+            uuid: "uuid-1234".to_string(),
+            trace_id: "tid".to_string(),
+            span_id: "sid".to_string(),
+            trace_flags: 0,
+            timestamp: Utc::now(),
+            observed_timestamp: Utc::now(),
+            body: "hello".to_string(),
+            severity_text: "info".to_string(),
+            severity_number: 9,
+            service_name: "svc".to_string(),
+            resource_attributes,
+            instrumentation_scope: "scope@1".to_string(),
+            event_name: "evt".to_string(),
+            attributes,
+            bytes_uncompressed: None,
+        }
+    }
+
+    #[test]
+    fn test_compute_kafka_log_row_bytes_sums_string_and_map_lengths() {
+        let row = sample_row();
+        // string fields: uuid(9) + trace_id(3) + span_id(3) + body(5) + severity_text(4)
+        // + service_name(3) + instrumentation_scope(7) + event_name(3) = 37
+        // maps: resource_attributes "host.name"(9)+"localhost"(9)=18; attributes "k"(1)+"v"(1)=2
+        // total = 37 + 18 + 2 = 57
+        assert_eq!(compute_kafka_log_row_bytes(&row), 57);
+    }
+
+    #[test]
+    fn test_compute_kafka_log_row_bytes_excludes_fixed_width_fields() {
+        // Two rows differing only in fixed-width numeric/timestamp fields should compute
+        // identical bytes_uncompressed.
+        let mut a = sample_row();
+        a.trace_flags = 0;
+        a.severity_number = 1;
+        let mut b = sample_row();
+        b.trace_flags = u32::MAX;
+        b.severity_number = i32::MIN;
+        b.timestamp = a.timestamp + TimeDelta::days(1);
+        assert_eq!(
+            compute_kafka_log_row_bytes(&a),
+            compute_kafka_log_row_bytes(&b),
+        );
+    }
+
+    #[test]
+    fn test_bytes_uncompressed_serialises_into_avro_payload() {
+        // We don't deserialise back into KafkaLogRow because apache_avro's `from_value`
+        // can't resolve `["null", T]` unions into non-Option struct fields (the existing
+        // pattern used for body/attributes/etc.). Instead, decode to the raw Avro Value
+        // and assert the new field is present with the expected long.
+        use apache_avro::types::Value;
+
+        let mut row = sample_row();
+        row.bytes_uncompressed = Some(compute_kafka_log_row_bytes(&row));
+        let expected = row.bytes_uncompressed.unwrap();
+
+        let schema = Schema::parse_str(AVRO_SCHEMA).expect("schema parses");
+        let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
+        writer.append_ser(&row).expect("append_ser ok");
+        let payload = writer.into_inner().expect("flush ok");
+
+        let reader = Reader::new(payload.as_slice()).expect("reader ok");
+        let mut found_long: Option<i64> = None;
+        for value in reader {
+            let value = value.expect("decode ok");
+            if let Value::Record(fields) = value {
+                for (name, field_value) in fields {
+                    if name == "bytes_uncompressed" {
+                        if let Value::Union(_, inner) = field_value {
+                            if let Value::Long(v) = *inner {
+                                found_long = Some(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(found_long, Some(expected));
+    }
+
+    #[test]
+    fn test_new_populates_bytes_uncompressed() {
+        let log_record = LogRecord::default();
+        let (row, _) = KafkaLogRow::new(log_record, None, None).expect("ok");
+        assert!(row.bytes_uncompressed.is_some());
+        assert_eq!(
+            row.bytes_uncompressed.unwrap(),
+            compute_kafka_log_row_bytes(&row),
+        );
+    }
 
     #[test]
     fn test_override_timestamp_within_range_is_unchanged() {

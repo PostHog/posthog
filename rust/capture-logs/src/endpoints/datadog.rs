@@ -1,4 +1,4 @@
-use crate::log_record::{override_timestamp, KafkaLogRow};
+use crate::log_record::{compute_kafka_log_row_bytes, override_timestamp, KafkaLogRow};
 use crate::service::Service;
 use axum::{
     extract::State,
@@ -240,25 +240,29 @@ pub fn datadog_log_to_kafka_row(
         attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
     }
 
-    (
-        KafkaLogRow {
-            uuid: Uuid::now_v7().to_string(),
-            trace_id,
-            span_id,
-            trace_flags: 0,
-            timestamp,
-            observed_timestamp: Utc::now(),
-            body: message.unwrap_or_default(),
-            severity_text,
-            severity_number,
-            service_name: service.unwrap_or_default(),
-            resource_attributes,
-            instrumentation_scope,
-            event_name,
-            attributes,
-        },
-        was_overridden,
-    )
+    let partial = KafkaLogRow {
+        uuid: Uuid::now_v7().to_string(),
+        trace_id,
+        span_id,
+        trace_flags: 0,
+        timestamp,
+        observed_timestamp: Utc::now(),
+        body: message.unwrap_or_default(),
+        severity_text,
+        severity_number,
+        service_name: service.unwrap_or_default(),
+        resource_attributes,
+        instrumentation_scope,
+        event_name,
+        attributes,
+        bytes_uncompressed: None,
+    };
+    let bytes_uncompressed = Some(compute_kafka_log_row_bytes(&partial));
+    let row = KafkaLogRow {
+        bytes_uncompressed,
+        ..partial
+    };
+    (row, was_overridden)
 }
 
 #[derive(Deserialize, Debug)]
