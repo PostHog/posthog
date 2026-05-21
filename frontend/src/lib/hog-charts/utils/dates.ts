@@ -22,8 +22,6 @@ export function createXAxisTickCallback({
     allDays,
     timezone,
 }: CreateXAxisTickCallbackArgs): ((value: string | number, index: number) => string | null) | undefined {
-    // Not a date axis — bail so Chart.js's built-in category-scale default
-    // (`_getLabelForValue`) renders whatever's in `data.labels` directly.
     if (allDays.length === 0 || typeof allDays[0] !== 'string') {
         return
     }
