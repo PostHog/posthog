@@ -678,6 +678,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
         ...(cache.properties !== undefined ? { properties: cache.properties } : {}),
         ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+        ...(cache.filterTestAccounts !== undefined ? { filterTestAccounts: cache.filterTestAccounts } : {}),
     }
 
     // Insight-specific filter merge (web analytics already returned above)

@@ -39,7 +39,7 @@ def update_raw_sessions_table(migration: str):
                 table_name=TABLE_BASE_NAME,
                 on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster=False),
             ),
-            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+            node_roles=[NodeRole.DATA],
         ),
         # recreate the view
         run_sql_with_exceptions(RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL()),

@@ -481,7 +481,8 @@ describe('StateManager', () => {
 
         it('should return undefined (not stale data) when fetch succeeds then later fails', async () => {
             const mockGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
-            const getGroupTypes = vi.fn()
+            const getGroupTypes = vi
+                .fn()
                 .mockResolvedValueOnce(mockGroupTypes)
                 .mockRejectedValueOnce(new Error('API error'))
             const mockApi = stateManager as any
