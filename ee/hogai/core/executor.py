@@ -71,10 +71,21 @@ class AgentExecutor:
         Returns:
             AssistantOutput generator
         """
+        input_message = getattr(inputs, "message", None)
+        input_resume_payload = getattr(inputs, "resume_payload", None)
+        is_pure_reconnect = input_message is None and input_resume_payload is None
+
         # If this is a reconnection attempt, we resume streaming
         if self._conversation.status != Conversation.Status.IDLE and self._reconnectable:
-            if hasattr(inputs, "message") and inputs.message is not None:
+            if input_message is not None:
                 raise ValueError("Cannot resume streaming with a new message")
+            async for chunk in self.stream_conversation():
+                yield chunk
+        elif is_pure_reconnect and self._reconnectable and await has_pending_queue_work(str(self._conversation.id)):
+            # Handoff window: ``Conversation.status`` is briefly IDLE between the
+            # main workflow completing and a queued workflow taking over. Read
+            # from the Redis stream so the client's reconnect picks up the
+            # queued workflow's output instead of spawning a duplicate workflow.
             async for chunk in self.stream_conversation():
                 yield chunk
         else:
@@ -320,11 +331,8 @@ class AgentExecutor:
 
     async def _cancel_queue_workflows(self, client) -> None:
         """Cancel all running queued message workflows for this conversation."""
-        queue_prefix = f"conversation-{self._conversation.id}-queued-"
-        query = f'WorkflowId STARTS_WITH "{queue_prefix}" AND ExecutionStatus = "Running"'
-
         try:
-            async for workflow in client.list_workflows(query=query):
+            async for workflow in client.list_workflows(query=_queued_workflow_query(self._conversation.id)):
                 try:
                     queue_handle = client.get_workflow_handle(workflow_id=workflow.id)
                     await queue_handle.cancel()
@@ -341,3 +349,43 @@ class AgentExecutor:
                 conversation_id=str(self._conversation.id),
                 error=str(e),
             )
+
+
+def _queued_workflow_query(conversation_id: Any) -> str:
+    queue_prefix = f"conversation-{conversation_id}-queued-"
+    return f'WorkflowId STARTS_WITH "{queue_prefix}" AND ExecutionStatus = "Running"'
+
+
+async def has_pending_queue_work(conversation_id: str) -> bool:
+    """Whether the conversation has a queued message in cache or a queued
+    Temporal workflow currently running.
+
+    Used to detect the brief handoff window between a main workflow completing
+    (which flips ``Conversation.status`` to IDLE) and a queued workflow starting
+    (which flips it back to IN_PROGRESS). During that window the stream
+    endpoint must not reject reconnect attempts.
+    """
+    queue_store = ConversationQueueStore(conversation_id)
+    if await asyncio.to_thread(queue_store.list):
+        return True
+
+    try:
+        client = await async_connect()
+    except Exception as e:
+        logger.warning(
+            "Failed to connect to Temporal while checking for queued workflows",
+            conversation_id=conversation_id,
+            error=str(e),
+        )
+        return False
+
+    try:
+        async for _ in client.list_workflows(query=_queued_workflow_query(conversation_id)):
+            return True
+    except Exception as e:
+        logger.warning(
+            "Failed to list queued workflows",
+            conversation_id=conversation_id,
+            error=str(e),
+        )
+    return False

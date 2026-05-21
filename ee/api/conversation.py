@@ -52,7 +52,7 @@ from posthog.temporal.ai.research_agent import (
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
-from ee.hogai.core.executor import AgentExecutor
+from ee.hogai.core.executor import AgentExecutor, has_pending_queue_work
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
 from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
@@ -384,9 +384,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         if has_message and not is_idle and not is_sandbox:
             raise Conflict("Cannot resume streaming with a new message")
-        # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
+        # If the frontend is trying to resume streaming for a finished conversation, return a conflict error.
+        # IDLE is briefly true during the handoff between a main workflow completing and a queued workflow
+        # starting (see ``posthog/temporal/ai/chat_agent.py:process_chat_agent_activity`` and the matching
+        # comment on the ``cancel`` action below). Don't reject the reconnect when queued work is pending.
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
-            raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
+            if not asgi_async_to_sync(has_pending_queue_work)(str(conversation.id)):
+                raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         is_impersonated = is_impersonated_session(request)
 
