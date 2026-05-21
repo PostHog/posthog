@@ -217,10 +217,7 @@ class FilterSessionRecordingsTool(MaxTool):
         }
         seen: set[str] = set()
         ordered: list[str] = []
-        outer = recordings_filters.filter_group
-        if outer is None:
-            return ordered
-        for inner in outer.values:
+        for inner in recordings_filters.filter_group.values:
             for prop in inner.values:
                 prop_type = getattr(prop, "type", None)
                 if prop_type not in ("person", "event", "session", "group"):
