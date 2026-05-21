@@ -19,6 +19,7 @@ mod emit;
 mod error;
 mod lex;
 mod parse;
+mod pyobject;
 
 fn run<F>(f: F) -> String
 where
@@ -32,6 +33,28 @@ where
         }),
         Err(err) => err.to_json_string(),
     }
+}
+
+/// Counterpart to [`run`] for the `parse_*_py` entry points: build the
+/// `Value` AST and convert directly to Python objects in Rust, skipping the
+/// JSON-string serialise step. A parse error is raised as the matching
+/// Python exception (`ExposedHogQLError` / `SyntaxError`) rather than
+/// round-tripped through the JSON error envelope.
+fn run_py<F>(py: Python<'_>, f: F) -> PyResult<PyObject>
+where
+    F: FnOnce() -> Result<serde_json::Value, error::ParseError>,
+{
+    let converter = pyobject::Converter::new(py)?;
+    let value = match f() {
+        Ok(v) => v,
+        Err(err) => {
+            // Build the same JSON error envelope the JSON entry points emit,
+            // so the converter can raise the matching Python exception with
+            // start/end positions. One code path for both error sources.
+            err.to_json_value()
+        }
+    };
+    converter.convert_root(&value)
 }
 
 #[pyfunction]
@@ -60,6 +83,37 @@ fn parse_full_template_string_json(string: &str) -> String {
     run(|| parse::parse_full_template_string(string))
 }
 
+// `parse_*_py` mirror the `_json` entry points but return Python ast
+// dataclass instances directly. They skip the JSON serialise/deserialise
+// round-trip on both sides. The `_json` versions stay alongside for the
+// future WASM build and for tests that compare on the JSON shape.
+
+#[pyfunction]
+#[pyo3(signature = (statement, is_internal=false))]
+fn parse_expr_py(py: Python<'_>, statement: &str, is_internal: bool) -> PyResult<PyObject> {
+    run_py(py, || parse::parse_expr(statement, is_internal))
+}
+
+#[pyfunction]
+fn parse_order_expr_py(py: Python<'_>, statement: &str) -> PyResult<PyObject> {
+    run_py(py, || parse::parse_order_expr(statement))
+}
+
+#[pyfunction]
+fn parse_select_py(py: Python<'_>, statement: &str) -> PyResult<PyObject> {
+    run_py(py, || parse::parse_select(statement))
+}
+
+#[pyfunction]
+fn parse_program_py(py: Python<'_>, source: &str) -> PyResult<PyObject> {
+    run_py(py, || parse::parse_program(source))
+}
+
+#[pyfunction]
+fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<PyObject> {
+    run_py(py, || parse::parse_full_template_string(string))
+}
+
 #[pymodule]
 fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_expr_json, m)?)?;
@@ -67,5 +121,10 @@ fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_select_json, m)?)?;
     m.add_function(wrap_pyfunction!(parse_program_json, m)?)?;
     m.add_function(wrap_pyfunction!(parse_full_template_string_json, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_expr_py, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_order_expr_py, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_select_py, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_program_py, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_full_template_string_py, m)?)?;
     Ok(())
 }

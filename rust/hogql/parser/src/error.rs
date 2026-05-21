@@ -80,16 +80,22 @@ impl ParseError {
         }
     }
 
-    pub fn to_json_string(&self) -> String {
-        let value = json!({
+    /// Build the JSON error envelope shape. Used directly by the `parse_*_py`
+    /// path (which raises a Python exception from this) and serialised to a
+    /// string by [`Self::to_json_string`] for the `parse_*_json` path.
+    pub fn to_json_value(&self) -> serde_json::Value {
+        json!({
             "error": true,
             "type": self.kind.type_str(),
             "message": self.message,
             "start": {"offset": self.start},
             "end": {"offset": self.end},
-        });
+        })
+    }
+
+    pub fn to_json_string(&self) -> String {
         // serde_json::to_string never fails for a Value, but be explicit.
-        serde_json::to_string(&value).unwrap_or_else(|_| {
+        serde_json::to_string(&self.to_json_value()).unwrap_or_else(|_| {
             r#"{"error":true,"type":"InternalError","message":"failed to serialize error envelope","start":{"offset":0},"end":{"offset":0}}"#.to_string()
         })
     }
