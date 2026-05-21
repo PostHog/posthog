@@ -37,10 +37,11 @@ jobs:
                   ./.bin/actionlint -version
 
             - name: Run actionlint
-              # No -e: actionlint exits non-zero when findings exist; we still want the JSON.
+              # actionlint exits non-zero when findings exist; capture JSON and keep the step green
+              # so the summarize step still runs.
               run: |
-                  set -uo pipefail
-                  ./.bin/actionlint -format '{{json .}}' > actionlint.json
+                  set -euo pipefail
+                  ./.bin/actionlint -format '{{json .}}' > actionlint.json || true
 
             - name: Summarize findings
               run: |
