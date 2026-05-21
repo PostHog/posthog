@@ -6,8 +6,8 @@ from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, QuerySet
-from django.db.models.functions import Lower
+from django.db.models import Count, Q, QuerySet, Value
+from django.db.models.functions import Coalesce, Lower
 from django.utils.timezone import now
 
 import structlog
@@ -689,7 +689,7 @@ class SessionRecordingPlaylistViewSet(
             return [db_count + i for i in range(len(sorted_synthetics))]
 
         if sort_field == "name":
-            annotated = queryset.annotate(_name_lower=Lower("name"))
+            annotated = queryset.annotate(_name_lower=Coalesce(Lower("name"), Lower("derived_name"), Value("")))
             ranks: builtins.list[int] = []
             for synth_idx, synth in enumerate(sorted_synthetics):
                 synth_name = (synth.name or synth.derived_name or "").lower()
@@ -723,7 +723,7 @@ class SessionRecordingPlaylistViewSet(
                 # rank computation in _synthetic_global_ranks. Without this, the
                 # DB-slice offsets derived from those ranks would index into a
                 # case-sensitively-ordered queryset and skip/duplicate items.
-                name_order = Lower("name")
+                name_order = Coalesce(Lower("name"), Lower("derived_name"), Value(""))
                 queryset = queryset.order_by(name_order.desc() if order.startswith("-") else name_order.asc())
             else:
                 queryset = queryset.order_by(order)
