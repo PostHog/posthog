@@ -4,11 +4,10 @@ Reference: https://www.revenuecat.com/docs/api-v2
 
 Every list endpoint here uses cursor pagination (`starting_after` / `next_page`),
 defaulted to `limit=100`. Field names match the RevenueCat response payloads
-verbatim. We partition by md5(id): RevenueCat returns ``created_at`` as a
-millisecond epoch integer, and the warehouse partition layer interprets ints
-as Unix *seconds*, so a datetime partition on that column would produce dates
-in the year 54000+. md5 on the primary key sidesteps the conversion while
-still giving us bucketed partitioning.
+verbatim, except ``created_at`` which is normalized from milliseconds to Unix
+seconds during iteration (see ``_ms_to_seconds`` in ``revenuecat.py``). The
+partition key pins to that normalized field — it's stable per row and never
+rewritten, so partitioning by it never re-shuffles data.
 """
 
 from typing import NamedTuple
@@ -28,8 +27,8 @@ class RevenueCatEndpoint(NamedTuple):
 
     `path_suffix` is appended to `/projects/{project_id}` — every list endpoint we
     sync from is project-scoped. `partition_keys` must be stable for the lifetime
-    of a row (never `updated_at`); we use the row id (md5-hashed) since it is
-    the most stable identifier RevenueCat exposes.
+    of a row (never `updated_at`); ``created_at`` (Unix seconds, normalized from
+    RevenueCat's ms representation) satisfies that requirement.
     """
 
     path_suffix: str
@@ -46,27 +45,27 @@ REVENUECAT_API_ENDPOINTS: dict[str, RevenueCatEndpoint] = {
     CUSTOMER_RESOURCE_NAME: RevenueCatEndpoint(
         path_suffix="/customers",
         primary_keys=["id"],
-        partition_keys=["id"],
+        partition_keys=["created_at"],
     ),
     PRODUCT_RESOURCE_NAME: RevenueCatEndpoint(
         path_suffix="/products",
         primary_keys=["id"],
-        partition_keys=["id"],
+        partition_keys=["created_at"],
     ),
     ENTITLEMENT_RESOURCE_NAME: RevenueCatEndpoint(
         path_suffix="/entitlements",
         primary_keys=["id"],
-        partition_keys=["id"],
+        partition_keys=["created_at"],
     ),
     OFFERING_RESOURCE_NAME: RevenueCatEndpoint(
         path_suffix="/offerings",
         primary_keys=["id"],
-        partition_keys=["id"],
+        partition_keys=["created_at"],
     ),
     APP_RESOURCE_NAME: RevenueCatEndpoint(
         path_suffix="/apps",
         primary_keys=["id"],
-        partition_keys=["id"],
+        partition_keys=["created_at"],
     ),
 }
 

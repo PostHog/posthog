@@ -112,6 +112,21 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     return True, None
 
 
+def _ms_to_seconds(value: Any) -> Any:
+    """Convert a millisecond epoch int to a Unix-seconds int.
+
+    RevenueCat returns timestamps as millisecond epochs (e.g. ``1658399423658``),
+    but the warehouse partition layer interprets bare ints as Unix *seconds*
+    (``datetime.datetime.fromtimestamp(date)``). Normalize to seconds so a
+    datetime partition on ``created_at`` produces sane bucket dates, matching
+    the convention used by other sources (Stripe's ``created`` is already in
+    seconds).
+    """
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value // 1000
+    return value
+
+
 def iterate_list_endpoint(
     api_key: str,
     project_id: str,
@@ -125,6 +140,10 @@ def iterate_list_endpoint(
 
     RevenueCat returns ``{"items": [...], "next_page": "/v2/path?starting_after=ID"}``.
     When ``next_page`` is null/absent, the list is exhausted.
+
+    Rows are normalized in flight: any ms-epoch ``created_at`` field is divided
+    by 1000 so it lands in the warehouse as a Unix-seconds int the partition
+    layer can interpret directly. See ``_ms_to_seconds`` for context.
 
     ``on_cursor_advance`` is invoked with the last item's id every time we finish
     yielding a page so callers (e.g. the resumable manager) can checkpoint. We
@@ -151,6 +170,8 @@ def iterate_list_endpoint(
         for row in rows:
             if not isinstance(row, dict):
                 continue
+            if "created_at" in row:
+                row["created_at"] = _ms_to_seconds(row["created_at"])
             yield row
             row_id = row.get("id")
             if isinstance(row_id, str):

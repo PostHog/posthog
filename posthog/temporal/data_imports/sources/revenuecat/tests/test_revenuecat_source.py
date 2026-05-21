@@ -247,10 +247,11 @@ class TestRevenueCatSourcePipelineDispatch:
 
         assert response.name == "customers"
         assert response.primary_keys == ["id"]
-        # md5 by `id`, not datetime by `created_at`, because RevenueCat returns
-        # ms epochs and the partition layer treats ints as Unix seconds.
-        assert response.partition_mode == "md5"
-        assert response.partition_keys == ["id"]
+        # Datetime partitioning on `created_at` — `iterate_list_endpoint`
+        # normalizes RevenueCat's ms epoch field down to Unix seconds first.
+        assert response.partition_mode == "datetime"
+        assert response.partition_format == "week"
+        assert response.partition_keys == ["created_at"]
 
         rows = list(cast(Iterable[dict[str, str]], response.items()))
         assert rows == [{"id": "cus_1"}, {"id": "cus_2"}]
@@ -314,9 +315,9 @@ class TestRevenueCatSourcePipelineDispatch:
         assert result is sentinel
         mock_webhook.assert_called_once_with(inputs)
 
-    def test_every_api_endpoint_partitions_by_id(self):
+    def test_every_api_endpoint_partitions_by_created_at(self):
         for name, endpoint in REVENUECAT_API_ENDPOINTS.items():
-            assert endpoint.partition_keys == ["id"], name
+            assert endpoint.partition_keys == ["created_at"], name
             assert endpoint.primary_keys == ["id"], name
 
 
@@ -348,6 +349,24 @@ class TestRevenueCatWebhookTableTransformer:
         assert rows[0]["app_user_id"] == "user-1"
         assert rows[0]["store"] == "APP_STORE"
         assert rows[0]["api_version"] == "1.0"
+        # Original ms field preserved unchanged for callers that care about
+        # sub-second precision; `created_at` is the derived seconds value used
+        # for partitioning.
+        assert rows[0]["event_timestamp_ms"] == 1658726374000
+        assert rows[0]["created_at"] == 1658726374
+
+    def test_skips_created_at_derivation_when_event_timestamp_ms_missing(self):
+        # Older RevenueCat events or test deliveries may omit the timestamp
+        # entirely. Don't synthesize a fake `created_at` value — the partition
+        # layer falls back to "1970-01" for missing keys, which is a clearer
+        # signal of the missing field than a zero value would be.
+        table = table_from_py_list([{"api_version": "1.0", "event": {"id": "evt-1", "type": "TEST"}}])
+
+        result = _webhook_table_transformer(table)
+        rows = result.to_pylist()
+
+        assert rows[0]["id"] == "evt-1"
+        assert "created_at" not in rows[0]
 
     def test_handles_event_as_json_string(self):
         # Defensive: if upstream serializes `event` as a JSON string, we still

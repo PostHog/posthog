@@ -182,6 +182,52 @@ class TestIterateListEndpoint:
 
         assert rows == [{"id": "ok"}]
 
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_normalizes_created_at_from_ms_to_seconds(self, mock_session):
+        # `created_at` comes back from RevenueCat as a millisecond epoch — we
+        # divide by 1000 so the partition layer (which treats bare ints as Unix
+        # seconds) buckets rows into the correct week.
+        mock_session.return_value.get.return_value = _ok_json_response(
+            {"items": [{"id": "cus_1", "created_at": 1658399423658}], "next_page": None}
+        )
+
+        rows = list(
+            api_client.iterate_list_endpoint(
+                "sk_test", project_id="proj_test", path_suffix="/customers", endpoint_name="customers"
+            )
+        )
+
+        assert rows == [{"id": "cus_1", "created_at": 1658399423}]
+
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_leaves_created_at_untouched_when_missing(self, mock_session):
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "cus_1"}], "next_page": None})
+
+        rows = list(
+            api_client.iterate_list_endpoint(
+                "sk_test", project_id="proj_test", path_suffix="/customers", endpoint_name="customers"
+            )
+        )
+
+        assert rows == [{"id": "cus_1"}]
+
+
+class TestMsToSeconds:
+    def test_converts_int_milliseconds_to_seconds(self):
+        assert api_client._ms_to_seconds(1658399423658) == 1658399423
+
+    def test_passes_through_non_int_values(self):
+        # Defensive: don't mangle nulls, strings, or anything else the API
+        # might surprise us with — only ints get the division.
+        assert api_client._ms_to_seconds(None) is None
+        assert api_client._ms_to_seconds("1658399423658") == "1658399423658"
+
+    def test_does_not_treat_bool_as_int(self):
+        # `bool` subclasses `int` in Python, which would silently turn `True`
+        # into `0` (1 // 1000). Make sure we don't fall into that trap.
+        assert api_client._ms_to_seconds(True) is True
+        assert api_client._ms_to_seconds(False) is False
+
 
 class TestCreateWebhook:
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration")

@@ -59,6 +59,11 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     interesting payload under ``event`` — we hoist it so the warehouse table
     columns match the documented event field names directly. ``api_version`` is
     kept as a sibling column so consumers can detect upstream schema changes.
+
+    We also derive a ``created_at`` field (Unix seconds) from RevenueCat's
+    ``event_timestamp_ms`` so this table can share the same datetime partition
+    convention as the API endpoints. The original ``event_timestamp_ms`` is
+    preserved unchanged for callers that need sub-second precision.
     """
     if "event" not in table.column_names:
         return table_from_py_list([])
@@ -76,9 +81,10 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         # but we accept a JSON-serialized string too in case the upstream
         # buffering layer flattens nested structures.
         row = orjson.loads(event) if isinstance(event, (str, bytes)) else dict(event)
-        # `id` on the inner event is unique per-delivery — surface it as the
-        # primary key column, matching the partitioning declared by the source.
         row["api_version"] = api_version
+        event_ts_ms = row.get("event_timestamp_ms")
+        if isinstance(event_ts_ms, int) and not isinstance(event_ts_ms, bool):
+            row["created_at"] = event_ts_ms // 1000
         rows.append(row)
 
     return table_from_py_list(rows)
@@ -315,14 +321,15 @@ class RevenueCatSource(
             primary_keys=["id"],
             name=inputs.schema_name,
             sort_mode="asc",
-            # md5 partition by event id — RevenueCat sends `event_timestamp_ms`
-            # as a millisecond epoch, but the partition layer interprets ints
-            # as Unix seconds, so a datetime partition would produce dates in
-            # the year 54000+. Matches the strategy used for the API endpoints.
-            partition_count=200,
+            partition_count=1,
             partition_size=1,
-            partition_mode="md5",
-            partition_keys=["id"],
+            partition_mode="datetime",
+            partition_format="week",
+            # `created_at` is derived in the webhook transformer from
+            # `event_timestamp_ms / 1000` so it lands here as Unix seconds —
+            # the partition layer treats bare ints as seconds, so this gives
+            # us correctly-bucketed weekly partitions.
+            partition_keys=["created_at"],
         )
 
     def _api_source_response(
@@ -349,16 +356,17 @@ class RevenueCatSource(
                 on_cursor_advance=on_cursor_advance,
             )
 
-        # md5 partitioning on the primary key — see settings.py for why we
-        # don't use datetime partitioning despite `created_at` being available.
-        # The bucket count matches the convention used by other md5-partitioned
-        # sources (e.g. shopify, customer_io's md5 endpoints).
+        # Datetime partitioning on `created_at` — `iterate_list_endpoint`
+        # normalizes RevenueCat's ms-epoch field down to Unix seconds so the
+        # partition layer (which treats bare ints as seconds) produces sane
+        # bucket dates.
         return SourceResponse(
             items=items,
             primary_keys=endpoint.primary_keys,
             name=inputs.schema_name,
             partition_keys=endpoint.partition_keys,
-            partition_mode="md5",
-            partition_count=200,
+            partition_mode="datetime",
+            partition_format="week",
+            partition_count=1,
             partition_size=1,
         )
