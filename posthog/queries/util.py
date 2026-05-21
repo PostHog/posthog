@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
+from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
@@ -55,8 +56,20 @@ def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None
 
 EARLIEST_TIMESTAMP = "2015-01-01"
 
-GET_EARLIEST_TIMESTAMP_SQL = """
-SELECT timestamp from events WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s order by timestamp limit 1
+# Lower bound below which timestamps are treated as corrupt/invalid and ignored.
+EARLIEST_TIMESTAMP_DATETIME = datetime(2015, 1, 1, tzinfo=UTC)
+
+# Probe for the earliest event of a team with a *bounded* `min(timestamp)` rather than an
+# open-ended `ORDER BY timestamp LIMIT 1`. The events table sort key is
+# `(team_id, toDate(timestamp), ...)` and it carries a minmax skip index on `timestamp`, so a
+# query constrained to a narrow `[lower, upper)` window only reads the granules inside that window.
+# An unbounded `ORDER BY timestamp LIMIT 1` cannot short-circuit on a Distributed ReplacingMergeTree
+# and ends up scanning the whole team, so we instead walk an exponentially widening window from the
+# floor and stop at the first window that contains data — `min` over `[floor, upper)` is exactly the
+# global earliest once that window is non-empty.
+GET_EARLIEST_TIMESTAMP_BOUNDED_SQL = """
+SELECT min(timestamp) FROM events
+WHERE team_id = %(team_id)s AND timestamp > %(earliest_timestamp)s AND timestamp < %(upper_bound)s
 """
 
 TIME_IN_SECONDS: dict[str, Any] = {
@@ -93,19 +106,58 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _earliest_timestamp_upper_bounds(now: datetime) -> list[datetime]:
+    """Ascending upper bounds for the widening-window earliest-event probe.
+
+    Each bound is a literal (constant-folded) datetime so ClickHouse can prune partitions and
+    skip-index granules — only the granules inside `[floor, upper)` get read. We want the windows
+    to be narrow wherever a team's first event is likely to fall:
+
+    - Two short windows just above the floor catch the very common case of legacy/corrupt events
+      clustered at the epoch floor, resolving those teams in a single cheap probe.
+    - Windows at `now - 2**k` months give progressively finer resolution toward the present, where
+      most teams' genuine first event lands. This keeps the first non-empty window tight even for
+      teams whose data only starts recently.
+
+    The final bound is strictly after `now`, so the last probe always covers every event a team
+    could have (and an empty result there means the team has no events).
+    """
+    final_bound = now + relativedelta(days=1)
+    candidates: set[datetime] = {
+        EARLIEST_TIMESTAMP_DATETIME + relativedelta(months=1),
+        EARLIEST_TIMESTAMP_DATETIME + relativedelta(months=3),
+        final_bound,
+    }
+    months = 1
+    while now - relativedelta(months=months) > EARLIEST_TIMESTAMP_DATETIME:
+        candidates.add(now - relativedelta(months=months))
+        months *= 2
+    return sorted(bound for bound in candidates if EARLIEST_TIMESTAMP_DATETIME < bound <= final_bound)
+
+
 @cache_for(timedelta(seconds=2))
 def get_earliest_timestamp(team_id: int) -> datetime:
-    results = insight_sync_execute(
-        GET_EARLIEST_TIMESTAMP_SQL,
-        {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
-        query_type="get_earliest_timestamp",
-        team_id=team_id,
-    )
+    for upper_bound in _earliest_timestamp_upper_bounds(timezone.now()):
+        results = insight_sync_execute(
+            GET_EARLIEST_TIMESTAMP_BOUNDED_SQL,
+            {
+                "team_id": team_id,
+                "earliest_timestamp": EARLIEST_TIMESTAMP,
+                "upper_bound": upper_bound.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+            query_type="get_earliest_timestamp",
+            team_id=team_id,
+        )
+        # `min` over an empty window returns the DateTime epoch (1970), which is below the floor.
+        # Any genuine result is strictly after the floor, so the first such value is the earliest event.
+        if (
+            results
+            and results[0][0] is not None
+            and convert_to_datetime_aware(results[0][0]) > EARLIEST_TIMESTAMP_DATETIME
+        ):
+            return results[0][0]
 
-    if len(results) > 0:
-        return results[0][0]
-    else:
-        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+    return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
 def get_start_of_interval_sql(
