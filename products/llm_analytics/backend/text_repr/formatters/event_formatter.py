@@ -1,5 +1,5 @@
 """
-Main event formatter for LLM analytics events.
+Main event formatter for AI observability events.
 
 Combines metadata, tools, input, and output into a readable text representation.
 Handles $ai_generation and $ai_embedding events with structured error formatting,

@@ -73,7 +73,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                     <>
                         Try changing the date range or filters. AI sessions require the <code>$ai_session_id</code>{' '}
                         property to group related traces.{' '}
-                        <Link to="https://posthog.com/docs/llm-analytics/sessions" target="_blank">
+                        <Link to="https://posthog.com/docs/ai-observability/sessions" target="_blank">
                             Learn more →
                         </Link>
                     </>

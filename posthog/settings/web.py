@@ -411,9 +411,11 @@ SPECTACULAR_SETTINGS = {
         # Workflow to resolve a collision:
         #   1. Run `python manage.py find_enum_collisions` — it prints the field name,
         #      the auto-generated name (e.g. `Format5eaEnum`), the enum values, which
-        #      components share the hash, and a suggested override entry. For type-hint
-        #      enum collisions the suggested line is pastable as-is; for ChoiceField
-        #      collisions you supply the Choices/Enum class path.
+        #      components share the hash, and a suggested override entry. The suggestion
+        #      is pastable as-is for inline-list collisions (type-hint enums and
+        #      ChoiceFields with plain `choices=["A", "B"]`); only ChoiceFields with
+        #      custom labels (TextChoices where labels differ from values) need the
+        #      Choices/Enum class path filled in.
         #   2. Add the suggested entry below (pick the right category — see "hash trap"
         #      note below). Optionally rename the key from the auto-generated name to a
         #      more semantic one to improve the generated schema type's name.
@@ -426,14 +428,17 @@ SPECTACULAR_SETTINGS = {
         # hashes them, and using the wrong format silently fails (the override is ignored
         # and the warning persists):
         #
-        # 1. Model class paths — used for ChoiceField-backed enums where drf-spectacular
-        #    injects x-spec-enum-id from (value, label) tuples.  The override must point
-        #    to the same Choices/Enum class so _load_enum_name_overrides hashes identically.
+        # 1. Model class paths — used for ChoiceField-backed enums whose labels differ
+        #    from their values (typical `TextChoices` with explicit labels). The override
+        #    must point to the same Choices/Enum class so _load_enum_name_overrides hashes
+        #    identically to the x-spec-enum-id.
         #
         # 2. Inline value lists — used for Enum type-hint enums (SerializerMethodField
-        #    return types) where there is NO x-spec-enum-id.  Postprocessing hashes these
-        #    as (value, value) tuples, so the override must also be a plain value list
-        #    (which _load_enum_name_overrides normalizes to (value, value)).
+        #    return types) AND ChoiceFields whose choices are plain lists (labels equal
+        #    values). The override must be a plain value list, which
+        #    _load_enum_name_overrides normalizes to (value, value) tuples — matching
+        #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
+        #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",

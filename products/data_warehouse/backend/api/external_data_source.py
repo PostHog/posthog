@@ -1514,7 +1514,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @action(methods=["POST"], detail=True)
     @extend_schema(
         responses={
-            200: {"type": "object", "properties": {"added": {"type": "integer"}, "deleted": {"type": "integer"}}}
+            200: {
+                "type": "object",
+                "properties": {
+                    "added": {"type": "integer"},
+                    "deleted": {"type": "integer"},
+                    "total_tables_seen": {"type": "integer"},
+                },
+            }
         }
     )
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1582,6 +1589,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": error_message},
             )
+
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
@@ -1624,10 +1632,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             team_id=self.team_id,
             added=len(schemas_created),
             deleted=len(schemas_deleted),
+            total_tables_seen=len(schemas),
         )
         return Response(
             status=status.HTTP_200_OK,
-            data={"added": len(schemas_created), "deleted": len(schemas_deleted)},
+            data={
+                "added": len(schemas_created),
+                "deleted": len(schemas_deleted),
+                "total_tables_seen": len(schemas),
+            },
         )
 
     @extend_schema(request=DatabaseSchemaRequestSerializer)

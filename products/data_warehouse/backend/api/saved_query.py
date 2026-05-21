@@ -187,8 +187,24 @@ class DataWarehouseSavedQueryMinimalSerializer(
 class DataWarehouseSavedQuerySerializer(
     DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
+    @extend_schema_field(
+        {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["HogQLQuery"], "default": "HogQLQuery"},
+                "query": {"type": "string"},
+            },
+            "required": ["query"],
+        }
+    )
+    class QueryDefinitionField(serializers.JSONField):
+        pass
+
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    query = QueryDefinitionField(
+        help_text='HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}',
+    )
     sync_frequency = serializers.SerializerMethodField()
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -269,9 +285,6 @@ class DataWarehouseSavedQuerySerializer(
             "soft_update": {"write_only": True},
             "name": {
                 "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
-            },
-            "query": {
-                "help_text": 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}',
             },
         }
 
@@ -528,6 +541,19 @@ class DataWarehouseSavedQuerySerializer(
         return view
 
     def validate_query(self, query):
+        if not isinstance(query, dict):
+            raise exceptions.ValidationError(
+                detail=(
+                    'Query must be a JSON object with a "query" key, '
+                    f"got {type(query).__name__}. "
+                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
+                )
+            )
+        if not isinstance(query.get("query"), str) or not query["query"].strip():
+            raise exceptions.ValidationError(
+                detail='Query object must contain a non-empty "query" key with the SQL string.'
+            )
+
         team_id = self.context["team_id"]
         user = self.context["request"].user
 

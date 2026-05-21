@@ -188,7 +188,7 @@ class UsageReportCounters:
     flutter_exceptions_captured_in_period: int
     unknown_exceptions_captured_in_period: int
 
-    # LLM Analytics
+    # AI observability
     ai_event_count_in_period: int
 
     # AI Billing Credits (PostHog AI feature usage)

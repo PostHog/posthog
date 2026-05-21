@@ -88,6 +88,27 @@ def parse_semver(value: str) -> tuple[str, str, str]:
     return (major, minor, patch)
 
 
+# Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
+# `sortableSemver` returning NULL for invalid input because ClickHouse forbids
+# `Nullable(Array(...))`, and an `Array(Nullable(Int64))` with a NULL element sorts
+# as the *greatest* array — which would incorrectly include invalid versions in
+# `>= filter` queries. Instead we gate every semver comparison on this regex
+# matching the property side, so invalid values are dropped before the array
+# comparison happens. Matches Rust `semver::Version::parse` (X.Y.Z, no leading
+# zeros, optional 'v' prefix, optional pre-release / build suffix).
+STRICT_SEMVER_REGEX = r"^\s*v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][^\s]*)?\s*$"
+
+
+def _gate_on_valid_semver(expr: ast.Expr, comparison: ast.Expr) -> ast.And:
+    """Wrap a semver comparison so it only fires on rows where `expr` is strict semver."""
+    return ast.And(
+        exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
+            comparison,
+        ]
+    )
+
+
 def semver_range_compare(
     expr: ast.Expr,
     value: ast.Any,
@@ -104,7 +125,7 @@ def semver_range_compare(
         bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
 
     Returns:
-        AST node representing: sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
+        AST node representing: match(expr, valid_semver) AND sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
     """
     if not isinstance(value, str):
         raise QueryError(f"{operator_name} operator requires a semver string value")
@@ -116,6 +137,7 @@ def semver_range_compare(
 
     return ast.And(
         exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Call(name="sortableSemver", args=[expr]),
@@ -581,40 +603,58 @@ def _expr_to_compare_op(
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     elif operator == PropertyOperator.SEMVER_EQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_NEQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Lt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_TILDE:
         return semver_range_compare(expr, value, "Tilde", _tilde_bounds)
