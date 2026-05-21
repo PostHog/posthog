@@ -1116,7 +1116,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_git_signing",
-            lambda configure_git_signing: calls.append(f"signing:{configure_git_signing}"),
+            lambda configure_git_signing, **kw: calls.append(f"signing:{configure_git_signing}"),
         )
         monkeypatch.setattr(
             devbox_cli,
@@ -1126,7 +1126,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_claude_secret",
-            lambda configure_claude: calls.append(f"claude:{configure_claude}"),
+            lambda configure_claude, **kw: calls.append(f"claude:{configure_claude}"),
         )
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: calls.append("summary"))
 
@@ -1200,9 +1200,9 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(devbox_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
 
@@ -1235,9 +1235,9 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
         monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
 
         result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
@@ -1535,7 +1535,7 @@ class TestDevboxConfigCommands:
         devbox_config_path: Path,
         stub_config_runtime: None,
     ) -> None:
-        devbox_config_path.write_text(json.dumps({"dotfiles_uri": "https://github.com/user/dotfiles"}))
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
@@ -1553,8 +1553,8 @@ class TestDevboxConfigCommands:
         assert result.exit_code == 0, result.output
         assert devbox_config.load_config() == {}
         assert param_pushes == [
-            ("devbox-test-user", {"dotfiles_uri": ""}),
-            ("devbox-test-user-mobile", {"dotfiles_uri": ""}),
+            ("devbox-test-user", {coder.DOTFILES_URI_PARAMETER: ""}),
+            ("devbox-test-user-mobile", {coder.DOTFILES_URI_PARAMETER: ""}),
         ]
         assert "Cleared saved dotfiles repo" in result.output
         assert "Restart any running devbox" in result.output
@@ -1564,15 +1564,8 @@ class TestDevboxConfigCommands:
         devbox_config_path: Path,
         stub_config_runtime: None,
     ) -> None:
-        devbox_config_path.write_text(
-            json.dumps(
-                {
-                    "git_name": "PostHog Engineer",
-                    "git_email": "engineer@example.com",
-                    "dotfiles_uri": "https://github.com/user/dotfiles",
-                }
-            )
-        )
+        devbox_config.save_git_identity("PostHog Engineer", "engineer@example.com")
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
 
         result = runner.invoke(cli, ["devbox:config:rm", "git-identity"])
 
@@ -1613,9 +1606,8 @@ class TestDevboxConfigCommands:
         devbox_config_path: Path,
         stub_config_runtime: None,
     ) -> None:
-        devbox_config_path.write_text(
-            json.dumps({"git_name": "Eng", "git_email": "eng@example.com", "dotfiles_uri": "https://x/y"})
-        )
+        devbox_config.save_git_identity("Eng", "eng@example.com")
+        devbox_config.save_dotfiles_uri("https://x/y")
         deleted: list[str] = []
         monkeypatch.setattr(
             devbox_cli,
@@ -1635,9 +1627,8 @@ class TestDevboxConfigCommands:
         devbox_config_path: Path,
         stub_config_runtime: None,
     ) -> None:
-        devbox_config_path.write_text(
-            json.dumps({"git_name": "Eng", "git_email": "eng@example.com", "dotfiles_uri": "https://x/y"})
-        )
+        devbox_config.save_git_identity("Eng", "eng@example.com")
+        devbox_config.save_dotfiles_uri("https://x/y")
         deleted: list[str] = []
         monkeypatch.setattr(
             devbox_cli,
@@ -1693,7 +1684,7 @@ class TestDevboxConfigCommands:
         stub_config_runtime: None,
     ) -> None:
         # Only dotfiles is set; the secret deletions report nothing-to-do.
-        devbox_config_path.write_text(json.dumps({"dotfiles_uri": "https://github.com/user/dotfiles"}))
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
         monkeypatch.setattr(
             devbox_cli,
             "delete_user_secret",
