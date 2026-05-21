@@ -227,7 +227,6 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "experiment_metric_events_preaggregated": TableNode(
         name="experiment_metric_events_preaggregated", table=ExperimentMetricEventsPreaggregatedTable()
     ),
-    "web_overview_preaggregated": TableNode(name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()),
     # Revenue analytics tables
     "persons_revenue_analytics": TableNode(name="persons_revenue_analytics", table=PersonsRevenueAnalyticsTable()),
     "groups_revenue_analytics": TableNode(name="groups_revenue_analytics", table=GroupsRevenueAnalyticsTable()),
@@ -288,6 +287,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "error_tracking_fingerprint_issue_state": TableNode(
                         name="error_tracking_fingerprint_issue_state",
                         table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
+                    "web_overview_preaggregated": TableNode(
+                        name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
                     ),
                 },
             ),
