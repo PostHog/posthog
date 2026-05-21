@@ -182,8 +182,14 @@ MATERIALIZE INDEX `minmax_inserted_at`
 # the max block size to consume from kafka such that we skip _all_ broken messages
 # this is an added safety mechanism given we control payloads to this topic
 
+KAFKA_EVENTS_JSON_TABLE = "kafka_events_json"
+EVENTS_JSON_MV = "events_json_mv"
 
-def KAFKA_EVENTS_TABLE_JSON_SQL():
+DROP_KAFKA_EVENTS_JSON_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_EVENTS_JSON_TABLE}"
+DROP_EVENTS_JSON_MV_SQL = f"DROP TABLE IF EXISTS {EVENTS_JSON_MV}"
+
+
+def KAFKA_EVENTS_TABLE_JSON_SQL(on_cluster=True):
     return (
         EVENTS_TABLE_BASE_SQL
         + """
@@ -191,7 +197,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
 """
     ).format(
         table_name="kafka_events_json",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group=CONSUMER_GROUP_EVENTS_JSON),
         extra_fields="",
         dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
