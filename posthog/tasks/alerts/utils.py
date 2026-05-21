@@ -23,11 +23,11 @@ from posthog.schema import (
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck, derive_detector_event_fields
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 from posthog.utils import get_from_dict_or_attr
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
 
 logger = structlog.get_logger(__name__)
 

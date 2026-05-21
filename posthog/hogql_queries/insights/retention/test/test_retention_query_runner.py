@@ -37,12 +37,13 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import Action, Cohort
+from posthog.models import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 

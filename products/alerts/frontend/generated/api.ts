@@ -14,7 +14,9 @@ import type {
     AlertSimulateResponseApi,
     AlertsListParams,
     AlertsRetrieveParams,
+    InsightsThresholdsListParams,
     PaginatedAlertListApi,
+    PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
 } from './api.schemas'
 
@@ -171,5 +173,37 @@ export const alertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(alertSimulateApi),
+    })
+}
+
+export const getInsightsThresholdsListUrl = (
+    projectId: string,
+    insightId: number,
+    params?: InsightsThresholdsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/${insightId}/thresholds/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/${insightId}/thresholds/`
+}
+
+export const insightsThresholdsList = async (
+    projectId: string,
+    insightId: number,
+    params?: InsightsThresholdsListParams,
+    options?: RequestInit
+): Promise<PaginatedThresholdWithAlertListApi> => {
+    return apiMutator<PaginatedThresholdWithAlertListApi>(getInsightsThresholdsListUrl(projectId, insightId, params), {
+        ...options,
+        method: 'GET',
     })
 }

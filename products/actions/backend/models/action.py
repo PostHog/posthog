@@ -41,12 +41,12 @@ class ActionStepJSON:
 class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    events = models.ManyToManyField("Event", blank=True)  # type: models.ManyToManyField
+    events = models.ManyToManyField("posthog.Event", blank=True)  # type: models.ManyToManyField
     post_to_slack = models.BooleanField(default=False)
     slack_message_format = models.CharField(default="", max_length=1200, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -71,11 +71,12 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
 
     class Meta:
         indexes = [models.Index(fields=["team_id", "-updated_at"])]
+        db_table = "posthog_action"
 
-    def __str__(self):
-        return self.name
+    def __str__(self) -> str:
+        return self.name or ""
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         self.refresh_bytecode()
         super().save(*args, **kwargs)
 
@@ -98,7 +99,7 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
             should_delete=self.deleted,
         )
 
-    def get_analytics_metadata(self):
+    def get_analytics_metadata(self) -> dict:
         return {
             "post_to_slack": self.post_to_slack,
             "name_length": len(self.name or ""),
@@ -120,14 +121,14 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
         return [ActionStepJSON(**step) for step in self.steps_json or []]
 
     @steps.setter
-    def steps(self, value: list[dict]):
+    def steps(self, value: list[dict]) -> None:
         # TRICKY: This is a little tricky as DRF will deserialize this here as a dict but typing wise we would expect an ActionStepJSON
         self.steps_json = [asdict(ActionStepJSON(**step)) for step in value]
 
     def get_step_events(self) -> list[Union[str, None]]:
         return [action_step.event for action_step in self.steps]
 
-    def refresh_bytecode(self):
+    def refresh_bytecode(self) -> None:
         from posthog.hogql.compiler.bytecode import create_bytecode
         from posthog.hogql.property import action_to_expr
 
@@ -145,10 +146,10 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
 
 
 @receiver(post_save, sender=Action)
-def action_saved(sender, instance: Action, created, **kwargs):
+def action_saved(sender: type, instance: Action, created: bool, **kwargs: object) -> None:
     reload_action_on_workers(team_id=instance.team_id, action_id=instance.id)
 
 
 @mutable_receiver(post_delete, sender=Action)
-def action_deleted(sender, instance: Action, **kwargs):
+def action_deleted(sender: type, instance: Action, **kwargs: object) -> None:
     drop_action_on_workers(team_id=instance.team_id, action_id=instance.id)

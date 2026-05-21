@@ -66,12 +66,15 @@ def derive_detector_event_fields(detector_config: dict | None) -> dict:
 # TODO: Enable `@deprecated` once we move to Python 3.13
 # @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=100)
     target_value = models.TextField()
     anomaly_condition = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = "posthog_alert"
 
 
 class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
@@ -80,13 +83,16 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     object for other purposes.
     """
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     configuration = models.JSONField(default=dict)
 
-    def clean(self):
+    class Meta:
+        db_table = "posthog_threshold"
+
+    def clean(self) -> None:
         try:
             config = InsightThreshold.model_validate(self.configuration)
         except pydantic.ValidationError as e:
@@ -102,13 +108,13 @@ class Threshold(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ALERTS_ALLOWED_ON_FREE_TIER = 5
 
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(
         "posthog.User",
-        through="posthog.AlertSubscription",
+        through="alerts.AlertSubscription",
         through_fields=("alert_configuration", "user"),
         related_name="alert_configurations",
     )
@@ -178,7 +184,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         default="notify",
     )
 
-    def __str__(self):
+    class Meta:
+        db_table = "posthog_alertconfiguration"
+
+    def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
 
     def get_subscribed_users_emails(self) -> list[str]:
@@ -198,7 +207,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         updated.append("next_check_at")
         return updated
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         if not self.enabled:
             # When disabling an alert, set the state to not firing
             self.state = AlertState.NOT_FIRING
@@ -302,7 +311,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     user = models.ForeignKey(
-        "User",
+        "posthog.User",
         on_delete=models.CASCADE,
         limit_choices_to={
             "is_active": True,
@@ -313,11 +322,12 @@ class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     alert_configuration = models.ForeignKey(AlertConfiguration, on_delete=models.CASCADE)
     subscribed = models.BooleanField(default=True)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"AlertSubscription for {self.alert_configuration.name} by {self.user.email}"
 
     class Meta:
         unique_together = ["user", "alert_configuration"]
+        db_table = "posthog_alertsubscription"
 
 
 class AlertCheck(UUIDTModel):
@@ -365,7 +375,10 @@ class AlertCheck(UUIDTModel):
     # in the UI so users can audit which fires the agent swallowed.
     notification_suppressed_by_agent = models.BooleanField(default=False)
 
-    def __str__(self):
+    class Meta:
+        db_table = "posthog_alertcheck"
+
+    def __str__(self) -> str:
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
 
     @classmethod

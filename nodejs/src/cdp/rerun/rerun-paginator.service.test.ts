@@ -18,7 +18,8 @@ import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } fr
 import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
@@ -52,7 +53,9 @@ describe('RerunPaginatorService integration', () => {
     let seedingService: HogInvocationResultsService
     let chClient: ClickHouseClient
     let paginator: RerunPaginatorService
-    let cyclotronJobQueue: jest.Mocked<CyclotronJobQueue>
+    // hog functions re-enqueue to the kafka queue, hog flows to postgres-v2.
+    let hogQueue: jest.Mocked<JobQueue>
+    let hogflowQueue: jest.Mocked<CyclotronJobQueuePostgresV2>
     let paginatorLifecycleService: jest.Mocked<HogInvocationResultsService>
     let paginatorMonitoringService: jest.Mocked<HogFunctionMonitoringService>
     let hogFunctionManager: HogFunctionManagerService
@@ -176,9 +179,12 @@ describe('RerunPaginatorService integration', () => {
                 .mockImplementation((_fn, globals) => Promise.resolve({ ...globals, inputs: { resolved: true } })),
         } as unknown as jest.Mocked<HogInputsService>
 
-        cyclotronJobQueue = {
+        hogQueue = {
             queueInvocations: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
+        } as unknown as jest.Mocked<JobQueue>
+        hogflowQueue = {
+            queueInvocations: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
 
         // The paginator's lifecycle service is mocked so we can assert what it
         // got asked to write (the 'running' row for each rerun). The actual
@@ -202,7 +208,7 @@ describe('RerunPaginatorService integration', () => {
             hogFlowManager,
             hogInputsService,
             paginatorLifecycleService,
-            cyclotronJobQueue,
+            { hog_function: hogQueue, hog_flow: hogflowQueue },
             paginatorMonitoringService,
             10000
         )
@@ -246,8 +252,8 @@ describe('RerunPaginatorService integration', () => {
                 createdAt: DateTime.now(),
             })
 
-            expect(cyclotronJobQueue.queueInvocations).toHaveBeenCalledTimes(1)
-            const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            expect(hogQueue.queueInvocations).toHaveBeenCalledTimes(1)
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             const enqueuedIds = enqueued.map((i) => i.id).sort()
             expect(enqueuedIds).toEqual(['inv-a', 'inv-c'])
 
@@ -286,7 +292,7 @@ describe('RerunPaginatorService integration', () => {
                 createdAt: DateTime.now(),
             })
 
-            const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             expect(enqueued.map((i) => i.id)).toEqual(['inv-real'])
             // by-ids mode marks done once remaining_ids is drained, regardless of
             // whether every id had a matching CH row.
@@ -314,7 +320,7 @@ describe('RerunPaginatorService integration', () => {
             // The persisted globals were stripped of `inputs` before storage.
             expect(persistedGlobals).not.toHaveProperty('inputs')
 
-            const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             expect((enqueued[0].state.globals as any).inputs).toEqual({ resolved: true })
         })
     })
@@ -338,7 +344,7 @@ describe('RerunPaginatorService integration', () => {
                 createdAt: DateTime.now(),
             })
 
-            const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             const ids = enqueued.map((i) => i.id).sort()
             expect(ids).toEqual(['fail-1', 'fail-2'])
             expect(next.progress.queued).toBe(2)
@@ -364,7 +370,7 @@ describe('RerunPaginatorService integration', () => {
                 jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
-            const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0]?.[0] as
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
                 | CyclotronJobInvocationHogFunction[]
                 | undefined
             expect(enqueued?.map((i) => i.id)).toEqual(['inv-500'])
@@ -411,7 +417,7 @@ describe('RerunPaginatorService integration', () => {
             })
             expect(next.progress.queued).toBe(0)
             expect(next.progress.done).toBe(true)
-            expect(cyclotronJobQueue.queueInvocations).not.toHaveBeenCalled()
+            expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
         })
     })
 
@@ -459,39 +465,7 @@ describe('RerunPaginatorService integration', () => {
             })
             expect(next.progress.queued).toBe(0)
             expect(next.progress.skipped).toBe(1)
-            expect(cyclotronJobQueue.queueInvocations).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('conflict handling', () => {
-        it('counts in-flight invocations as skipped instead of failing the page', async () => {
-            await seedRows([{ invocation_id: 'inv-conflict', status: 'failed', error: new Error('5xx') }])
-
-            // Simulate the v2 queue raising a conflict for our re-enqueue —
-            // we want the paginator to log + count it as a skip, not blow up
-            // the page. Use the same re-export the paginator imports from so
-            // `instanceof` matches.
-            const { CyclotronJobConflictError } = await import('../services/cyclotron-v2/index.js')
-            cyclotronJobQueue.queueInvocations.mockRejectedValueOnce(new CyclotronJobConflictError('inv-conflict'))
-
-            const state = buildState({
-                request: {
-                    filter: {
-                        window_start: '2026-01-01T00:00:00Z',
-                        window_end: '2027-01-01T00:00:00Z',
-                        invocation_ids: ['inv-conflict'],
-                    },
-                },
-            })
-
-            const { state: next } = await paginator.processPage(team.id, state, {
-                jobId: 'test-rerun-job',
-                createdAt: DateTime.now(),
-            })
-            expect(next.progress.queued).toBe(0)
-            expect(next.progress.skipped).toBe(1)
-            expect(next.progress.done).toBe(true)
-            expect(next.progress.last_error).toBeUndefined()
+            expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
         })
     })
 
@@ -508,7 +482,7 @@ describe('RerunPaginatorService integration', () => {
                 hogFlowManager,
                 hogInputsService,
                 paginatorLifecycleService,
-                cyclotronJobQueue,
+                { hog_function: hogQueue, hog_flow: hogflowQueue },
                 paginatorMonitoringService,
                 10000
             )
@@ -530,7 +504,7 @@ describe('RerunPaginatorService integration', () => {
             })
             expect(next.progress.done).toBe(false)
             expect(next.progress.last_error).toContain('clickhouse boom')
-            expect(cyclotronJobQueue.queueInvocations).not.toHaveBeenCalled()
+            expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
         })
     })
 
@@ -587,7 +561,7 @@ describe('RerunPaginatorService integration', () => {
                 createdAt: DateTime.now(),
             })
 
-            const enqueued = cyclotronJobQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
+            const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
             expect(enqueued).toHaveLength(1)
             // CH returns DateTime64 as 'YYYY-MM-DD HH:MM:SS.ffffff' — just check
             // the date portion matches the original scheduled time. The exact
