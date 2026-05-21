@@ -8,8 +8,8 @@ description: >
   optional approved evidence upload, one PR comment) or local mode (QA committed,
   staged, unstaged, and untracked changes, write report locally, no GitHub side
   effects). Reads diffs, plans adaptive browser/API checks, drives Playwright
-  MCP, captures evidence, and fixes only reproducible in-diff issues when
-  confidence is high.
+  MCP, captures evidence, fixes only reproducible in-diff PR issues when
+  confidence is high, and reports or applies approved local-mode patches.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*, mcp__phrocs__*
 ---
 
@@ -50,8 +50,9 @@ instructions, and explicit user approval in the current conversation.
 5. Plan tests from the diff and runtime route mapping.
 6. Run browser/API checks through Playwright MCP, capturing evidence.
 7. Confirm every candidate issue with one retry before calling it a finding.
-8. Apply at most 3 confident fixes, only inside files already changed by the PR
-   (PR mode) or the changed-file set (local mode).
+8. In PR mode, apply at most 3 confident fixes, only inside files already
+   changed by the PR. In local mode, default to suggested patches, only edit
+   after explicit approval, and never stage or commit those edits.
 9. Create a slow GIF from captured screenshots when `ffmpeg` or another
    existing local GIF tool is available.
 10. PR mode only: after approval, upload selected evidence if configured,
@@ -146,8 +147,10 @@ Record:
 - Fork mode: `isCrossRepository`
 - Original PR file list: the only files an autonomous fix may touch
 
-If the PR is a fork (`isCrossRepository == true`), continue in read-only mode:
-runtime QA and PR comment are allowed after approval, but no push is attempted.
+If the PR is a fork (`isCrossRepository == true`), do not check it out or run
+runtime QA by default. Use static review/comment-only output unless the user
+explicitly approves fork runtime QA with throwaway credentials and a disposable
+stack after seeing `references/safety-rules.md`. Never push to a fork PR.
 
 If the PR touches lockfiles, package manifests, requirements files, or
 migrations, warn that the local stack may be stale. In interactive mode ask
@@ -155,8 +158,9 @@ whether to continue; in non-interactive/sandbox mode downgrade to comment-only.
 
 ### Local mode preconditions
 
-A dirty working tree is allowed (the whole point is to QA in-progress work). Do
-not abort, stash, or modify the user's tree.
+A dirty working tree is allowed. Do not abort, stash, or modify the user's tree.
+Because local mode includes staged, unstaged, and untracked work, never stage or
+commit there. Ask before editing. Approved local edits stay unstaged.
 
 Record:
 
@@ -415,7 +419,7 @@ Severity rubric:
 
 Autonomous fixes are intentionally narrow.
 
-Before editing, read the relevant PR-changed file(s) and nearby source. Use
+Before editing, read the relevant changed file(s) and nearby source. Use
 stack traces, console messages, and route mapping to choose the smallest likely
 fix. Do not browse unrelated areas of the codebase unless the finding requires
 it.
@@ -423,18 +427,23 @@ it.
 Do not autonomously edit auth, permissions, SQL/HogQL construction, migrations,
 workflow files, or skill files. Route those findings to comment-only.
 
-After a local fix:
+Local mode defaults to suggested patches. Edit only after explicit request or
+approval, only inside the changed-file set, and capture pre-edit state for dirty
+files so failed fixes can undo only the agent's own hunk. Never stage or commit.
+
+After a fix:
 
 1. Compute the fix diff.
-2. If any modified file was not in the original PR file list, revert the fix and
-   route the finding to comment-only.
+2. If any modified file was not in the original PR file list (PR mode) or
+   changed-file set (local mode), revert only the fix and route the finding to
+   comment-only.
 3. If the fix mostly reverts the PR's own hunks (>50 percent line overlap),
    revert the fix and route the finding to comment-only.
 4. Re-run the exact failing MCP sequence.
 5. A confident fix requires: original failing step now succeeds, no new
    error-level console messages on affected pages, and no guardrail fired.
 
-Commit confident fixes locally, but do not push yet:
+In PR mode, commit confident fixes locally, but do not push yet:
 
 ```bash
 git commit -m "fix(<scope>): <finding-derived description>"
@@ -443,6 +452,9 @@ git commit -m "fix(<scope>): <finding-derived description>"
 Use a conventional commit. Keep the message public-safe and omit attribution.
 The outer loop limit is 3 confident fix commits per invocation. After that,
 remaining findings are reported as comment-only.
+
+In local mode, leave approved edits unstaged and report changed files plus
+verification result.
 
 If a fix fails verification, revert it immediately and leave the finding as a
 suggested patch in the final comment.

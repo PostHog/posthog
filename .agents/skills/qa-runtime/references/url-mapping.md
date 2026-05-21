@@ -51,6 +51,10 @@ VisualReviewIndex: {
 The walker correlates changed files under `products/<product>/` with scenes and
 routes in that product's manifest.
 
+When a product scene import follows the common `SceneName/SceneName` or
+`SceneName/index` layout, descendant files under `SceneName/` belong to that
+scene route. Do not broaden this to every sibling under `frontend/scenes/`.
+
 ## Dynamic Routes
 
 Routes with placeholders such as `:id`, `:runId`, or `:sourceId` need runtime

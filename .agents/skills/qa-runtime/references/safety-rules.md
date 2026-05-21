@@ -83,9 +83,16 @@ is unavailable.
 
 If `isCrossRepository` is true:
 
+- Default to static review/comment-only. Do not check out the fork, start the
+  local stack for the fork, run Playwright against it, log in, seed data,
+  upload evidence, or push.
+- Use `gh pr view`, `gh pr diff`, and other read-only GitHub inspection
+  commands for the static review path.
+- Runtime QA may run only after explicit user approval in the current
+  conversation, after warning that the fork can capture credentials/session
+  data, and only with throwaway login credentials plus a disposable local stack.
 - Never push.
 - Never add a remote for the fork as part of this skill.
-- Runtime QA may still run locally.
 - Final output is comment-only with suggested patches.
 
 Read-only-on-push does not make running fork code safe. `gh pr checkout` of a

@@ -244,5 +244,6 @@ small readable GIF (about 226 KB for three 1200x942 frames). If `ffmpeg` is not
 available but another local GIF tool is, use that. If no GIF tool is already
 available, skip the GIF and keep the screenshots as the evidence.
 
-Keep paths relative in PR comments. Upload the bundle as a secret gist if the
-comment would be too long.
+Keep paths relative in PR comments. If the comment would be too long, summarize
+the evidence and rely on the approved uploaded files or the local report. Do
+not fall back to a secret gist.

@@ -157,6 +157,21 @@ def path_matches_import(changed_file: str, imported_path: str, *, allow_parent_m
     return direct_match or (allow_parent_match and parent_match)
 
 
+def product_path_matches_import(changed_file: str, imported_path: str) -> bool:
+    if path_matches_import(changed_file, imported_path, allow_parent_match=False):
+        return True
+
+    changed = changed_file.removesuffix(".tsx").removesuffix(".ts").removesuffix(".jsx").removesuffix(".js")
+    imported = imported_path.removesuffix(".tsx").removesuffix(".ts").removesuffix(".jsx").removesuffix(".js")
+    imported_path_obj = Path(imported)
+    scene_dir = imported_path_obj.parent.as_posix()
+    import_name = imported_path_obj.name
+    scene_dir_name = imported_path_obj.parent.name
+    if import_name not in {scene_dir_name, "index"}:
+        return False
+    return changed.startswith(f"{scene_dir}/")
+
+
 def core_matches(changed_file: str) -> list[RouteMatch]:
     imports = extract_core_scene_imports()
     routes = extract_core_routes()
@@ -200,7 +215,7 @@ def product_matches(changed_file: str) -> list[RouteMatch]:
                 )
         return matches
     for scene, imported_path in imports.items():
-        if path_matches_import(changed_file, imported_path, allow_parent_match=False):
+        if product_path_matches_import(changed_file, imported_path):
             for route in routes.get(scene, []):
                 matches.append(
                     RouteMatch(
