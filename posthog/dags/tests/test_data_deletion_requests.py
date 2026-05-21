@@ -598,8 +598,167 @@ def test_load_property_removal_request_rejects_empty_properties():
     config = DataDeletionRequestConfig(request_id=str(request.pk))
     context = build_op_context()
 
-    with pytest.raises(Exception, match="no properties specified"):
+    with pytest.raises(Exception, match="no properties or person_properties specified"):
         load_property_removal_request(context, config)
+
+
+@pytest.mark.django_db
+def test_load_property_removal_request_rejects_empty_both_properties():
+    """Both properties and person_properties empty → Failure."""
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=[],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    context = build_op_context()
+
+    with pytest.raises(Exception, match="no properties or person_properties specified"):
+        load_property_removal_request(context, config)
+
+
+def _insert_events_with_person_properties(events: list[tuple], client: Client) -> None:
+    """Insert events with (team_id, event, uuid, timestamp, person_properties_json)."""
+    client.execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, person_properties) VALUES",
+        events,
+    )
+
+
+def _get_person_properties(team_id: int, event_name: str, client: Client) -> list[dict]:
+    result = client.execute(
+        "SELECT person_properties FROM events WHERE team_id = %(team_id)s AND event = %(event)s",
+        {"team_id": team_id, "event": event_name},
+    )
+    return [json.loads(row[0]) if row[0] else {} for row in result]
+
+
+@pytest.mark.django_db
+def test_full_job_person_property_removal(cluster: ClickhouseCluster):
+    """Keys in person_properties are removed; the event itself is preserved."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    person_props_to_drop = json.dumps({"email": "user@example.com", "keep": "yes"})
+    no_target_person_props = json.dumps({"keep": "yes", "other": "value"})
+
+    target_events = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), person_props_to_drop) for i in range(10)
+    ]
+    events_without_target = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), no_target_person_props) for i in range(5)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_person_properties, target_events + events_without_target)).result()
+
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 15
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Events still exist (properties removed, not deleted)
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 15
+
+    # Target key removed from person_properties
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pprops in all_person_props:
+        assert "email" not in pprops, f"email should be removed, got {pprops}"
+    # Non-target key preserved on the events that had it
+    events_with_keep = [p for p in all_person_props if "keep" in p]
+    assert len(events_with_keep) == 15, "keep key should survive on all events"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_full_job_both_properties_and_person_properties(cluster: ClickhouseCluster):
+    """When both properties and person_properties are specified, both columns are cleaned."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    props = json.dumps({"$ip": "1.2.3.4", "keep": "yes"})
+    person_props = json.dumps({"email": "user@example.com", "keep_person": "yes"})
+
+    events: list[tuple] = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), props, person_props) for i in range(8)
+    ]
+
+    cluster.any_host(
+        lambda client: client.execute(
+            "INSERT INTO writable_events (team_id, event, uuid, timestamp, properties, person_properties) VALUES",
+            events,
+        )
+    ).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["$ip"],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Events preserved
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 8
+
+    # $ip removed from properties
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    for p in all_props:
+        assert "$ip" not in p, f"$ip should be removed, got {p}"
+        assert "keep" in p, f"keep should survive, got {p}"
+
+    # email removed from person_properties
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pp in all_person_props:
+        assert "email" not in pp, f"email should be removed, got {pp}"
+        assert "keep_person" in pp, f"keep_person should survive, got {pp}"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
 
 
 @pytest.mark.django_db

@@ -47,6 +47,7 @@ class DeletionRequestContext:
     end_time: datetime
     events: list[str]
     properties: list[str] = field(default_factory=list)
+    person_properties: list[str] = field(default_factory=list)
     execution_mode: str = ExecutionMode.IMMEDIATE.value
     delete_all_events: bool = False
     hogql_predicate: str = ""
@@ -113,14 +114,32 @@ def _property_filter_params(properties: list[str]) -> dict:
     return params
 
 
+def _person_property_filter_clause(person_properties: list[str]) -> str:
+    if len(person_properties) == 1:
+        return jsonhas_expr(person_properties[0], "pp_0", column="person_properties")
+    exprs = [jsonhas_expr(prop, f"pp_{i}", column="person_properties") for i, prop in enumerate(person_properties)]
+    return f"({' OR '.join(exprs)})"
+
+
+def _person_property_filter_params(person_properties: list[str]) -> dict:
+    params: dict[str, str] = {}
+    for i, prop in enumerate(person_properties):
+        for j, part in enumerate(prop.split(".")):
+            params[f"pp_{i}_{j}"] = part
+    return params
+
+
 def _base_params(ctx: DeletionRequestContext) -> dict:
-    return {
+    params: dict = {
         "team_id": ctx.team_id,
         "start_time": ctx.start_time,
         "end_time": ctx.end_time,
         "events": ctx.events,
         **_property_filter_params(ctx.properties),
     }
+    if ctx.person_properties:
+        params.update(_person_property_filter_params(ctx.person_properties))
+    return params
 
 
 _EVENT_REMOVAL_TIME_PREDICATE = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
@@ -167,15 +186,17 @@ def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
 def _property_removal_where(
     ctx: DeletionRequestContext,
     mat_cols: list[tuple[str, bool]] | None = None,
+    person_mat_cols: list[tuple[str, bool]] | None = None,
     inserted_at_max: str | None = None,
     hogql_compiled: tuple[str, dict] | None = None,
 ) -> tuple[str, dict]:
     """Full WHERE predicate + params for property-removal queries.
 
     Used both to copy candidate events into the staging table and to delete the
-    originals afterward. The presence check (JSON ``properties`` plus DEFAULT
-    materialized columns) MUST match between the two passes — drift causes
-    either data loss (delete > copy) or duplication (copy > delete).
+    originals afterward. The presence check (JSON ``properties`` and/or
+    ``person_properties`` plus DEFAULT materialized columns) MUST match between
+    the two passes — drift causes either data loss (delete > copy) or duplication
+    (copy > delete).
 
     Honors the optional ``hogql_predicate`` on the request the same way
     ``_event_removal_where`` does, so an operator can scope a property removal
@@ -193,9 +214,19 @@ def _property_removal_where(
     Legacy rows may have ``inserted_at IS NULL`` and are still originals to
     delete — the NULL branch keeps them in scope.
     """
-    presence_clauses = [_property_filter_clause(ctx.properties)]
+    presence_clauses: list[str] = []
+    if ctx.properties:
+        presence_clauses.append(_property_filter_clause(ctx.properties))
     if mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(mat_cols))
+    if ctx.person_properties:
+        presence_clauses.append(_person_property_filter_clause(ctx.person_properties))
+    if person_mat_cols:
+        presence_clauses.extend(_mat_col_presence_clauses(person_mat_cols))
+    if not presence_clauses:
+        raise ValueError(
+            "_property_removal_where requires at least one of properties or person_properties to be non-empty"
+        )
     presence = f"({' OR '.join(presence_clauses)})" if len(presence_clauses) > 1 else presence_clauses[0]
 
     parts = [
@@ -229,15 +260,18 @@ def _get_affected_mat_columns(
     client: Client,
     table: str,
     properties: list[str],
+    table_column: str = "properties",
     log: QueryLogger | None = None,
 ) -> list[tuple[str, bool]]:
     """Query a specific shard for materialized columns matching deleted properties.
 
     Returns ``(column_name, is_nullable)`` for columns whose comment follows the
-    ``column_materializer::properties::<prop>`` convention.  Comments live on the
-    distributed ``events`` table while the DEFAULT expression lives on
-    ``sharded_events`` (see ``materialize()`` in ee/clickhouse/materialized_columns),
-    so we cannot filter by ``default_kind`` on the same row that carries the comment.
+    ``column_materializer::<table_column>::<prop>`` convention.  Pass
+    ``table_column="person_properties"`` to discover columns materialised from
+    ``events.person_properties``.  Comments live on the distributed ``events``
+    table while the DEFAULT expression lives on ``sharded_events`` (see
+    ``materialize()`` in ee/clickhouse/materialized_columns), so we cannot
+    filter by ``default_kind`` on the same row that carries the comment.
     The comment itself is a sufficient identifier — it is PostHog-specific and the
     ``elements_chain::*`` family is excluded explicitly.
     """
@@ -258,7 +292,7 @@ def _get_affected_mat_columns(
     result: list[tuple[str, bool]] = []
     for col_name, comment, is_nullable in rows:
         details = MaterializedColumnDetails.from_column_comment(comment)
-        if details.table_column == "properties" and details.property_name in target_props:
+        if details.table_column == table_column and details.property_name in target_props:
             result.append((col_name, bool(is_nullable)))
     return result
 
@@ -477,9 +511,10 @@ def load_property_removal_request(
                 f"Request {config.request_id} is not an approved property_removal request.",
             )
 
-        if not request.properties:
+        person_properties = list(request.person_properties or [])
+        if not request.properties and not person_properties:
             raise dagster.Failure(
-                f"Request {config.request_id} has no properties specified.",
+                f"Request {config.request_id} has no properties or person_properties specified.",
             )
 
         _record_execution_attempt(request)
@@ -487,7 +522,7 @@ def load_property_removal_request(
     context.log.info(
         f"Processing property removal {request.pk}: "
         f"team_id={request.team_id}, events={request.events}, "
-        f"properties={request.properties}, "
+        f"properties={request.properties}, person_properties={person_properties}, "
         f"time_range={request.start_time} to {request.end_time}"
     )
     context.add_output_metadata(
@@ -495,6 +530,7 @@ def load_property_removal_request(
             "team_id": dagster.MetadataValue.int(request.team_id),
             "events": dagster.MetadataValue.text(", ".join(request.events)),
             "properties": dagster.MetadataValue.text(", ".join(request.properties)),
+            "person_properties": dagster.MetadataValue.text(", ".join(person_properties)),
             "start_time": dagster.MetadataValue.text(str(request.start_time)),
             "end_time": dagster.MetadataValue.text(str(request.end_time)),
             "hogql_predicate": dagster.MetadataValue.text(request.hogql_predicate or ""),
@@ -509,6 +545,7 @@ def load_property_removal_request(
         end_time=request.end_time,
         events=request.events,
         properties=request.properties,
+        person_properties=person_properties,
         hogql_predicate=request.hogql_predicate or "",
     )
 
@@ -523,13 +560,15 @@ def process_property_removal_per_shard(
 
     Per shard, on a single host (the temp table is local non-replicated MergeTree):
 
-      1. Discover affected DEFAULT materialized columns.
+      1. Discover affected DEFAULT materialized columns for both ``properties``
+         and ``person_properties``.
       2. Create the temp table.
       3. Copy matching events from sharded_events into temp. Presence check covers
-         JSON ``properties`` AND materialized columns — a row can carry the value
-         in the column alone, and ``SELECT *`` would otherwise leave it behind.
-      4. Mutate the temp table: drop JSON keys, reset materialized columns to their
-         defaults, stamp ``inserted_at = marker``.
+         JSON ``properties`` and/or ``person_properties`` AND their materialized
+         columns — a row can carry the value in the column alone, and ``SELECT *``
+         would otherwise leave it behind.
+      4. Mutate the temp table: drop JSON keys from each targeted column, reset
+         materialized columns to their defaults, stamp ``inserted_at = marker``.
       5. Verify no target presence remains in temp (JSON or materialized columns).
       6. Re-insert cleaned events into sharded_events.
       7. Lightweight-delete the originals from sharded_events. Same presence check
@@ -539,7 +578,7 @@ def process_property_removal_per_shard(
 
     Steps 3 and 7 use the same predicate (modulo the ``inserted_at`` clause on
     delete), generated by ``_property_removal_where`` from the same per-shard
-    ``mat_cols`` list, so they cannot drift.
+    ``mat_cols`` / ``person_mat_cols`` lists, so they cannot drift.
     """
     from django.utils import timezone
 
@@ -547,6 +586,7 @@ def process_property_removal_per_shard(
     temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     db = django_settings.CLICKHOUSE_DATABASE
     properties = deletion_request.properties
+    person_properties = deletion_request.person_properties
     marker = timezone.now()
     deletion_request.inserted_at_marker = marker
     # Format the marker as a string with microseconds — clickhouse-driver serializes Python
@@ -570,14 +610,27 @@ def process_property_removal_per_shard(
             log_query(label, sql)
             return client.execute(sql, params, settings=settings)
 
-        affected_mat_cols = _get_affected_mat_columns(client, "events", properties, log=log_query)
-        context.log.info(f"affected materialized columns: {[c[0] for c in affected_mat_cols]}")
+        affected_mat_cols = _get_affected_mat_columns(
+            client, "events", properties, table_column="properties", log=log_query
+        )
+        affected_person_mat_cols = (
+            _get_affected_mat_columns(
+                client, "events", person_properties, table_column="person_properties", log=log_query
+            )
+            if person_properties
+            else []
+        )
+        context.log.info(
+            f"affected materialized columns: properties={[c[0] for c in affected_mat_cols]}, "
+            f"person_properties={[c[0] for c in affected_person_mat_cols]}"
+        )
 
         _create_local_staging_table(client, source_table=source, staging_table=temp, log=log_query)
 
         copy_predicate, copy_params = _property_removal_where(
             deletion_request,
             mat_cols=affected_mat_cols,
+            person_mat_cols=affected_person_mat_cols,
             hogql_compiled=hogql_compiled,
         )
         execute("truncate-temp", f"TRUNCATE TABLE IF EXISTS {db}.{temp}")
@@ -589,20 +642,25 @@ def process_property_removal_per_shard(
         )
         copied = execute("count-temp", f"SELECT count() FROM {db}.{temp}")[0][0]
 
-        update_parts = [
-            "properties = JSONDropKeys(%(keys)s)(properties)",
-            # Cast to DateTime64(6) so microseconds survive the parameter binding —
-            # mirrors the cast in the delete predicate so both sides agree on the marker.
-            "inserted_at = toDateTime64(%(inserted_at_marker)s, 6, 'UTC')",
-        ]
-        for col_name, is_nullable in affected_mat_cols:
+        update_parts: list[str] = []
+        mutation_params: dict = {"inserted_at_marker": marker_str}
+        if properties:
+            update_parts.append("properties = JSONDropKeys(%(keys)s)(properties)")
+            mutation_params["keys"] = properties
+        if person_properties:
+            update_parts.append("person_properties = JSONDropKeys(%(person_keys)s)(person_properties)")
+            mutation_params["person_keys"] = person_properties
+        # Cast to DateTime64(6) so microseconds survive the parameter binding —
+        # mirrors the cast in the delete predicate so both sides agree on the marker.
+        update_parts.append("inserted_at = toDateTime64(%(inserted_at_marker)s, 6, 'UTC')")
+        for col_name, is_nullable in affected_mat_cols + affected_person_mat_cols:
             default = "NULL" if is_nullable else "''"
             update_parts.append(f"`{col_name}` = {default}")
 
         clean_runner = AlterTableMutationRunner(
             table=temp,
             commands={f"UPDATE {', '.join(update_parts)} WHERE 1=1"},
-            parameters={"keys": properties, "inserted_at_marker": marker_str},
+            parameters=mutation_params,
         )
         context.log.info(
             f"[clean-temp-mutation] {_flatten_sql(clean_runner.get_statement(clean_runner.get_all_commands()))}"
@@ -610,9 +668,17 @@ def process_property_removal_per_shard(
         clean_waiter = clean_runner(client)
         clean_waiter.wait(client)
 
-        verify_clauses = [_property_filter_clause(properties), *_mat_col_presence_clauses(affected_mat_cols)]
+        verify_clauses: list[str] = []
+        if properties:
+            verify_clauses.append(_property_filter_clause(properties))
+            verify_clauses.extend(_mat_col_presence_clauses(affected_mat_cols))
+        if person_properties:
+            verify_clauses.append(_person_property_filter_clause(person_properties))
+            verify_clauses.extend(_mat_col_presence_clauses(affected_person_mat_cols))
         verify_predicate = f"({' OR '.join(verify_clauses)})" if len(verify_clauses) > 1 else verify_clauses[0]
-        verify_params = _property_filter_params(properties)
+        verify_params: dict = {**_property_filter_params(properties)}
+        if person_properties:
+            verify_params.update(_person_property_filter_params(person_properties))
         remaining = execute(
             "verify-temp-clean",
             f"SELECT count() FROM {db}.{temp} WHERE {verify_predicate}",
@@ -632,6 +698,7 @@ def process_property_removal_per_shard(
         delete_predicate, delete_params = _property_removal_where(
             deletion_request,
             mat_cols=affected_mat_cols,
+            person_mat_cols=affected_person_mat_cols,
             inserted_at_max=marker_str,
             hogql_compiled=hogql_compiled,
         )
