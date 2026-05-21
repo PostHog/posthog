@@ -148,6 +148,11 @@ export async function fetchAllActionsGroupedByTeam(
 
     const actions: Record<Team['id'], Record<Action['id'], Action>> = {}
     for (const rawAction of rawActions) {
+        // NOTE: posthog_action.id is BIGINT, which pg returns as string.
+        // Coerce back to number since action IDs are well within safe integer range.
+        rawAction.id = Number(rawAction.id)
+        rawAction.team_id = Number(rawAction.team_id)
+
         if (!actions[rawAction.team_id]) {
             actions[rawAction.team_id] = {}
         }
@@ -202,6 +207,10 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
     if (!rawActions.length) {
         return null
     }
+
+    // NOTE: posthog_action.id is BIGINT, which pg returns as string. Coerce back to number.
+    rawActions[0].id = Number(rawActions[0].id)
+    rawActions[0].team_id = Number(rawActions[0].team_id)
 
     const hooks = await fetchActionRestHooks(client, id)
 
