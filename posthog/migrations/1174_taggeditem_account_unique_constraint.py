@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1171_taggeditem_account_indexes"),
+        ("posthog", "1173_taggeditem_account_indexes"),
     ]
 
     operations = [

@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("customer_analytics", "0005_account"),
-        ("posthog", "1169_organization_ai_training_fields"),
+        ("posthog", "1171_backfill_credentials_reviewed_at"),
     ]
 
     operations = [
