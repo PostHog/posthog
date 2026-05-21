@@ -1,4 +1,4 @@
-// AUTO-GENERATED from products/llm_analytics/mcp/tools.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/ai_observability/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'

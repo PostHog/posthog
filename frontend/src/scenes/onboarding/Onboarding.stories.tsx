@@ -130,7 +130,7 @@ export const SDKInstall: Story = {
     },
 }
 
-export const LLMAnalyticsSDKInstall: Story = {
+export const AIObservabilitySDKInstall: Story = {
     render: () => {
         useMountedLogic(onboardingLogic)
         const { setProduct } = useActions(onboardingLogic)

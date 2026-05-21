@@ -67,7 +67,7 @@ const MOCK_PRODUCT_RECENTS = [
     },
     {
         id: 'pr-3',
-        path: 'LLM analytics',
+        path: 'AI observability',
         type: 'llm_analytics',
         ref: 'llm_analytics',
         href: '/project/2/ai-observability',

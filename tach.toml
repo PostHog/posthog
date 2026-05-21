@@ -43,7 +43,7 @@ depends_on = [
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
     "products.posthog_ai",
@@ -80,7 +80,7 @@ depends_on = [
     "products.legal_documents",
     "products.links",
     "products.live_debugger",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
     "products.marketing_analytics",
     "products.mcp_store",
@@ -172,7 +172,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.alerts",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_analytics",
 ]
 layer = "modules"
@@ -293,7 +293,7 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.llm_analytics"
+path = "products.ai_observability"
 depends_on = [
     "ee",
     "posthog",
@@ -391,7 +391,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
 ]
 layer = "modules"
@@ -479,7 +479,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_store",
     "products.posthog_ai",
     "products.signals",

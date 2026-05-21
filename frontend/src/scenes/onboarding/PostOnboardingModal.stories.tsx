@@ -59,8 +59,8 @@ DataWarehouse.args = { productKey: ProductKey.DATA_WAREHOUSE }
 export const ErrorTracking: StoryFn<{ productKey: ProductKey }> = Template.bind({})
 ErrorTracking.args = { productKey: ProductKey.ERROR_TRACKING }
 
-export const LLMAnalytics: StoryFn<{ productKey: ProductKey }> = Template.bind({})
-LLMAnalytics.args = { productKey: ProductKey.LLM_ANALYTICS }
+export const AIObservability: StoryFn<{ productKey: ProductKey }> = Template.bind({})
+AIObservability.args = { productKey: ProductKey.LLM_ANALYTICS }
 
 export const RevenueAnalytics: StoryFn<{ productKey: ProductKey }> = Template.bind({})
 RevenueAnalytics.args = { productKey: ProductKey.REVENUE_ANALYTICS }

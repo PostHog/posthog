@@ -4,7 +4,7 @@ import { dataWarehouseOnboarding } from 'products/data_warehouse/frontend/onboar
 import { errorTrackingOnboarding } from 'products/error_tracking/frontend/onboarding/steps'
 import { experimentsOnboarding } from 'products/experiments/frontend/onboarding/steps'
 import { featureFlagsOnboarding } from 'products/feature_flags/frontend/onboarding/steps'
-import { llmAnalyticsOnboarding } from 'products/llm_analytics/frontend/onboarding/steps'
+import { aiObservabilityOnboarding } from 'products/ai_observability/frontend/onboarding/steps'
 import { logsOnboarding } from 'products/logs/frontend/onboarding/steps'
 import { productAnalyticsOnboarding } from 'products/product_analytics/frontend/onboarding/steps'
 import { sessionReplayOnboarding } from 'products/session_replay/frontend/onboarding/steps'
@@ -33,7 +33,7 @@ export const onboardingProviderRegistry: Partial<Record<ProductKey, ProductOnboa
     [ProductKey.SURVEYS]: surveysOnboarding,
     [ProductKey.DATA_WAREHOUSE]: dataWarehouseOnboarding,
     [ProductKey.ERROR_TRACKING]: errorTrackingOnboarding,
-    [ProductKey.LLM_ANALYTICS]: llmAnalyticsOnboarding,
+    [ProductKey.LLM_ANALYTICS]: aiObservabilityOnboarding,
     [ProductKey.WORKFLOWS]: workflowsOnboarding,
     [ProductKey.LOGS]: logsOnboarding,
 }

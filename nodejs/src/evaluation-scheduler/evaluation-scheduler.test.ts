@@ -6,8 +6,8 @@ import {
     createEvaluation,
     createEvaluationCondition,
     createTagger,
-} from '~/llm-analytics/_tests/fixtures'
-import { getDefaultLlmAnalyticsConfig } from '~/llm-analytics/config'
+} from '~/ai-observability/_tests/fixtures'
+import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { logger } from '~/utils/logger'
@@ -23,8 +23,8 @@ import {
     unwrapOrLog,
 } from './evaluation-scheduler'
 
-jest.mock('~/llm-analytics/services/temporal.service')
-jest.mock('~/llm-analytics/services/evaluation-manager.service')
+jest.mock('~/ai-observability/services/temporal.service')
+jest.mock('~/ai-observability/services/evaluation-manager.service')
 jest.mock('~/cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
@@ -486,11 +486,11 @@ describe('Evaluation Scheduler', () => {
     describe('eachBatchEvaluationScheduler partitioning', () => {
         const noopEvaluationManager = {
             getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
-        } as unknown as import('~/llm-analytics/services/evaluation-manager.service').EvaluationManagerService
+        } as unknown as import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
         const noopTaggerManager = {
             getTaggersForTeams: jest.fn().mockResolvedValue({}),
-        } as unknown as import('~/llm-analytics/services/tagger-manager.service').TaggerManagerService
-        const noopTemporal = {} as unknown as import('~/llm-analytics/services/temporal.service').TemporalService
+        } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
+        const noopTemporal = {} as unknown as import('~/ai-observability/services/temporal.service').TemporalService
 
         beforeEach(() => {
             ;(noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mockClear()
@@ -552,13 +552,13 @@ describe('Evaluation Scheduler', () => {
         // any risk of accidental traffic divergence.
         describe('default config preserves legacy behavior', () => {
             it('exposes "events" topic and empty team list as defaults', () => {
-                const defaults = getDefaultLlmAnalyticsConfig()
+                const defaults = getDefaultAIObservabilityConfig()
                 expect(defaults.LLMA_EVAL_SCHEDULER_TOPIC).toBe('events')
                 expect(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS).toBe('')
             })
 
             it('parsed defaults yield empty team list (not "*"), so events-mode processes everyone', () => {
-                const defaults = getDefaultLlmAnalyticsConfig()
+                const defaults = getDefaultAIObservabilityConfig()
                 const parsed = parseTeamsList(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS)
                 expect(parsed).toEqual([])
                 expect(teamShouldBeProcessed(2, defaults.LLMA_EVAL_SCHEDULER_TOPIC, parsed)).toBe(true)
@@ -567,7 +567,7 @@ describe('Evaluation Scheduler', () => {
             })
 
             it('eachBatchEvaluationScheduler with parsed defaults processes every team in the batch', async () => {
-                const defaults = getDefaultLlmAnalyticsConfig()
+                const defaults = getDefaultAIObservabilityConfig()
                 const partition = {
                     topic: defaults.LLMA_EVAL_SCHEDULER_TOPIC,
                     aiTopicTeams: parseTeamsList(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS),

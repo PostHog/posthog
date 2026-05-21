@@ -30,6 +30,9 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
 from products.actions.backend.models.action import Action
+from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -43,9 +46,6 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
-from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
-from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
-from products.llm_analytics.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey

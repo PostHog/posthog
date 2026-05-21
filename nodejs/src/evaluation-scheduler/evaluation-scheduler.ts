@@ -28,11 +28,11 @@ import { execHog } from '../cdp/utils/hog-exec'
 import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
 import { parseTeamsList } from '../ingestion/event-processing/split-ai-events-step'
 import { createKafkaConsumer } from '../kafka/consumer'
-import { LlmAnalyticsConfig } from '../llm-analytics/config'
-import { EvaluationManagerService } from '../llm-analytics/services/evaluation-manager.service'
-import { TaggerManagerService } from '../llm-analytics/services/tagger-manager.service'
-import { TemporalService, TemporalServiceConfig } from '../llm-analytics/services/temporal.service'
-import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../llm-analytics/types'
+import { AIObservabilityConfig } from '../ai-observability/config'
+import { EvaluationManagerService } from '../ai-observability/services/evaluation-manager.service'
+import { TaggerManagerService } from '../ai-observability/services/tagger-manager.service'
+import { TemporalService, TemporalServiceConfig } from '../ai-observability/services/temporal.service'
+import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../ai-observability/types'
 import { PluginServerService, RawKafkaEvent } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
@@ -40,7 +40,7 @@ import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 
 export type EvaluationSchedulerConfig = TemporalServiceConfig &
-    Pick<LlmAnalyticsConfig, 'LLMA_EVAL_SCHEDULER_TOPIC' | 'LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS'>
+    Pick<AIObservabilityConfig, 'LLMA_EVAL_SCHEDULER_TOPIC' | 'LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS'>
 
 export interface EvaluationSchedulerDeps {
     postgres: PostgresRouter

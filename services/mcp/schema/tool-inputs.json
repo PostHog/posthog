@@ -948,7 +948,7 @@
             },
             "required": ["insightId"]
         },
-        "LLMAnalyticsGetCostsSchema": {
+        "AIObservabilityGetCostsSchema": {
             "type": "object",
             "properties": {
                 "projectId": {

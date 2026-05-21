@@ -12,7 +12,7 @@ import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
 // AI observability
-import getLLMCosts from './llmAnalytics/getLLMCosts'
+import getLLMCosts from './aiObservability/getLLMCosts'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools

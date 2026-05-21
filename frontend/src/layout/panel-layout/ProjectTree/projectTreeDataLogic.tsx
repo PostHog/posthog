@@ -49,7 +49,7 @@ const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 export const PAGINATION_LIMIT = 100
 const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
-    'LLM analytics': ['MCP analytics'],
+    'AI observability': ['MCP analytics'],
 }
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
