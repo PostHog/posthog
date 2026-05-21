@@ -34,12 +34,7 @@ logger = structlog.get_logger(__name__)
 # timezone — boundaries line up exactly when the team-local window is converted
 # to UTC before filtering on `time_window_start`. Half-hour-offset timezones
 # (IST, Newfoundland, Nepal, etc.) are explicitly gated out below.
-LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
-    "1d": 60 * 60,
-    "7d": 24 * 60 * 60,
-    "default": 7 * 24 * 60 * 60,
-}
+LAZY_TTL_SECONDS = 2 * 60 * 60  # 2 hours: max staleness for all date windows
 
 # Today the gate accepts: empty user filters, or a single EventPropertyFilter
 # on `$host` with operator `exact`. Test-account filters are always allowed
