@@ -6230,7 +6230,7 @@
   
       -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
       expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_web_overview_preaggregated', sipHash64(job_id))
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_web_overview_preaggregated', sipHash64(job_id))
   
   '''
 # ---
