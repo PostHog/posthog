@@ -1368,29 +1368,45 @@ def _compute_partner_scoped_teams(
 
     Returns the set of every team where ``TeamProvisioningConfig.application ==
     application`` (i.e. this partner provisioned the team for this user, attributed
-    at create time) AND ``stripe_project_id`` is set AND the user still has team-
-    level access. ``base_team_id`` is included only when the user can access it;
-    stale scope must not grant ongoing access after ACL revocation.
+    at create time) AND ``stripe_project_id`` is set AND the team lives in the
+    same organization as ``base_team_id`` AND the user still has team-level
+    access. The organization filter pins the token to the authorization context:
+    a partner with OAuth grants in multiple orgs for the same user must not be
+    able to reach an org-B team via an org-A token just because the user happens
+    to be a member of both.
 
-    When ``application`` is None (legacy refresh tokens with no app binding),
-    returns ``[base_team_id]``. Without the None guard,
-    ``filter(application=None)`` would match every TPC row with NULL application
-    across every partner.
+    Returns ``[base_team_id]`` when ``application`` is None (legacy refresh
+    tokens with no app binding); ``filter(application=None)`` would otherwise
+    match every TPC row with NULL application across every partner.
+
+    Returns ``[]`` if ``base_team_id`` no longer resolves to a team the user
+    can access; stale scope must not grant ongoing access after ACL revocation
+    or org removal.
     """
     if application is None:
         return [base_team_id]
+
+    try:
+        base_team = Team.objects.select_related("organization").get(id=base_team_id)
+    except Team.DoesNotExist:
+        return []
+    if not _user_can_access_team(user, base_team):
+        return []
 
     candidate_team_ids = set(
         TeamProvisioningConfig.objects.filter(
             application=application,
             stripe_project_id__isnull=False,
+            team__organization_id=base_team.organization_id,
         ).values_list("team_id", flat=True)
     )
     candidate_team_ids.add(base_team_id)
 
-    granted: set[int] = set()
-    teams = Team.objects.select_related("organization").filter(id__in=candidate_team_ids)
-    for team in teams:
+    granted: set[int] = {base_team_id}
+    other_teams = Team.objects.select_related("organization").filter(
+        id__in=candidate_team_ids - {base_team_id},
+    )
+    for team in other_teams:
         if _user_can_access_team(user, team):
             granted.add(team.id)
 

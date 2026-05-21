@@ -55,6 +55,37 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert other_partner_team.id not in access_token.scoped_teams
 
+    def test_other_org_team_excluded_even_when_user_is_member(self):
+        # Same partner provisions teams in two orgs the user belongs to.
+        # The token is granted under org A's authorization; org B's team must
+        # not leak in just because the user can access it via org B membership.
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.team.team import Team
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
+        other_org = Organization.objects.create(name="Other org")
+        OrganizationMembership.objects.create(
+            organization=other_org,
+            user=self.user,
+            level=OrganizationMembership.Level.ADMIN,
+        )
+        other_org_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=other_org,
+            name="Same partner, other org",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=other_org_team,
+            defaults={"stripe_project_id": "proj_other_org", "application": stripe_app},
+        )
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert self.team.id in access_token.scoped_teams
+        assert other_org_team.id not in access_token.scoped_teams
+
     def test_cross_org_teams_excluded(self):
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication
         from posthog.models.organization import Organization
