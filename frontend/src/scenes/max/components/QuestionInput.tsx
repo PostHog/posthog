@@ -357,10 +357,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             // row would otherwise wrap UNDER the buttons.
                             <div className="pb-2 pr-20">
                                 {!isThreadVisible ? (
-                                    <div className="flex items-start justify-between flex-wrap gap-1">
+                                    <div className="flex items-end justify-between flex-wrap gap-1">
                                         <ContextDisplay size={contextDisplaySize} />
 
-                                        <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                        <div className="flex items-end gap-1 mr-1">{topActions}</div>
                                     </div>
                                 ) : (
                                     <ContextDisplay size={contextDisplaySize} />
