@@ -2,14 +2,14 @@
 
 Migration of PostHog AI ("Max") from the LangGraph-backed `ee/hogai/chat_agent/` runtime onto the cloud-agent / sandbox architecture documented in [`CLOUD_AGENTS_FRONTEND_SPEC.md`](../CLOUD_AGENTS_FRONTEND_SPEC.md).
 
-**The frontend stays in `frontend/src/scenes/max/`.** The public `/api/.../conversations/*` contract stays. The migration is a *backend* swap: Django gains a server-side SSE relay (`ee/hogai/sandbox/sse_relay.py`) that proxies the existing `/conversations/stream/` endpoint to a cloud-agent Task/Run running in a sandbox. Raw ACP frames pass through wrapped in a `StoredLogEntry` envelope (one `event: acp` per frame), like PostHog Code's reference impl. A new frontend module (`sandboxStreamLogic.ts`) parses those frames into thread-shaped state without touching today's LangGraph event handlers.
+**The frontend stays in `frontend/src/scenes/max/`.** The public `/api/.../conversations/*` contract stays (plus one additive sandbox-only POST endpoint). The migration is split: Django gains a thin non-streaming message-routing endpoint `POST /conversations/{id}/sandbox/` (`ee/hogai/sandbox/message_view.py`) that wraps + dedupes + creates a cloud-agent Task/Run, and returns the IDs the frontend needs. The frontend then opens SSE **directly** against the cloud-agent endpoint `/api/projects/{tid}/tasks/{taskId}/runs/{runId}/stream/` — the same endpoint PostHog Code consumes (`Twig/apps/code/src/main/services/cloud-task/service.ts`). A new frontend module (`sandboxStreamLogic.ts`) owns the SSE connection, parses the wire format (default `event: message` + `data.type` discrimination, per PostHog Code), and produces thread-shaped state without touching today's LangGraph event handlers.
 
 This shifts the migration from "rewrite the chat UI" to "build the relay + a frontend stream processor + a small handful of additive `maxThreadLogic` cases".
 
 | # | Topic | Spec |
 |---|---|---|
 | 1 | Context (passing context to the agent) | [`01_CONTEXT.md`](./01_CONTEXT.md) |
-| 2 | Core functionality (the SSE relay + frontend stream processor) | [`02_CORE.md`](./02_CORE.md) |
+| 2 | Core functionality (message routing endpoint + frontend stream processor) | [`02_CORE.md`](./02_CORE.md) |
 | 3 | Rich UI (MCP tool dispatch → existing renderers) | [`03_RICH_UI.md`](./03_RICH_UI.md) |
 | 4 | Prompts (`ee/hogai/chat_agent/prompts/` → sandbox `systemPrompt`) | [`04_PROMPTS.md`](./04_PROMPTS.md) |
 | 5 | Sandbox sizing + Task model adjustments (constrained profile for PostHog AI) | [`05_SANDBOX.md`](./05_SANDBOX.md) |
@@ -43,14 +43,19 @@ Wins:
 │ frontend/src/scenes/max  (mostly unchanged)  │
 │  LangGraph path: existing handlers verbatim  │
 │  Sandbox path: + sandboxStreamLogic.ts       │
-│    (raw ACP → ToolInvocation / thread items) │
+│    - owns EventSource to cloud-agent stream  │
+│    - parses default event:message + data.type│
+│    - reconnect/backoff/dedup (ports Twig)    │
+│    - raw ACP → ToolInvocation / thread items │
 │  - Thread.tsx + mcpToolRegistry adapter      │
 │  - DangerousOperationApprovalCard (variant)  │
 │  - Slash commands, history, FeedbackPrompt   │
 └───────────────────┬──────────────────────────┘
-                    │ POST /conversations/stream/   (same as today)
-                    │ GET  /conversations/
-                    │ POST /conversations/{id}/cancel/   (existing)
+                    │ POST /conversations/{id}/sandbox/     (NEW — message routing)
+                    │ GET  /conversations/{id}/log/         (NEW — multi-Run history)
+                    │ POST /conversations/{id}/stream/      (LangGraph, unchanged)
+                    │ POST /conversations/{id}/cancel/      (existing)
+                    │ POST /conversations/{id}/permission/  (NEW — approval)
                     ▼
 ┌──────────────────────────────────────────────┐
 │ Django (ee/hogai/sandbox/)                   │
@@ -58,38 +63,41 @@ Wins:
 │       | 'sandbox'   ◀── routing decision     │
 │  - Conversation.sandbox_task (FK)            │
 │  - current_sandbox_run (derived from Task)   │
-│  - sandbox-route only:                       │
+│  - sandbox-route only (non-streaming):       │
 │    - creates Task + Run on first message     │
-│    - opens upstream SSE to cloud-agent       │
-│    - PASSES ACP THROUGH raw, wrapped in      │
-│      StoredLogEntry → event: acp             │
-│    - hoists 3 convenience events:            │
-│      permission_request, status, error       │
-│    - relays user messages to POST /command/  │
+│    - sends POST /command/ on follow-up       │
 │    - wraps user content in <posthog_context> │
+│    - returns { task_id, run_id, ... } JSON   │
 └───────────────────┬──────────────────────────┘
-                    │ REST + SSE + POST /command/    (cloud-agent spec)
+                    │ REST + POST /command/    (cloud-agent spec)
+                    │
+                    │   ╔════════════════════════════════════╗
+                    │   ║ Frontend opens SSE DIRECTLY here:  ║
+                    │   ║ GET /api/projects/{tid}/tasks/     ║
+                    │   ║     {taskId}/runs/{runId}/stream/  ║
+                    │   ║ (same endpoint PostHog Code uses)  ║
+                    │   ╚════════════════════════════════════╝
                     ▼
 ┌──────────────────────────────────────────────┐
 │ Cloud agent relay (existing)                 │
 │  - /api/projects/{tid}/tasks/{tid}/runs/...  │
-│  - SSE relay + JWT-scoped sandbox connection │
+│  - SSE bridge + JWT-scoped sandbox connection │
 └───────────────────┬──────────────────────────┘
                     │ ACP via JWT
                     ▼
 ┌──────────────────────────────────────────────┐
 │ Sandbox: @posthog/agent + Claude/Codex       │
-│  - systemPrompt built by SSE relay at Run-start│
+│  - systemPrompt built by Django at Run-start │
 │  - MCP servers:                              │
 │    - posthog-data (taxonomy, hogql, search)  │
 │    - posthog-notebook                        │
-│    - posthog-tasks (todos)                   │
 │    - posthog-code (PostHog Code integration) │
 │    - user-installed MCPs                     │
+│  TodoWrite is Claude Code SDK built-in       │
 └──────────────────────────────────────────────┘
 ```
 
-The browser never talks to the sandbox directly. `/conversations/*` is Django's contract; everything beyond is implementation detail.
+The browser talks to Django for **routing** (POSTs) and to the cloud-agent endpoint for **streaming** (GET SSE). Both are PostHog-cloud HTTPS endpoints — same origin, no CORS pain. The sandbox is never reachable from the browser.
 
 ---
 
@@ -128,7 +136,7 @@ Concretely:
 | Conversation list + thread state | `maxLogic.tsx`, `maxThreadLogic.tsx`, `maxGlobalLogic.tsx` | EventSource SSE consumer keeps working; we just add a few new event-name cases (see `02_CORE.md` § 4) |
 | Thread + message dispatch | `Thread.tsx`, `MarkdownMessage.tsx`, `messages/MessageTemplate.tsx` | New dispatch path for MCP tool calls layered on top — see `03_RICH_UI.md` § 2 |
 | Tool-output renderers | `messages/VisualizationArtifactAnswer.tsx`, `NotebookArtifactAnswer.tsx`, `UIPayloadAnswer.tsx`, `ErrorTrackingIssueCard.tsx`, `ErrorTrackingFiltersSummary.tsx`, `MultiQuestionForm.tsx`, `RecordingsFiltersSummary.tsx`, `SessionSummarizationProgress.tsx`, `maxErrorTrackingWidgetLogic.ts` | Reused behind ~5–15-line adapters that pull props from raw MCP `rawInput`/output — see `03_RICH_UI.md` § 3 |
-| Approval flow | `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts` | Wired to ACP `permission_request` (hoisted by the SSE relay) — see `02_CORE.md` § 5 and `03_RICH_UI.md` § 5 |
+| Approval flow | `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts` | Wired to ACP `permission_request` (surfaced by the cloud-agent stream as `data.type === 'permission_request'`; ingested by `sandboxStreamLogic`) — see `02_CORE.md` § 5 and `03_RICH_UI.md` § 5 |
 | Feedback + ticketing | `FeedbackPrompt.tsx`, `useFeedback.ts`, `TicketPrompt.tsx`, `ticketUtils.ts` | Orthogonal to runtime |
 | Input area + slash commands | `components/InputFormArea.tsx`, `QuestionInput.tsx`, `SidebarQuestionInput.tsx`, `components/SlashCommandAutocomplete.tsx`, `slash-commands.tsx` | UI unchanged; `/remember` becomes a no-op for sandbox runs (see `02_CORE.md` § 7) |
 | Thinking messages | `utils/thinkingMessages.ts` | Driven by ACP `_posthog/progress` notifications — see `03_RICH_UI.md` § 6 |
@@ -166,9 +174,9 @@ For now these stay co-located with `scenes/max/` for ease of rollback during the
 
 | Change | Where | Spec |
 |---|---|---|
-| `Conversation.agent_runtime: 'langgraph' \| 'sandbox'` + nullable `Conversation.task_run_id` FK | Conversation model + migration | `02_CORE.md` § 2 |
-| `POST /conversations/stream/` branches on `agent_runtime` | Conversation view | `02_CORE.md` § 3 |
-| New sandbox SSE relay (`ee/hogai/sandbox/sse_relay.py`): creates Task+Run on first message; opens upstream SSE; passes ACP frames through as `event: acp` + `StoredLogEntry`; hoists 3 convenience events (`permission_request`, `status`, `error`); relays user messages to `POST /command/` | `ee/hogai/sandbox/` (mostly new) | `02_CORE.md` §§ 3–5 |
+| `Conversation.agent_runtime: 'langgraph' \| 'sandbox'` + nullable `Conversation.sandbox_task` FK | Conversation model + migration | `02_CORE.md` § 2 |
+| New sandbox-only routing endpoint `POST /conversations/{id}/sandbox/` (non-streaming) + `GET /conversations/{id}/log/` (multi-Run history); LangGraph `POST /stream/` unchanged | Conversation views | `02_CORE.md` §§ 3–4 |
+| New sandbox message-routing handler (`ee/hogai/sandbox/message_view.py`): wraps + dedupes user content; creates Task+Run on first message; sends `POST /command/` for follow-ups; returns `{task_id, run_id, ...}` JSON. No Django-side SSE relay — the frontend opens SSE directly against `/api/projects/{tid}/tasks/.../stream/`, the same endpoint PostHog Code consumes. | `ee/hogai/sandbox/` (mostly new) | `02_CORE.md` §§ 3–5 |
 | `<posthog_context>` wrapper builder | `ee/hogai/sandbox/context_wrapper.py` | `01_CONTEXT.md` § 4 |
 | `build_posthog_ai_system_prompt(team, user, conversation)` — composes the sandbox `systemPrompt` from the migrated chat_agent prompts | `ee/hogai/sandbox/system_prompt.py` | `04_PROMPTS.md` § 6 |
 | MCP servers exposing the existing toolkit tools (`posthog-data`, `posthog-notebook`, `posthog-tasks`, etc.) | New module per server | `04_PROMPTS.md` § 5 |
@@ -239,23 +247,23 @@ Spec-specific opens are at the bottom of each spec. Cross-spec:
 | Term | Definition |
 |---|---|
 | **ACP** | Agent Connection Protocol. NDJSON-framed JSON-RPC between the agent-server and the underlying coding agent (Claude Code, Codex). The wire format the agent-server taps and broadcasts as cloud-agent SSE. |
-| **SSE relay** (in this spec) | The Django module under `ee/hogai/sandbox/` (entry point: `sse_relay.py`) that bridges `/conversations/*` (public) to the cloud-agent REST+SSE API. Owns conversation routing, ACP passthrough + a handful of convenience events, context wrapping, system-prompt build. Stateless across requests. |
+| **Sandbox message-routing handler** (in this spec) | The Django module under `ee/hogai/sandbox/` (entry point: `message_view.py`) that bridges the new public endpoint `POST /conversations/{id}/sandbox/` to the cloud-agent REST API. Owns conversation routing, context wrapping + dedupe, system-prompt build, Run-create / `POST /command/` dispatch. Non-streaming; stateless across requests. The SSE stream itself bypasses Django — the frontend opens it directly against the cloud-agent endpoint. |
 | **Sandbox** | Ephemeral container running `@posthog/agent` + the underlying model. Provisioned per Task/Run by PostHog cloud. |
-| **agent-server** | HTTP server (`Twig/packages/agent/src/server/agent-server.ts`) running inside the sandbox. Frontend and Django SSE relay both talk to it only through PostHog cloud's relay. |
+| **agent-server** | HTTP server (`Twig/packages/agent/src/server/agent-server.ts`) running inside the sandbox. Frontend and Django both talk to it only through PostHog cloud's REST+SSE bridge — never directly. |
 | **MCP** | Model Context Protocol. Tools exposed to the agent as MCP servers. PostHog data tools become MCP servers. |
 | **Task** | Unit of work in cloud agents (cloud spec § 2.3). For PostHog AI, one Task per conversation. |
 | **Run** | A single execution of a Task. New Run = new sandbox session. Resume-after-terminal creates a new Run with `state.resume_from_run_id`. |
-| **`StoredLogEntry`** | Wire envelope around a single ACP notification: `{ type: 'notification', timestamp?, notification: { method?, params?, result?, error? } }`. The SSE relay passes most ACP frames through as `StoredLogEntry`s — see `02_CORE.md` § 4. |
+| **`StoredLogEntry`** | Wire envelope around a single ACP notification: `{ type: 'notification', timestamp?, notification: { method?, params?, result?, error? } }`. The cloud-agent stream emits these as the bulk of `data.type === 'notification'` traffic — see `02_CORE.md` § 4.1. |
 | **`session/update`** | ACP notification carrying agent message chunks, tool calls, mode changes. Frontend dispatches off its `params.update.sessionUpdate` discriminator. |
 | **`_posthog/*` notification** | Custom ACP notification namespace from the agent-server. Examples: `_posthog/run_started`, `_posthog/turn_complete`, `_posthog/progress`. Cloud spec § 10.8. |
-| **systemPrompt** | The composed string passed via `clientConnection.newSession({ _meta: { systemPrompt } })`. Built by the SSE relay from `ee/hogai/chat_agent/prompts/` content. |
+| **systemPrompt** | The composed string passed via `clientConnection.newSession({ _meta: { systemPrompt } })`. Built by Django's `POST /sandbox/` handler from `ee/hogai/chat_agent/prompts/` content. |
 
 ---
 
 ## 12. Out of scope
 
 - **Local↔cloud handoff** (Twig spec § 11). PostHog AI doesn't have a local mode.
-- **GitHub integration / PR creation.** The SSE relay creates Tasks with no repository; agent-server runs in "No Repository Mode" with `--createPr=false`.
+- **GitHub integration / PR creation.** The Django `POST /sandbox/` handler creates Tasks with no repository; agent-server runs in "No Repository Mode" with `--createPr=false`.
 - **Sandbox environment CRUD UI.** Use the default sandbox environment for all PostHog AI runs.
 - **Conversation export / sharing.** Not part of this migration.
 - **A separate `scenes/posthog-ai/` directory.** We're not creating one — existing `scenes/max/` carries the new behavior behind the runtime flag.
