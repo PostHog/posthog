@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -7,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { type EditingKeyFormValues, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 describe('personalAPIKeysLogic', () => {
     let logic: ReturnType<typeof personalAPIKeysLogic.build>
@@ -97,5 +99,89 @@ describe('personalAPIKeysLogic', () => {
 
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['*'])
+    })
+
+    describe('form validation', () => {
+        type ValidationCase = {
+            name: string
+            values: Partial<EditingKeyFormValues>
+            expectedErrors: Record<string, string | undefined>
+        }
+
+        const cases: ValidationCase[] = [
+            {
+                name: 'missing label',
+                values: { label: '', access_type: 'all', scopes: ['feature_flag:read'] },
+                expectedErrors: { label: 'Your personal API key needs a label' },
+            },
+            {
+                name: 'empty scopes',
+                values: { label: 'Test key', access_type: 'all', scopes: [] },
+                expectedErrors: { scopes: 'Your personal API key needs at least one scope' },
+            },
+            {
+                name: 'missing access type',
+                values: { label: 'Test key', scopes: ['feature_flag:read'], access_type: undefined },
+                expectedErrors: { access_type: 'Select access mode' },
+            },
+            {
+                name: 'organization access without selected organizations',
+                values: {
+                    label: 'Test key',
+                    access_type: 'organizations',
+                    scopes: ['feature_flag:read'],
+                    scoped_organizations: [],
+                },
+                expectedErrors: { scoped_organizations: 'Select at least one organization' },
+            },
+            {
+                name: 'team access without selected teams',
+                values: {
+                    label: 'Test key',
+                    access_type: 'teams',
+                    scopes: ['feature_flag:read'],
+                    scoped_teams: [],
+                },
+                expectedErrors: { scoped_teams: 'Select at least one project' },
+            },
+        ]
+
+        cases.forEach(({ name, values, expectedErrors }) => {
+            it(`surfaces a string error for: ${name}`, async () => {
+                logic.actions.setEditingKeyId('new')
+                logic.actions.setEditingKeyValues(values)
+
+                await expectLogic(logic).toMatchValues({
+                    editingKeyValidationErrors: expect.objectContaining(expectedErrors),
+                })
+
+                for (const message of Object.values(expectedErrors)) {
+                    expect(typeof message).toBe('string')
+                }
+
+                // Submitting an invalid form should not call the API and should not throw.
+                await expect(logic.asyncActions.submitEditingKey()).resolves.not.toThrow()
+                expect(capturedCreatePayload).toBeNull()
+            })
+        })
+
+        it('accepts a fully valid payload and clears all field errors', async () => {
+            logic.actions.setEditingKeyId('new')
+            logic.actions.setEditingKeyValues({
+                label: 'Test key',
+                access_type: 'all',
+                scopes: ['feature_flag:read'],
+            })
+
+            await expectLogic(logic).toMatchValues({
+                editingKeyValidationErrors: {
+                    label: undefined,
+                    scopes: undefined,
+                    access_type: undefined,
+                    scoped_organizations: undefined,
+                    scoped_teams: undefined,
+                },
+            })
+        })
     })
 })

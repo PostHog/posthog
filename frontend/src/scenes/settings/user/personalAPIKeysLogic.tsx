@@ -109,19 +109,23 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 scoped_teams: [],
                 access_type: undefined,
             } as EditingKeyFormValues,
-            errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
-                label: !label ? 'Your personal API key needs a label' : undefined,
-                scopes: !scopes?.length ? ('Your personal API key needs at least one scope' as any) : undefined,
-                access_type: !access_type ? ('Select access mode' as any) : undefined,
-                scoped_organizations:
-                    access_type === 'organizations' && !scoped_organizations?.length
-                        ? ('Select at least one organization' as any)
-                        : undefined,
-                scoped_teams:
-                    access_type === 'teams' && !scoped_teams?.length
-                        ? ('Select at least one project' as any)
-                        : undefined,
-            }),
+            // Errors are returned as plain strings for every field. kea-forms' generic
+            // `DeepPartialMap` types tighten the per-field error shape to match the value
+            // type (e.g. `string[]` for `scopes`), but the runtime only uses truthiness to
+            // gate submission and passes the value through to <LemonField> for rendering —
+            // a single string is the contract used across the codebase.
+            errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) =>
+                ({
+                    label: !label ? 'Your personal API key needs a label' : undefined,
+                    scopes: !scopes?.length ? 'Your personal API key needs at least one scope' : undefined,
+                    access_type: !access_type ? 'Select access mode' : undefined,
+                    scoped_organizations:
+                        access_type === 'organizations' && !scoped_organizations?.length
+                            ? 'Select at least one organization'
+                            : undefined,
+                    scoped_teams:
+                        access_type === 'teams' && !scoped_teams?.length ? 'Select at least one project' : undefined,
+                }) as any,
             submit: async (payload, breakpoint) => {
                 if (!values.editingKeyId) {
                     return
