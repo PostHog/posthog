@@ -38,6 +38,7 @@ export default defineConfig({
                         'dist/**',
                         'tests/**/*.integration.test.ts',
                         'tests/workers/**',
+                        'tests/hono/**',
                     ],
                 },
             },

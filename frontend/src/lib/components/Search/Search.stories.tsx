@@ -241,7 +241,7 @@ export const ProductRecentsAndStarred: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Recents and starred entries whose `type` matches an entry in `availableOnboardingProducts` render with the manifest brand colour (e.g. green for web analytics, purple for LLM analytics) instead of falling back to `currentColor`. Demonstrates the fix for product icons in recents/starred shortcuts.',
+                story: 'Recents and starred entries whose `type` matches an entry in `availableOnboardingProducts` render with the manifest brand colour (e.g. green for web analytics, purple for AI observability) instead of falling back to `currentColor`. Demonstrates the fix for product icons in recents/starred shortcuts.',
             },
         },
     },

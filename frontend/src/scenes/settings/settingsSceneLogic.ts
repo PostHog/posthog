@@ -70,9 +70,18 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 return
             }
 
-            // Redirect environment URLs to project URLs
+            // Redirect environment URLs to project URLs.
+            // Use `replace` so the legacy environment URL doesn't become a dead back-button entry.
             if (!section.endsWith('-details') && !section.endsWith('-danger-zone')) {
-                section = section.replace(/^environment/, 'project')
+                const projectSection = section.replace(/^environment/, 'project')
+                if (projectSection !== section) {
+                    router.actions.replace(
+                        urls.settings(projectSection as SettingSectionId),
+                        router.values.searchParams,
+                        router.values.hashParams
+                    )
+                    return
+                }
             }
 
             if (SettingLevelIds.includes(section as SettingLevelId)) {
@@ -95,19 +104,19 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        // Replacing history item instead of pushing, so that the environments<>project redirect doesn't affect history
+        // Replace history for level changes, so the environments<>project redirect doesn't leave dead history entries.
+        // Section/setting changes push real history entries so the back button works between settings.
         selectLevel({ level }) {
             return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
-            return [urls.settings(section), router.values.searchParams, router.values.hashParams, { replace: true }]
+            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
         },
         selectSetting({ setting }) {
             return [
                 urls.settings(values.selectedSectionId ?? values.selectedLevel),
                 router.values.searchParams,
                 { ...router.values.hashParams, setting },
-                { replace: true },
             ]
         },
     })),

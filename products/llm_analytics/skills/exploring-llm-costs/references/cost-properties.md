@@ -33,7 +33,7 @@ any modality costs). Summing only `$ai_input_cost_usd + $ai_output_cost_usd`
 silently drops request and web-search fees — real and non-zero for Anthropic
 request fees and any tool-augmented generation. The UI's cost cells sum
 `$ai_total_cost_usd` over `event IN ('$ai_generation', '$ai_embedding')`;
-mirror that. See [Calculating LLM costs](https://posthog.com/docs/llm-analytics/calculating-costs)
+mirror that. See [Calculating LLM costs](https://posthog.com/docs/ai-observability/calculating-costs)
 for the full derivation.
 
 ## Cache costs vary by provider reporting style

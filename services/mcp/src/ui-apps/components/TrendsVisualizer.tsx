@@ -1,6 +1,7 @@
 import { type ReactElement, useEffect, useState } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { BigNumber, Select } from './charts'
 import { type ChartConfig, ChartSettings, loadChartConfig, saveChartConfig } from './ChartSettings'
@@ -53,7 +54,14 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
     }, [chartConfig])
 
     if (!results || results.length === 0) {
-        return <EmptyState icon="chart" description="No data available" />
+        return (
+            <Empty>
+                <EmptyHeader>
+                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                    <EmptyDescription>No data available</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
     }
 
     if (displayType === 'BoldNumber') {
@@ -71,27 +79,9 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
 
     return (
         <div>
-            <div
-                style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    marginBottom: '0.75rem',
-                }}
-            >
-                <div
-                    style={{
-                        fontSize: '0.875rem',
-                        fontWeight: 600,
-                        color: 'var(--color-text-secondary, #6b7280)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                    }}
-                >
-                    Trends
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Trends</div>
+                <div className="flex items-center gap-2">
                     {/* eslint-disable-next-line react/forbid-elements */}
                     <Select value={chartType} onChange={setChartType} options={CHART_TYPE_OPTIONS} />
                     <ChartSettings
@@ -103,7 +93,7 @@ export function TrendsVisualizer({ query, results, timezone }: TrendsVisualizerP
                 </div>
             </div>
             {/* hog-charts canvas uses flex:1 + minHeight:0 — needs a sized flex column parent. */}
-            <div style={{ display: 'flex', flexDirection: 'column', height: 320 }}>
+            <div className="flex flex-col" style={{ height: 320 }}>
                 {isBar ? (
                     <McpTrendsBarChart
                         results={results}

@@ -21,6 +21,7 @@ class SignalSourceConfig(UUIDModel):
         ZENDESK = "zendesk", "Zendesk"
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
+        PGANALYZE = "pganalyze", "pganalyze"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -44,7 +45,7 @@ class SignalSourceConfig(UUIDModel):
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
-        LLM analytics signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
+        AI observability signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
         For everything else, the team must have a SignalSourceConfig row with enabled=True.
         """
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
@@ -319,6 +320,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        DISMISSAL = "dismissal"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")

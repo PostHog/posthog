@@ -1,3 +1,4 @@
+export { BarChart, type BarChartProps } from './BarChart'
 export { BigNumber, type BigNumberProps } from './BigNumber'
 export { LineChart, type LineChartProps, type Series, type DataPoint } from './LineChart'
 export { HorizontalBarChart, type HorizontalBarChartProps, type HorizontalBar } from './HorizontalBarChart'

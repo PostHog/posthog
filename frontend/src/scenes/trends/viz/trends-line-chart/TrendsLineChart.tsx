@@ -21,12 +21,10 @@ import { trendsDataLogic } from '../../trendsDataLogic'
 import type { IndexedTrendResult } from '../../types'
 import { handleTrendsChartClick } from '../handleTrendsChartClick'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
-import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
-import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { buildDerivedConfigs, buildTrendsSeries } from './trendsChartTransforms'
+import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
@@ -123,72 +121,55 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
-    const yAxisConfig = useMemo(
-        () =>
-            buildTrendsYAxisConfig(trendsFilter, isPercentStackView, baseCurrency, {
-                yAxisScaleType,
-                showGrid: true,
-            }),
-        [trendsFilter, isPercentStackView, baseCurrency, yAxisScaleType]
-    )
-
-    const goalLineConfigs = useMemo(() => schemaGoalLinesToConfigs(goalLines), [goalLines])
-
     const valueLabelFormatter = useCallback(
         (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const derivedConfigs = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useMemo(
         () =>
-            buildDerivedConfigs(indexedResults ?? [], {
+            buildTrendsLineTimeSeriesConfig({
+                results: indexedResults ?? [],
+                trendsFilter,
+                baseCurrency,
+                isPercentStackView,
+                isStickiness,
+                yAxisScaleType,
+                interval,
+                timezone,
+                allDays: currentPeriodResult?.days ?? [],
+                goalLines,
+                incompletenessOffsetFromEnd,
+                getHidden: getTrendsHidden,
                 showConfidenceIntervals,
                 confidenceLevel,
                 showMovingAverage,
                 movingAverageIntervals,
                 showTrendLines,
-                isStickiness,
-                incompletenessOffsetFromEnd,
-                getHidden: getTrendsHidden,
+                valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
+                showCrosshair: true,
+                tooltip: TOOLTIP_CONFIG,
             }),
         [
             indexedResults,
+            trendsFilter,
+            baseCurrency,
+            isPercentStackView,
+            isStickiness,
+            yAxisScaleType,
+            interval,
+            timezone,
+            currentPeriodResult?.days,
+            goalLines,
+            incompletenessOffsetFromEnd,
+            getTrendsHidden,
             showConfidenceIntervals,
             confidenceLevel,
             showMovingAverage,
             movingAverageIntervals,
             showTrendLines,
-            isStickiness,
-            incompletenessOffsetFromEnd,
-            getTrendsHidden,
-        ]
-    )
-
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
-        () => ({
-            xAxis: {
-                timezone,
-                interval: interval ?? 'day',
-                allDays: currentPeriodResult?.days ?? [],
-            },
-            yAxis: yAxisConfig,
-            valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-            goalLines: goalLineConfigs,
-            ...derivedConfigs,
-            percentStackView: isPercentStackView,
-            showCrosshair: true,
-            tooltip: TOOLTIP_CONFIG,
-        }),
-        [
-            timezone,
-            interval,
-            currentPeriodResult?.days,
-            yAxisConfig,
             showValuesOnSeries,
             valueLabelFormatter,
-            goalLineConfigs,
-            derivedConfigs,
-            isPercentStackView,
         ]
     )
 

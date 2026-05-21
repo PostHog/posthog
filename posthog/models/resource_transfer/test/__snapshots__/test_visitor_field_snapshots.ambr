@@ -270,6 +270,7 @@
   list([
     'appearance',
     'archived',
+    'base_language',
     'conditions',
     'created_at',
     'current_iteration',
@@ -332,6 +333,7 @@
     'button_tile',
     'dashboard',
     'insight',
+    'team',
     'text',
   ])
 # ---
@@ -575,6 +577,7 @@
     'refreshing',
     'save',
     'sort_tiles_by_layout',
+    'team_id',
     'text_id',
   ])
 # ---

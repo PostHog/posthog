@@ -15,6 +15,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
@@ -52,7 +53,7 @@ class CollectedBatch:
 
 
 @activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def read_signals_from_s3_activity(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
     raw = await sync_to_async(object_storage.read, thread_sensitive=False)(input.object_key)
     if raw is None:

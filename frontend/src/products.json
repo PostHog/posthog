@@ -43,6 +43,13 @@
             "intents": ["data_warehouse", "data_warehouse_saved_queries"]
         },
         {
+            "path": "Deployments",
+            "category": "Tools",
+            "iconType": null,
+            "type": "deployments",
+            "intents": ["deployments"]
+        },
+        {
             "path": "Early access features",
             "category": "Features",
             "iconType": null,
@@ -149,6 +156,13 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        {
+            "path": "MCP analytics",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "mcp_analytics",
+            "intents": ["llm_analytics"]
+        },
         { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
         {
             "path": "Product analytics",
@@ -180,6 +194,13 @@
         },
         { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null, "intents": ["heatmaps"] },
         {
+            "path": "Replay vision",
+            "category": "Behavior",
+            "iconType": null,
+            "type": "replay_vision",
+            "intents": ["replay_vision"]
+        },
+        {
             "path": "Revenue analytics",
             "category": "Analytics",
             "iconType": null,
@@ -190,7 +211,7 @@
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Unreleased", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {
-            "path": "User interviews",
+            "path": "User research",
             "category": "Unreleased",
             "iconType": "user_interview",
             "type": "user_interview",

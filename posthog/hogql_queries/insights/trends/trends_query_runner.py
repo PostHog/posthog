@@ -54,19 +54,19 @@ from posthog.caching.insights_api import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
-    BREAKDOWN_OTHER_DISPLAY,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.insights.utils.breakdowns import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    has_breakdown_filter,
+)
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -77,12 +77,12 @@ from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_e
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import multisort
 
+from products.actions.backend.models.action import Action
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -1118,7 +1118,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return False
 
         if isinstance(self.query.series[0], DataWarehouseNode) and breakdown_type == "data_warehouse":
-            series = self.query.series[0]  # only one series when data warehouse is active
+            series = self.query.series[0]
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
 

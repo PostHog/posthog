@@ -124,6 +124,7 @@ export class TemporalService {
             taskQueue: EVALUATION_TASK_QUEUE,
             workflowId,
             workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
             workflowTaskTimeout: '2 minutes',
         })
 
@@ -154,6 +155,7 @@ export class TemporalService {
             taskQueue: EVALUATION_TASK_QUEUE,
             workflowId,
             workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
             workflowTaskTimeout: '2 minutes',
         })
 

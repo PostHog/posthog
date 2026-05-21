@@ -25,7 +25,6 @@ INACTIVE_FLAGS = [
     "webhooks-denylist",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
-    "ai-only-mode",
 ]
 
 

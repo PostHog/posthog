@@ -94,7 +94,7 @@ capabilities:
         docker_profiles: [opensearch]
 
     llm_analytics_sentiment:
-        description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
+        description: 'Sentiment classification model for AI observability (installs torch, optimum ~2GB)'
         requires: [temporal_workflows]
         docker_profiles: []
         uv_groups: [sentiment]
@@ -135,8 +135,18 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [observability]
 
+    nodejs_metrics:
+        description: 'Node.js Metrics - metric ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
     nodejs_traces:
         description: 'Node.js Traces - trace ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
+    logs_ingestion:
+        description: 'OTEL logs, traces, and metrics capture service'
         requires: [event_ingestion]
         docker_profiles: [observability]
 
@@ -292,7 +302,11 @@ intents:
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, nodejs_logs, nodejs_traces]
+        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_logs, nodejs_traces]
+
+    metrics:
+        description: 'Metric ingestion and viewing'
+        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_metrics]
 
     workflows:
         description: 'Workflow automation and orchestration'

@@ -1,12 +1,16 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isKeyOf } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,76 +21,26 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
+import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import type { onboardingLogicType } from './onboardingLogicType'
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'
+import { appendSharedTrailingSteps } from './sharedSteps'
+import { onboardingProviderRegistry } from './stepProviderRegistry'
+import { INSTALL_DEDUP_KEYS, type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
 import { availableOnboardingProducts } from './utils'
 
-/** Interface for onboarding step components that have a static stepKey property */
+/** Interface kept for callers that import it (legacy step components). */
 export interface OnboardingStepComponentType<P = object> extends React.FC<P> {
     stepKey: OnboardingStepKey
-}
-
-/** A JSX element whose component type is an OnboardingStepComponentType */
-export type OnboardingStepElement = React.ReactElement<unknown, OnboardingStepComponentType>
-
-/** Helper to extract stepKey from a step element's component type */
-const getStepKey = (step: OnboardingStepElement): OnboardingStepKey => {
-    return step.type.stepKey
 }
 
 export interface OnboardingLogicProps {
     onCompleteOnboarding?: (key: ProductKey) => void
 }
 
-const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
-    [OnboardingStepKey.LINK_DATA]: 'Import data',
-}
-
-export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
-    if (!stepKey) {
-        return undefined
-    }
-    if (STEP_KEY_TITLE_OVERRIDES[stepKey]) {
-        return STEP_KEY_TITLE_OVERRIDES[stepKey]
-    }
-    return stepKey
-        .split('_')
-        .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
-        .join(' ')
-}
-
-// These types have to be set like this, so that kea typegen is happy
-export type OnboardingStepType = OnboardingStepElement
-
-export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
-    switch (productKey) {
-        case ProductKey.PRODUCT_ANALYTICS:
-            return urls.insightQuickStart()
-        case ProductKey.WEB_ANALYTICS:
-            return urls.webAnalytics()
-        case ProductKey.SESSION_REPLAY:
-            return urls.replay()
-        case ProductKey.FEATURE_FLAGS:
-            return urls.featureFlags()
-        case ProductKey.SURVEYS:
-            return urls.surveyWizard()
-        case ProductKey.ERROR_TRACKING:
-            return urls.errorTracking()
-        case ProductKey.LLM_ANALYTICS:
-            return urls.llmAnalyticsDashboard()
-        case ProductKey.WORKFLOWS:
-            return urls.workflows()
-        case ProductKey.LOGS:
-            return urls.logs()
-        default:
-            return urls.default()
-    }
-}
-
 export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
-    // connect this so we start collecting live events the whole time during onboarding
     connect(() => ({
         values: [
             billingLogic,
@@ -97,6 +51,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['user'],
             preflightLogic,
             ['isCloudOrDev', 'preflight'],
+            organizationLogic,
+            ['currentOrganization'],
             sidePanelStateLogic,
             ['modalMode'],
             featureFlagLogic,
@@ -120,35 +76,49 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: ProductKey | null) => ({ productKey }),
+        setSecondaryProductKeys: (keys: ProductKey[]) => ({ keys }),
+        setStepId: (stepId: string) => ({ stepId }),
+        markStepsVisited: (stepIds: string[]) => ({ stepIds }),
+        resetOnboardingFlowState: true,
         completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
             redirectUrlOverride: options?.redirectUrlOverride,
         }),
-        setAllOnboardingSteps: (allOnboardingSteps: OnboardingStepElement[]) => ({ allOnboardingSteps }),
-        setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
-        goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
+        goToNextStep: true,
         goToPreviousStep: true,
-        resetStepKey: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
         skipOnboarding: true,
         setAwaitingPostOnboardingModal: (awaiting: boolean) => ({ awaiting }),
-        setSessionSecondaryProductKeys: (keys: ProductKey[]) => ({ keys }),
-        setFromProductKey: (key: ProductKey | null) => ({ key }),
-        setResumeStep: (step: OnboardingStepKey | null) => ({ step }),
+        // Distinct from `setProductKey(null)`: navigating to `/onboarding` (the product
+        // selection page) should not trigger the invalid-key redirect-to-home path.
+        clearProductKey: true,
+        setIsCompleting: (isCompleting: boolean) => ({ isCompleting }),
     }),
     reducers(() => ({
         isAwaitingPostOnboardingModal: [
             false,
             {
                 setAwaitingPostOnboardingModal: (_, { awaiting }) => awaiting,
+                resetOnboardingFlowState: () => false,
+            },
+        ],
+        // True between dispatching `completeOnboarding` and the resulting team PATCH
+        // settling. Guards against double-fires from button double-clicks, re-renders,
+        // and the post-billing `?success=true` round-trip.
+        isCompleting: [
+            false,
+            {
+                setIsCompleting: (_, { isCompleting }) => isCompleting,
+                resetOnboardingFlowState: () => false,
             },
         ],
         productKey: [
             null as ProductKey | null,
             {
                 setProductKey: (_, { productKey }) => productKey,
+                clearProductKey: () => null,
             },
         ],
         product: [
@@ -157,59 +127,271 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setProduct: (_, { product }) => product ?? null,
             },
         ],
-        allOnboardingSteps: [
-            [] as OnboardingStepElement[],
+        secondaryProductKeys: [
+            [] as ProductKey[],
             {
-                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps,
+                setSecondaryProductKeys: (_, { keys }) => keys,
+                resetOnboardingFlowState: () => [],
             },
         ],
-        stepKey: [
-            '' as OnboardingStepKey,
+        stepId: [
+            '' as string,
             {
-                setStepKey: (_, { stepKey }) => stepKey,
+                setStepId: (_, { stepId }) => stepId,
+                resetOnboardingFlowState: () => '',
+            },
+        ],
+        // Tracks which step ids the user has actually visited during this onboarding session.
+        // Used to (a) tick `setupTaskId`s for steps the user reached even when they skipped
+        // ahead via a breadcrumb, and (b) only mark a product as completed when the user
+        // actually saw at least one of its steps.
+        visitedStepIds: [
+            [] as string[],
+            {
+                markStepsVisited: (state, { stepIds }) => {
+                    const next = new Set(state)
+                    stepIds.forEach((id) => next.add(id))
+                    return Array.from(next)
+                },
+                resetOnboardingFlowState: () => [],
             },
         ],
         subscribedDuringOnboarding: [
             false,
             {
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
+                resetOnboardingFlowState: () => false,
             },
         ],
         waitForBilling: [
             false,
             {
                 setWaitForBilling: (_, { waitForBilling }) => waitForBilling,
+                resetOnboardingFlowState: () => false,
             },
         ],
         onCompleteOnboardingRedirectUrlOverride: [
             null as string | null,
             {
                 setOnCompleteOnboardingRedirectUrl: (_, { url }) => url,
-            },
-        ],
-        sessionSecondaryProductKeys: [
-            [] as ProductKey[],
-            {
-                setSessionSecondaryProductKeys: (_, { keys }) => keys,
-            },
-        ],
-        fromProductKey: [
-            null as ProductKey | null,
-            {
-                setFromProductKey: (_, { key }) => key,
-            },
-        ],
-        resumeStep: [
-            null as OnboardingStepKey | null,
-            {
-                setResumeStep: (_, { step }) => step,
+                resetOnboardingFlowState: () => null,
             },
         ],
     })),
     selectors({
+        canInviteTeammates: [
+            (s) => [s.currentOrganization, s.user],
+            (currentOrganization, user): boolean => {
+                if (currentOrganization?.members_can_invite) {
+                    return true
+                }
+                const level = user?.organization?.membership_level
+                return typeof level === 'number' && level >= OrganizationMembershipLevel.Admin
+            },
+        ],
+        billingProduct: [
+            (s) => [s.billing, s.productKey],
+            (billing, productKey) => billing?.products?.find((p) => p.type === productKey) ?? null,
+        ],
+        shouldShowBillingStep: [
+            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct],
+            (_product, subscribedDuringOnboarding, isCloudOrDev, billing, billingProduct): boolean => {
+                if (!isCloudOrDev || !billing?.products || !billingProduct) {
+                    return false
+                }
+                return !billingProduct?.subscribed || subscribedDuringOnboarding
+            },
+        ],
+        flow: [
+            // Note: depend on `currentTeam` directly (rather than projecting a slim shape)
+            // because providers read varied fields and a kea-style shallow projection still
+            // re-fires on object identity. The cost is small: descriptor allocation is
+            // microseconds and React's reconciler keeps the rendered subtree stable as
+            // long as `currentFlowStep.id` is unchanged.
+            (s) => [
+                s.productKey,
+                s.secondaryProductKeys,
+                s.currentTeam,
+                s.billing,
+                s.billingProduct,
+                s.shouldShowBillingStep,
+                s.isCloudOrDev,
+                s.subscribedDuringOnboarding,
+                s.canInviteTeammates,
+            ],
+            (
+                primary,
+                secondaries,
+                currentTeam,
+                billing,
+                billingProduct,
+                shouldShowBilling,
+                isCloudOrDev,
+                subscribedDuringOnboarding,
+                canInviteTeammates
+            ): OnboardingStepDescriptor[] => {
+                if (!primary) {
+                    return []
+                }
+                const orderedProducts: ProductKey[] = [primary, ...secondaries]
+                const baseCtx: Omit<OnboardingFlowContext, 'role'> = {
+                    primary,
+                    secondaries,
+                    currentTeam,
+                    billing,
+                    isCloudOrDev: Boolean(isCloudOrDev),
+                    subscribedDuringOnboarding,
+                    canInviteTeammates,
+                }
+                const productSteps = orderedProducts.flatMap((p, i) => {
+                    const provider = onboardingProviderRegistry[p]
+                    if (!provider) {
+                        return []
+                    }
+                    return provider.steps({ ...baseCtx, role: i === 0 ? 'primary' : 'secondary' })
+                })
+                const allSteps = appendSharedTrailingSteps(
+                    productSteps,
+                    { ...baseCtx, role: 'primary' },
+                    billingProduct,
+                    shouldShowBilling
+                )
+                // Collapse functionally-identical steps (e.g. multiple posthog-js install
+                // steps when the user picks several products that share the SDK). First
+                // occurrence wins so the primary product's install step — which carries
+                // the most configuration — survives. When a descriptor is dropped, we
+                // accumulate its `setupTaskId` and `productKey` for the survivor so:
+                //   (1) advancing past the kept step still ticks every dropped product's
+                //       setup-checklist task, and
+                //   (2) `completeOnboarding` can credit the dropped products' visit even
+                //       though no surviving descriptor carries their productKey.
+                // Two-pass build: first accumulate into per-survivor scratch records, then
+                // emit fully-frozen descriptors. Avoids mutating descriptors after they've
+                // been pushed to the result array (selector purity).
+                interface AccumulatedExtras {
+                    setupTaskIds: SetupTaskId[]
+                    productKeys: ProductKey[]
+                }
+                const extras = new Map<string, AccumulatedExtras>()
+                for (const step of allSteps) {
+                    if (!step.dedupKey) {
+                        continue
+                    }
+                    let entry = extras.get(step.dedupKey)
+                    if (!entry) {
+                        entry = { setupTaskIds: [], productKeys: [step.productKey] }
+                        extras.set(step.dedupKey, entry)
+                        continue
+                    }
+                    if (step.setupTaskId && !entry.setupTaskIds.includes(step.setupTaskId)) {
+                        entry.setupTaskIds.push(step.setupTaskId)
+                    }
+                    if (!entry.productKeys.includes(step.productKey)) {
+                        entry.productKeys.push(step.productKey)
+                    }
+                }
+                const emittedDedup = new Set<string>()
+                const result: OnboardingStepDescriptor[] = []
+                for (const step of allSteps) {
+                    if (!step.dedupKey) {
+                        result.push(step)
+                        continue
+                    }
+                    if (emittedDedup.has(step.dedupKey)) {
+                        continue
+                    }
+                    emittedDedup.add(step.dedupKey)
+                    const entry = extras.get(step.dedupKey)
+                    if (!entry || (entry.setupTaskIds.length === 0 && entry.productKeys.length <= 1)) {
+                        result.push(step)
+                        continue
+                    }
+                    result.push(
+                        Object.freeze({
+                            ...step,
+                            additionalSetupTaskIds: entry.setupTaskIds.slice(),
+                            additionalProductKeys: entry.productKeys.slice(),
+                        })
+                    )
+                }
+                // Reorder: all install steps to the front, with the SDK install (the
+                // posthog-js-deduped survivor) first among them. Stable sort preserves
+                // each provider's intra-group order — non-install steps (configure,
+                // link_data, plans, invite) keep their relative positions, just appear
+                // after the installs. Buckets:
+                //   0 — Install + posthog-js dedup survivor (the canonical "SDK install")
+                //   1 — Install (any other dedupKey or none — Logs/OTel, Workflows, etc.)
+                //   2 — everything else (configure, plans, invite, link_data, …)
+                const sortBucket = (step: OnboardingStepDescriptor): number => {
+                    if (step.stepKey !== OnboardingStepKey.INSTALL) {
+                        return 2
+                    }
+                    return step.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS ? 0 : 1
+                }
+                return result.slice().sort((a, b) => sortBucket(a) - sortBucket(b))
+            },
+        ],
+        onboardingStepKeys: [
+            (s) => [s.flow],
+            (flow: OnboardingStepDescriptor[]): OnboardingStepKey[] => flow.map((step) => step.stepKey),
+        ],
+        currentFlowStep: [
+            (s) => [s.flow, s.stepId],
+            (flow: OnboardingStepDescriptor[], stepId): OnboardingStepDescriptor | null => {
+                if (!flow.length) {
+                    // If the user explicitly asked for a step (URL has `?step=...`) but the
+                    // flow hasn't been built yet (billing/team still loading), we MUST NOT
+                    // fall through to `flow[0]` — that would render a different product's
+                    // step than the URL indicates and fire analytics for the wrong step.
+                    // Returning null lets `OnboardingFlowHost` show a spinner until the
+                    // flow rebuilds and the requested step resolves.
+                    return null
+                }
+                if (!stepId) {
+                    return flow[0]
+                }
+                const exact = flow.find((step) => step.id === stepId)
+                if (exact) {
+                    return exact
+                }
+                // Backwards-compat: bare step keys (no namespace) resolve to the first
+                // matching descriptor — covers older bookmarks and inbound links from
+                // setup-task `getUrl` callsites that pre-date the namespaced ids.
+                const looseMatch = flow.find((step) => step.stepKey === stepId)
+                if (looseMatch) {
+                    return looseMatch
+                }
+                // Bad step id — neither exact nor loose match. Return null so
+                // `OnboardingFlowHost` shows a loading state instead of silently
+                // rendering `flow[0]` while the URL keeps a stale stepId. The
+                // urlToAction handler reconciles this by calling `setStepId('')`
+                // when the parsed stepValue can't be resolved.
+                return null
+            },
+        ],
+        flowIndex: [
+            (s) => [s.flow, s.currentFlowStep],
+            (flow, currentFlowStep): number =>
+                currentFlowStep ? flow.findIndex((step) => step.id === currentFlowStep.id) : -1,
+        ],
+        currentStepKey: [
+            (s) => [s.currentFlowStep],
+            (currentFlowStep): OnboardingStepKey | null => currentFlowStep?.stepKey ?? null,
+        ],
+        currentStepProductKey: [
+            (s) => [s.currentFlowStep, s.productKey],
+            (currentFlowStep, productKey): ProductKey | null => currentFlowStep?.productKey ?? productKey,
+        ],
+        totalOnboardingSteps: [(s) => [s.flow], (flow) => flow.length],
+        hasNextStep: [
+            (s) => [s.flow, s.flowIndex],
+            (flow, flowIndex): boolean => flowIndex >= 0 && flowIndex < flow.length - 1,
+        ],
+        hasPreviousStep: [(s) => [s.flowIndex], (flowIndex): boolean => flowIndex > 0],
         breadcrumbs: [
-            (s) => [s.productKey, s.stepKey],
-            (productKey, stepKey): Breadcrumb[] => {
+            (s) => [s.productKey, s.currentFlowStep, s.secondaryProductKeys],
+            (productKey, currentFlowStep, secondaryProductKeys): Breadcrumb[] => {
+                const stepName = stepKeyToTitle(currentFlowStep?.stepKey ?? undefined)
                 return [
                     {
                         key: Scene.Onboarding,
@@ -222,8 +404,15 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     },
                     {
                         key: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.scene,
-                        name: stepKeyToTitle(stepKey),
-                        path: urls.onboarding({ productKey: productKey ?? undefined, stepKey }),
+                        name: stepName,
+                        // Preserve `withProducts` and use the namespaced step id so the URL
+                        // round-trips through `urlToAction` without collapsing the flow's
+                        // secondary products or losing the active step's product attribution.
+                        path: urls.onboarding({
+                            productKey: productKey ?? undefined,
+                            step: currentFlowStep?.id,
+                            withProducts: secondaryProductKeys.length ? secondaryProductKeys : undefined,
+                        }),
                         iconType: 'action',
                     },
                 ]
@@ -231,81 +420,21 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
         onCompleteOnboardingRedirectUrl: [
             (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+            (productKey: ProductKey | null, onCompleteOnboardingRedirectUrlOverride: string | null): string => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                return productKey ? getOnboardingCompleteRedirectUri(productKey as ProductKey) : urls.default()
-            },
-        ],
-        totalOnboardingSteps: [
-            (s) => [s.allOnboardingSteps],
-            (allOnboardingSteps: OnboardingStepElement[]) => allOnboardingSteps.length,
-        ],
-        onboardingStepKeys: [
-            (s) => [s.allOnboardingSteps],
-            (allOnboardingSteps: OnboardingStepElement[]) => {
-                return allOnboardingSteps.map(getStepKey)
-            },
-        ],
-        currentOnboardingStep: [
-            (s) => [s.allOnboardingSteps, s.stepKey],
-            (allOnboardingSteps: OnboardingStepElement[], stepKey: OnboardingStepKey): OnboardingStepType | null =>
-                allOnboardingSteps.find((step) => getStepKey(step) === stepKey) || null,
-        ],
-        hasNextStep: [
-            (s) => [s.allOnboardingSteps, s.stepKey],
-            (allOnboardingSteps: OnboardingStepElement[], stepKey: OnboardingStepKey) => {
-                const currentStepIndex = allOnboardingSteps.findIndex((step) => getStepKey(step) === stepKey)
-                return currentStepIndex < allOnboardingSteps.length - 1
-            },
-        ],
-        hasPreviousStep: [
-            (s) => [s.allOnboardingSteps, s.stepKey],
-            (allOnboardingSteps: OnboardingStepElement[], stepKey: OnboardingStepKey) => {
-                const currentStepIndex = allOnboardingSteps.findIndex((step) => getStepKey(step) === stepKey)
-                return currentStepIndex > 0
-            },
-        ],
-        shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct],
-            (_product, subscribedDuringOnboarding: boolean, isCloudOrDev: boolean, billing, billingProduct) => {
-                if (!isCloudOrDev || !billing?.products || !billingProduct) {
-                    return false
+                if (!productKey) {
+                    return urls.default()
                 }
-
-                return !billingProduct?.subscribed || subscribedDuringOnboarding
-            },
-        ],
-        shouldShowDataWarehouseStep: [
-            (s) => [s.productKey],
-            (productKey) => {
-                return productKey === ProductKey.PRODUCT_ANALYTICS
-            },
-        ],
-        isStepKeyInvalid: [
-            (s) => [s.stepKey, s.allOnboardingSteps, s.currentOnboardingStep],
-            (
-                stepKey: string,
-                allOnboardingSteps: OnboardingStepElement[],
-                currentOnboardingStep: React.ReactNode | null
-            ) =>
-                (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
-                (!stepKey && allOnboardingSteps.length > 0),
-        ],
-        billingProduct: [
-            (s) => [s.product, s.productKey, s.billing],
-            (_product, productKey, billing) => {
-                return billing?.products?.find((p) => p.type === productKey)
+                return onboardingProviderRegistry[productKey]?.completeRedirectUrl?.() ?? urls.default()
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, selectors }) => ({
         setProduct: ({ product }) => {
             if (!product) {
                 window.location.href = urls.default()
-            } else {
-                actions.resetStepKey()
             }
         },
         setTeamPropertiesForProduct: ({ productKey }) => {
@@ -313,7 +442,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 case ProductKey.PRODUCT_ANALYTICS:
                     return
                 case ProductKey.SESSION_REPLAY:
-                    actions.updateCurrentTeam({
+                    teamLogic.actions.updateCurrentTeam({
                         session_recording_opt_in: true,
                         capture_console_log_opt_in: true,
                         capture_performance_opt_in: true,
@@ -327,40 +456,122 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     return
             }
         },
-        setProductKey: ({ productKey }) => {
+        setProductKey: ({ productKey }, _, __, previousState) => {
             if (!productKey || !isKeyOf(productKey, availableOnboardingProducts)) {
                 window.location.href = urls.default()
                 return
             }
+            // Reset per-flow state when transitioning into a new product. Without this,
+            // a redirect override / `subscribedDuringOnboarding` / `waitForBilling` set
+            // during a previous onboarding in the same SPA tab would carry over and
+            // hijack the new flow's behaviour.
+            const previousKey = selectors.productKey(previousState)
+            if (previousKey && previousKey !== productKey) {
+                actions.resetOnboardingFlowState()
+            }
             actions.setProduct(availableOnboardingProducts[productKey])
         },
         setSubscribedDuringOnboarding: ({ subscribedDuringOnboarding }) => {
-            if (subscribedDuringOnboarding) {
-                // we might not have the product key yet
-                // if not we'll just use the current url to determine the product key
-                const productKey = values.productKey || (window.location.pathname.split('/')[2] as ProductKey)
-                eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
+            if (!subscribedDuringOnboarding) {
+                return
             }
+            // Strip /project/<id>/ prefix before splitting, otherwise the path index
+            // points at the project id instead of the product key.
+            const fallbackKey = removeProjectIdIfPresent(window.location.pathname).split('/')[2] as
+                | ProductKey
+                | undefined
+            const productKey = values.productKey || fallbackKey
+            // Don't fire the analytics event without a valid productKey — would record
+            // `productKey: undefined` rows which dirty downstream dashboards.
+            if (!productKey || !isKeyOf(productKey, availableOnboardingProducts)) {
+                return
+            }
+            eventUsageLogic.actions.reportSubscribedDuringOnboarding(productKey)
         },
-
         completeOnboarding: ({ redirectUrlOverride }) => {
+            // Idempotency guard. Without this, a double-click on Finish, a re-render
+            // calling advance() twice, or back-then-forward into the last step plus
+            // pressing Finish again all fire duplicate product-intent writes,
+            // analytics events, and team PATCHes.
+            if (values.isCompleting) {
+                return
+            }
+            const primary = values.productKey
+            if (!primary) {
+                return
+            }
+            actions.setIsCompleting(true)
             if (redirectUrlOverride) {
                 actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
             }
-            if (values.productKey) {
-                const productKey = values.productKey
-                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
-                props.onCompleteOnboarding?.(productKey)
-                actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
-                // Signal that the next updateCurrentTeamSuccess should show the modal
-                actions.setAwaitingPostOnboardingModal(true)
-                teamLogic.actions.updateCurrentTeam({
-                    has_completed_onboarding_for: {
-                        ...values.currentTeam?.has_completed_onboarding_for,
-                        [productKey]: true,
-                    },
-                })
+            // Analytics: keep the existing single event for the primary product to avoid
+            // changing dashboards. Secondary products are still recorded via
+            // `recordProductIntentOnboardingComplete` and `has_completed_onboarding_for`,
+            // but don't fire an additional `onboarding completed` analytics event.
+            eventUsageLogic.actions.reportOnboardingCompleted(primary)
+            props.onCompleteOnboarding?.(primary)
+            // Error Tracking has a side-effect tied to onboarding completion (set up in the
+            // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.
+            if (primary === ProductKey.ERROR_TRACKING) {
+                teamLogic.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
             }
+            // Only mark a product as fully onboarded when the user actually visited at
+            // least one of its steps. Without this guard, a hand-crafted URL with an
+            // arbitrary `?with=...` list would silently flip every secondary's flag on
+            // the first "Continue" — even ones the user never saw.
+            //
+            // Two extra signals beyond `visitedStepIds`:
+            //   - The user is, by definition, looking at the current step right now.
+            //     Include `currentFlowStep` even if `setStepId` never fired for it
+            //     (deep-link entry, or final step reached by goToNextStep).
+            //   - Walk every step from the start of the flow up to the current step:
+            //     a deep link past the start of a multi-product flow implies the user
+            //     committed to seeing the preceding steps' products.
+            //   - For each visited step, also credit `additionalProductKeys` from the
+            //     dedup pass so collapsed-into-survivor secondaries get marked.
+            const visited = new Set(values.visitedStepIds)
+            const currentStep = values.currentFlowStep
+            if (currentStep) {
+                visited.add(currentStep.id)
+            }
+            const currentIndex = values.flowIndex
+            if (currentIndex >= 0) {
+                for (let i = 0; i <= currentIndex; i++) {
+                    visited.add(values.flow[i].id)
+                }
+            }
+            const visitedProducts = new Set<ProductKey>([primary])
+            // Tick every reached step's setupTaskId — including the final step's, which
+            // would otherwise never fire because `setStepId` doesn't tick the destination.
+            const setup = globalSetupLogic.findMounted()
+            const tickedTaskIds = new Set<SetupTaskId>()
+            for (const step of values.flow) {
+                if (!visited.has(step.id)) {
+                    continue
+                }
+                visitedProducts.add(step.productKey)
+                for (const productKey of step.additionalProductKeys ?? []) {
+                    visitedProducts.add(productKey)
+                }
+                if (step.setupTaskId) {
+                    tickedTaskIds.add(step.setupTaskId)
+                }
+                for (const id of step.additionalSetupTaskIds ?? []) {
+                    tickedTaskIds.add(id)
+                }
+            }
+            if (setup && tickedTaskIds.size > 0) {
+                setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
+            }
+            for (const productKey of visitedProducts) {
+                actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
+            }
+            actions.setAwaitingPostOnboardingModal(true)
+            const completedMap: Record<string, boolean> = { ...values.currentTeam?.has_completed_onboarding_for }
+            for (const productKey of visitedProducts) {
+                completedMap[productKey] = true
+            }
+            teamLogic.actions.updateCurrentTeam({ has_completed_onboarding_for: completedMap })
         },
         skipOnboarding: () => {
             // Quick Start does not auto-open here. The button remains in the scene title
@@ -369,13 +580,18 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // creating two competing "what to do next" surfaces.
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
         },
-        updateCurrentTeamSuccess: () => {
-            // See `skipOnboarding`: Quick Start no longer auto-opens after onboarding completes.
+        updateCurrentTeamSuccess: (val) => {
+            // Only react to the completion PATCH. Without this the listener would fire
+            // for *any* `updateCurrentTeam` (e.g. `setTeamPropertiesForProduct` toggles)
+            // while `isAwaitingPostOnboardingModal` happened to be true, mis-attributing
+            // unrelated success to onboarding completion.
+            const isCompletionPatch =
+                values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]
+            if (!isCompletionPatch) {
+                return
+            }
             if (values.isAwaitingPostOnboardingModal && values.productKey) {
                 actions.setAwaitingPostOnboardingModal(false)
-                // Experiment variant still shows its modal (it's gated by `modalShown` so it
-                // only fires once per user), but the control branch no longer auto-opens
-                // Quick Start.
                 const isVariant =
                     values.receivedFeatureFlags &&
                     values.featureFlags[FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT] === 'test'
@@ -384,165 +600,229 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     actions.openPostOnboardingModal(values.productKey)
                 }
             }
+            actions.setIsCompleting(false)
         },
-        setAllOnboardingSteps: () => {
-            if (values.isStepKeyInvalid) {
-                actions.resetStepKey()
+        updateCurrentTeamFailure: (val) => {
+            // Same scoping as the success listener: only react to the completion PATCH,
+            // not to unrelated team updates that happen to fail while the user is on
+            // the last step.
+            const isCompletionPatch =
+                values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]
+            if (!isCompletionPatch) {
+                return
+            }
+            if (values.isAwaitingPostOnboardingModal) {
+                actions.setAwaitingPostOnboardingModal(false)
+                lemonToast.error(
+                    "We couldn't finish onboarding. Click Finish to try again, or contact support if the problem persists."
+                )
+            }
+            actions.setIsCompleting(false)
+        },
+        setStepId: ({ stepId }, _, __, previousState) => {
+            // kea listeners receive (payload, breakpoint, action, previousState). We need
+            // the 4th arg here, not the 2nd — that was the breakpoint function.
+            const previousStepId = selectors.stepId(previousState)
+
+            // URL self-correction: if the user navigated to a stepId we can't resolve
+            // (typo'd bookmark, deprecated step name, secondary product not in `?with=`),
+            // `currentFlowStep` returns null and the host shows a spinner forever.
+            // Reconcile by falling through to flow[0].
+            //
+            // Important: only self-correct when the stepId is genuinely unknown — NOT when
+            // it's a valid OnboardingStepKey that simply hasn't been emitted into the flow
+            // yet. Steps like `plans` are appended async (after billing loads) by
+            // `appendSharedTrailingSteps`; self-correcting too eagerly here would clobber
+            // the URL before the flow settles, leaving the user on `flow[0]` even after
+            // billing arrives.
+            const isKnownStepKey = (id: string): boolean =>
+                Object.values(OnboardingStepKey).includes(id as OnboardingStepKey) || id.includes(':')
+            if (stepId && values.flow.length > 0 && !isKnownStepKey(stepId)) {
+                const exact = values.flow.find((step) => step.id === stepId)
+                const loose = exact ? null : values.flow.find((step) => step.stepKey === stepId)
+                if (!exact && !loose) {
+                    actions.setStepId('')
+                    return
+                }
+            }
+
+            if (!previousStepId || previousStepId === stepId) {
+                if (stepId) {
+                    actions.markStepsVisited([stepId])
+                }
+                return
+            }
+
+            const flow = values.flow
+            const previousIndex = flow.findIndex((step) => step.id === previousStepId)
+            const nextIndex = flow.findIndex((step) => step.id === stepId)
+
+            // Mark every step from previous → next as visited (forward jumps via
+            // breadcrumb included). Backward jumps don't add new visits — already-marked
+            // steps stay marked thanks to the Set semantics in the reducer.
+            if (previousIndex >= 0 && nextIndex > previousIndex) {
+                const traversed = flow.slice(previousIndex, nextIndex + 1).map((step) => step.id)
+                actions.markStepsVisited(traversed)
+                // Tick setupTaskId for every step the user traversed away from, plus
+                // any additionalSetupTaskIds inherited from descriptors that were
+                // collapsed via the dedup pass. Single batched call — looping per id
+                // would have each call read the same stale `currentTeam.onboarding_tasks`
+                // snapshot and clobber prior writes (only the last id would survive).
+                const setup = globalSetupLogic.findMounted()
+                if (setup) {
+                    const ticked = new Set<SetupTaskId>()
+                    for (const step of flow.slice(previousIndex, nextIndex)) {
+                        if (step.setupTaskId) {
+                            ticked.add(step.setupTaskId)
+                        }
+                        for (const id of step.additionalSetupTaskIds ?? []) {
+                            ticked.add(id)
+                        }
+                    }
+                    if (ticked.size > 0) {
+                        setup.actions.markTaskAsCompleted(Array.from(ticked))
+                    }
+                }
+            } else if (stepId) {
+                // Backward / lateral / outside-flow movement: still record the new step as visited.
+                actions.markStepsVisited([stepId])
             }
         },
-        setStepKey: () => {
-            if (values.isStepKeyInvalid) {
-                actions.resetStepKey()
+        goToNextStep: () => {
+            // Empty / not-yet-built flow: do nothing. Without this guard, a misconfigured
+            // product (registered in availableOnboardingProducts but not in
+            // stepProviderRegistry) would cascade through completeOnboarding the first
+            // time anything triggered goToNextStep.
+            if (!values.flow.length) {
+                return
             }
+            const next = values.flow[values.flowIndex + 1]
+            if (next) {
+                actions.setStepId(next.id)
+                return
+            }
+            actions.completeOnboarding()
         },
-        resetStepKey: () => {
-            if (values.allOnboardingSteps.length > 0) {
-                actions.setStepKey(getStepKey(values.allOnboardingSteps[0]))
+        goToPreviousStep: () => {
+            const prev = values.flow[values.flowIndex - 1]
+            if (prev) {
+                actions.setStepId(prev.id)
             }
         },
     })),
-    actionToUrl(({ actions, values }) => ({
-        setStepKey: ({ stepKey }) => {
-            if (stepKey) {
-                return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
-            }
-            return [`/onboarding/${values.productKey}`, router.values.searchParams]
-        },
-        goToNextStep: ({ numStepsToAdvance }) => {
-            const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
-            const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
-            const baseParams = { ...router.values.searchParams }
-
-            // Divert into Logs install when leaving the primary product's Install step with
-            // Logs selected as a secondary intent. Strip LOGS from `secondary` so that if the
-            // user later returns to this step, the divert won't fire again (no ping-pong).
-            // The primary's next-step key is captured as `resumeStep` so completion of the
-            // Logs install can return the user to the correct point in the primary flow.
-            if (
-                values.stepKey === OnboardingStepKey.INSTALL &&
-                values.productKey !== ProductKey.LOGS &&
-                values.sessionSecondaryProductKeys.includes(ProductKey.LOGS)
-            ) {
-                const remainingSecondary = values.sessionSecondaryProductKeys.filter((k) => k !== ProductKey.LOGS)
-                const resumeStepKey = nextStep ? getStepKey(nextStep) : null
-                return [
-                    urls.onboarding({
-                        productKey: ProductKey.LOGS,
-                        stepKey: OnboardingStepKey.INSTALL,
-                        secondary: remainingSecondary.length ? remainingSecondary : undefined,
-                        from: values.productKey ?? undefined,
-                        resumeStep: resumeStepKey ?? undefined,
-                    }),
-                    {},
-                ]
-            }
-
-            // Returning from a Logs divert: route to the original product at its captured
-            // resume step. If no resume step was captured, the primary had no further steps
-            // and completion is handled by the install step's NextButton (completeOnboarding).
-            if (values.productKey === ProductKey.LOGS && values.fromProductKey && values.resumeStep && !nextStep) {
-                return [
-                    urls.onboarding({
-                        productKey: values.fromProductKey,
-                        stepKey: values.resumeStep,
-                        secondary: values.sessionSecondaryProductKeys.length
-                            ? values.sessionSecondaryProductKeys
-                            : undefined,
-                    }),
-                    {},
-                ]
-            }
-
-            if (nextStep) {
-                return [`/onboarding/${values.productKey}`, { ...baseParams, step: getStepKey(nextStep) }]
-            }
-            return [`/onboarding/${values.productKey}`, baseParams]
-        },
-        goToPreviousStep: () => {
-            const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
-            const previousStep = values.allOnboardingSteps[currentStepIndex - 1]
-            const baseParams = { ...router.values.searchParams }
-            if (previousStep) {
-                return [`/onboarding/${values.productKey}`, { ...baseParams, step: getStepKey(previousStep) }]
-            }
-            // No previous step within this product: if we were diverted here from another
-            // product's install step, navigate back to it. Strip LOGS from secondary so the
-            // primary's "Continue" doesn't re-divert (back implies "I don't want this divert");
-            // other secondary selections are preserved.
-            if (values.fromProductKey) {
-                const remainingSecondary = values.sessionSecondaryProductKeys.filter((k) => k !== ProductKey.LOGS)
-                return [
-                    urls.onboarding({
-                        productKey: values.fromProductKey,
-                        stepKey: OnboardingStepKey.INSTALL,
-                        secondary: remainingSecondary.length ? remainingSecondary : undefined,
-                    }),
-                    {},
-                ]
-            }
-            return [`/onboarding/${values.productKey}`, baseParams]
+    actionToUrl(({ values, actions }) => ({
+        setStepId: ({ stepId }) => {
+            // `success`/`upgraded` are billing-callback signals consumed once; keeping them in
+            // the URL re-fires the `subscribed during onboarding` event on every step nav.
+            const existingParams = router.values.searchParams ?? {}
+            const {
+                step: _step,
+                with: _with,
+                productKey: _productKey,
+                success: _success,
+                upgraded: _upgraded,
+                ...passthrough
+            } = existingParams
+            void _step
+            void _with
+            void _productKey
+            void _success
+            void _upgraded
+            // Drop the stepId from the URL if it's not resolvable in the current flow.
+            // Without this, the self-correcting `setStepId('')` from the listener races
+            // with the OUTER `actionToUrl` for the bogus stepId — kea fires the outer
+            // actionToUrl AFTER the listener completes, which re-pushes the bogus URL
+            // through urlToAction and re-dispatches setStepId(bogus), looping
+            // indefinitely. Stripping unresolvable stepIds here keeps the URL
+            // self-consistent with the reducer state.
+            // Mirror the `setStepId` listener's `isKnownStepKey` heuristic. Billing-gated
+            // steps (plans, invite_teammates, link_data) are appended async after billing
+            // loads, so they may not be in `flow` when the URL push lands. Stripping them
+            // from the URL would re-fire `setStepId('')` and permanently lose the request.
+            const isKnownStepKey =
+                Object.values(OnboardingStepKey).includes(stepId as OnboardingStepKey) || stepId.includes(':')
+            const stepResolves =
+                !stepId ||
+                values.flow.length === 0 ||
+                isKnownStepKey ||
+                !!values.flow.find((s) => s.id === stepId || s.stepKey === stepId)
+            const url = urls.onboarding({
+                productKey: values.productKey ?? undefined,
+                step: stepResolves ? stepId || undefined : undefined,
+                withProducts: values.secondaryProductKeys.length ? values.secondaryProductKeys : undefined,
+            })
+            // Use `replace` so the user doesn't accumulate one history entry per onboarding
+            // step — otherwise pressing browser Back after onboarding requires N presses to
+            // escape, where N is the number of steps the user advanced.
+            return [url, passthrough, undefined, { replace: true }]
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
                 const redirectUrl = values.onCompleteOnboardingRedirectUrl
-                actions.setOnCompleteOnboardingRedirectUrl(null)
-
+                // Reset the override after consuming it so a subsequent onboarding session
+                // in the same tab doesn't reuse a stale redirect target.
+                if (values.onCompleteOnboardingRedirectUrlOverride) {
+                    actions.setOnCompleteOnboardingRedirectUrl(null)
+                }
                 return [redirectUrl]
             }
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step, secondary, from, resumeStep }) => {
+        '/onboarding/:productKey': ({ productKey }, params: Record<string, unknown>) => {
             if (!productKey || !Object.hasOwn(availableOnboardingProducts, productKey)) {
                 return
+            }
+
+            const success = params.success
+            const upgraded = params.upgraded
+            const step = params.step
+            const withRaw = params.with
+
+            // Order matters: `setProductKey` may dispatch `resetOnboardingFlowState`
+            // (which resets `subscribedDuringOnboarding` to false) when transitioning
+            // between products. Set the product first, THEN apply the post-payment
+            // subscription flag, so the reset doesn't clobber it.
+            if (productKey !== values.productKey) {
+                actions.setProductKey(productKey as ProductKey)
             }
 
             if (success || upgraded) {
                 actions.setSubscribedDuringOnboarding(true)
             }
-            if (productKey !== values.productKey) {
-                actions.setProductKey(productKey as ProductKey)
-                // Reset onboarding steps so they can be populated upon render in the component.
-                actions.setAllOnboardingSteps([])
+
+            const parsedSecondaries = parseProductsParam(withRaw).filter((k) => k !== productKey)
+            // Skip the dispatch when nothing changed — kea reducers compare by reference,
+            // so re-emitting an identical-but-fresh array still triggers downstream
+            // selector recomputes (notably `flow`, which is the most expensive selector
+            // in this logic).
+            if (!arraysEqual(parsedSecondaries, values.secondaryProductKeys)) {
+                actions.setSecondaryProductKeys(parsedSecondaries)
             }
 
-            // `secondary`/`from`/`resumeStep` are always sourced from the URL on every
-            // route hit so navigating away from a URL without these params clears the
-            // state — preventing leakage across separate onboardings in the same tab.
-            // Defensive coercion: kea-router auto-coerces "true"/"42" to bool/number,
-            // so we must guard against non-string values before splitting.
-            const secondaryStr = typeof secondary === 'string' ? secondary : ''
-            const secondaryKeys = secondaryStr
-                ? (secondaryStr
-                      .split(',', 32)
-                      .filter((k: string) => Object.hasOwn(availableOnboardingProducts, k)) as ProductKey[])
-                : []
-            actions.setSessionSecondaryProductKeys(Array.from(new Set(secondaryKeys)))
+            const stepValue = typeof step === 'string' ? step : ''
+            // Wait-for-billing gating: same intent as before, just keyed off the step value
+            // (namespaced or bare). Plans-step bookmarks should not advance until billing
+            // has loaded so the upgrade UI has data to render.
+            const isPlansStep =
+                stepValue === OnboardingStepKey.PLANS || stepValue.startsWith(`${OnboardingStepKey.PLANS}:`)
+            if (isPlansStep) {
+                actions.setWaitForBilling(true)
+            }
 
-            const fromValid =
-                typeof from === 'string' && Object.hasOwn(availableOnboardingProducts, from) && from !== productKey
-            actions.setFromProductKey(fromValid ? (from as ProductKey) : null)
-
-            actions.setResumeStep(
-                typeof resumeStep === 'string' && resumeStep ? (resumeStep as OnboardingStepKey) : null
-            )
-
-            if (step) {
-                // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue
-                const stepsToWaitForBilling = [OnboardingStepKey.PLANS]
-                if (stepsToWaitForBilling.includes(step as OnboardingStepKey)) {
-                    actions.setWaitForBilling(true)
-                }
-                actions.setStepKey(step)
-            } else {
-                actions.resetStepKey()
+            if (stepValue !== values.stepId) {
+                actions.setStepId(stepValue)
             }
         },
         '/onboarding': () => {
-            // Clear productKey when on the product selection page
+            // Land on the product-selection page. We can't dispatch `setProductKey(null)`
+            // because that listener treats null as "invalid product" and hard-redirects
+            // to the home page — preventing users from returning here from inside an
+            // existing flow.
             if (values.productKey !== null) {
-                actions.setProductKey(null)
+                actions.clearProductKey()
             }
+            actions.resetOnboardingFlowState()
         },
     })),
 ])

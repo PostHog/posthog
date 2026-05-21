@@ -6,11 +6,14 @@ from django.db import transaction
 from django.db.models import F, Max, QuerySet
 
 from drf_spectacular.utils import extend_schema
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import PropertyGroupFilter
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -20,6 +23,52 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.logs.backend.models import LogsExclusionRule
+
+# Keep aligned with `MAX_FILTER_GROUP_DEPTH` / `MAX_FILTER_GROUP_NODES` in
+# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts` and
+# `compile-rules.ts`. Both depth and breadth are bounded so an adversarially
+# deep or wide filter_group cannot stack-overflow or CPU-burn the per-record
+# evaluator in the Node ingestion worker. The breadth cap is the more
+# realistic abuse vector — depth 1 with 10k sibling leaves passes the depth
+# check but costs O(leaves) per log record.
+MAX_FILTER_GROUP_DEPTH = 16
+MAX_FILTER_GROUP_NODES = 256
+
+
+def _filter_group_depth(node: Any, depth: int = 0) -> int:
+    # Short-circuit once we've crossed the cap — we don't need the true depth,
+    # just that it exceeds MAX_FILTER_GROUP_DEPTH. Prevents Python RecursionError
+    # on adversarial payloads that pass pydantic-core (Rust) validation, which
+    # has a more generous recursion limit than ours.
+    if depth > MAX_FILTER_GROUP_DEPTH:
+        return depth
+    if not isinstance(node, dict):
+        return depth
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        return depth
+    max_child = depth
+    for child in values:
+        d = _filter_group_depth(child, depth + 1)
+        if d > max_child:
+            max_child = d
+    return max_child
+
+
+def _filter_group_node_count(node: Any) -> int:
+    """Total node count across the filter group (groups + leaves). Short-circuits
+    once the cap is exceeded so adversarial payloads don't get fully traversed."""
+    if not isinstance(node, dict):
+        return 1
+    total = 1
+    values = node.get("values")
+    if not isinstance(values, list) or node.get("type") not in ("AND", "OR"):
+        return total
+    for child in values:
+        total += _filter_group_node_count(child)
+        if total > MAX_FILTER_GROUP_NODES:
+            return total
+    return total
 
 
 class LogsSamplingRuleSerializer(serializers.ModelSerializer):
@@ -37,14 +86,14 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     )
     rule_type = serializers.ChoiceField(
         choices=LogsExclusionRule.RuleType.choices,
-        help_text="Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).",
+        help_text="Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).",
     )
     scope_service = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=False,
         max_length=512,
-        help_text="If set, the rule applies only to this service name; null means all services.",
+        help_text="Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.",
     )
     scope_path_pattern = serializers.CharField(
         required=False,
@@ -61,13 +110,14 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
     )
     config = serializers.JSONField(
         help_text=(
-            "Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional "
-            "`match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same "
-            "virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is "
-            "tested only against that string attribute on the log record. For severity_sampling: object with "
-            "`actions` per severity level and optional `always_keep`. For rate_limit: object with required "
-            "`logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); "
-            "rate_limit rules require non-null `scope_service` matching `service.name` on each log line."
+            "Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — "
+            "AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) "
+            "+ `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. "
+            'Filter group example: `{"type":"AND","values":[{"type":"AND","values":['
+            '{"key":"service.name","operator":"exact","value":"api"}]}]}`. '
+            "For severity_sampling: object with `actions` per severity level and optional `always_keep`. "
+            "For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` "
+            "(integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to."
         )
     )
     version = serializers.IntegerField(
@@ -116,23 +166,20 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             mak = config.get("match_attribute_key")
             if mak is not None and mak != "" and not isinstance(mak, str):
                 raise ValidationError({"config": {"match_attribute_key": "Must be a string when provided."}})
+            self._validate_filter_group(config.get("filter_group"))
         if rule_type == LogsExclusionRule.RuleType.RATE_LIMIT:
             if not isinstance(config, dict):
                 raise ValidationError({"config": "rate_limit rules require config to be a JSON object."})
-            scope_service = attrs.get("scope_service")
-            if scope_service is None and self.instance is not None:
-                scope_service = self.instance.scope_service
-            if not scope_service or not str(scope_service).strip():
-                raise ValidationError(
-                    {"scope_service": "rate_limit rules require a non-empty service name (service.name on logs)."}
-                )
+            self._validate_filter_group(config.get("filter_group"))
             lps = config.get("logs_per_second")
             if isinstance(lps, bool) or not isinstance(lps, int):
                 raise ValidationError(
                     {"config": {"logs_per_second": "Must be an integer (logs per second sustained)."}}
                 )
             if lps < 1 or lps > 1_000_000:
-                raise ValidationError({"config": {"logs_per_second": "Must be between 1 and 1000000 inclusive."}})
+                raise ValidationError(
+                    {"config": {"logs_per_second": "Must be between 1 KB/s and 1000000 KB/s (1 GB/s) inclusive."}}
+                )
             burst = config.get("burst_logs", None)
             if burst is not None:
                 if isinstance(burst, bool) or not isinstance(burst, int):
@@ -141,9 +188,43 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
                     raise ValidationError(
                         {"config": {"burst_logs": "Must be greater than or equal to logs_per_second."}}
                     )
-                if burst > 60_000_000:
-                    raise ValidationError({"config": {"burst_logs": "Must be at most 60000000."}})
+                if burst > 10_000_000:
+                    raise ValidationError({"config": {"burst_logs": "Must be at most 10000000 KB."}})
         return attrs
+
+    def _validate_filter_group(self, filter_group: Any) -> None:
+        if filter_group is None:
+            return
+        # Validate shape against PropertyGroupFilter so malformed payloads
+        # (e.g. a list where an object is expected) are rejected at write
+        # time rather than letting them flow through to the ingestion worker.
+        # Mirrors the pattern used for alert filters in alerts_api.py.
+        try:
+            PropertyGroupFilter.model_validate(filter_group)
+        except PydanticValidationError as e:
+            raise ValidationError({"config": {"filter_group": f"Invalid filter_group shape: {e.errors()[0]['msg']}"}})
+        # Bound nesting depth — the Node ingestion worker recurses per
+        # record over this tree, so an adversarially deep group is a
+        # stack-overflow + CPU footgun on every log line. Matches
+        # `MAX_FILTER_GROUP_DEPTH` in
+        # `nodejs/src/logs-ingestion/sampling/filter-group-match.ts`.
+        if _filter_group_depth(filter_group) > MAX_FILTER_GROUP_DEPTH:
+            raise ValidationError(
+                {"config": {"filter_group": f"filter_group is nested too deeply (max depth {MAX_FILTER_GROUP_DEPTH})."}}
+            )
+        # Bound total node count — depth alone doesn't bound work per
+        # record. A single AND with thousands of sibling leaves is the
+        # more realistic abuse vector: it passes the depth check but
+        # costs O(leaves) on every log line through the ingestion
+        # worker. Matches `MAX_FILTER_GROUP_NODES` in `compile-rules.ts`.
+        if _filter_group_node_count(filter_group) > MAX_FILTER_GROUP_NODES:
+            raise ValidationError(
+                {
+                    "config": {
+                        "filter_group": f"filter_group has too many nodes (max {MAX_FILTER_GROUP_NODES} groups + leaves)."
+                    }
+                }
+            )
 
     def validate_scope_attribute_filters(self, value: Any) -> Any:
         if not isinstance(value, list):

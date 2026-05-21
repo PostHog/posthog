@@ -381,7 +381,8 @@ export type DetectorConfigApi =
     | PCADetectorConfigApi
 
 /**
- * * `hourly` - hourly
+ * * `every_15_minutes` - every_15_minutes
+ * `hourly` - hourly
  * `daily` - daily
  * `weekly` - weekly
  * `monthly` - monthly
@@ -389,6 +390,7 @@ export type DetectorConfigApi =
 export type CalculationIntervalEnumApi = (typeof CalculationIntervalEnumApi)[keyof typeof CalculationIntervalEnumApi]
 
 export const CalculationIntervalEnumApi = {
+    Every15Minutes: 'every_15_minutes',
     Hourly: 'hourly',
     Daily: 'daily',
     Weekly: 'weekly',
@@ -453,8 +455,9 @@ export interface AlertApi {
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
-    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+    /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
+  * `every_15_minutes` - every_15_minutes
   * `hourly` - hourly
   * `daily` - daily
   * `weekly` - weekly
@@ -531,8 +534,9 @@ export interface PatchedAlertApi {
     /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
     config?: TrendsAlertConfigApi | null
     detector_config?: DetectorConfigApi | null
-    /** How often the alert is checked: hourly, daily, weekly, or monthly.
+    /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
+  * `every_15_minutes` - every_15_minutes
   * `hourly` - hourly
   * `daily` - daily
   * `weekly` - weekly
@@ -631,6 +635,25 @@ export interface AlertSimulateResponseApi {
     breakdown_results?: BreakdownSimulationResultApi[]
 }
 
+export interface ThresholdWithAlertApi {
+    readonly id: string
+    readonly created_at: string
+    /** Optional name for the threshold. */
+    name?: string
+    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+    configuration: InsightThresholdApi
+    readonly alerts: readonly AlertApi[]
+}
+
+export interface PaginatedThresholdWithAlertListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ThresholdWithAlertApi[]
+}
+
 export type AlertsListParams = {
     /**
      * Number of results to return per page.
@@ -659,4 +682,15 @@ export type AlertsRetrieveParams = {
      * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
      */
     checks_offset?: number
+}
+
+export type InsightsThresholdsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }

@@ -1,6 +1,5 @@
 import { match } from 'ts-pattern'
 
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -32,9 +31,6 @@ import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/querie
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
-
-// TODO: extract types to a separate file, since this is a circular dependency
-import type { EventConfig } from './RunningTimeCalculator/runningTimeCalculatorLogic'
 
 /**
  * We extract all the math properties from the EntityNode type so we can use them as
@@ -492,35 +488,6 @@ const createSourceNode = (step: ExperimentFunnelMetricStep | ExperimentMetricSou
             aggregation_target_field: dwStep.events_join_key,
         }))
         .exhaustive()
-
-/**
- * this is used on the running time calculator to create a node that can be used in a filter
- */
-export const getEventNode = (
-    event: EventConfig,
-    options?: { mathProps?: MathProperties }
-): EventsNode | ActionsNode => {
-    return match(event)
-        .with({ entityType: TaxonomicFilterGroupType.Events }, (event) => {
-            return {
-                kind: NodeKind.EventsNode as const,
-                name: event.name,
-                event: event.event,
-                properties: event.properties,
-                ...options?.mathProps,
-            }
-        })
-        .with({ entityType: TaxonomicFilterGroupType.Actions }, (action) => {
-            return {
-                kind: NodeKind.ActionsNode as const,
-                id: parseInt(action.event, 10) || 0,
-                name: action.name,
-                properties: action.properties,
-                ...options?.mathProps,
-            }
-        })
-        .exhaustive()
-}
 
 /**
  * converts the experiment exposure config in to an events node

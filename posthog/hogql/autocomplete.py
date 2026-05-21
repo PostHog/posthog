@@ -242,8 +242,11 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
                         constant_field = constant_type_to_database_field(field.type, name)
                         new_fields[name] = constant_field
                         continue
-                    elif isinstance(field, ast.FieldType):
-                        underlying_field_name = field.name
+                    # `field` is already narrowed to FieldAliasType, so this elif is
+                    # provably dead — `FieldAliasType` and `FieldType` are sibling Type
+                    # subclasses. Kept as a defensive runtime guard; suppress for mypy.
+                    elif isinstance(field, ast.FieldType):  # type: ignore[unreachable]
+                        underlying_field_name = field.name  # type: ignore[unreachable]
                     else:
                         underlying_field_name = name
                 elif isinstance(field, ast.FieldType):

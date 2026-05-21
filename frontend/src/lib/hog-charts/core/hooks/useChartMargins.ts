@@ -1,7 +1,7 @@
 import { scaleLinear } from 'd3-scale'
 import { useMemo } from 'react'
 
-import { measureLabelWidth } from '../../overlays/AxisLabels'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
 import type { ChartMargins, Series } from '../types'

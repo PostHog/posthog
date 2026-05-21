@@ -44,10 +44,6 @@ from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
-    SyncNewSchemasActivityInputs,
-    sync_new_schemas_activity,
-)
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -136,7 +132,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         if len(non_retryable_errors) == 0:
             non_retryable_errors = Any_Source_Errors
         else:
-            non_retryable_errors = {**non_retryable_errors, **Any_Source_Errors}
+            non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
         if has_non_retryable_error:
@@ -307,18 +303,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
-
-            await workflow.execute_activity(
-                sync_new_schemas_activity,
-                SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
-                ),
-            )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,

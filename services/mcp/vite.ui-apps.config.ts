@@ -39,23 +39,36 @@ const ALL_APPS = discoverApps()
 export default defineConfig({
     plugins: [react()],
     resolve: {
-        alias: {
-            products: resolve(__dirname, '../../products'),
-            '@posthog/mosaic': resolve(__dirname, '../../common/mosaic/src'),
-            '@common': resolve(__dirname, '../../common'),
-            'lib/hog-charts': resolve(__dirname, '../../frontend/src/lib/hog-charts'),
-            'lib/charts/types': resolve(__dirname, '../../frontend/src/lib/charts/types'),
+        alias: [
+            { find: 'products', replacement: resolve(__dirname, '../../products') },
+            { find: '@posthog/mcp-ui', replacement: resolve(__dirname, 'src/ui-apps/lib') },
+            // Resolve Quill explicitly so files imported via the `products` alias
+            // (which live outside this package's node_modules tree) can find it.
+            // Match exact import (`@posthog/quill`) -> dist/index.js, but leave
+            // subpath imports (`@posthog/quill/tokens.css`, etc.) to fall through
+            // to the package's exports map.
+            {
+                find: /^@posthog\/quill$/,
+                replacement: resolve(__dirname, '../../packages/quill/packages/quill/dist/index.js'),
+            },
+            // lucide-react isn't a workspace dep at the products/ level, so files
+            // resolved via the `products` alias can't find it. Pin to this
+            // package's installed copy (matches the version Quill expects).
+            { find: /^lucide-react$/, replacement: resolve(__dirname, 'node_modules/lucide-react') },
+            { find: '@common', replacement: resolve(__dirname, '../../common') },
+            { find: 'lib/hog-charts', replacement: resolve(__dirname, '../../frontend/src/lib/hog-charts') },
+            { find: 'lib/charts/types', replacement: resolve(__dirname, '../../frontend/src/lib/charts/types') },
             // hog-charts imports these as bare specifiers; pin to MCP's
             // node_modules so filtered installs (`pnpm --filter=@posthog/mcp`)
             // resolve them without frontend's node_modules being present.
-            'd3-array': resolve(__dirname, 'node_modules/d3-array'),
-            'd3-color': resolve(__dirname, 'node_modules/d3-color'),
-            'd3-scale': resolve(__dirname, 'node_modules/d3-scale'),
-            'd3-shape': resolve(__dirname, 'node_modules/d3-shape'),
-            '@floating-ui/react': resolve(__dirname, 'node_modules/@floating-ui/react'),
-            dayjs: resolve(__dirname, 'node_modules/dayjs'),
-            'simple-statistics': resolve(__dirname, 'node_modules/simple-statistics'),
-        },
+            { find: /^d3-array$/, replacement: resolve(__dirname, 'node_modules/d3-array') },
+            { find: /^d3-color$/, replacement: resolve(__dirname, 'node_modules/d3-color') },
+            { find: /^d3-scale$/, replacement: resolve(__dirname, 'node_modules/d3-scale') },
+            { find: /^d3-shape$/, replacement: resolve(__dirname, 'node_modules/d3-shape') },
+            { find: /^@floating-ui\/react$/, replacement: resolve(__dirname, 'node_modules/@floating-ui/react') },
+            { find: /^dayjs$/, replacement: resolve(__dirname, 'node_modules/dayjs') },
+            { find: /^simple-statistics$/, replacement: resolve(__dirname, 'node_modules/simple-statistics') },
+        ],
     },
     define: {
         // Inject PostHog configuration at build time

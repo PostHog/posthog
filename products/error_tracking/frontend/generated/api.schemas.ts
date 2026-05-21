@@ -489,6 +489,16 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
     description?: string | null
 }
 
+export interface ErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
+export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
 /**
  * @nullable
  */
@@ -1177,18 +1187,50 @@ export interface ErrorTrackingIssuesListResponseApi {
     nextOffset?: number
 }
 
+/**
+ * * `ready` - Ready
+ * `computing` - Computing
+ */
+export type ErrorTrackingRecommendationStatusEnumApi =
+    (typeof ErrorTrackingRecommendationStatusEnumApi)[keyof typeof ErrorTrackingRecommendationStatusEnumApi]
+
+export const ErrorTrackingRecommendationStatusEnumApi = {
+    Ready: 'ready',
+    Computing: 'computing',
+} as const
+
+/**
+ * Recommendation payload, shape depends on type.
+ */
 export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
 
 export interface ErrorTrackingRecommendationApi {
+    /** Recommendation UUID. */
     readonly id: string
+    /** Recommendation type identifier (e.g. 'alerts'). */
     readonly type: string
+    /** Recommendation payload, shape depends on type. */
     readonly meta: ErrorTrackingRecommendationApiMeta
+    /** Whether the recommendation's recommended action has been satisfied. */
     readonly completed: boolean
-    /** @nullable */
+    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
+
+  * `ready` - Ready
+  * `computing` - Computing */
+    readonly status: ErrorTrackingRecommendationStatusEnumApi
+    /**
+     * Timestamp meta was last successfully computed.
+     * @nullable
+     */
     readonly computed_at: string | null
-    /** @nullable */
+    /**
+     * Timestamp the user dismissed this recommendation, if any.
+     * @nullable
+     */
     readonly dismissed_at: string | null
+    /** Timestamp the recommendation row was first created. */
     readonly created_at: string
+    /** Timestamp the recommendation row was last updated. */
     readonly updated_at: string
 }
 
@@ -1509,6 +1551,8 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
     /** Whether to overwrite uploaded symbol sets whose content hash changed. */
     force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {

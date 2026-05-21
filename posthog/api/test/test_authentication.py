@@ -396,6 +396,35 @@ class TestLoginAPI(APIBaseTest):
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
+class TestDevLoginAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_list_and_create_when_allowed(self):
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = {user["email"] for user in response.json()["users"]}
+        self.assertIn(self.user.email, emails)
+
+        self.client.logout()
+        response = self.client.post("/api/login/dev", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_dev_login_hidden_when_allow_dev_login_disabled(self):
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post("/api/login/dev", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=False, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_hidden_when_not_debug(self):
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
 class TestLogoutRedirect(APIBaseTest):
     """
     Tests that /logout preserves a safe `next` param so users return to where they were
@@ -1220,12 +1249,14 @@ class TestPasswordResetAPI(APIBaseTest):
         UserSocialAuth.objects.create(
             user=self.user,
             provider="google-oauth2",
+            uid="google-oauth2|test",
             extra_data='"{"expires": 3599, "auth_time": 1633412833, "token_type": "Bearer", "access_token": "ya29"}"',
         )
 
         UserSocialAuth.objects.create(
             user=self.user,
             provider="github",
+            uid="github|test",
             extra_data='"{"expires": 3599, "auth_time": 1633412833, "token_type": "Bearer", "access_token": "ya29"}"',
         )
 
@@ -1552,6 +1583,44 @@ class TestPasswordResetAPI(APIBaseTest):
                 "attr": "token",
             },
         )
+
+    @parameterized.expand(
+        [
+            ("none_becomes_true", None),
+            ("true_stays_true", True),
+            ("false_becomes_true", False),
+        ]
+    )
+    def test_password_reset_flips_is_email_verified_to_true(self, _name, initial_state):
+        self.user.is_email_verified = initial_state
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, True)
+
+    def test_password_reset_does_not_clear_pending_email(self):
+        self.user.is_email_verified = False
+        self.user.pending_email = "new-address@example.com"
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pending_email, "new-address@example.com")
 
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):
