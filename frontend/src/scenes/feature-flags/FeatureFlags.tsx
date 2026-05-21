@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
@@ -62,6 +62,25 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFla
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+
+function FlagDescription({ name }: { name: string }): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+    const [isTruncated, setIsTruncated] = useState(false)
+
+    useEffect(() => {
+        if (ref.current) {
+            setIsTruncated(ref.current.scrollHeight > ref.current.clientHeight)
+        }
+    }, [name])
+
+    return (
+        <Tooltip title={isTruncated ? name : undefined} delayMs={500}>
+            <div ref={ref} className="line-clamp-2 max-w-[30rem]">
+                {name}
+            </div>
+        </Tooltip>
+    )
+}
 
 // Component for rendering status cell with loading state
 function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
@@ -375,7 +394,7 @@ export function OverviewTab({
                                 )}
                             </>
                         }
-                        description={featureFlag.name}
+                        description={featureFlag.name ? <FlagDescription name={featureFlag.name} /> : undefined}
                     />
                 )
             },
@@ -396,15 +415,15 @@ export function OverviewTab({
         updatedAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
             title: 'Release conditions',
-            width: 100,
+            width: 280,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
                 const variants = featureFlag.filters?.multivariate?.variants
                 const isMultivariate = variants && variants.length > 0
 
                 return (
-                    <div className="space-y-1">
-                        <div>
+                    <div className="max-w-[280px] space-y-1 overflow-x-auto">
+                        <div className="whitespace-nowrap">
                             {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
                                 <LemonTag type="highlight">{releaseText}</LemonTag>
                             ) : (
@@ -412,7 +431,7 @@ export function OverviewTab({
                             )}
                         </div>
                         {isMultivariate && (
-                            <div className="flex flex-wrap gap-1">
+                            <div className="flex gap-1">
                                 {variants.map((variant) => (
                                     <span key={variant.key}>
                                         <LemonTag type="muted" size="small">
@@ -513,6 +532,7 @@ export function OverviewTab({
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
+                mcpSurfaceKey="feature_flags.create"
             />
             {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />

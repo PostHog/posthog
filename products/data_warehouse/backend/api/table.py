@@ -304,11 +304,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+
         updates = request.data.get("updates", None)
         if updates is None:
             return response.Response(status=status.HTTP_200_OK)
 
-        table: DataWarehouseTable = self.get_object()
         if table.external_data_source is not None:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}

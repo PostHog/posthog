@@ -54,6 +54,7 @@ from products.notifications.backend.facade.api import (
 )
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +66,29 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
+
+
+def _strip_step_sessions(result: Any) -> Any:
+    """Remove the per-session funnel actors payload from a stored experiment metric result.
+
+    `step_sessions` powers the frontend's "view sessions per step" affordance off
+    a separate per-metric query, not this timeseries endpoint. Carrying it through
+    here multiplies the response by sessions × steps × variants and pushes MCP
+    consumers past their context window with no benefit.
+    """
+    if not isinstance(result, Mapping):
+        return result
+    cleaned = {k: v for k, v in result.items() if k != "step_sessions"}
+    baseline = cleaned.get("baseline")
+    if isinstance(baseline, dict):
+        cleaned["baseline"] = {k: v for k, v in baseline.items() if k != "step_sessions"}
+    variants = cleaned.get("variant_results")
+    if isinstance(variants, list):
+        cleaned["variant_results"] = [
+            {k: v for k, v in variant.items() if k != "step_sessions"} if isinstance(variant, dict) else variant
+            for variant in variants
+        ]
+    return cleaned
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -798,6 +822,13 @@ class ExperimentService:
             "aggregation_group_type_index": aggregation_group_type_index,
             **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
+
+        # Per-variant payloads (variant_key -> JSON string). Callers pass this when they need to
+        # attach metadata that the SDK can read alongside the variant assignment, e.g. prompt
+        # experiments map each variant to {"prompt_name": ..., "prompt_version": ...}.
+        feature_flag_payloads = params.get("feature_flag_payloads")
+        if feature_flag_payloads:
+            feature_flag_filters["payloads"] = feature_flag_payloads
 
         feature_flag_data: dict[str, Any] = {
             "key": feature_flag_key,
@@ -2101,6 +2132,10 @@ class ExperimentService:
                 except ValueError:
                     raise ValidationError("feature_flag_id must be an integer")
 
+            prompt_name = query_params.get("prompt_name")
+            if prompt_name:
+                queryset = queryset.filter(parameters__prompt_metadata__name=prompt_name)
+
         search = query_params.get("search")
         if search:
             queryset = queryset.filter(Q(name__icontains=search))
@@ -2299,7 +2334,7 @@ class ExperimentService:
                 metric_result = results_by_date[experiment_date]
 
                 if metric_result.status == "completed":
-                    timeseries[date_key] = metric_result.result
+                    timeseries[date_key] = _strip_step_sessions(metric_result.result)
                     completed_count += 1
                 elif metric_result.status == "failed":
                     if metric_result.error_message:
@@ -2337,7 +2372,7 @@ class ExperimentService:
 
         first_result = metric_results.first()
         last_result = metric_results.last()
-        return {
+        response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
@@ -2349,6 +2384,8 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
+        return response
 
     def request_timeseries_recalculation(
         self,

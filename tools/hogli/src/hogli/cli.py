@@ -13,6 +13,7 @@ import shutil
 import platform
 import importlib
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import click
@@ -171,6 +172,10 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - YAML-driven developer CLI."""
+    # Skip env loading during shell completion — completion fires this
+    # callback for every Tab press and doesn't need the env populated.
+    if not ctx.resilient_parsing:
+        _apply_env_config()
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
@@ -252,6 +257,164 @@ def concepts() -> None:
         if commands:
             click.echo(f"    Commands: {', '.join(sorted(commands))}")
         click.echo()
+
+
+# Sentinel that prevents `_apply_env_config` from re-execing into the wrap
+# command in an infinite loop. Set by hogli right before exec'ing the wrap
+# binary; checked at the top of `_apply_env_config` on subsequent invocations.
+_SECRETS_WRAPPED_ENV = "HOGLI_SECRETS_WRAPPED"
+
+# Substituted to the absolute path of the secrets file when building the wrap
+# argv. Kept as a constant so the README, AGENTS.md, and runtime stay in sync.
+_WRAP_FILE_PLACEHOLDER = "{file}"
+
+
+def _load_env_file(
+    path: os.PathLike[str],
+    only_if_unset: bool = True,
+    skip_pattern: str | None = None,
+) -> None:
+    """Load environment variables from a dotenv file (KEY=VALUE, # comments).
+
+    Args:
+        path: Path to the env file. Missing files are silently skipped
+            (matches just/mise/task convention so optional `.env.local` etc.
+            don't error).
+        only_if_unset: If True (default), don't overwrite existing env vars.
+            Lets shell env always win.
+        skip_pattern: If set, any line whose VALUE substring-matches this
+            pattern is skipped entirely. Used to keep secret-reference lines
+            (e.g. `op://...`) from leaking into the environment as literal
+            strings when the resolver isn't available. None disables filtering.
+    """
+    env_file = Path(path)
+    if not env_file.exists():
+        return
+
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if skip_pattern and skip_pattern in value:
+            continue
+        if only_if_unset and name in os.environ:
+            continue
+        os.environ[name] = value
+
+
+def _apply_env_config() -> None:
+    """Apply ``config.env`` from hogli.yaml: load files, optionally re-exec via wrap.
+
+    Behavior depends on what's declared in the manifest:
+
+    - No ``config.env``: no-op. hogli stays a transparent CLI.
+    - ``config.env.files``: each file is loaded with only_if_unset=True. First
+      file in the list wins for duplicate keys; shell env always wins.
+    - ``config.env.secrets``: wrapper for a secrets file (e.g. one containing
+      1Password ``op://`` refs).
+        * If the file exists, contains the marker, and the wrap binary is on
+          PATH: set the ``HOGLI_SECRETS_WRAPPED`` sentinel and ``execvp`` into
+          the wrap command, which re-runs hogli with secrets resolved. Files
+          are pre-loaded so wrap's child inherits them.
+        * If the wrap binary is missing or the marker doesn't hit, load the
+          file directly. Lines whose value contains the marker are skipped
+          (so unresolved refs don't leak as garbage env values).
+        * If the sentinel is already set we are the child of a wrap re-exec —
+          skip the wrap entirely and proceed to load the files normally.
+
+    Precedence (in both wrap-resolved and fallback paths, highest wins):
+    shell env > secrets file > env files (earlier files in the list win for
+    duplicate keys).
+    """
+    manifest = get_manifest()
+    try:
+        secrets = manifest.secrets_config
+        env_files = manifest.env_files
+    except ValueError as e:
+        click.echo(f"⚠️  Invalid config.env in hogli.yaml: {e}", err=True)
+        return
+
+    # Consume the sentinel — we're either the wrap-child (sentinel set) or
+    # the initial parent (sentinel unset). Pop so the sentinel never leaks
+    # to subprocesses or repeat in-process calls.
+    already_wrapped = os.environ.pop(_SECRETS_WRAPPED_ENV, None) is not None
+
+    if secrets is not None and not already_wrapped:
+        _maybe_reexec_via_wrap(secrets, env_files)
+
+        # Reached here = no re-exec happened (no marker hit, file missing, or
+        # wrap binary missing). Load secrets BEFORE env_files so .env.local
+        # literals override .env.development / .env.services — matches the
+        # wrap-resolved path's precedence (where op layers .env.local on top).
+        _load_env_file(secrets["file"], only_if_unset=True, skip_pattern=secrets["marker"])
+
+    for path in env_files:
+        _load_env_file(path, only_if_unset=True)
+
+
+def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> None:
+    """Re-exec hogli under the configured wrap command if the secrets file warrants it.
+
+    Returns normally if no re-exec is needed (caller falls through to direct
+    file loading). Otherwise replaces the current process via ``os.execvp``.
+    """
+    secrets_file: Path = secrets["file"]
+    marker: str = secrets["marker"]
+    wrap: list[str] | None = secrets["wrap"]
+
+    if wrap is None or not secrets_file.exists():
+        return
+
+    # Marker-gated re-exec: only wrap when the file actually references the
+    # external resolver. Saves a process exec on dev workflows that haven't
+    # set up secrets yet.
+    try:
+        if marker not in secrets_file.read_text():
+            return
+    except OSError:
+        return
+
+    wrap_binary = wrap[0]
+    if not shutil.which(wrap_binary):
+        click.echo(
+            f"⚠️  {secrets_file.name} contains '{marker}' refs but the configured wrap binary "
+            f"'{wrap_binary}' is not on PATH.",
+            err=True,
+        )
+        click.echo(
+            f"   Refs will be skipped — services that need them will fail with their own errors. "
+            f"Install '{wrap_binary}' or replace the refs with literal values in {secrets_file.name}.",
+            err=True,
+        )
+        return
+
+    # Pre-load non-secrets files so the wrap binary's child inherits them.
+    # The wrap binary layers secrets on top, overriding these for any key
+    # also defined in the secrets file.
+    for path in env_files:
+        _load_env_file(path, only_if_unset=True)
+
+    resolved_wrap = [arg.replace(_WRAP_FILE_PLACEHOLDER, str(secrets_file)) for arg in wrap]
+    os.environ[_SECRETS_WRAPPED_ENV] = "1"
+    os.execvp(resolved_wrap[0], [*resolved_wrap, sys.executable, "-m", "hogli", *sys.argv[1:]])
+
+
+@cli.command(name="run", help="Run a command with the manifest's resolved environment")
+@click.argument("command", nargs=-1, required=True)
+def run_with_env(command: tuple[str, ...]) -> None:
+    """Run a command with the env loaded from ``config.env`` in hogli.yaml.
+
+    Env loading (files + optional wrap) is applied by the parent ``cli()``
+    group before this command runs, so by the time we get here ``os.environ``
+    already reflects whatever the manifest declared. This command is just a
+    thin ``execvp`` so callers don't need to repeat the wrapper pattern.
+
+    Examples:
+        hogli run ./manage.py shell
+        hogli run pytest posthog/api/
+    """
+    os.execvp(command[0], list(command))
 
 
 def _register_script_commands() -> None:

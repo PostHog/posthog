@@ -21,6 +21,7 @@ from starlette.types import ASGIApp
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
 from llm_gateway.callbacks import init_callbacks
+from llm_gateway.circuit_breaker import build_anthropic_circuit_breaker, publish_anthropic_breaker_gauges_loop
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
@@ -31,6 +32,7 @@ from llm_gateway.rate_limiting.cost_throttles import (
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
 )
+from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.plan_resolver import PlanResolver
@@ -138,16 +140,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Redis connected")
 
     product_throttle = ProductCostThrottle(redis=app.state.redis)
+    denial_capturer: PosthogDenialCapturer | None = None
+    if settings.posthog_project_token:
+        denial_capturer = PosthogDenialCapturer(
+            api_key=settings.posthog_project_token,
+            host=settings.posthog_host,
+        )
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
             product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
-        ]
+        ],
+        denial_capturer=denial_capturer,
     )
-    logger.info("Throttle runner initialized")
+    logger.info("Throttle runner initialized", denial_capture_enabled=denial_capturer is not None)
 
     app.state.cost_gauge_task = asyncio.create_task(publish_product_cost_gauges_loop(product_throttle))
+
+    app.state.anthropic_circuit_breaker = build_anthropic_circuit_breaker(app.state.redis)
+    logger.info(
+        "anthropic_circuit_breaker_initialized",
+        enabled=settings.anthropic_circuit_breaker_enabled,
+        failure_threshold=settings.anthropic_circuit_breaker_failure_threshold,
+        window_seconds=settings.anthropic_circuit_breaker_window_seconds,
+        bypass_probability=settings.anthropic_circuit_breaker_bypass_probability,
+        min_requests=settings.anthropic_circuit_breaker_min_requests,
+    )
+    app.state.anthropic_breaker_gauge_task = asyncio.create_task(
+        publish_anthropic_breaker_gauges_loop(app.state.anthropic_circuit_breaker)
+    )
 
     app.state.http_client = httpx.AsyncClient()
     app.state.plan_resolver = PlanResolver(
@@ -186,6 +208,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         cost_gauge_task.cancel()
         try:
             await cost_gauge_task
+        except asyncio.CancelledError:
+            pass
+    breaker_gauge_task = getattr(app.state, "anthropic_breaker_gauge_task", None)
+    if breaker_gauge_task is not None:
+        breaker_gauge_task.cancel()
+        try:
+            await breaker_gauge_task
         except asyncio.CancelledError:
             pass
     if app.state.http_client:

@@ -13437,3 +13437,53 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the mock was called
         mock_reconstruct.assert_called_once()
+
+
+class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_passes_runtime_all(self, mock_get_flags):
+        """The Person → Feature flags tab must bypass Rust's header-based
+        runtime detection — otherwise flags whose evaluation_runtime is
+        "client" or "server" disappear from the tab."""
+        mock_get_flags.return_value = {"flags": {}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+
+    @parameterized.expand(
+        [
+            ("all",),
+            ("client",),
+            ("server",),
+        ]
+    )
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_surfaces_flag_for_runtime(self, runtime, mock_get_flags):
+        """Each stored runtime must round-trip through evaluation_reasons with
+        its evaluation.reason intact — this is the shape
+        relatedFeatureFlagsLogic.ts depends on."""
+        flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{runtime}", evaluation_runtime=runtime)
+        mock_get_flags.return_value = {
+            "flags": {
+                flag.key: {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn(flag.key, data)
+        self.assertEqual(data[flag.key]["evaluation"]["reason"], "condition_match")

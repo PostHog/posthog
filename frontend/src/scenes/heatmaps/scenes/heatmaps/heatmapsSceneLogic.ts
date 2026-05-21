@@ -8,7 +8,6 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { Breadcrumb, HeatmapSavedFilters, HeatmapScreenshotType } from '~/types'
 
 import type { heatmapsSceneLogicType } from './heatmapsSceneLogicType'
@@ -73,10 +72,6 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                     },
                 ]
             },
-        ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            () => [],
-            (): SidePanelSceneContext => ({ settings_section: 'environment-heatmaps' }),
         ],
     })),
     listeners(({ actions, values }) => ({
