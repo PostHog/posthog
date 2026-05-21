@@ -33,6 +33,7 @@ __all__ = [
     "EventsArgsAlignment",
     "EventsToolUsed",
     "IssueDrilldownOrder",
+    "IssueInputAlignment",
     "IssueIdMatchesTarget",
     "IssuesListInputAlignment",
     "IssuesListToolUsed",
@@ -361,6 +362,46 @@ Ignore `filterTestAccounts`, `volumeResolution`, `limit`, `offset` unless EXPECT
 </actual_input>
 
 Does the actual input match the expected one on the material fields above? Answer `yes` or `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=_JUDGE_MODEL,
+            max_completion_tokens=512,
+            **kwargs,
+        )
+
+
+class IssueInputAlignment(_AlignmentClassifier):
+    """Binary yes/no: do `query-error-tracking-issue` args match the prompt?"""
+
+    _expected_key = "issue_input"
+
+    def _extract_actual(self, output: dict[str, Any] | None) -> dict[str, Any] | None:
+        return extract_last_query_issue_input(output)
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="issue_input_alignment",
+            prompt_template="""
+You are comparing the ACTUAL arguments an agent passed to PostHog's `query-error-tracking-issue` MCP tool against the EXPECTED shape, given the USER_PROMPT.
+
+Material fields when EXPECTED sets them:
+- `dateRange.date_from` / `dateRange.date_to` — relative windows like `-14d`, `-2w`, `-7d`, and explicit dates are acceptable when equivalent. EXPECTED omitting `dateRange` means the API default range is fine.
+
+Ignore `issueId` for this check (covered by a separate scorer). Ignore `filterTestAccounts`, `volumeResolution`, and response-shaping fields unless EXPECTED set them.
+
+<user_prompt>
+{{output.prompt}}
+</user_prompt>
+
+<expected_input>
+{{expected.expected}}
+</expected_input>
+
+<actual_input>
+{{output.actual}}
+</actual_input>
+
+Does the actual issue input match the expected one on the material fields above? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
             model=_JUDGE_MODEL,

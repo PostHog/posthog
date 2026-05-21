@@ -37,6 +37,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     ERROR_TRACKING_WRITE_TOOLS,
     IssueDrilldownOrder,
     IssueIdMatchesTarget,
+    IssueInputAlignment,
 )
 from ee.hogai.eval.sandboxed.error_tracking.seeders import seed_error_tracking_issues
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
@@ -51,6 +52,7 @@ def _drilldown_case(
     requires_recordings: bool = False,
     forbids_events: bool = False,
     forbids_recordings: bool = False,
+    issue_input: dict[str, Any] | None = None,
 ) -> SandboxedEvalCase:
     expected: dict[str, Any] = {
         "target_issue": {"name": target_issue_name},
@@ -61,6 +63,8 @@ def _drilldown_case(
             "forbids_recordings": forbids_recordings,
         },
     }
+    if issue_input is not None:
+        expected["issue_input"] = issue_input
     return SandboxedEvalCase(
         name=name,
         prompt=prompt,
@@ -84,6 +88,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
             target_issue_name="Checkout API timeout",
             forbids_events=True,
             forbids_recordings=True,
+            issue_input={"dateRange": {"date_from": "-14d"}},
         ),
         # Stack-trace ask — requires query-error-tracking-issue-events to pull
         # the sampled exception payload. No replay context asked for, so
@@ -120,6 +125,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
             NoToolCall(forbidden=ERROR_TRACKING_WRITE_TOOLS, name="no_error_tracking_write"),
             IssueDrilldownOrder(),
             IssueIdMatchesTarget(),
+            IssueInputAlignment(),
         ],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,

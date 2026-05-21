@@ -31,6 +31,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.event.sql import INSERT_EVENT_SQL
 from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
@@ -98,6 +99,7 @@ _ISSUE_SPECS: tuple[dict[str, Any], ...] = (
         "function": "submitInvite",
         "source": "https://app.hedgebox.test/static/js/team-settings.js",
         "days_ago": (3, 7),
+        "seed_replay": True,
     },
     {
         "name": "Legacy billing alert",
@@ -115,7 +117,7 @@ _ISSUE_SPECS: tuple[dict[str, Any], ...] = (
 EVAL_ISSUE_NAMES: tuple[str, ...] = tuple(spec["name"] for spec in _ISSUE_SPECS)
 
 
-def _build_exception_properties(spec: dict[str, Any], issue_id: str) -> dict[str, Any]:
+def _build_exception_properties(spec: dict[str, Any], issue_id: str, session_id: str) -> dict[str, Any]:
     """Construct the ``$exception`` event payload for one occurrence.
 
     Mirrors the shape Hedgebox's demo seed writes (see
@@ -142,7 +144,7 @@ def _build_exception_properties(spec: dict[str, Any], issue_id: str) -> dict[str
         "$current_url": spec["url"],
         "$host": "app.hedgebox.test",
         "$pathname": spec["url"].split("hedgebox.test", 1)[-1] or "/",
-        "$session_id": str(uuid.uuid4()),
+        "$session_id": session_id,
         "$exception_level": "error",
         "$exception_handled": False,
         "$exception_issue_id": issue_id,
@@ -201,6 +203,47 @@ def _insert_exception_event(
     )
 
 
+def _insert_session_replay_summary(
+    *,
+    team: Team,
+    distinct_id: str,
+    session_id: str,
+    first_timestamp: datetime,
+    last_timestamp: datetime,
+    first_url: str,
+) -> None:
+    first_timestamp_utc = first_timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+    last_timestamp_utc = last_timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+    sync_execute(
+        INSERT_SINGLE_SESSION_REPLAY,
+        {
+            "session_id": session_id,
+            "team_id": team.id,
+            "distinct_id": distinct_id,
+            "first_timestamp": first_timestamp_utc,
+            "last_timestamp": last_timestamp_utc,
+            "first_url": first_url,
+            "all_urls": [first_url],
+            "click_count": 2,
+            "keypress_count": 1,
+            "mouse_activity_count": 4,
+            "active_milliseconds": 45_000,
+            "console_log_count": 0,
+            "console_warn_count": 0,
+            "console_error_count": 1,
+            "snapshot_source": "web",
+            "snapshot_library": "web",
+            "size": 1024,
+            "block_urls": [first_url],
+            "block_first_timestamps": [first_timestamp],
+            "block_last_timestamps": [last_timestamp],
+            "retention_period_days": 30,
+            "is_deleted": 0,
+            "_timestamp": first_timestamp.timestamp(),
+        },
+    )
+
+
 def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """Seed deterministic error-tracking issues + events on the per-case team.
 
@@ -237,12 +280,22 @@ def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str,
         for index, days_ago in enumerate(spec["days_ago"]):
             distinct_id = _EVAL_DISTINCT_IDS[index % len(_EVAL_DISTINCT_IDS)]
             timestamp = now - timedelta(days=days_ago, hours=index % 5)
+            session_id = str(uuid.uuid4())
             _insert_exception_event(
                 team=team,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
-                properties=_build_exception_properties(spec, issue_id),
+                properties=_build_exception_properties(spec, issue_id, session_id),
             )
+            if spec.get("seed_replay"):
+                _insert_session_replay_summary(
+                    team=team,
+                    distinct_id=distinct_id,
+                    session_id=session_id,
+                    first_timestamp=timestamp - timedelta(minutes=12),
+                    last_timestamp=timestamp + timedelta(minutes=3),
+                    first_url=spec["url"],
+                )
 
         lookup.append({"id": issue_id, "name": spec["name"]})
 
