@@ -13941,6 +13941,11 @@ export namespace Schemas {
       results: ErrorTrackingGroupingRule[];
     }
 
+    export interface ErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+    }
+
     export interface ErrorTrackingImpact {
       /** Exception occurrence count. */
       occurrences?: number;
@@ -26802,6 +26807,11 @@ export namespace Schemas {
       disabled_data?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
     }
 
     /**
