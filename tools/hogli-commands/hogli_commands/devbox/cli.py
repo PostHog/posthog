@@ -485,7 +485,7 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
     click.echo("  This will be saved and reused for future workspaces.")
     if existing_uri:
         click.echo("  Press Enter to keep the current URL, or type a new one.")
-        click.echo("  To remove dotfiles entirely, run `hogli devbox:setup --reset-dotfiles`.")
+        click.echo("  To remove dotfiles entirely, run `hogli devbox:config:rm dotfiles`.")
     click.echo()
 
     dotfiles_uri = click.prompt(
@@ -626,53 +626,50 @@ def _reset_user_secret(secret_name: str) -> None:
         click.echo(f"Nothing to delete: '{secret_name}' was not set.")
 
 
-def _apply_resets(
-    *,
-    reset_git_identity: bool,
-    reset_git_signing: bool,
-    reset_dotfiles: bool,
-    reset_claude: bool,
-) -> bool:
-    """Apply any requested resets and return whether at least one fired.
+def _reset_git_identity() -> None:
+    """Drop the saved Git name/email so new workspaces re-prompt."""
+    config = load_config()
+    if not (config.get("git_name") or config.get("git_email")):
+        click.echo("Nothing to clear: Git identity was not set.")
+        return
+    clear_git_identity()
+    click.echo("Cleared saved Git identity. New workspaces will prompt for one.")
 
-    Dotfiles reset also pushes ``dotfiles_uri=""`` to every existing workspace
-    so the template parameter is overridden — clearing the local config alone
-    only affects future workspaces.
+
+def _reset_dotfiles() -> None:
+    """Drop the saved dotfiles URI and push an empty parameter to existing workspaces.
+
+    Clearing the local config alone only affects future workspaces -- existing
+    workspaces keep cloning the old URL until the template parameter is overridden.
     """
-    fired = False
-
-    if reset_git_identity:
-        clear_git_identity()
-        click.echo("Cleared saved Git identity. New workspaces will prompt for one.")
-        fired = True
-
-    if reset_git_signing:
-        _reset_user_secret(GIT_SIGNING_KEY_SECRET)
-        fired = True
-
-    if reset_dotfiles:
-        clear_dotfiles_uri()
-        click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
-        for ws in list_user_workspaces():
-            ws_name = ws.get("name")
-            if isinstance(ws_name, str) and ws_name:
-                update_workspace_parameters(ws_name, {DOTFILES_URI_PARAMETER: ""})
-                click.echo(f"  reset on '{ws_name}'")
-        fired = True
-
-    if reset_claude:
-        _reset_user_secret(CLAUDE_CODE_OAUTH_ENV)
-        fired = True
-
-    return fired
+    if not load_config().get("dotfiles_uri"):
+        click.echo("Nothing to clear: dotfiles was not set.")
+        return
+    clear_dotfiles_uri()
+    click.echo("Cleared saved dotfiles repo. Pushing empty parameter to existing workspaces...")
+    for ws in list_user_workspaces():
+        ws_name = ws.get("name")
+        if isinstance(ws_name, str) and ws_name:
+            update_workspace_parameters(ws_name, {DOTFILES_URI_PARAMETER: ""})
+            click.echo(f"  reset on '{ws_name}'")
 
 
-def _explicit_option_flag_passed(
-    configure_flags: list[bool | None],
-    reset_flags: list[bool],
-) -> bool:
-    """Return whether the user passed any per-option flag (configure or reset)."""
-    return any(flag is not None for flag in configure_flags) or any(reset_flags)
+# One handler per configurable item. Adding a new key is a single entry --
+# the orchestrator below doesn't grow a new branch.
+_CONFIG_RESETTERS: dict[str, Callable[[], None]] = {
+    "git-identity": _reset_git_identity,
+    "git-signing": lambda: _reset_user_secret(GIT_SIGNING_KEY_SECRET),
+    "dotfiles": _reset_dotfiles,
+    "claude": lambda: _reset_user_secret(CLAUDE_CODE_OAUTH_ENV),
+}
+
+# Keys that operate on Coder user secrets (require server >= 2.33).
+_CONFIG_KEYS_NEEDING_SECRETS = {"git-signing", "claude"}
+
+
+def _explicit_option_flag_passed(configure_flags: list[bool | None]) -> bool:
+    """Return whether the user passed any explicit --configure-* / --skip-configure-* flag."""
+    return any(flag is not None for flag in configure_flags)
 
 
 def _confirm_run_setup() -> bool:
@@ -721,26 +718,6 @@ def _confirm_run_setup() -> bool:
     default=None,
     help="Manage the CLAUDE_CODE_OAUTH_TOKEN Coder user secret for this user",
 )
-@click.option(
-    "--reset-git-identity",
-    is_flag=True,
-    help="Clear the saved Git identity (does not affect existing workspaces)",
-)
-@click.option(
-    "--reset-git-signing",
-    is_flag=True,
-    help=f"Delete the {GIT_SIGNING_KEY_SECRET} Coder user secret",
-)
-@click.option(
-    "--reset-dotfiles",
-    is_flag=True,
-    help="Clear the saved dotfiles repo and push an empty parameter to existing workspaces",
-)
-@click.option(
-    "--reset-claude",
-    is_flag=True,
-    help=f"Delete the {CLAUDE_CODE_OAUTH_ENV} Coder user secret",
-)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
     configure_ssh: bool | None,
@@ -748,22 +725,17 @@ def devbox_setup(
     configure_git_signing: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
-    reset_git_identity: bool,
-    reset_git_signing: bool,
-    reset_dotfiles: bool,
-    reset_claude: bool,
     verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
     explicit = _explicit_option_flag_passed(
-        configure_flags=[
+        [
             configure_ssh,
             configure_git_identity,
             configure_git_signing,
             configure_dotfiles,
             configure_claude_setup,
         ],
-        reset_flags=[reset_git_identity, reset_git_signing, reset_dotfiles, reset_claude],
     )
 
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
@@ -772,25 +744,6 @@ def devbox_setup(
     ensure_coder_reachable()
     ensure_coder_installed(verbose=verbose)
     ensure_coder_authenticated()
-
-    reset_fired = _apply_resets(
-        reset_git_identity=reset_git_identity,
-        reset_git_signing=reset_git_signing,
-        reset_dotfiles=reset_dotfiles,
-        reset_claude=reset_claude,
-    )
-
-    # A --reset-* flag clears the saved value; without this, the matching
-    # maybe_configure_* helper sees an empty config and immediately re-prompts
-    # for what the user just asked to remove.
-    if reset_git_identity and configure_git_identity is None:
-        configure_git_identity = False
-    if reset_git_signing and configure_git_signing is None:
-        configure_git_signing = False
-    if reset_dotfiles and configure_dotfiles is None:
-        configure_dotfiles = False
-    if reset_claude and configure_claude_setup is None:
-        configure_claude_setup = False
 
     status = _collect_setup_status()
     _print_setup_status(status)
@@ -809,10 +762,6 @@ def devbox_setup(
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_secret(configure_claude_setup)
     print_setup_summary()
-
-    if reset_fired:
-        click.echo()
-        click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the resets.")
 
 
 @click.command(name="devbox:list", help="List your devboxes")
@@ -1226,6 +1175,49 @@ def devbox_secret_rm(name: str) -> None:
             click.echo(result.stderr.strip(), err=True)
         _fail(f"Failed to delete user secret '{name}'.")
     click.echo(f"Deleted user secret '{name}'.")
+
+
+@click.command(name="devbox:config:show", help="Show saved devbox setup configuration")
+def devbox_config_show() -> None:
+    """Print the local devbox configuration saved by ``devbox:setup``."""
+    ensure_runtime_ready()
+    status = _collect_setup_status()
+    if any(value for _, value in status):
+        _print_setup_status(status)
+    else:
+        click.echo("Nothing configured yet. Run `hogli devbox:setup`.")
+
+
+@click.command(name="devbox:config:rm", help="Clear saved devbox configuration items")
+@click.argument("keys", nargs=-1)
+@click.option("--all", "reset_all", is_flag=True, help="Clear every saved item")
+def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
+    """Remove one or more saved devbox configuration items.
+
+    Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
+    ``git-identity``, ``git-signing``, ``dotfiles``, ``claude``.
+    """
+    valid = tuple(_CONFIG_RESETTERS)
+    if reset_all and keys:
+        _fail("Pass --all or one or more keys, not both. Valid keys: " + ", ".join(valid))
+    if not reset_all and not keys:
+        _fail("Pass at least one key, or --all. Valid keys: " + ", ".join(valid))
+
+    unknown = [k for k in keys if k not in _CONFIG_RESETTERS]
+    if unknown:
+        suffix = "s" if len(unknown) > 1 else ""
+        _fail(f"Unknown key{suffix}: {', '.join(unknown)}. Valid keys: {', '.join(valid)}")
+
+    ensure_runtime_ready()
+    targets = valid if reset_all else keys
+    if any(t in _CONFIG_KEYS_NEEDING_SECRETS for t in targets):
+        _ensure_user_secrets_supported()
+
+    for key in targets:
+        _CONFIG_RESETTERS[key]()
+
+    click.echo()
+    click.echo("Restart any running devbox (`hogli devbox:restart`) to pick up the resets.")
 
 
 @click.command(name="devbox:destroy", help="Destroy your devbox and its data")

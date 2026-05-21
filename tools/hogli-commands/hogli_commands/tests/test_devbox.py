@@ -1481,73 +1481,117 @@ def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: True)
 
 
-class TestDevboxSetupResets:
-    """Cover the --reset-* flags added to ``hogli devbox:setup``."""
+@pytest.fixture
+def stub_config_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the runtime guards that ``devbox:config:*`` commands call before doing work."""
+    monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+    monkeypatch.setattr(devbox_cli, "_ensure_user_secrets_supported", lambda: None)
+    monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+    monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
 
-    def test_reset_dotfiles_clears_config_and_pushes_empty_param_to_existing_workspaces(
+
+class TestDevboxConfigCommands:
+    """Cover the ``devbox:config:show`` and ``devbox:config:rm`` commands."""
+
+    def test_show_reports_when_nothing_configured(
+        self,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        result = runner.invoke(cli, ["devbox:config:show"])
+
+        assert result.exit_code == 0
+        assert "Nothing configured yet" in result.output
+
+    def test_show_renders_saved_settings(
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
-        stub_setup_environment: None,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config_path.write_text(
+            json.dumps(
+                {
+                    "git_name": "PostHog Engineer",
+                    "git_email": "engineer@example.com",
+                    "dotfiles_uri": "https://github.com/user/dotfiles",
+                }
+            )
+        )
+        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [{"name": coder.GIT_SIGNING_KEY_SECRET}])
+
+        result = runner.invoke(cli, ["devbox:config:show"])
+
+        assert result.exit_code == 0
+        assert "Currently configured:" in result.output
+        assert "PostHog Engineer <engineer@example.com>" in result.output
+        assert "https://github.com/user/dotfiles" in result.output
+        assert "Git signing" in result.output
+
+    def test_rm_dotfiles_clears_config_and_pushes_empty_param_to_existing_workspaces(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
     ) -> None:
         devbox_config_path.write_text(json.dumps({"dotfiles_uri": "https://github.com/user/dotfiles"}))
-
-        param_pushes: list[tuple[str, dict[str, str]]] = []
         monkeypatch.setattr(
             devbox_cli,
             "list_user_workspaces",
             lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-mobile"}],
         )
+        param_pushes: list[tuple[str, dict[str, str]]] = []
         monkeypatch.setattr(
             devbox_cli,
             "update_workspace_parameters",
             lambda name, params: param_pushes.append((name, params)),
         )
 
-        result = runner.invoke(cli, ["devbox:setup", "--reset-dotfiles"])
+        result = runner.invoke(cli, ["devbox:config:rm", "dotfiles"])
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         assert devbox_config.load_config() == {}
         assert param_pushes == [
             ("devbox-test-user", {"dotfiles_uri": ""}),
             ("devbox-test-user-mobile", {"dotfiles_uri": ""}),
         ]
         assert "Cleared saved dotfiles repo" in result.output
+        assert "Restart any running devbox" in result.output
 
-    def test_reset_git_identity_clears_only_identity_keys(
+    def test_rm_git_identity_clears_only_identity_keys(
         self,
         devbox_config_path: Path,
-        stub_setup_environment: None,
+        stub_config_runtime: None,
     ) -> None:
         devbox_config_path.write_text(
             json.dumps(
                 {
                     "git_name": "PostHog Engineer",
-                    "git_email": "test-user@example.com",
+                    "git_email": "engineer@example.com",
                     "dotfiles_uri": "https://github.com/user/dotfiles",
                 }
             )
         )
 
-        result = runner.invoke(cli, ["devbox:setup", "--reset-git-identity"])
+        result = runner.invoke(cli, ["devbox:config:rm", "git-identity"])
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         assert devbox_config.load_config() == {"dotfiles_uri": "https://github.com/user/dotfiles"}
         assert "Cleared saved Git identity" in result.output
 
     @pytest.mark.parametrize(
-        "flag,expected_secret",
+        "key,expected_secret",
         [
-            ("--reset-git-signing", coder.GIT_SIGNING_KEY_SECRET),
-            ("--reset-claude", coder.CLAUDE_CODE_OAUTH_ENV),
+            ("git-signing", coder.GIT_SIGNING_KEY_SECRET),
+            ("claude", coder.CLAUDE_CODE_OAUTH_ENV),
         ],
         ids=["git-signing", "claude"],
     )
-    def test_reset_flag_deletes_user_secret(
+    def test_rm_secret_keys_delete_the_right_coder_secret(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        stub_setup_environment: None,
-        flag: str,
+        stub_config_runtime: None,
+        key: str,
         expected_secret: str,
     ) -> None:
         deleted: list[str] = []
@@ -1557,63 +1601,87 @@ class TestDevboxSetupResets:
             lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
         )
 
-        result = runner.invoke(cli, ["devbox:setup", flag])
+        result = runner.invoke(cli, ["devbox:config:rm", key])
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         assert deleted == [expected_secret]
 
-    def test_reset_dotfiles_reports_when_no_existing_workspaces(
+    def test_rm_multiple_keys_clears_each(
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
-        stub_setup_environment: None,
+        stub_config_runtime: None,
     ) -> None:
-        devbox_config_path.write_text(json.dumps({"dotfiles_uri": "https://github.com/user/dotfiles"}))
-        param_pushes: list[tuple[str, dict[str, str]]] = []
-        monkeypatch.setattr(
-            devbox_cli,
-            "update_workspace_parameters",
-            lambda name, params: param_pushes.append((name, params)),
+        devbox_config_path.write_text(
+            json.dumps({"git_name": "Eng", "git_email": "eng@example.com", "dotfiles_uri": "https://x/y"})
         )
-
-        result = runner.invoke(cli, ["devbox:setup", "--reset-dotfiles"])
-
-        assert result.exit_code == 0
-        assert devbox_config.load_config() == {}
-        assert param_pushes == []
-
-    @pytest.mark.parametrize(
-        "flag,helper,arg_name",
-        [
-            ("--reset-git-identity", "maybe_configure_git_identity", "configure_git_identity"),
-            ("--reset-git-signing", "maybe_configure_git_signing", "configure_git_signing"),
-            ("--reset-dotfiles", "maybe_configure_dotfiles", "configure_dotfiles"),
-            ("--reset-claude", "maybe_configure_claude_secret", "configure_claude"),
-        ],
-        ids=["git-identity", "git-signing", "dotfiles", "claude"],
-    )
-    def test_reset_flag_skips_matching_configure_helper(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        stub_setup_environment: None,
-        flag: str,
-        helper: str,
-        arg_name: str,
-    ) -> None:
-        # Without this skip, the helper sees the just-cleared config and re-prompts
-        # the user for what --reset-* was supposed to remove.
-        captured: dict[str, object] = {}
-        monkeypatch.setattr(devbox_cli, helper, lambda value, *a, **kw: captured.update({arg_name: value}))
+        deleted: list[str] = []
         monkeypatch.setattr(
             devbox_cli,
             "delete_user_secret",
-            lambda name: subprocess.CompletedProcess(["coder"], 0, "", ""),
+            lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
         )
 
-        result = runner.invoke(cli, ["devbox:setup", flag])
+        result = runner.invoke(cli, ["devbox:config:rm", "git-identity", "claude"])
 
-        assert result.exit_code == 0
-        assert captured == {arg_name: False}
+        assert result.exit_code == 0, result.output
+        assert devbox_config.load_config() == {"dotfiles_uri": "https://x/y"}
+        assert deleted == [coder.CLAUDE_CODE_OAUTH_ENV]
+
+    def test_rm_all_clears_every_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config_path.write_text(
+            json.dumps({"git_name": "Eng", "git_email": "eng@example.com", "dotfiles_uri": "https://x/y"})
+        )
+        deleted: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
+        )
+
+        result = runner.invoke(cli, ["devbox:config:rm", "--all"])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.load_config() == {}
+        assert deleted == [coder.GIT_SIGNING_KEY_SECRET, coder.CLAUDE_CODE_OAUTH_ENV]
+
+    def test_rm_with_no_args_fails_with_valid_keys_hint(self, stub_config_runtime: None) -> None:
+        result = runner.invoke(cli, ["devbox:config:rm"])
+
+        assert result.exit_code != 0
+        assert "git-identity" in result.output
+        assert "git-signing" in result.output
+        assert "dotfiles" in result.output
+        assert "claude" in result.output
+
+    def test_rm_with_unknown_key_fails_with_valid_keys_hint(self, stub_config_runtime: None) -> None:
+        result = runner.invoke(cli, ["devbox:config:rm", "bogus"])
+
+        assert result.exit_code != 0
+        assert "Unknown key" in result.output
+        assert "bogus" in result.output
+
+    def test_rm_rejects_all_combined_with_positional_keys(self, stub_config_runtime: None) -> None:
+        result = runner.invoke(cli, ["devbox:config:rm", "--all", "dotfiles"])
+
+        assert result.exit_code != 0
+        assert "--all" in result.output
+
+    def test_rm_is_idempotent_for_already_empty_local_state(
+        self,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        # No config file written and no secrets stubbed -- clearing should still succeed.
+        result = runner.invoke(cli, ["devbox:config:rm", "dotfiles"])
+
+        assert result.exit_code == 0, result.output
+        assert "Nothing to clear: dotfiles was not set." in result.output
 
 
 class TestDevboxSetupGate:
@@ -1626,20 +1694,6 @@ class TestDevboxSetupGate:
         monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: gate_calls.append(None) or True)
 
         result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
-
-        assert result.exit_code == 0
-        assert gate_calls == []
-
-    def test_gate_bypassed_when_explicit_reset_flag_passed(
-        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
-    ) -> None:
-        gate_calls: list[None] = []
-        monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: gate_calls.append(None) or True)
-        monkeypatch.setattr(
-            devbox_cli, "delete_user_secret", lambda name: subprocess.CompletedProcess(["coder"], 0, "", "")
-        )
-
-        result = runner.invoke(cli, ["devbox:setup", "--reset-claude"])
 
         assert result.exit_code == 0
         assert gate_calls == []
