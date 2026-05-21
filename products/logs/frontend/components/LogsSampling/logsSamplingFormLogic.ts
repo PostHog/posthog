@@ -132,7 +132,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
 
     loaders(({ values }) => ({
         filterPreview: [
-            null as { time: string; severity: string; count: number }[] | null,
+            null as { time: string; service_name: string; count: number }[] | null,
             {
                 loadFilterPreview: async (_, breakpoint) => {
                     await breakpoint(400)
@@ -144,10 +144,10 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                         query: {
                             dateRange: { date_from: '-24h', date_to: null },
                             filterGroup: wrapFilterGroup(form.filter_group) as PropertyGroupFilter,
-                            sparklineBreakdownBy: 'severity',
+                            sparklineBreakdownBy: 'service',
                         },
                     })
-                    return response as { time: string; severity: string; count: number }[]
+                    return response as { time: string; service_name: string; count: number }[]
                 },
             },
         ],

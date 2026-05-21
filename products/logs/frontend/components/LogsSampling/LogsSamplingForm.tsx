@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { dataColorVars } from 'lib/colors'
 import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -19,48 +20,47 @@ const ACTION_OPTIONS: { value: RuleTypeEnumApi; label: string }[] = [
     { value: RuleTypeEnumApi.RateLimit, label: 'Rate limit' },
 ]
 
-const SEVERITY_COLORS: Record<string, string> = {
-    fatal: 'danger-dark',
-    error: 'danger',
-    warn: 'warning',
-    info: 'brand-blue',
-    debug: 'muted',
-    trace: 'muted-alt',
-}
+const TOP_SERVICES_LIMIT = 10
 
 interface SparklineSeriesData {
     labels: string[]
     series: SparklineTimeSeries[]
     total: number
+    truncatedServiceCount: number
 }
 
-function buildSparklineSeries(points: { time: string; severity: string; count: number }[] | null): SparklineSeriesData {
+function buildSparklineSeries(
+    points: { time: string; service_name: string; count: number }[] | null
+): SparklineSeriesData {
     if (!points || points.length === 0) {
-        return { labels: [], series: [], total: 0 }
+        return { labels: [], series: [], total: 0, truncatedServiceCount: 0 }
     }
     const timeOrder: string[] = []
     const seenTimes = new Set<string>()
-    const bySeverity: Record<string, Map<string, number>> = {}
+    const byService: Record<string, Map<string, number>> = {}
+    const serviceTotals = new Map<string, number>()
     let total = 0
     for (const point of points) {
         if (!seenTimes.has(point.time)) {
             seenTimes.add(point.time)
             timeOrder.push(point.time)
         }
-        const sev = point.severity || 'info'
-        const bucket = bySeverity[sev] ?? (bySeverity[sev] = new Map())
+        const svc = point.service_name || 'unknown'
+        const bucket = byService[svc] ?? (byService[svc] = new Map())
         bucket.set(point.time, (bucket.get(point.time) ?? 0) + point.count)
+        serviceTotals.set(svc, (serviceTotals.get(svc) ?? 0) + point.count)
         total += point.count
     }
     const labels = timeOrder.map((t) => dayjs(t).format('D MMM HH:mm'))
-    const series = Object.entries(bySeverity)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([severity, bucket]) => ({
-            name: severity,
-            color: SEVERITY_COLORS[severity] ?? 'muted',
-            values: timeOrder.map((t) => bucket.get(t) ?? 0),
-        }))
-    return { labels, series, total }
+    const rankedServices = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
+    const topServices = rankedServices.slice(0, TOP_SERVICES_LIMIT)
+    const truncatedServiceCount = Math.max(0, rankedServices.length - topServices.length)
+    const series = topServices.map(([service], index) => ({
+        name: service,
+        color: dataColorVars[index % dataColorVars.length],
+        values: timeOrder.map((t) => byService[service]?.get(t) ?? 0),
+    }))
+    return { labels, series, total, truncatedServiceCount }
 }
 
 export function LogsSamplingForm(): JSX.Element {
@@ -70,7 +70,10 @@ export function LogsSamplingForm(): JSX.Element {
     const isRateLimit = samplingForm.rule_type === RuleTypeEnumApi.RateLimit
     const hasFilters = samplingForm.filter_group.values.length > 0
 
-    const { labels, series, total } = useMemo(() => buildSparklineSeries(filterPreview), [filterPreview])
+    const { labels, series, total, truncatedServiceCount } = useMemo(
+        () => buildSparklineSeries(filterPreview),
+        [filterPreview]
+    )
 
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -100,7 +103,10 @@ export function LogsSamplingForm(): JSX.Element {
                 </LemonField.Pure>
                 <div className="mt-3 flex flex-col gap-1">
                     <div className="flex items-center justify-between text-xs text-muted">
-                        <span>Volume preview (last 24h)</span>
+                        <span>
+                            Volume preview by service (last 24h, top {TOP_SERVICES_LIMIT})
+                            {truncatedServiceCount > 0 ? ` — ${truncatedServiceCount} more not shown` : ''}
+                        </span>
                         {hasFilters && !filterPreviewLoading ? (
                             <span>{total.toLocaleString()} matching logs</span>
                         ) : null}
