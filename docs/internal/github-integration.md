@@ -247,7 +247,7 @@ the user can complete the OAuth half.
 
 Entry point in `posthog/urls.py`:
 
-```
+```python
 opt_slash_path("webhooks/github/pr", github_webhook)   # line 408
 opt_slash_path("webhooks/github", github_webhook)      # line 409
 ```
