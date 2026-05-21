@@ -177,7 +177,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
 
     loaders(({ values }) => ({
         filterPreview: [
-            null as { time: string; service_name: string; count: number }[] | null,
+            null as { time: string; service_name: string; count: number; bytes_uncompressed?: number }[] | null,
             {
                 loadFilterPreview: async (_, breakpoint) => {
                     await breakpoint(400)
@@ -192,7 +192,12 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                             sparklineBreakdownBy: 'service',
                         },
                     })
-                    return response as { time: string; service_name: string; count: number }[]
+                    return response as {
+                        time: string
+                        service_name: string
+                        count: number
+                        bytes_uncompressed?: number
+                    }[]
                 },
             },
         ],

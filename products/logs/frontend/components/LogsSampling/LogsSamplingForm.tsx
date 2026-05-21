@@ -35,9 +35,9 @@ interface SparklineSeriesData {
     truncatedServiceCount: number
 }
 
-function buildSparklineSeries(
-    points: { time: string; service_name: string; count: number }[] | null
-): SparklineSeriesData {
+type FilterPreviewPoint = { time: string; service_name: string; count: number; bytes_uncompressed?: number }
+
+function buildSparklineSeries(points: FilterPreviewPoint[] | null, metric: 'count' | 'bytes'): SparklineSeriesData {
     if (!points || points.length === 0) {
         return { labels: [], series: [], total: 0, truncatedServiceCount: 0 }
     }
@@ -52,10 +52,11 @@ function buildSparklineSeries(
             timeOrder.push(point.time)
         }
         const svc = point.service_name || 'unknown'
+        const value = metric === 'bytes' ? (point.bytes_uncompressed ?? 0) : point.count
         const bucket = byService[svc] ?? (byService[svc] = new Map())
-        bucket.set(point.time, (bucket.get(point.time) ?? 0) + point.count)
-        serviceTotals.set(svc, (serviceTotals.get(svc) ?? 0) + point.count)
-        total += point.count
+        bucket.set(point.time, (bucket.get(point.time) ?? 0) + value)
+        serviceTotals.set(svc, (serviceTotals.get(svc) ?? 0) + value)
+        total += value
     }
     const labels = timeOrder.map((t) => dayjs(t).format('D MMM HH:mm'))
     const rankedServices = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
@@ -67,6 +68,19 @@ function buildSparklineSeries(
         values: timeOrder.map((t) => byService[service]?.get(t) ?? 0),
     }))
     return { labels, series, total, truncatedServiceCount }
+}
+
+function formatBytes(bytes: number): string {
+    if (bytes < 1000) {
+        return `${bytes.toLocaleString()} B`
+    }
+    if (bytes < 1_000_000) {
+        return `${(bytes / 1000).toFixed(1)} KB`
+    }
+    if (bytes < 1_000_000_000) {
+        return `${(bytes / 1_000_000).toFixed(1)} MB`
+    }
+    return `${(bytes / 1_000_000_000).toFixed(2)} GB`
 }
 
 export function LogsSamplingForm(): JSX.Element {
@@ -84,10 +98,12 @@ export function LogsSamplingForm(): JSX.Element {
           }.`
         : 'Drop logs matching these filters. Dropped lines are not stored — they will not appear in the UI, exports, or alerts. Already-dropped data cannot be recovered.'
 
+    const previewMetric: 'count' | 'bytes' = isRateLimit ? 'bytes' : 'count'
     const { labels, series, total, truncatedServiceCount } = useMemo(
-        () => buildSparklineSeries(filterPreview),
-        [filterPreview]
+        () => buildSparklineSeries(filterPreview, previewMetric),
+        [filterPreview, previewMetric]
     )
+    const formattedTotal = previewMetric === 'bytes' ? formatBytes(total) : `${total.toLocaleString()} logs`
 
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -146,12 +162,12 @@ export function LogsSamplingForm(): JSX.Element {
                 <div className="mt-3 flex flex-col gap-1">
                     <div className="flex items-center justify-between text-xs text-muted">
                         <span>
-                            Volume preview by service (last 24h, top {TOP_SERVICES_LIMIT})
+                            {previewMetric === 'bytes' ? 'Volume preview' : 'Volume preview'} by service (last 24h, top{' '}
+                            {TOP_SERVICES_LIMIT}
+                            {previewMetric === 'bytes' ? ', uncompressed bytes' : ''})
                             {truncatedServiceCount > 0 ? ` — ${truncatedServiceCount} more not shown` : ''}
                         </span>
-                        {hasFilters && !filterPreviewLoading ? (
-                            <span>{total.toLocaleString()} matching logs</span>
-                        ) : null}
+                        {hasFilters && !filterPreviewLoading ? <span>{formattedTotal}</span> : null}
                     </div>
                     <div className="relative h-24 border border-border rounded-md bg-bg-light px-2 py-1">
                         {!hasFilters ? (

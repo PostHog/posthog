@@ -481,6 +481,10 @@ class _LogsSparklineBucketSerializer(serializers.Serializer):
         help_text='Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines.',
     )
     count = serializers.IntegerField()
+    bytes_uncompressed = serializers.IntegerField(
+        required=False,
+        help_text="Sum of uncompressed bytes for the bucket. Only meaningful for recently-ingested rows because the underlying column has a 1s TTL.",
+    )
 
 
 class _LogsSparklineResponseSerializer(serializers.Serializer):
