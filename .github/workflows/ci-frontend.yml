@@ -30,7 +30,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -55,6 +55,7 @@ jobs:
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
                         - 'playwright/**'
+                        - 'services/mcp/**'
                         - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
@@ -86,6 +87,7 @@ jobs:
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
                         - 'playwright/**'
+                        - 'services/mcp/**'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
                         - .oxfmtrc*
@@ -105,7 +107,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -117,15 +119,29 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-frontend.yml
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
 
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Check formatting with oxfmt
               run: pnpm run format:frontend:check
@@ -152,7 +168,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   filter: blob:none
             - name: Install pnpm
@@ -165,15 +181,29 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-frontend.yml
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
 
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Build products
               run: pnpm --filter=@posthog/frontend build:products
@@ -244,7 +274,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -256,18 +286,32 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-frontend.yml
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
 
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --no-frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+
             - name: Restore .typegen cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -287,7 +331,7 @@ jobs:
 
             - name: Save .typegen cache
               if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
@@ -327,7 +371,7 @@ jobs:
                 chunk: [1, 2]
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Remove ee
               if: matrix.segment == 'FOSS'
@@ -343,13 +387,27 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-frontend.yml
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Test with Jest
               run: bin/turbo run test --filter=@posthog/frontend -- --maxWorkers=2

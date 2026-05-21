@@ -41,12 +41,12 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -63,7 +63,7 @@ from posthog.helpers.trigram_search import (
     MIN_NAME_TRIGRAM_SIMILARITY,
     normalize_search_term,
 )
-from posthog.models import Action, Insight
+from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
@@ -74,6 +74,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
+from products.actions.backend.models.action import Action
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
@@ -1215,6 +1217,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
+        warn_if_missing_feature_flag_write_scope(
+            self.context["request"],
+            action="survey.create",
+            team_id=self.context["team_id"],
+        )
         if validated_data.get("targeting_flag_filters"):
             targeting_feature_flag = self._create_or_update_targeting_flag(
                 None, validated_data["targeting_flag_filters"], validated_data["name"]
@@ -1252,6 +1259,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
+                warn_if_missing_feature_flag_write_scope(
+                    self.context["request"],
+                    action="survey.update.remove_targeting_flag",
+                    team_id=self.context["team_id"],
+                    feature_flag_id=instance.targeting_flag_id,
+                )
                 # Manually delete the flag and log the change
                 # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
                 # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
@@ -1267,6 +1280,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
+            warn_if_missing_feature_flag_write_scope(
+                self.context["request"],
+                action="survey.update.targeting_flag_filters",
+                team_id=self.context["team_id"],
+                feature_flag_id=instance.targeting_flag_id,
+            )
             new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
@@ -1732,10 +1751,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
+        related_internal_targeting_flag = instance.internal_targeting_flag
+        if related_targeting_flag or related_internal_targeting_flag:
+            warn_if_missing_feature_flag_write_scope(
+                request,
+                action="survey.destroy",
+                team_id=self.team_id,
+                feature_flag_id=(related_targeting_flag or related_internal_targeting_flag).id,
+            )
         if related_targeting_flag:
             related_targeting_flag.delete()
-
-        related_internal_targeting_flag = instance.internal_targeting_flag
         if related_internal_targeting_flag:
             related_internal_targeting_flag.delete()
 
@@ -2309,6 +2334,74 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         survey = self.get_object()
         uuids = get_archived_response_uuids(str(survey.id), self.team_id)
         return Response(list(uuids))
+
+    @extend_schema(
+        operation_id="surveys_question_labels",
+        description=(
+            "Return a slim list of question labels for the team's surveys. Used by the frontend to resolve "
+            "`$survey_response_<question_id>` property keys into human-readable question text without "
+            "loading the full survey payload."
+        ),
+        responses={
+            200: inline_serializer(
+                name="SurveyQuestionLabelsResponse",
+                fields={
+                    "labels": serializers.ListField(
+                        child=inline_serializer(
+                            name="SurveyQuestionLabel",
+                            fields={
+                                "question_id": serializers.CharField(help_text="UUID assigned to the survey question."),
+                                "question_text": serializers.CharField(
+                                    help_text="Untranslated question text as configured by the survey author.",
+                                    allow_blank=True,
+                                ),
+                                "question_index": serializers.IntegerField(
+                                    help_text="Zero-based index of the question within the survey."
+                                ),
+                                "survey_id": serializers.CharField(
+                                    help_text="UUID of the survey this question belongs to."
+                                ),
+                                "survey_name": serializers.CharField(help_text="Display name of the survey."),
+                            },
+                        ),
+                        help_text="One entry per question that has an ID assigned, across all the team's surveys.",
+                    ),
+                },
+            ),
+        },
+    )
+    @action(methods=["GET"], detail=False, url_path="question_labels", required_scopes=["survey:read"])
+    def question_labels(self, request: request.Request, **kwargs) -> Response:
+        # Custom (non-`list`) actions skip the routing layer's automatic access-level filter,
+        # so apply it explicitly here — otherwise a user with access to only one survey would
+        # receive labels for every survey in the team.
+        queryset = self.user_access_control.filter_queryset_by_access_level(self.get_queryset())
+        # The viewset's class-level queryset pre-joins `linked_flag`, `linked_insight`,
+        # `targeting_flag`, `internal_targeting_flag` via `select_related`. `.only(...)` on
+        # those deferred FK columns raises `FieldError: cannot be both deferred and traversed
+        # using select_related`. Reset the select_related list before slimming the projection.
+        queryset = queryset.select_related(None).only("id", "name", "questions")
+        labels: list[dict[str, Any]] = []
+        for survey in queryset.iterator(chunk_size=200):
+            questions = survey.questions or []
+            if not isinstance(questions, list):
+                continue
+            for index, question in enumerate(questions):
+                if not isinstance(question, dict):
+                    continue
+                question_id = question.get("id")
+                if not question_id:
+                    continue
+                labels.append(
+                    {
+                        "question_id": question_id,
+                        "question_text": question.get("question") or "",
+                        "question_index": index,
+                        "survey_id": str(survey.id),
+                        "survey_name": survey.name,
+                    }
+                )
+        return Response({"labels": labels})
 
     @extend_schema(
         parameters=[

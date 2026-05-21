@@ -78,9 +78,9 @@ const StatusPageAlert = (): JSX.Element | null => {
 // In order to set these turn on the `support-message-override` feature flag.
 
 //Support offsite messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "Many of our support engineers are attending an offsite (from 11th to 15th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be catching up from the 18th and back to full speed shortly after!"
+    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'

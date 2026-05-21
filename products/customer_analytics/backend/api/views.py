@@ -1,3 +1,4 @@
+from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -58,6 +59,7 @@ class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
         super().perform_destroy(instance)
 
 
+@extend_schema(tags=["customer_analytics"])
 class AccountViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "account"
     queryset = Account.objects.unscoped().order_by("-created_at")

@@ -221,7 +221,7 @@ dev = [
     "grpcio-tools~=1.71.0",
     "protoletariat~=3.3.10",
     "ipython~=9.3.0",
-    "mypy~=1.19.1",
+    "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
     "ty==0.0.29",
     # openapi-spec-validator needed for prance as a validation backend
@@ -279,7 +279,7 @@ sentiment = [
 required-version = "~=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false }
+exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false, django = false }
 constraint-dependencies = [
     "langgraph-checkpoint<3",
 ]
@@ -317,7 +317,6 @@ ignore = [
     "E501",  # ~4697: line too long
     "E722",  # ~62: bare except
     "E731",  # ~185: lambda assignment
-    "F403",  # ~67: import * undefined
     "F541",  # ~1139: f-string missing placeholders
     "UP007",  # ~377: Union[X,Y] → X | Y (auto-fixable)
     "UP032",  # ~175: use f-string (auto-fixable)
@@ -352,6 +351,9 @@ select = [
 # descriptors into the pool before AddSerializedFile() — ruff must not strip them.
 "posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
 "posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
+# Django settings aggregator: star imports are how settings modules merge into one namespace.
+# Not portable to explicit re-exports without losing the settings-loading semantics.
+"posthog/settings/**" = ["F403", "F405"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -470,6 +472,7 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
+    "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.oauth",
@@ -480,6 +483,8 @@ ignore_imports = [
     "products.notifications.backend.presentation.views -> products.notifications.backend.models",
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
     "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
+    "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
 ]
 
 [tool.ty.rules]
