@@ -79,7 +79,7 @@ The cloud-agent SSE (`02_CORE.md` § 4) passes ACP frames through raw, wrapped i
 ```ts
 interface ToolInvocation {
   toolCallId: string
-  rawServerName: string         // ACP-reported MCP server, e.g. 'posthog', 'posthog-code', or '<user-installed>'
+  rawServerName: string         // ACP-reported MCP server, e.g. 'posthog' or '<user-installed>'
   rawToolName: string           // ACP-reported tool, e.g. 'exec', 'TodoWrite', '<user-tool>'
   innerToolName?: string        // parsed from `rawInput.command` when rawToolName === 'exec' (see § 2.2)
   resolvedKey: string           // what the registry looks up — see § 2.2 for the resolution table
@@ -160,7 +160,7 @@ function resolveToolKey(serverName: string, toolName: string, input: Record<stri
         return { resolvedKey: innerToolName, innerToolName, innerInput }
     }
 
-    // Non-exec MCP tools (user-installed servers, posthog-code, etc.) and Claude built-ins
+    // Non-exec MCP tools (user-installed servers) and Claude SDK built-ins (TodoWrite, WebSearch)
     return { resolvedKey: toolName }
 }
 ```
@@ -176,7 +176,7 @@ Dual lookup at registry time:
 | Non-exec MCP tool | `'<server>.<tool>'` (rawToolName as-is) | `registry[rawToolName]` or `registry[fullName]` |
 | Claude SDK built-in (`TodoWrite`, `WebSearch`) | `'TodoWrite'` | `registry['TodoWrite']` |
 
-This is the **only** PostHog-specific normalization the registry needs. Non-PostHog MCP servers (user-installed, `posthog-code`) are not single-exec — their tools come through as discrete `mcp__<server>__<tool>` names. They look up directly.
+This is the **only** PostHog-specific normalization the registry needs. Non-PostHog MCP servers (user-installed) are not single-exec — their tools come through as discrete `mcp__<server>__<tool>` names. They look up directly.
 
 `PermissionRequestRecord` also runs through `resolveToolKey` because the permission card shows the same input shape the user is asked to approve — see `posthog-exec-display.ts:117-130` (`formatPosthogExecBody`) for the pretty-print.
 
@@ -238,7 +238,7 @@ export interface McpToolRegistryEntry {
    * parsed from `rawInput.command` (e.g. "execute-sql", "insight-create"); for
    * `exec`'s discovery verbs, the sentinel "__posthog_exec_tools__" etc.; for
    * non-exec MCP tools and Claude built-ins, the wire `toolName` directly
-   * (e.g. "TodoWrite", "WebSearch", "mcp__posthog-code__<tool>"). See § 2.2.
+   * (e.g. "TodoWrite", "WebSearch", "mcp__<user-installed>__<tool>"). See § 2.2.
    */
   key: string
   /** Display name / icon for fallback rendering and for the tool-call header line. */
@@ -432,8 +432,7 @@ These tools come through as discrete `mcp__<server>__<tool>` (or built-in) names
 | ----------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `TodoWrite` (Claude SDK built-in)   | `TodoWriteAdapter` (new) → `PlanningAnswer` (extract from `Thread.tsx`) | `PlanningAnswer` already exists in `Thread.tsx`. Lift it to its own file (`messages/PlanningAnswer.tsx`) so the adapter can import it cleanly. `04_PROMPTS.md` § 5.1 confirms we use the SDK built-in — no `posthog-tasks` MCP server.                                                            |
 | `WebSearch` (Claude SDK built-in)   | `WebSearchAdapter` (new)                                                | Same display as today's `server_tool_use` block — header `Searched the web for **<query>**` plus a list of titles linking out. Gated per-team by LLM gateway routing (see [`TODO.md`](./TODO.md) "Web search tool placement").                                                                    |
-| `mcp__posthog-code__*`              | `FallbackMcpToolRenderer`                                               | The PostHog Code integration (`04_PROMPTS.md` § 5.1 — gated by `has_phai_tasks`) ships its own MCP server with discrete tool names. Fallback unless a specific tool becomes a common Max workflow.                                                                                                |
-| `mcp__<user-installed>__*`          | `FallbackMcpToolRenderer`                                               | Default for any user-installed MCP server. The fallback's `rawInput`/`rawOutput` accordion handles arbitrary shapes.                                                                                                                                                                             |
+| `mcp__<user-installed>__*`          | `FallbackMcpToolRenderer`                                               | Default for any user-installed MCP server. The fallback's `rawInput`/`rawOutput` accordion handles arbitrary shapes. (Note: there is no separate `posthog-code` MCP server — PostHog Code is a *consumer* of the same single-exec `posthog` server. Legacy `TaskTool` family — if migrated — becomes inner tools of `posthog`, tracked in [`TODO.md`](./TODO.md).) |
 | ~~`switch_mode`~~                   | **Dropped** — tool no longer exists per `04_PROMPTS.md` § 4.            | Stale conversations that reference it fall back to the generic card.                                                                                                                                                                                                                             |
 | ~~`manage_memories`~~               | **Dropped** — memory is dropped per `00_OVERVIEW.md` § 3.               | Stale conversations fall back.                                                                                                                                                                                                                                                                   |
 | ~~`call_mcp_server`~~               | **Dropped** — replaced by direct MCP tool invocation.                   | Stale conversations fall back.                                                                                                                                                                                                                                                                   |

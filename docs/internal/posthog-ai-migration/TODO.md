@@ -211,4 +211,59 @@ The pre-fill flow already has a precedent in the existing Max integration; reuse
 
 ---
 
+## PostHog AI → PostHog Code integration
+
+**Dropped/deferred in:** `04_PROMPTS.md` § 5.1 (the `TaskTool`, `CreateTaskTool`, `RunTaskTool`, `GetTaskRunTool`, `GetTaskRunLogsTool`, `ListTasksTool`, `ListTaskRunsTool`, `ListRepositoriesTool` rows); `03_RICH_UI.md` § 4.3; `MCP_TOOLS.md` "PostHog AI → PostHog Code integration".
+**Status:** open.
+**Owner:** _unassigned_.
+
+### What we lost
+
+Today's LangGraph stack ships an in-process tool family that lets PostHog AI drive PostHog Code:
+
+- `TaskTool` / `CreateTaskTool` — create a coding task with a prompt and target repository.
+- `RunTaskTool` / `GetTaskRunTool` / `GetTaskRunLogsTool` — kick off and monitor a run.
+- `ListTasksTool` / `ListTaskRunsTool` / `ListRepositoriesTool` — discovery.
+
+These tools manipulate `products/tasks/` Django models directly (not via MCP). The sandbox runtime exposes no equivalent — the agent literally cannot create a PostHog Code task from a Max conversation today. Gated by `has_phai_tasks` flag in the LangGraph stack, so impact is limited to teams that already have the integration on; but for those teams it's a real regression.
+
+### Misconception to debunk
+
+There is **no `posthog-code` MCP server**. PostHog Code is a *consumer* of the same single-exec `posthog` MCP server in `services/mcp/`, identified by the `x-posthog-mcp-consumer: posthog-code` header. The earlier spec drafts that mentioned a "`posthog-code` MCP server" were wrong; this TODO is the corrected disposition.
+
+### What needs to land
+
+Add inner tools to the existing single-exec `posthog` server (`services/mcp/definitions/*.yaml`) that wrap the operations the legacy `TaskTool` family performs. Suggested inner-tool names (per the convention in `services/mcp/schema/tool-definitions-all.json`):
+
+- `tasks-create` — wraps `CreateTaskTool`.
+- `tasks-run` — wraps `RunTaskTool`.
+- `tasks-get-run` — wraps `GetTaskRunTool`.
+- `tasks-get-run-logs` — wraps `GetTaskRunLogsTool`.
+- `tasks-list` / `tasks-list-runs` / `tasks-list-repositories` — wraps the three list tools.
+
+Each gets:
+
+1. A YAML entry in `services/mcp/definitions/` with `enabled: true` and the matching `operation:` ID against the OpenAPI schema.
+2. A serializer + viewset on the Django side if one doesn't exist (`products/tasks/backend/`).
+3. A `posthog-ai-sandbox-tool-tasks-{slug}` flag for per-tool rollout (mirrors the per-tool flag pattern in `00_OVERVIEW.md` § 9).
+
+### Renderers
+
+The fallback card handles all seven shapes — every operation either returns a URL (CTA) or a text list. Custom adapters only become worthwhile if user behavior shows Max-driven Code-task creation is a common workflow.
+
+### Acceptance criteria
+
+- Sandbox conversations on teams with `has_phai_tasks` can create, run, and read PostHog Code tasks from chat, matching today's LangGraph UX.
+- Per-inner-tool rollout flags wired up.
+- Eval coverage for "user asks Max to ship a small fix" → agent calls `tasks-create` + reports back with the URL.
+
+### Cross-references
+
+- `04_PROMPTS.md` § 5.1 (the `TaskTool` family rows now point here).
+- `03_RICH_UI.md` § 4.3 (notes that PostHog Code integration is not a separate server; routes here).
+- `MCP_TOOLS.md` "PostHog AI → PostHog Code integration" (shape table for the future inner tools).
+- `00_OVERVIEW.md` § 9 MCP-B (rollout slot reserved for this work).
+
+---
+
 <!-- Add new TODOs below, in the same format. -->
