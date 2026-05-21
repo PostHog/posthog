@@ -2386,6 +2386,50 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             10,
         ]
 
+    def test_breakdown_event_property_lookup_is_cached(self):
+        # Regression: `build_series_response` previously called `_event_property` once
+        # per breakdown row, fanning out into N `PropertyDefinition.objects.get(...)`
+        # round-trips and amplifying PgBouncer pool pressure under load.
+        # The lookup is now memoized on the runner instance.
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+
+        for value in range(20):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"value_{value}"},
+            )
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.EVENT),
+        )
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = runner.calculate()
+
+        # Sanity check that the breakdown actually produced many rows — otherwise the
+        # regression invariant is vacuous.
+        assert len(response.results) > 1
+
+        # `_event_property` issues a `PropertyDefinition.objects.get(...)` for the
+        # breakdown key. After memoization this should fire at most once per runner,
+        # regardless of breakdown cardinality.
+        property_definition_queries = [q for q in ctx.captured_queries if "posthog_propertydefinition" in q["sql"]]
+        assert len(property_definition_queries) <= 1, (
+            f"expected at most 1 posthog_propertydefinition lookup, got {len(property_definition_queries)}: "
+            f"{[q['sql'] for q in property_definition_queries]}"
+        )
+
     def test_breakdown_values_limit(self):
         PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
 

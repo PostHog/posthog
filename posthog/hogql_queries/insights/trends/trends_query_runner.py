@@ -127,6 +127,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
+        # Memoized on the runner because `build_series_response` calls `_event_property`
+        # once per breakdown row, which previously fanned out into N PgBouncer round-trips.
+        self._event_property_cache: dict[tuple[str, PropertyDefinition.Type, Optional[int]], str] = {}
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -1199,8 +1202,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         field_type: PropertyDefinition.Type,
         group_type_index: Optional[int],
     ) -> str:
+        cache_key = (field, field_type, group_type_index)
+        if cache_key in self._event_property_cache:
+            return self._event_property_cache[cache_key]
+
         try:
-            return (
+            property_type = (
                 PropertyDefinition.objects.alias(
                     effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
                 )
@@ -1214,7 +1221,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 or "String"
             )
         except PropertyDefinition.DoesNotExist:
-            return "String"
+            property_type = "String"
+
+        self._event_property_cache[cache_key] = property_type
+        return property_type
 
     # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
     def _query_to_filter(self) -> dict[str, Any]:
