@@ -25,6 +25,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         loadSymbolSets: () => {},
         downloadSymbolSet: (id: string) => ({ id }),
         setSymbolSetStatusFilter: (status: SymbolSetStatusFilter) => ({ status }),
+        setSymbolSetSearch: (search: string) => ({ search }),
         setSymbolSetOrder: (order: SymbolSetOrder) => ({ order }),
         setPage: (page: number) => ({ page }),
         setSelectedSymbolSetIds: (ids: string[]) => ({ ids }),
@@ -36,6 +37,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         page: 1 as number,
         symbolSetResponse: null as ErrorTrackingSymbolSetResponse | null,
         symbolSetStatusFilter: 'all' as SymbolSetStatusFilter,
+        symbolSetSearch: '' as string,
         symbolSetOrder: '-created_at' as SymbolSetOrder,
         selectedSymbolSetIds: [] as string[],
         deleteSymbolSetResponse: null as null,
@@ -47,9 +49,13 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         symbolSetStatusFilter: {
             setSymbolSetStatusFilter: (_, { status }) => status,
         },
+        symbolSetSearch: {
+            setSymbolSetSearch: (_, { search }) => search,
+        },
         page: {
             setPage: (_, { page }) => page,
             setSymbolSetStatusFilter: () => 1,
+            setSymbolSetSearch: () => 1,
             setSymbolSetOrder: () => 1,
         },
         symbolSetOrder: {
@@ -74,6 +80,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                 await breakpoint(100)
                 const res = await api.errorTracking.symbolSets.list({
                     status: values.symbolSetStatusFilter,
+                    search: values.symbolSetSearch,
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
                     orderBy: values.symbolSetOrder,
@@ -109,6 +116,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
             }
         },
         setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
+        setSymbolSetSearch: () => actions.loadSymbolSets(),
         setPage: () => actions.loadSymbolSets(),
         setSymbolSetOrder: () => actions.loadSymbolSets(),
     })),

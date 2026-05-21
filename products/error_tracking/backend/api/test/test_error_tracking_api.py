@@ -356,6 +356,22 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([symbol_set["ref"] for symbol_set in response.json()["results"]], ["source_a"])
 
+    def test_fetching_symbol_sets_by_search(self) -> None:
+        ErrorTrackingSymbolSet.objects.create(ref="bundle/app.js", team=self.team, storage_ptr="symbolsets/bundle_app")
+        ErrorTrackingSymbolSet.objects.create(ref="bundle/main.js", team=self.team, storage_ptr=None)
+        ErrorTrackingSymbolSet.objects.create(ref="vendor/lib.js", team=self.team, storage_ptr=None)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+            data={"search": "BUNDLE", "order_by": "ref"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            sorted(symbol_set["ref"] for symbol_set in response.json()["results"]),
+            ["bundle/app.js", "bundle/main.js"],
+        )
+
     def test_fetching_symbol_set_by_id(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
         symbol_set = ErrorTrackingSymbolSet.objects.create(ref="source_1", team=self.team, storage_ptr=None)

@@ -164,6 +164,10 @@ class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Exact symbol set reference to filter by.",
     )
+    search = serializers.CharField(
+        required=False,
+        help_text="Case-insensitive substring filter applied to the symbol set reference.",
+    )
     status = serializers.ChoiceField(
         required=False,
         default="all",
@@ -218,11 +222,15 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         params = self._get_list_params(self.request)
         ref = params.get("ref")
+        search = params.get("search")
         symbol_set_status = params.get("status")
         order_by = params.get("order_by")
 
         if ref:
             queryset = queryset.filter(ref=ref)
+
+        if search:
+            queryset = queryset.filter(ref__icontains=search)
 
         if symbol_set_status == "valid":
             queryset = queryset.filter(storage_ptr__isnull=False)

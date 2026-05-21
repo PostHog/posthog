@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { IconCheckCircle, IconDownload, IconSort, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconDownload, IconSearch, IconSort, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonDialog,
+    LemonInput,
     LemonSegmentedButton,
     LemonTable,
     LemonTableColumns,
@@ -38,8 +39,10 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading } = useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets } = useActions(symbolSetLogic)
+    const { symbolSetStatusFilter, symbolSetSearch, selectedSymbolSetIds, deleteSymbolSetResponseLoading } =
+        useValues(symbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter, setSymbolSetSearch, bulkDeleteSymbolSets } =
+        useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -57,7 +60,7 @@ export function SymbolSets(): JSX.Element {
                 will only apply to all future exceptions ingested.
             </p>
             <div className="space-y-2">
-                <div className="flex justify-between items-center">
+                <div className="flex flex-wrap justify-between items-center gap-2">
                     <div className="flex items-center gap-2">
                         {selectedSymbolSetIds.length > 0 && (
                             <>
@@ -90,7 +93,17 @@ export function SymbolSets(): JSX.Element {
                             </>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <LemonInput
+                            type="search"
+                            size="xsmall"
+                            placeholder="Search by reference"
+                            prefix={<IconSearch />}
+                            value={symbolSetSearch}
+                            onChange={setSymbolSetSearch}
+                            allowClear
+                            className="w-64"
+                        />
                         <span className="mb-0">Status:</span>
                         <LemonSegmentedButton
                             size="xsmall"

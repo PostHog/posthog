@@ -37470,6 +37470,11 @@ export namespace Schemas {
      */
     ref?: string;
     /**
+     * Case-insensitive substring filter applied to the symbol set reference.
+     * @minLength 1
+     */
+    search?: string;
+    /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
     * `all` - all
@@ -42326,6 +42331,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring filter applied to the symbol set reference.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
