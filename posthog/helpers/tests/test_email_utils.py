@@ -504,7 +504,7 @@ class TestSanitizeEmailString(SimpleTestCase):
             ("ip_v4", "192.168.1.1", "192.168.1.1"),
             ("time", "12:34", "12:34"),
             ("version", "v1.2.3", "v1.2.3"),
-            # HTML is escaped — preserves existing sanitize_email_properties behaviour.
+            # HTML is escaped — preserves existing sanitize_email_properties behavior.
             ("script_tag", "<script>x</script>", "&lt;script&gt;x&lt;/script&gt;"),
             ("ampersand", "Ben & Jerry's", "Ben &amp; Jerry&#x27;s"),
             # URL-shaped substrings are defanged so mail clients don't auto-link.
@@ -548,5 +548,5 @@ class TestSanitizeEmailString(SimpleTestCase):
     def test_does_not_double_encode_already_escaped(self) -> None:
         # `&amp;` survives a second pass — html.escape would re-encode the `&` in
         # the entity, which is the existing trade-off of running sanitize_email_string
-        # over already-sanitised data. Documented as a guardrail.
+        # over already-sanitized data. Documented as a guardrail.
         self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")

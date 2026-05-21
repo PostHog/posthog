@@ -1,5 +1,5 @@
 """
-Email-related helpers: address normalisation, ESP suppression lookups, user
+Email-related helpers: address normalization, ESP suppression lookups, user
 lookup by email, and display-name / message validation.
 """
 
@@ -54,17 +54,17 @@ _INVISIBLE_ERROR = "Invisible or direction-override characters are not allowed i
 def _check_shared(value: str, *, check_bare_domains: bool) -> None:
     """
     Run the checks shared between display names and message bodies against an
-    NFKC-normalised copy of `value`. Normalisation folds fullwidth / compat
+    NFKC-normalized copy of `value`. Normalization folds fullwidth / compat
     variants (e.g. `ｈｔｔｐ：／／` \u2192 `http://`) before regex matching.
     """
-    normalised = unicodedata.normalize("NFKC", value)
-    if _INVISIBLE_CHAR_RE.search(normalised):
+    normalized = unicodedata.normalize("NFKC", value)
+    if _INVISIBLE_CHAR_RE.search(normalized):
         raise serializers.ValidationError(_INVISIBLE_ERROR, code="invalid_invisible_char")
-    if _BRACKET_RE.search(normalised):
+    if _BRACKET_RE.search(normalized):
         raise serializers.ValidationError(_BRACKET_ERROR, code="invalid_bracket")
-    if _URL_SCHEME_RE.search(normalised):
+    if _URL_SCHEME_RE.search(normalized):
         raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
-    if check_bare_domains and _BARE_DOMAIN_RE.search(normalised):
+    if check_bare_domains and _BARE_DOMAIN_RE.search(normalized):
         raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
 
 
@@ -189,10 +189,10 @@ def _defang_match(match: "re.Match[str]") -> str:
 
 def sanitize_email_string(value: str) -> str:
     """
-    Sanitise a string for inclusion in email content (Customer.io
+    Sanitize a string for inclusion in email content (Customer.io
     `message_data` properties or Django email templates). Steps:
 
-    1. NFKC-normalise so fullwidth / compatibility forms can't bypass the
+    1. NFKC-normalize so fullwidth / compatibility forms can't bypass the
        URL regexes (e.g. `ｈｔｔｐ：／／` → `http://`).
     2. Strip zero-width / direction-override / line-separator characters that
        could hide URL structure (`evil​.com` → `evil.com`).
@@ -207,8 +207,8 @@ def sanitize_email_string(value: str) -> str:
     pattern. The final rendered text still reads as `evil.com` to the
     recipient but is no longer clickable.
     """
-    normalised = unicodedata.normalize("NFKC", value)
-    cleaned = _INVISIBLE_CHAR_RE.sub("", normalised)
+    normalized = unicodedata.normalize("NFKC", value)
+    cleaned = _INVISIBLE_CHAR_RE.sub("", normalized)
     escaped = html.escape(cleaned)
     defanged = _URL_SCHEME_RE.sub(_defang_match, escaped)
     return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
