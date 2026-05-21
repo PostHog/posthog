@@ -32,8 +32,10 @@ from rest_framework.response import Response
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models import Team, User
+from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
 from posthog.utils import relative_date_parse
 
@@ -587,7 +589,12 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     EU deploys receive a 302 to the US URL.
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated, APIScopePermission]
+    scope_object = "llm_analytics"
+
+    # Not project- or org-nested; the caller's identity is the only scope.
+    dangerously_skip_scoped_team_enforcement = True
 
     def get_throttles(self):
         return [
