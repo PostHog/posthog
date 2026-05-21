@@ -189,6 +189,8 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                         query: {
                             dateRange: { date_from: '-24h', date_to: null },
                             filterGroup: wrapFilterGroup(form.filter_group) as PropertyGroupFilter,
+                            severityLevels: [],
+                            serviceNames: [],
                             sparklineBreakdownBy: 'service',
                         },
                     })
@@ -248,11 +250,12 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                         }
                     }
                 }
+                // kea-forms types scalar `errors` per field — filter_group is an object,
+                // so its validation lives in `samplingFormSaveDisabledReason` (consumed by
+                // the scene's submit button) and is displayed inline via the
+                // `filterGroupError` selector below.
                 return {
                     name: !form.name?.trim() ? 'Name is required' : undefined,
-                    filter_group: !isFilterGroupNonEmpty(form.filter_group)
-                        ? 'Add at least one filter to match logs'
-                        : undefined,
                     rate_limit_amount: rateAmountError,
                 }
             },

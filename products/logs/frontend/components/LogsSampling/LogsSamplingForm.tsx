@@ -120,7 +120,7 @@ export function LogsSamplingForm(): JSX.Element {
         : 'Drop logs matching these filters. Dropped lines are not stored — they will not appear in the UI, exports, or alerts. Already-dropped data cannot be recovered.'
 
     const previewMetric: 'count' | 'bytes' = isRateLimit ? 'bytes' : 'count'
-    const { labels, series, total, truncatedServiceCount, bucketSeconds, chartMax } = useMemo(
+    const { labels, series, total, bucketSeconds, chartMax } = useMemo(
         () => buildSparklineSeries(filterPreview, previewMetric),
         [filterPreview, previewMetric]
     )
@@ -204,12 +204,13 @@ export function LogsSamplingForm(): JSX.Element {
             </SceneSection>
 
             <SceneSection title="Match" titleSize="sm" description={matchDescription}>
-                <LemonField.Pure error={samplingFormErrors.filter_group as string | undefined}>
-                    <DropRuleFilterEditor
-                        filterGroup={samplingForm.filter_group}
-                        onChange={(group) => setSamplingFormValue('filter_group', group)}
-                    />
-                </LemonField.Pure>
+                <DropRuleFilterEditor
+                    filterGroup={samplingForm.filter_group}
+                    onChange={(group) => setSamplingFormValue('filter_group', group)}
+                />
+                {/* filter_group is an object — kea-forms types only allow scalar field errors,
+                    so this inline message mirrors what samplingFormSaveDisabledReason returns. */}
+                {!hasFilters && <p className="text-danger text-xs mt-1 mb-0">Add at least one filter to match logs.</p>}
                 <div className="mt-3 flex flex-col gap-1">
                     <div className="flex items-center justify-between text-xs text-muted">
                         <span>
