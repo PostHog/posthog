@@ -1,4 +1,5 @@
 import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
+import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js'
 
 import type { RequestProperties } from '@/lib/request-properties'
 
@@ -9,24 +10,32 @@ import { ToolCatalog } from './tool-catalog'
 
 import { AnalyticsBridge } from './analytics-bridge'
 import { InstructionsBuilder } from './instructions'
-import { RequestStateResolver } from './request-state-resolver'
+import { RequestStateResolver, type MethodHandlerCallbacks, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { ToolExecutor } from './tool-executor'
-import {
-    type JsonRpcMessage,
-    type JsonRpcRequest,
-    type MethodHandlerCallbacks,
-    type ResolvedState,
-    isRequest,
-    isTrackedMethod,
-    jsonRpcError,
-} from './protocol-types'
 
 export { McpDispatcher }
-export type { ResolvedState } from './protocol-types'
+export type { ResolvedState } from './request-state-resolver'
 
 const MAX_BATCH_SIZE = 100
 const MAX_BODY_BYTES = 1_048_576
+
+const TRACKED_METHODS = new Set(['initialize', 'tools/list', 'tools/call'])
+
+function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
+    return typeof msg === 'object' && msg !== null && 'id' in msg && typeof (msg as { method?: unknown }).method === 'string'
+}
+
+function jsonRpcError(id: unknown, code: number, message: string): Response {
+    return new Response(
+        JSON.stringify({
+            jsonrpc: '2.0',
+            id: id ?? null,
+            error: { code, message },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+    )
+}
 
 class McpDispatcher {
     private readonly catalog: ToolCatalog
@@ -72,7 +81,7 @@ class McpDispatcher {
         }
 
         const wasArray = Array.isArray(body)
-        const messages: JsonRpcMessage[] = wasArray ? (body as JsonRpcMessage[]) : [body as JsonRpcMessage]
+        const messages: JSONRPCMessage[] = wasArray ? (body as JSONRPCMessage[]) : [body as JSONRPCMessage]
 
         if (messages.length > MAX_BATCH_SIZE) {
             return jsonRpcError(null, -32600, 'Batch too large')
@@ -83,7 +92,7 @@ class McpDispatcher {
             return new Response(null, { status: 202 })
         }
 
-        const needsState = requests.some((r) => isTrackedMethod(r.method))
+        const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
         const state = needsState ? await this.stateResolver.resolve(props) : undefined
 
         if (!wasArray && requests.length === 1) {
@@ -102,7 +111,7 @@ class McpDispatcher {
     }
 
     private async _dispatch(
-        request: JsonRpcRequest,
+        request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState | undefined
     ): Promise<{ jsonrpc: '2.0'; id: number | string; result?: unknown; error?: unknown }> {
@@ -134,7 +143,7 @@ class McpDispatcher {
     }
 
     private async _dispatchTracked(
-        request: JsonRpcRequest,
+        request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState
     ): Promise<{ jsonrpc: '2.0'; id: number | string; result?: unknown; error?: unknown }> {

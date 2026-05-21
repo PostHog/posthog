@@ -1,58 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isRequest, isTrackedMethod, jsonRpcError, resolveModeAndVersion } from '@/hono/protocol-types'
-
-describe('isRequest', () => {
-    it('returns true when message has an id and string method', () => {
-        expect(isRequest({ jsonrpc: '2.0', id: 1, method: 'ping' })).toBe(true)
-    })
-
-    it('returns false for notifications (no id)', () => {
-        expect(isRequest({ jsonrpc: '2.0', method: 'notifications/initialized' })).toBe(false)
-    })
-
-    it('returns false when method is not a string', () => {
-        expect(isRequest({ jsonrpc: '2.0', id: 1, method: 42 } as any)).toBe(false)
-        expect(isRequest({ jsonrpc: '2.0', id: 1 } as any)).toBe(false)
-    })
-
-    it('returns false for null or non-object values without throwing', () => {
-        expect(isRequest(null as any)).toBe(false)
-        expect(isRequest(42 as any)).toBe(false)
-        expect(isRequest('hello' as any)).toBe(false)
-        expect(isRequest(undefined as any)).toBe(false)
-    })
-})
-
-describe('isTrackedMethod', () => {
-    it.each(['initialize', 'tools/list', 'tools/call'])('returns true for %s', (method) => {
-        expect(isTrackedMethod(method)).toBe(true)
-    })
-
-    it.each(['ping', 'resources/list', 'prompts/get', 'unknown'])('returns false for %s', (method) => {
-        expect(isTrackedMethod(method)).toBe(false)
-    })
-})
-
-describe('jsonRpcError', () => {
-    it('returns a 200 Response with the error payload', async () => {
-        const resp = jsonRpcError(42, -32600, 'Invalid request')
-        expect(resp.status).toBe(200)
-        expect(resp.headers.get('Content-Type')).toBe('application/json')
-        const body = await resp.json()
-        expect(body).toEqual({
-            jsonrpc: '2.0',
-            id: 42,
-            error: { code: -32600, message: 'Invalid request' },
-        })
-    })
-
-    it('uses null id when none provided', async () => {
-        const body = (await jsonRpcError(null, -32700, 'Parse error').json()) as { id: unknown }
-        expect(body.id).toBeNull()
-    })
-})
+import { resolveModeAndVersion } from '@/hono/request-state-resolver'
 
 describe('resolveModeAndVersion', () => {
     function profile(overrides: Partial<ConstructorParameters<typeof MCPClientProfile>[0]> = {}): MCPClientProfile {

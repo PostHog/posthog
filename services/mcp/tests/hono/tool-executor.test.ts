@@ -13,7 +13,7 @@ vi.mock('@/resources', () => ({
 
 
 import type { RequestProperties } from '@/lib/request-properties'
-import type { ResolvedState } from '@/hono/protocol-types'
+import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { InstructionsBuilder } from '@/hono/instructions'

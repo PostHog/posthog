@@ -10,7 +10,7 @@ import {
 } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
-import type { PreBuiltToolEntry } from './protocol-types'
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 interface PreBuiltTool {
     base: ToolBase<ZodObjectAny>
@@ -31,8 +31,8 @@ const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
 
 export class ToolCatalog {
     private _preBuilt: Map<string, PreBuiltTool> = new Map()
-    private _entries: PreBuiltToolEntry[] = []
-    private _entriesByName = new Map<string, PreBuiltToolEntry>()
+    private _entries: McpTool[] = []
+    private _entriesByName = new Map<string, McpTool>()
     private _warmedUp = false
 
     get warmedUp(): boolean {
@@ -103,12 +103,12 @@ export class ToolCatalog {
                 }
             }
 
-            const entry: PreBuiltToolEntry = {
+            const entry: McpTool = {
                 name,
                 title: def.title,
                 description: def.description,
-                inputSchema: jsonSchema,
-                annotations: def.annotations,
+                inputSchema: jsonSchema as McpTool['inputSchema'],
+                annotations: def.annotations as McpTool['annotations'],
                 ...(meta ? { _meta: meta } : {}),
             }
             this._entries.push(entry)
@@ -124,11 +124,11 @@ export class ToolCatalog {
         return this._preBuilt.get(name)
     }
 
-    getPreBuiltEntries(): PreBuiltToolEntry[] {
+    getPreBuiltEntries(): McpTool[] {
         return this._entries
     }
 
-    getPreBuiltEntry(name: string): PreBuiltToolEntry | undefined {
+    getPreBuiltEntry(name: string): McpTool | undefined {
         return this._entriesByName.get(name)
     }
 

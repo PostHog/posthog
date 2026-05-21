@@ -1,4 +1,5 @@
 import { RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
+import type { GetPromptResult, Prompt, Resource, TextResourceContents } from '@modelcontextprotocol/sdk/types.js'
 
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive, clearResourceCache } from '@/resources/internals'
 import { getPromptsFromManifest } from '@/resources'
@@ -7,18 +8,16 @@ import { buildAppStubHtml } from '@/resources/ui-apps'
 import type { ContextMillResource } from '@/resources/manifest-types'
 import type { Env } from '@/tools/types'
 
-import type { PreBuiltResource, PreBuiltPrompt, ResourceReadEntry, PromptGetEntry } from './protocol-types'
-
 export class ResourceCatalog {
     private readonly env: Env
 
-    private _resources: PreBuiltResource[] = []
-    private _resourcesByUri = new Map<string, ResourceReadEntry>()
-    private _prompts: PreBuiltPrompt[] = []
-    private _promptsByName = new Map<string, PromptGetEntry>()
-    private _uiAppResources: PreBuiltResource[] = []
-    private _uiAppReadEntries = new Map<string, ResourceReadEntry>()
-    private _allResources: PreBuiltResource[] = []
+    private _resources: Resource[] = []
+    private _resourcesByUri = new Map<string, TextResourceContents>()
+    private _prompts: Prompt[] = []
+    private _promptsByName = new Map<string, GetPromptResult>()
+    private _uiAppResources: Resource[] = []
+    private _uiAppReadEntries = new Map<string, TextResourceContents>()
+    private _allResources: Resource[] = []
     private _contextMillEntries: readonly ContextMillResource[] = []
 
     constructor(env: Env) {
@@ -34,7 +33,7 @@ export class ResourceCatalog {
         this._allResources = [...this._resources, ...this._uiAppResources]
     }
 
-    getResourcesList(): { resources: PreBuiltResource[] } {
+    getResourcesList(): { resources: Resource[] } {
         return { resources: this._allResources }
     }
 
@@ -56,7 +55,7 @@ export class ResourceCatalog {
         }
     }
 
-    getPromptsList(): { prompts: PreBuiltPrompt[] } {
+    getPromptsList(): { prompts: Prompt[] } {
         return { prompts: this._prompts }
     }
 
@@ -101,7 +100,7 @@ export class ResourceCatalog {
                     title: prompt.title,
                     description: prompt.description,
                 })
-                this._promptsByName.set(prompt.name, { messages: prompt.messages as PromptGetEntry['messages'] })
+                this._promptsByName.set(prompt.name, { messages: prompt.messages as GetPromptResult['messages'] })
             }
         } catch (error) {
             console.error('[ResourceCatalog] Failed to pre-load prompts:', error)

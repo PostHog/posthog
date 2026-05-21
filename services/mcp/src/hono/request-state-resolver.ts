@@ -1,13 +1,68 @@
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+
 import { MCPClientProfile } from '@/lib/client-detection'
 import { evaluateFeatureFlags } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
-import type { Env } from '@/tools/types'
+import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
-import { type ResolvedState, resolveModeAndVersion } from './protocol-types'
 import { RequestContext } from './request-context'
 import type { ToolCatalog } from './tool-catalog'
+
+// ─── Per-request resolved state ───
+
+export interface ResolvedState {
+    reqCtx: RequestContext
+    context: Context
+    version: number
+    useSingleExec: boolean
+    toolFeatureFlags: Record<string, boolean> | undefined
+    apiKeyScopes: string[]
+    clientProfile: MCPClientProfile
+    allTools: Tool<ZodObjectAny>[]
+    distinctId: string
+}
+
+// ─── Method handler callbacks (used by AnalyticsBridge ↔ Dispatcher) ───
+
+export interface MethodHandlerCallbacks {
+    handleInitialize(
+        params: Record<string, unknown> | undefined,
+        props: RequestProperties,
+        state: ResolvedState
+    ): Promise<unknown>
+    handleToolsList(state: ResolvedState, props: RequestProperties): Promise<{ tools: McpTool[] }>
+    handleToolCall(
+        params: Record<string, unknown> | undefined,
+        props: RequestProperties,
+        state: ResolvedState
+    ): Promise<unknown>
+}
+
+// ─── Pure helpers ───
+
+export function resolveModeAndVersion(args: {
+    mode: McpMode | undefined
+    singleExecFlagOn: boolean
+    clientProfile: MCPClientProfile
+    flagVersion: number | undefined
+    clientVersion: number | undefined
+}): { useSingleExec: boolean; version: number } {
+    const { mode, singleExecFlagOn, clientProfile, flagVersion, clientVersion } = args
+    const useSingleExec =
+        mode === 'cli' ||
+        (mode !== 'tools' &&
+            singleExecFlagOn &&
+            (clientProfile.isCodingAgent() ||
+                clientProfile.isPostHogCodeConsumer() ||
+                clientProfile.isVibeCodingClient()))
+    const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+    return { useSingleExec, version }
+}
+
+// ─── Resolver ───
 
 const SYSTEM_FLAGS = ['mcp-version-2', 'mcp-single-exec-tool'] as const
 

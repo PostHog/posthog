@@ -13,11 +13,9 @@ import type { RequestProperties } from "@/lib/request-properties";
 import { createExecInnerToolCallResolver } from "@/tools/exec";
 import type { Env } from "@/tools/types";
 
-import type {
-    JsonRpcRequest,
-    MethodHandlerCallbacks,
-    ResolvedState,
-} from "./protocol-types";
+import type { JSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
+
+import type { MethodHandlerCallbacks, ResolvedState } from "./request-state-resolver";
 
 interface AnalyticsAdapter {
     _requestHandlers: Map<
@@ -48,7 +46,7 @@ export class AnalyticsBridge {
     }
 
     async dispatchThroughAnalytics(
-        request: JsonRpcRequest,
+        request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState,
         handlers: MethodHandlerCallbacks,

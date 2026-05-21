@@ -6,7 +6,9 @@ import { formatPrompt } from '@/lib/utils'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
-import type { PreBuiltToolEntry, ResolvedState } from './protocol-types'
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+
+import type { ResolvedState } from './request-state-resolver'
 
 import guidelines from '@shared/guidelines.md'
 
@@ -69,7 +71,7 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecToolEntry(state: ResolvedState, _props: RequestProperties): PreBuiltToolEntry {
+    buildExecToolEntry(state: ResolvedState, _props: RequestProperties): McpTool {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         const ctx = this.buildContext(state)
         const commandReference = this.formatter.buildExecCommandReference(ctx, {
