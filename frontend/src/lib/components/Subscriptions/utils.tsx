@@ -125,3 +125,52 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
         return null
     }
 }
+
+export interface AiSubscriptionGateInputs {
+    isAiPrompt: boolean
+    isParentless: boolean
+    isEditing: boolean
+    aiConsentApproved: boolean
+    isCloud: boolean
+    isDebug: boolean
+    aiFlagEnabled: boolean
+}
+
+export interface AiSubscriptionGate {
+    /** Org cleared every gate (consent + cloud/debug + flag) needed to author an AI report. */
+    aiAllowed: boolean
+    /** Show the "What to send" (insight vs AI) toggle — new parent-anchored subs, feature on. */
+    showContentTypeToggle: boolean
+    /** The AI option in the toggle is selectable (vs greyed with a consent reason). */
+    aiOptionEnabled: boolean
+    /** Insight-flow hint: feature exists but consent is missing. */
+    showConsentHint: boolean
+    /** AI-only-form banner: feature exists, consent missing, creating (not editing). */
+    showAiFormConsentBanner: boolean
+    /** Block submit on a new AI subscription that can't be created — mirrors the create-only backend gate. */
+    submitBlocked: boolean
+}
+
+/**
+ * Single source of truth for how the AI-subscription feature flag (visibility) and the
+ * org AI-data-processing consent (enablement) gate the subscription form. Pure so the
+ * flag-off / consent-missing combinations are provable without rendering the component.
+ *
+ * - flag off → the feature does not exist: hide the toggle, option, and banners.
+ * - flag on, no consent → it exists but is blocked: toggle shows with AI greyed + a consent
+ *   hint; submit is blocked on the AI-only form.
+ * - editing → never block (the backend gates creation only; users must be able to edit/disable).
+ */
+export function getAiSubscriptionGate(inputs: AiSubscriptionGateInputs): AiSubscriptionGate {
+    const { isAiPrompt, isParentless, isEditing, aiConsentApproved, isCloud, isDebug, aiFlagEnabled } = inputs
+    const aiAllowed = aiConsentApproved && (isCloud || isDebug) && aiFlagEnabled
+    const showContentTypeToggle = !isParentless && !isEditing && aiFlagEnabled
+    return {
+        aiAllowed,
+        showContentTypeToggle,
+        aiOptionEnabled: aiAllowed,
+        showConsentHint: showContentTypeToggle && !aiAllowed,
+        showAiFormConsentBanner: isAiPrompt && !isEditing && aiFlagEnabled && !aiAllowed,
+        submitBlocked: isAiPrompt && !isEditing && !aiAllowed,
+    }
+}

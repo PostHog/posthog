@@ -78,6 +78,7 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
     monthlyWeekdayOptions,
@@ -132,11 +133,6 @@ export function EditSubscription({
     // modal on an insight/dashboard. There's nothing to snapshot here, so AI report
     // is the only valid content type — hide the snapshot/AI toggle entirely.
     const isParentless = !insightShortId && !dashboardId
-    const aiAllowed =
-        Boolean(currentOrganization?.is_ai_data_processing_approved) &&
-        (Boolean(preflight?.cloud) || Boolean(preflight?.is_debug)) &&
-        Boolean(aiSubscriptionsEnabled)
-
     const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
 
     // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
@@ -144,6 +140,15 @@ export function EditSubscription({
     // We check target_type instead of dashboard_export_insights because old subscriptions
     // may have no insights selected yet
     const isEditing = id !== 'new'
+    const aiGate = getAiSubscriptionGate({
+        isAiPrompt,
+        isParentless,
+        isEditing,
+        aiConsentApproved: Boolean(currentOrganization?.is_ai_data_processing_approved),
+        isCloud: Boolean(preflight?.cloud),
+        isDebug: Boolean(preflight?.is_debug),
+        aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
+    })
     const subscriptionLoaded = !!subscription?.target_type
     const selectionReady = !isEditing || subscriptionLoaded
 
@@ -267,7 +272,7 @@ export function EditSubscription({
                             </LemonField>
                         )}
 
-                        {!isParentless && !isEditing && aiSubscriptionsEnabled && (
+                        {aiGate.showContentTypeToggle && (
                             <LemonField name="content_type" label="What to send">
                                 {({ value, onChange }) => (
                                     <LemonSegmentedButton
@@ -282,7 +287,9 @@ export function EditSubscription({
                                             {
                                                 value: 'ai_prompt',
                                                 label: 'AI report (beta)',
-                                                disabledReason: !aiAllowed ? AI_NOT_ALLOWED_REASON : undefined,
+                                                disabledReason: !aiGate.aiOptionEnabled
+                                                    ? AI_NOT_ALLOWED_REASON
+                                                    : undefined,
                                             },
                                         ]}
                                     />
@@ -290,7 +297,7 @@ export function EditSubscription({
                             </LemonField>
                         )}
 
-                        {!isParentless && !isEditing && aiSubscriptionsEnabled && !aiAllowed && (
+                        {aiGate.showConsentHint && (
                             <LemonBanner type="info" className="text-sm">
                                 <AiConsentGateMessage />
                             </LemonBanner>
@@ -298,7 +305,7 @@ export function EditSubscription({
 
                         {isAiPrompt ? (
                             <>
-                                {!aiAllowed && !isEditing && (
+                                {aiGate.showAiFormConsentBanner && (
                                     <LemonBanner type="warning" className="text-sm">
                                         <AiConsentGateMessage />
                                     </LemonBanner>
@@ -682,7 +689,7 @@ export function EditSubscription({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading || (isAiPrompt && !aiAllowed && !isEditing)}
+                    disabled={!subscriptionChanged || subscriptionLoading || aiGate.submitBlocked}
                 >
                     {id === 'new' ? 'Create subscription' : 'Save'}
                 </LemonButton>
