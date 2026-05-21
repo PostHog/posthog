@@ -93,7 +93,7 @@ export function Settings({
     const { ref, size } = useResizeBreakpoints(
         {
             0: 'small',
-            700: 'medium',
+            768: 'medium',
         },
         {
             initialSize: 'medium',
