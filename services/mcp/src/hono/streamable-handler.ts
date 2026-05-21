@@ -53,17 +53,20 @@ export class StreamableMcpHandler {
             return auth.error
         }
 
+        let mcpServer: HonoMcpServer | undefined
         try {
-            const mcpServer = new HonoMcpServer(this.redis, auth.props, {
+            mcpServer = new HonoMcpServer(this.redis, auth.props, {
                 catalog: this.catalog,
                 resourceEntries: this._resourceEntries,
             })
             await mcpServer.init()
-            const transport = new WebStandardStreamableHTTPServerTransport({})
+            const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true })
             await mcpServer.server.connect(transport)
             return passThrough(await transport.handleRequest(c.req.raw))
         } catch (error) {
             return handleCatchError(error, auth.props)
+        } finally {
+            await mcpServer?.server.close().catch(() => {})
         }
     }
 }

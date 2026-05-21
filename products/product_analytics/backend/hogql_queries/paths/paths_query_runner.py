@@ -114,6 +114,15 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         return event in (self.query.pathsFilter.includeEventTypes or [])
 
+    @staticmethod
+    def _strip_trailing_slash(url: Optional[str]) -> Optional[str]:
+        # Mirrors the `(.)/$` regex applied to event URLs in `construct_event_hogql`,
+        # so that startPoint/endPoint values match the normalized values stored in
+        # `compact_path` / `start_filtered_path`. The bare "/" URL is preserved.
+        if url and len(url) > 1 and url.endswith("/"):
+            return url[:-1]
+        return url
+
     def construct_event_hogql(self) -> ast.Expr:
         event_hogql: ast.Expr = parse_expr("event")
 
@@ -523,6 +532,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
     def get_target_clause(self) -> list[ast.Expr]:
         if self.query.pathsFilter.startPoint and self.query.pathsFilter.endPoint:
+            start_point = self._strip_trailing_slash(self.query.pathsFilter.startPoint)
+            end_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint)
             clauses: list[ast.Expr] = [
                 ast.Alias(
                     alias=f"start_target_index",
@@ -530,7 +541,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["compact_path"]),
-                            ast.Constant(value=self.query.pathsFilter.startPoint),
+                            ast.Constant(value=start_point),
                         ],
                     ),
                 ),
@@ -545,7 +556,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                         name="indexOf",
                         args=[
                             ast.Field(chain=["start_filtered_path"]),
-                            ast.Constant(value=self.query.pathsFilter.endPoint),
+                            ast.Constant(value=end_point),
                         ],
                     ),
                 ),
@@ -577,10 +588,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         )
 
     def paths_per_person_query(self) -> ast.SelectQuery:
-        target_point = self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint
-        target_point = (
-            target_point[:-1] if target_point and len(target_point) > 1 and target_point.endswith("/") else target_point
-        )
+        target_point = self._strip_trailing_slash(self.query.pathsFilter.endPoint or self.query.pathsFilter.startPoint)
 
         path_tuples_expr = ast.Call(
             name="arrayZip",
