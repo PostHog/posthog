@@ -22,6 +22,7 @@ from hogli.manifest import get_manifest
 
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
+    DEFAULT_PRESET,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
     GIT_EMAIL_PARAMETER,
@@ -634,6 +635,7 @@ def devbox_setup(
     verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
+    click.echo(click.style("Configuring devbox CLI access...", bold=True))
     ensure_tailscale_connected("rerun `hogli devbox:setup`.")
     ensure_tailscale_routes_accepted()
     ensure_coder_reachable()
@@ -800,11 +802,19 @@ def devbox_unshare(workspace: str | None, users: tuple[str, ...]) -> None:
     show_default=True,
     help="Coder workspace template to use when creating a new devbox",
 )
+@click.option(
+    "-p",
+    "--preset",
+    default=DEFAULT_PRESET,
+    show_default=True,
+    help="Coder template preset to apply (use 'none' to opt out)",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
     disk: str,
     template: str,
+    preset: str,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
@@ -818,7 +828,7 @@ def devbox_start(
 
     config = load_config()
 
-    click.echo(f"Creating devbox '{name}' (template={template}, disk={disk}GiB)...")
+    click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, disk={disk}GiB)...")
     create_workspace(
         name,
         int(disk),
@@ -826,6 +836,7 @@ def devbox_start(
         git_email=config.get("git_email"),
         dotfiles_uri=config.get("dotfiles_uri"),
         template=template,
+        preset=preset,
         verbose=verbose,
     )
     click.echo("Created.")

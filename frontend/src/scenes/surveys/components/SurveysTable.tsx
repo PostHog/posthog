@@ -20,7 +20,12 @@ import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/Surveys
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import {
+    canDeleteSurvey,
+    openArchiveSurveyDialog,
+    openDeleteSurveyDialog,
+    openResumeSurveyDialog,
+} from 'scenes/surveys/surveyDialogs'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { isSurveyRunning } from 'scenes/surveys/utils'
@@ -348,37 +353,15 @@ export function SurveysTable(): JSX.Element {
                                                 >
                                                     <LemonButton
                                                         fullWidth
-                                                        onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: 'Resume this survey?',
-                                                                content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        Once resumed, the survey will be visible to your
-                                                                        users again.
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: 'Resume',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                end_date: null,
-                                                                            },
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_RESUMED,
-                                                                        })
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
-                                                        }}
+                                                        onClick={() =>
+                                                            openResumeSurveyDialog(survey, () =>
+                                                                updateSurvey({
+                                                                    id: survey.id,
+                                                                    updatePayload: { end_date: null },
+                                                                    intentContext: ProductIntentContext.SURVEY_RESUMED,
+                                                                })
+                                                            )
+                                                        }
                                                     >
                                                         Resume survey
                                                     </LemonButton>

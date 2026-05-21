@@ -36,11 +36,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     postgresql-client \
     protobuf-compiler \
+    sudo \
     tmux \
     unzip \
     vim \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Personal image layers run install snippets as the sandbox user.
+# NOPASSWD sudo is available as an escape hatch for recipes that need
+# system-wide install (apt-get, /usr writes). Prefer ~/.local for
+# anything that can install per-user; reach for sudo when it can't.
+RUN echo "sandbox ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sandbox \
+ && chmod 0440 /etc/sudoers.d/sandbox
 
 # --- Rarely changes: Rust toolchain + sqlx-cli ---
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \

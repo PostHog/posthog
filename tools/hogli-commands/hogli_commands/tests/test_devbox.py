@@ -208,11 +208,65 @@ class TestResolveTailscale:
     ) -> None:
         monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
         monkeypatch.setattr(coder, "_resolve_tailscale", lambda: None)
+        monkeypatch.setattr(coder.sys, "platform", "linux")
 
         with pytest.raises(SystemExit):
             coder.ensure_tailscale_connected()
 
-        assert "not installed" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "not installed" in out
+        # The install hint must be present so the user can act without searching.
+        assert "tailscale.com/install.sh" in out
+
+    def test_ensure_tailscale_connected_install_hint_is_macos_specific(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: None)
+        monkeypatch.setattr(coder.sys, "platform", "darwin")
+
+        with pytest.raises(SystemExit):
+            coder.ensure_tailscale_connected()
+
+        out = capsys.readouterr().out
+        assert "brew install --cask tailscale" in out
+
+    def test_ensure_tailscale_connected_says_not_connected_when_daemon_down(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: "/usr/local/bin/tailscale")
+        monkeypatch.setattr(coder, "_tailscale_cli_missing_on_macos", lambda: False)
+        monkeypatch.setattr(coder.sys, "platform", "linux")
+
+        with pytest.raises(SystemExit):
+            coder.ensure_tailscale_connected()
+
+        out = capsys.readouterr().out
+        assert "installed but not connected" in out
+        # On Linux the connect hint must mention `tailscale up`, not the macOS app.
+        assert "tailscale up" in out
+
+    def test_ensure_tailscale_connected_emits_symlink_hint_on_macos_when_cli_only_in_app_bundle(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(coder, "tailscale_connected", lambda: False)
+        monkeypatch.setattr(coder, "_resolve_tailscale", lambda: coder._MACOS_TAILSCALE_CLI)
+        monkeypatch.setattr(coder, "_tailscale_cli_missing_on_macos", lambda: True)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_tailscale_connected()
+
+        out = capsys.readouterr().out
+        assert "not on your PATH" in out
+        assert "ln -sfn" in out
+        assert coder._MACOS_TAILSCALE_CLI in out
 
 
 class TestTailscaleRoutesAccepted:
@@ -418,7 +472,7 @@ class TestCoderVersion:
 
 
 class TestCoderReachable:
-    """Test the Coder deployment reachability probe."""
+    """Test the Coder deployment reachability probe and diagnostic."""
 
     def test_coder_reachable_returns_false_on_request_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
@@ -429,11 +483,111 @@ class TestCoderReachable:
         monkeypatch.setattr(coder.requests, "get", boom)
         assert coder.coder_reachable() is False
 
-    def test_ensure_coder_reachable_fails_when_unreachable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ensure_coder_reachable_fails_when_unreachable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "coder_reachable", lambda: False)
+        monkeypatch.setattr(
+            coder,
+            "_diagnose_unreachable_coder",
+            lambda: coder.CoderReachabilityDiagnosis(
+                cause="stubbed cause.",
+                next_step="stubbed step.",
+                facts=["fact: one"],
+            ),
+        )
+
         with pytest.raises(SystemExit):
             coder.ensure_coder_reachable()
+
+        out = capsys.readouterr().out
+        assert "Cannot reach https://coder.example.com" in out
+        assert "stubbed cause." in out
+        assert "stubbed step." in out
+        assert "fact: one" in out
+
+
+class TestDiagnoseUnreachableCoder:
+    """Test the structured cause-and-next-step diagnosis for unreachable Coder."""
+
+    @pytest.fixture(autouse=True)
+    def _stub_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+
+    def test_dns_failure_dominates_other_causes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: None)
+
+        def must_not_run(*args: object, **kwargs: object) -> bool:
+            raise AssertionError("TCP probe should be skipped when DNS fails")
+
+        monkeypatch.setattr(coder, "_tcp_reachable", must_not_run)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "DNS lookup" in diagnosis.cause
+        assert "MagicDNS" in diagnosis.next_step
+        assert "Tailscale tailnet: posthog.com" in diagnosis.facts
+
+    def test_tcp_open_signals_tls_or_clock(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(coder, "_tailscale_status", lambda: {"CurrentTailnet": {"Name": "posthog.com"}})
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: True)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "HTTPS probe" in diagnosis.cause
+        assert "clock" in diagnosis.next_step.lower()
+
+    def test_no_subnet_routers_points_to_wrong_tailnet(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {"CurrentTailnet": {"Name": "personal.tailnet"}, "Peer": {"k": {"PrimaryRoutes": None}}},
+        )
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "No peer" in diagnosis.cause
+        assert "Team DevEx" in diagnosis.next_step
+
+    def test_routers_all_offline_says_relay_is_down(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {
+                "CurrentTailnet": {"Name": "posthog.com"},
+                "Peer": {
+                    "k": {"HostName": "subnet-router-us", "PrimaryRoutes": ["10.0.0.0/16"], "Online": False},
+                },
+            },
+        )
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "subnet-router-us" in diagnosis.cause
+        assert "Wait a minute" in diagnosis.next_step
+
+    def test_routers_online_points_at_acl_or_vpn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            coder,
+            "_tailscale_status",
+            lambda: {
+                "CurrentTailnet": {"Name": "posthog.com"},
+                "Peer": {
+                    "k": {"HostName": "subnet-router-us", "PrimaryRoutes": ["10.0.0.0/16"], "Online": True},
+                },
+            },
+        )
+        monkeypatch.setattr(coder, "_resolve_host_ip", lambda host: "10.0.0.1")
+        monkeypatch.setattr(coder, "_tcp_reachable", lambda host, port, timeout=3.0: False)
+
+        diagnosis = coder._diagnose_unreachable_coder()
+        assert "blocked" in diagnosis.cause.lower()
+        assert "ACL" in diagnosis.next_step or "VPN" in diagnosis.next_step.upper()
 
 
 class TestWorkspaceNaming:
@@ -485,6 +639,47 @@ def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
     return out
 
 
+def _flag_value(args: list[str], flag: str) -> str | None:
+    """Return the value paired with the given flag in argv, or None."""
+    for cur, nxt in zip(args, args[1:]):
+        if cur == flag:
+            return nxt
+    return None
+
+
+def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., None]:
+    """Stub for ``devbox_cli.create_workspace`` that records its forwarded kwargs.
+
+    Tracks every CLI-facing kwarg so devbox:start tests can assert on the
+    specific subset they care about without redeclaring the signature.
+    """
+
+    def stub(
+        name: str,
+        disk_size: int,
+        *,
+        git_name: str | None = None,
+        git_email: str | None = None,
+        dotfiles_uri: str | None = None,
+        template: str = coder.DEFAULT_TEMPLATE,
+        preset: str = coder.DEFAULT_PRESET,
+        verbose: bool = False,
+    ) -> None:
+        captured.update(
+            {
+                "name": name,
+                "disk_size": str(disk_size),
+                "git_name": git_name,
+                "git_email": git_email,
+                "dotfiles_uri": dotfiles_uri,
+                "template": template,
+                "preset": preset,
+            }
+        )
+
+    return stub
+
+
 def _fake_run_build_capturing(captured: dict[str, object]) -> Callable[..., subprocess.CompletedProcess[str]]:
     """Return a `_run_build` stub that records its argv and reports success."""
 
@@ -504,11 +699,13 @@ class TestWorkspaceCreation:
     """Test Coder workspace creation parameter passing and template selection."""
 
     @pytest.mark.parametrize(
-        "kwargs, expected_template, expected_params",
+        "kwargs, available_presets, expected_template, expected_preset, expected_params",
         [
             (
                 {},
+                ["Default (warm)", "Cold"],
                 "posthog-linux",
+                "Default (warm)",
                 {"disk_size": "100", "repo": _REPO},
             ),
             (
@@ -517,7 +714,9 @@ class TestWorkspaceCreation:
                     "git_email": "test-user@example.com",
                     "dotfiles_uri": _DOTFILES,
                 },
+                ["Default (warm)"],
                 "posthog-linux",
+                "Default (warm)",
                 {
                     "disk_size": "100",
                     "repo": _REPO,
@@ -528,33 +727,59 @@ class TestWorkspaceCreation:
             ),
             (
                 {"template": "posthog-microvm"},
+                ["Default (warm)"],
                 "posthog-microvm",
+                "Default (warm)",
+                {"disk_size": "100", "repo": _REPO},
+            ),
+            (
+                {"preset": "none"},
+                ["Default (warm)"],
+                "posthog-linux",
+                "none",
+                {"disk_size": "100", "repo": _REPO},
+            ),
+            # Resolution fallback to "none" is exhaustively covered by
+            # TestTemplatePresetResolution; one case here is enough to prove
+            # the resolved value flows through to the coder argv.
+            (
+                {"template": "posthog-microvm"},
+                ["Cold only"],
+                "posthog-microvm",
+                "none",
                 {"disk_size": "100", "repo": _REPO},
             ),
         ],
-        ids=["defaults", "all-optionals", "custom-template"],
+        ids=[
+            "defaults",
+            "all-optionals",
+            "custom-template",
+            "preset-opt-out",
+            "resolver-fallback-flows-through",
+        ],
     )
     def test_create_workspace_forwards_params_and_template(
         self,
         monkeypatch: pytest.MonkeyPatch,
         kwargs: dict[str, str],
+        available_presets: list[str],
         expected_template: str,
+        expected_preset: str,
         expected_params: dict[str, str],
     ) -> None:
         captured: dict[str, object] = {}
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
         coder.create_workspace("devbox-test-user", 100, **kwargs)
 
         args = captured["args"]
-        assert args[:6] == [
-            "coder",
-            "create",
-            "devbox-test-user",
-            "--template",
-            expected_template,
-            "--use-parameter-defaults",
-        ]
+        assert args[:3] == ["coder", "create", "devbox-test-user"]
+        assert _flag_value(args, "--template") == expected_template
+        # `--preset` must always be forwarded -- newer coder versions otherwise
+        # prompt interactively for a preset, which `--yes` does not bypass.
+        assert _flag_value(args, "--preset") == expected_preset
+        assert "--use-parameter-defaults" in args
         assert "--yes" in args
         # Security invariant: the Claude OAuth token is a Coder user secret
         # (env-injected at workspace start); it must never be forwarded as a
@@ -619,6 +844,7 @@ class TestWorkspaceCreation:
             return subprocess.CompletedProcess(args, rc, stdout, "")
 
         monkeypatch.setattr(coder, "_run_build", fake_run_build)
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: ["Default (warm)"])
 
         def go() -> None:
             coder.create_workspace(
@@ -636,6 +862,85 @@ class TestWorkspaceCreation:
 
         assert len(calls) == len(outputs)
         assert dropped.isdisjoint(_parse_parameter_flags(calls[-1]))
+
+
+class TestTemplatePresetResolution:
+    """Test the runtime preset resolution that suppresses coder's picker."""
+
+    @pytest.mark.parametrize(
+        "rc, stdout, stderr, expected, warning_expected",
+        [
+            (0, '[{"name": "Default (warm)"}, {"name": "Cold"}]', "", ["Default (warm)", "Cold"], False),
+            (1, "", "auth: token expired", [], True),
+            (1, "", "", [], True),
+            (0, '{"error": "no presets"}', "", [], False),
+            (0, "not json", "", [], False),
+            (0, '[{"name": "Default (warm)"}, {"description": "no-name"}]', "", ["Default (warm)"], False),
+        ],
+        ids=[
+            "happy",
+            "non-zero-exit-with-stderr",
+            "non-zero-exit-bare",
+            "non-list-json",
+            "invalid-json",
+            "skip-nameless",
+        ],
+    )
+    def test_list_template_presets_parses_coder_output(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        rc: int,
+        stdout: str,
+        stderr: str,
+        expected: list[str],
+        warning_expected: bool,
+    ) -> None:
+        def fake_run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+            assert args[:4] == ["coder", "templates", "presets", "list"]
+            return subprocess.CompletedProcess(args, rc, stdout, stderr)
+
+        monkeypatch.setattr(coder, "_run", fake_run)
+
+        assert coder._list_template_presets(coder.DEFAULT_TEMPLATE) == expected
+        output = capsys.readouterr().out
+        if warning_expected:
+            assert "Warning: failed to list presets" in output
+            if stderr:
+                assert stderr in output
+        else:
+            assert "Warning" not in output
+
+    @pytest.mark.parametrize(
+        "requested, presets, expected, warning_expected",
+        [
+            ("Default (warm)", ["Default (warm)", "Cold"], "Default (warm)", False),
+            ("none", ["Default (warm)"], "none", False),
+            ("Default (warm)", ["Cold only"], "none", True),
+            ("Default (warm)", [], "none", False),
+            ("Missing", ["Default (warm)"], "none", True),
+        ],
+        ids=["match", "explicit-none", "default-missing", "no-presets", "user-supplied-missing"],
+    )
+    def test_resolve_template_preset(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        requested: str,
+        presets: list[str],
+        expected: str,
+        warning_expected: bool,
+    ) -> None:
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(presets))
+
+        result = coder.resolve_template_preset("posthog-linux", requested)
+
+        assert result == expected
+        output = capsys.readouterr().out
+        if warning_expected:
+            assert "Warning" in output
+        else:
+            assert "Warning" not in output
 
 
 class TestWorkspaceUpdate:
@@ -914,26 +1219,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "disk_size": str(disk_size),
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                    "template": template,
-                }
-            ),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start"])
 
@@ -944,7 +1230,8 @@ class TestDevboxCommands:
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
-            "template": "posthog-linux",
+            "template": coder.DEFAULT_TEMPLATE,
+            "preset": coder.DEFAULT_PRESET,
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -967,25 +1254,7 @@ class TestDevboxCommands:
                 "dotfiles_uri": "https://github.com/user/dotfiles",
             },
         )
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                    "template": template,
-                }
-            ),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start", "api"])
 
@@ -994,33 +1263,40 @@ class TestDevboxCommands:
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
-        assert captured["template"] == "posthog-linux"
+        assert captured["template"] == coder.DEFAULT_TEMPLATE
+        assert captured["preset"] == coder.DEFAULT_PRESET
         assert "devbox:ssh api" in result.output
 
     def test_devbox_start_forwards_template_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
+        captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            verbose=False: captured.update({"template": template}),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start", "-t", "posthog-microvm"])
 
         assert result.exit_code == 0, result.output
-        assert captured == {"template": "posthog-microvm"}
+        assert captured["template"] == "posthog-microvm"
+        assert captured["preset"] == coder.DEFAULT_PRESET
+
+    def test_devbox_start_forwards_preset_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--preset", "none"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["preset"] == "none"
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -1927,6 +2203,29 @@ class TestResolveLocalIdentityAgent:
             lambda *a, **kw: subprocess.CompletedProcess(a[0], 255, "", "Bad host"),
         )
         assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
+
+
+class TestConfigSshArgs:
+    """Test the `coder config-ssh` arg assembly."""
+
+    def test_omits_identity_agent_when_socket_missing(self) -> None:
+        args = coder._config_ssh_args(identity_agent_socket=None)
+        assert "ForwardAgent yes" in args
+        assert not any("IdentityAgent" in a for a in args)
+
+    @pytest.mark.parametrize(
+        "socket",
+        [
+            # 1Password's default path contains spaces; without quoting,
+            # OpenSSH parses the trailing path components as "extra arguments"
+            # and refuses to load the config file.
+            "/Users/me/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
+            "/tmp/agent.sock",
+        ],
+    )
+    def test_quotes_identity_agent_socket(self, socket: str) -> None:
+        args = coder._config_ssh_args(identity_agent_socket=socket)
+        assert f'IdentityAgent "{socket}"' in args
 
 
 class TestSetupGitSigning:

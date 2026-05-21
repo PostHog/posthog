@@ -7,6 +7,8 @@ import {
     UserInterviewTopicsAddIntervieweeCreateParams,
     UserInterviewTopicsCreateBody,
     UserInterviewTopicsGenerateLinksCreateParams,
+    UserInterviewTopicsIntervieweesBulkCreateBody,
+    UserInterviewTopicsIntervieweesBulkCreateParams,
     UserInterviewTopicsIntervieweesCreateBody,
     UserInterviewTopicsIntervieweesCreateParams,
     UserInterviewTopicsIntervieweesDestroyParams,
@@ -99,6 +101,31 @@ const userInterviewTopicsGenerateLinks = (): ToolBase<
         const result = await context.api.request<Schemas.PaginatedInterviewLinkList>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/generate_links/`,
+        })
+        return result
+    },
+})
+
+const UserInterviewTopicsIntervieweesBulkCreateSchema = UserInterviewTopicsIntervieweesBulkCreateParams.omit({
+    project_id: true,
+}).extend(UserInterviewTopicsIntervieweesBulkCreateBody.shape)
+
+const userInterviewTopicsIntervieweesBulkCreate = (): ToolBase<
+    typeof UserInterviewTopicsIntervieweesBulkCreateSchema,
+    Schemas.BulkIntervieweeContextResponse
+> => ({
+    name: 'user-interview-topics-interviewees-bulk-create',
+    schema: UserInterviewTopicsIntervieweesBulkCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof UserInterviewTopicsIntervieweesBulkCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.items !== undefined) {
+            body['items'] = params.items
+        }
+        const result = await context.api.request<Schemas.BulkIntervieweeContextResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.topic_id))}/interviewees/bulk/`,
+            body,
         })
         return result
     },
@@ -406,6 +433,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'user-interview-topics-add-interviewee': userInterviewTopicsAddInterviewee,
     'user-interview-topics-create': userInterviewTopicsCreate,
     'user-interview-topics-generate-links': userInterviewTopicsGenerateLinks,
+    'user-interview-topics-interviewees-bulk-create': userInterviewTopicsIntervieweesBulkCreate,
     'user-interview-topics-interviewees-create': userInterviewTopicsIntervieweesCreate,
     'user-interview-topics-interviewees-destroy': userInterviewTopicsIntervieweesDestroy,
     'user-interview-topics-interviewees-list': userInterviewTopicsIntervieweesList,

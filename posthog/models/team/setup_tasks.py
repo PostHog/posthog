@@ -65,7 +65,7 @@ class SetupTaskId(StrEnum):
     ViewFirstError = "view_first_error"
     ResolveFirstError = "resolve_first_error"
 
-    # LLM Analytics
+    # AI observability
     IngestFirstLlmEvent = "ingest_first_llm_event"
     ViewFirstTrace = "view_first_trace"
     TrackCosts = "track_costs"

@@ -110,16 +110,33 @@ class TestGetSandboxMcpConfigs(TestCase):
             ]
 
     @parameterized.expand(
-        [
-            ("http://localhost:8000",),
-            ("https://custom.example.com",),
-        ]
+        [("https://custom.example.com",)],
     )
     def test_returns_empty_list_for_unknown_hosts(self, site_url: str) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = site_url
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
+
+    @parameterized.expand(
+        [
+            ("http://localhost:8000",),
+            ("http://127.0.0.1:8001",),
+        ]
+    )
+    def test_localhost_site_url_uses_host_docker_internal_mcp(self, site_url: str) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = site_url
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="http://host.docker.internal:8787/mcp",
+                    headers=self._expected_headers(),
+                )
+            ]
 
     def test_returns_empty_list_when_no_site_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:

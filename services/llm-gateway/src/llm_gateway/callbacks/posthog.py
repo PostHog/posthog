@@ -8,6 +8,7 @@ from uuid import UUID, uuid4, uuid5
 import structlog
 from posthoganalytics import Posthog
 
+from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.request_context import (
     get_auth_user,
@@ -62,7 +63,7 @@ _TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
 def _normalize_trace_id(raw: Any) -> str:
     """Normalize an incoming trace identifier into a UUID string.
 
-    LLM Analytics renders trace links as `/llm-observability/traces/<id>`, so
+    AI observability renders trace links as `/llm-observability/traces/<id>`, so
     `$ai_trace_id` must be a URL-safe identifier. Anthropic's
     `metadata.user_id` is a free-form string that Claude Code populates with a
     serialized JSON session blob — passing that through verbatim produces
@@ -98,7 +99,7 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
 
 
 class PostHogCallback(InstrumentedCallback):
-    """Custom PostHog callback for LLM analytics."""
+    """Custom PostHog callback for AI observability."""
 
     callback_name = "posthog"
 
@@ -118,10 +119,10 @@ class PostHogCallback(InstrumentedCallback):
         # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
         # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
         trace_id = _normalize_trace_id(metadata.get("user_id"))
-        if auth_user and auth_user.auth_method == "oauth_access_token":
-            distinct_id = auth_user.distinct_id
+        if auth_user is None:
+            distinct_id = end_user_id or str(uuid4())
         else:
-            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+            distinct_id = resolve_distinct_id(auth_user, end_user_id)
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(
@@ -204,10 +205,10 @@ class PostHogCallback(InstrumentedCallback):
         # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
         # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
         trace_id = _normalize_trace_id(metadata.get("user_id"))
-        if auth_user and auth_user.auth_method == "oauth_access_token":
-            distinct_id = auth_user.distinct_id
+        if auth_user is None:
+            distinct_id = end_user_id or str(uuid4())
         else:
-            distinct_id = end_user_id or (auth_user.distinct_id if auth_user else str(uuid4()))
+            distinct_id = resolve_distinct_id(auth_user, end_user_id)
         team_id = auth_user.team_id if auth_user and auth_user.team_id else None
 
         logger.debug(

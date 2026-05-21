@@ -49,9 +49,9 @@ public:
     REGEX_SINGLE = 181, REGEX_DOUBLE = 182, RBRACE = 183, RBRACKET = 184, 
     RPAREN = 185, SEMICOLON = 186, SLASH = 187, SLASH_GT = 188, UNDERSCORE = 189, 
     MULTI_LINE_COMMENT = 190, SINGLE_LINE_COMMENT = 191, WHITESPACE = 192, 
-    STRING_TEXT = 193, STRING_ESCAPE_TRIGGER = 194, FULL_STRING_TEXT = 195, 
-    FULL_STRING_ESCAPE_TRIGGER = 196, TAG_WS = 197, TAGC_WS = 198, HOGQLX_TEXT_TEXT = 199, 
-    HOGQLX_TEXT_WS = 200
+    UNEXPECTED_CHARACTER = 193, STRING_TEXT = 194, STRING_ESCAPE_TRIGGER = 195, 
+    FULL_STRING_TEXT = 196, FULL_STRING_ESCAPE_TRIGGER = 197, TAG_WS = 198, 
+    TAGC_WS = 199, HOGQLX_TEXT_TEXT = 200, HOGQLX_TEXT_WS = 201
   };
 
   enum {
@@ -316,7 +316,6 @@ public:
     ForInStmtContext *forInStmt();
     ForStmtContext *forStmt();
     FuncStmtContext *funcStmt();
-    VarAssignmentContext *varAssignment();
     BlockContext *block();
     ExprStmtContext *exprStmt();
     EmptyStmtContext *emptyStmt();
@@ -529,7 +528,9 @@ public:
   public:
     ExprStmtContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    ExpressionContext *expression();
+    std::vector<ExpressionContext *> expression();
+    ExpressionContext* expression(size_t i);
+    antlr4::tree::TerminalNode *COLONEQUALS();
     antlr4::tree::TerminalNode *SEMICOLON();
 
 

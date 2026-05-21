@@ -43,6 +43,7 @@ import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAna
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
@@ -504,14 +505,7 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     return [
         {
             key: ProductTab.LIVE,
-            label: (
-                <div className="flex items-center gap-1">
-                    Live
-                    <LemonTag type="completion" className="uppercase">
-                        Alpha
-                    </LemonTag>
-                </div>
-            ),
+            label: 'Live',
             link: '/web/live',
         },
     ]
@@ -568,6 +562,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
@@ -583,6 +578,11 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             </BindLogic>
         </BindLogic>
     )
+}
+
+const WebAnalyticsLoadTimeTracker = (): null => {
+    useMountedLogic(webAnalyticsLoadTimeLogic)
+    return null
 }
 
 const WebAnalyticsTabs = (): JSX.Element => {
@@ -642,18 +642,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                {
-                    key: ProductTab.PAGE_REPORTS,
-                    label: (
-                        <div className="flex items-center gap-1">
-                            Page reports
-                            <LemonTag type="warning" className="uppercase">
-                                Beta
-                            </LemonTag>
-                        </div>
-                    ),
-                    link: '/web/page-reports',
-                },
+                { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
                 ...liveTab(featureFlags),
                 ...botAnalyticsTab(featureFlags),
                 ...healthTab(featureFlags),

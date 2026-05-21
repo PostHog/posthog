@@ -22,6 +22,10 @@ export function FloatingSuggestions(): JSX.Element | null {
     const { Component } = activeSuggestion
 
     const handleUpdate = (): void => {
+        if (ttEditor.isDestroyed) {
+            return
+        }
+
         const selection = window.getSelection()
 
         if (selection && selection.anchorNode && selection.anchorNode.parentElement) {

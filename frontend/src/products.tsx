@@ -34,6 +34,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from '../../products/llm_analytics/frontend/clusters/constants'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
+import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -118,6 +119,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
+    MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
+    MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_lenses/ReplayLensesScene'),
     ReplayVisionLens: () => import('../../products/replay_vision/frontend/replay_lenses/ReplayLens'),
@@ -162,6 +165,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
+    '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
@@ -232,6 +236,11 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
+    '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
+    '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
+    '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
+    '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/metrics': ['Metrics', 'metrics'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/:id': ['ReplayVisionLens', 'replayVision'],
@@ -436,14 +445,14 @@ export const productConfiguration: Record<string, any> = {
     LiveDebugger: { name: 'Live Debugger', projectBased: true },
     LLMAnalytics: {
         projectBased: true,
-        name: 'LLM analytics',
+        name: 'AI observability',
         layout: 'app-container',
-        description: 'Analyze and understand your LLM usage and performance.',
+        description: 'Analyze and understand your AI usage and performance.',
         iconType: 'llm_analytics',
     },
-    LLMAnalyticsTrace: { projectBased: true, name: 'LLM analytics trace', layout: 'app-container' },
-    LLMAnalyticsSession: { projectBased: true, name: 'LLM analytics session', layout: 'app-container' },
-    LLMAnalyticsUsers: { projectBased: true, name: 'LLM analytics users', layout: 'app-container' },
+    LLMAnalyticsTrace: { projectBased: true, name: 'AI observability trace', layout: 'app-container' },
+    LLMAnalyticsSession: { projectBased: true, name: 'AI observability session', layout: 'app-container' },
+    LLMAnalyticsUsers: { projectBased: true, name: 'AI observability users', layout: 'app-container' },
     LLMAnalyticsPlayground: {
         projectBased: true,
         name: 'Playground',
@@ -460,7 +469,7 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsDataset: {
         projectBased: true,
-        name: 'LLM analytics dataset',
+        name: 'AI observability dataset',
         layout: 'app-container',
         iconType: 'llm_datasets',
     },
@@ -474,14 +483,14 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsEvaluation: {
         projectBased: true,
-        name: 'LLM analytics evaluation',
+        name: 'AI observability evaluation',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_evaluations',
     },
     LLMAnalyticsEvaluationTemplates: {
         projectBased: true,
-        name: 'LLM analytics evaluation templates',
+        name: 'AI observability evaluation templates',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_evaluations',
@@ -489,14 +498,14 @@ export const productConfiguration: Record<string, any> = {
     LLMAnalyticsTags: {
         projectBased: true,
         name: 'Tags',
-        description: 'Add custom tags to your LLM generations automatically.',
+        description: 'Add custom tags to your AI generations automatically.',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_tags',
     },
     LLMAnalyticsTag: {
         projectBased: true,
-        name: 'LLM analytics tag',
+        name: 'AI observability tag',
         activityScope: 'LLMAnalytics',
         layout: 'app-container',
         iconType: 'llm_tags',
@@ -510,7 +519,7 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsPrompt: {
         projectBased: true,
-        name: 'LLM analytics prompt',
+        name: 'AI observability prompt',
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
@@ -523,20 +532,20 @@ export const productConfiguration: Record<string, any> = {
     },
     LLMAnalyticsSkill: {
         projectBased: true,
-        name: 'LLM analytics skill',
+        name: 'AI observability skill',
         layout: 'app-container',
         iconType: 'llm_prompts',
     },
     LLMAnalyticsClusters: {
         projectBased: true,
         name: 'Clusters',
-        description: 'Discover patterns and clusters in your LLM usage.',
+        description: 'Discover patterns and clusters in your AI usage.',
         layout: 'app-container',
         iconType: 'llm_clusters',
     },
     LLMAnalyticsCluster: {
         projectBased: true,
-        name: 'LLM analytics cluster',
+        name: 'AI observability cluster',
         layout: 'app-container',
         iconType: 'llm_clusters',
     },
@@ -563,6 +572,19 @@ export const productConfiguration: Record<string, any> = {
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
+    MCPAnalytics: {
+        projectBased: true,
+        name: 'MCP analytics',
+        layout: 'app-container',
+        description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
+        iconType: 'llm_analytics',
+    },
+    MCPAnalyticsToolDetail: {
+        projectBased: true,
+        name: 'MCP tool',
+        layout: 'app-container',
+        iconType: 'llm_analytics',
+    },
     Metrics: {
         name: 'Metrics',
         projectBased: true,
@@ -693,7 +715,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
-    models: (): string => '/models',
+    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     nodeDetail: (id: string): string => `/models/${id}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
@@ -901,7 +923,13 @@ export const productUrls = {
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
     llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
     llmAnalyticsSkills: (): string => '/llm-analytics/skills',
-    llmAnalyticsSkill: (name: string): string => `/llm-analytics/skills/${name}`,
+    llmAnalyticsSkill: (
+        name: string,
+        params?: {
+            file?: string
+            version?: number
+        }
+    ): string => combineUrl(`/llm-analytics/skills/${name}`, params).url,
     llmAnalyticsClusters: (runId?: string): string =>
         runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>
@@ -914,6 +942,11 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
+    mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
+    mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
+    mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
+    mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
@@ -1583,6 +1616,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'LLM analytics',
+        displayLabel: 'AI observability',
         intents: [
             ProductKey.LLM_ANALYTICS,
             ProductKey.LLM_EVALUATIONS,
@@ -1650,6 +1684,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.logs(),
         sceneKey: 'Logs',
         sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
+    },
+    {
+        path: 'MCP analytics',
+        intents: [ProductKey.LLM_ANALYTICS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        visualOrder: 2,
+        type: 'mcp_analytics',
+        iconType: 'llm_analytics' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.mcpAnalyticsDashboard(),
+        flag: FEATURE_FLAGS.MCP_ANALYTICS,
+        tags: ['alpha'],
+        sceneKey: 'MCPAnalytics',
+        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
     },
     {
         path: 'Marketing analytics',

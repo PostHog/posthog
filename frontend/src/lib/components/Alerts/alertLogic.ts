@@ -1,4 +1,4 @@
-import { actions, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -35,13 +35,11 @@ export interface AlertHistoryChartPoint {
 
 export interface AlertLogicProps {
     alertId?: AlertType['id'] | null
-    /** `FEATURE_FLAGS.ALERTS_HISTORY_CHART` — drives default checks fetch window; keep in sync wherever `alertLogic` is built. */
-    historyChartEnabled: boolean
 }
 
-function initialChecksHistoryParams(historyChartEnabled: boolean | undefined): ChecksHistoryParams {
+function initialChecksHistoryParams(): ChecksHistoryParams {
     return {
-        limit: historyChartEnabled ? CHART_CHECKS_LIMIT : TABLE_CHECKS_PAGE_SIZE,
+        limit: CHART_CHECKS_LIMIT,
         offset: 0,
     }
 }
@@ -65,7 +63,6 @@ export const alertLogic = kea<alertLogicType>([
     path(['lib', 'components', 'Alerts', 'alertLogic']),
     props({
         alertId: null,
-        historyChartEnabled: false,
     } as AlertLogicProps),
     key(({ alertId }) => alertId ?? 'new'),
 
@@ -81,15 +78,15 @@ export const alertLogic = kea<alertLogicType>([
         alertHistoryTablePageBackward: true,
     }),
 
-    reducers(({ props }) => ({
+    reducers(() => ({
         checksHistoryParams: [
-            initialChecksHistoryParams(props.historyChartEnabled),
+            initialChecksHistoryParams(),
             {
                 setChecksHistoryParams: (_, { limit, offset }) => ({ limit, offset }),
             },
         ],
         alertHistoryView: [
-            (props.historyChartEnabled ? 'chart' : 'table') as 'chart' | 'table',
+            'chart' as 'chart' | 'table',
             {
                 setAlertHistoryView: (_, { view }) => view,
             },
@@ -119,21 +116,6 @@ export const alertLogic = kea<alertLogicType>([
         ],
     })),
 
-    propsChanged(({ actions, props }, oldProps) => {
-        if (!oldProps) {
-            return
-        }
-        const next = !!props.historyChartEnabled
-        const prev = !!oldProps.historyChartEnabled
-        if (next === prev) {
-            return
-        }
-        actions.setAlertHistoryView(next ? 'chart' : 'table')
-        actions.setChecksHistoryTablePage(1)
-        actions.setChecksHistoryParams(next ? CHART_CHECKS_LIMIT : TABLE_CHECKS_PAGE_SIZE, 0)
-        actions.loadAlert()
-    }),
-
     // Selector deps must be functions from `logic.selectors` / propSelectors — not raw state values.
     selectors(() => ({
         alertHistoryIsAnomalyDetection: [(s) => [s.alert], (alert: AlertType | null) => !!alert?.detector_config],
@@ -145,9 +127,9 @@ export const alertLogic = kea<alertLogicType>([
             },
         ],
         alertHistoryChartSeries: [
-            (s, p) => [p.historyChartEnabled, s.alert],
-            (historyChartEnabled: boolean, alert: AlertType | null): AlertHistoryChartPoint[] => {
-                if (!historyChartEnabled || !alert) {
+            (s) => [s.alert],
+            (alert: AlertType | null): AlertHistoryChartPoint[] => {
+                if (!alert) {
                     return []
                 }
                 const isAnomaly = !!alert.detector_config
@@ -170,9 +152,9 @@ export const alertLogic = kea<alertLogicType>([
             },
         ],
         alertHistoryUsesAnomalyScores: [
-            (s, p) => [p.historyChartEnabled, s.alert],
-            (historyChartEnabled: boolean, alert: AlertType | null): boolean => {
-                if (!historyChartEnabled || !alert?.detector_config) {
+            (s) => [s.alert],
+            (alert: AlertType | null): boolean => {
+                if (!alert?.detector_config) {
                     return false
                 }
                 const checks = alert.checks ?? []
@@ -198,9 +180,8 @@ export const alertLogic = kea<alertLogicType>([
             },
         ],
         alertHistoryHasChartableHistory: [
-            (s, p) => [s.alertHistoryChartSeries, p.historyChartEnabled],
-            (series: AlertHistoryChartPoint[], historyChartEnabled: boolean) =>
-                !!historyChartEnabled && series.length > 0,
+            (s) => [s.alertHistoryChartSeries],
+            (series: AlertHistoryChartPoint[]) => series.length > 0,
         ],
         alertHistoryTablePageCount: [
             (s) => [s.alert],
@@ -220,11 +201,8 @@ export const alertLogic = kea<alertLogicType>([
         ],
     })),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         selectAlertHistoryView: ({ view }) => {
-            if (!props.historyChartEnabled) {
-                return
-            }
             actions.setAlertHistoryView(view)
             if (view === 'table') {
                 actions.setChecksHistoryTablePage(1)

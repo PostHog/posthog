@@ -760,7 +760,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 requiresUserInput: true,
             },
             {
-                content: 'How can I set up the LLM analytics in…',
+                content: 'How can I set up AI observability in…',
                 requiresUserInput: true,
             },
             {
@@ -929,7 +929,7 @@ export const RESEARCH_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Run a cohort analysis comparing users by sign-up month',
             },
             {
-                content: 'Analyze LLM usage patterns and costs across features',
+                content: 'Analyze AI usage patterns and costs across features',
             },
         ],
     },

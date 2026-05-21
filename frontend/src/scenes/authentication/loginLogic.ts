@@ -30,6 +30,14 @@ export interface PrecheckResponseType {
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
 }
 
+export interface DevUser {
+    email: string
+    is_staff: boolean
+    label: string | null
+}
+
+export const DEV_LOGIN_SECONDS_SAVED_PER_CLICK = 5
+
 // Routes that should be handled by Django, not the React router
 const BACKEND_ONLY_ROUTES = [
     '/login/vercel/continue',
@@ -80,6 +88,7 @@ export const loginLogic = kea<loginLogicType>([
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
+        devLogin: (email: string) => ({ email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -88,6 +97,13 @@ export const loginLogic = kea<loginLogicType>([
             {
                 setGeneralError: (_, error) => error,
                 clearGeneralError: () => null,
+            },
+        ],
+        devLoginCount: [
+            0,
+            { persist: true },
+            {
+                devLogin: (count) => count + 1,
             },
         ],
     }),
@@ -110,6 +126,22 @@ export const loginLogic = kea<loginLogicType>([
                     breakpoint()
                     const response = await api.create<any>('api/login/precheck', { email })
                     return { status: 'completed', ...response }
+                },
+            },
+        ],
+        devUsers: [
+            [] as DevUser[],
+            {
+                // Not fired on an `onMount` because we don't always need it.
+                loadDevUsers: async (_, breakpoint) => {
+                    breakpoint()
+                    try {
+                        const response = await api.get<{ users: DevUser[] }>('api/login/dev')
+                        return response.users
+                    } catch {
+                        // Endpoint is unavailable unless allow_dev_login is set in preflight.
+                        return []
+                    }
                 },
             },
         ],
@@ -141,6 +173,24 @@ export const loginLogic = kea<loginLogicType>([
             (searchParams: Record<string, string>) => {
                 const nextParam = getRelativeNextPath(searchParams['next'], location)
                 return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
+            },
+        ],
+        devLoginTimeSavedLabel: [
+            (s) => [s.devLoginCount],
+            (devLoginCount): string | null => {
+                if (devLoginCount === 0) {
+                    return null
+                }
+
+                const totalSeconds = devLoginCount * DEV_LOGIN_SECONDS_SAVED_PER_CLICK
+                if (totalSeconds < 60) {
+                    const unit = totalSeconds === 1 ? 'second' : 'seconds'
+                    return `You've saved ${totalSeconds} ${unit} by clicking this button.`
+                }
+
+                const minutes = Math.floor(totalSeconds / 60)
+                const unit = minutes === 1 ? 'minute' : 'minutes'
+                return `You've saved ${minutes} ${unit} by clicking this button.`
             },
         ],
     })),
@@ -190,10 +240,22 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+            window.location.reload()
+        },
+        devLogin: async ({ email }) => {
+            actions.clearGeneralError()
+            try {
+                await api.create<any>('api/login/dev', { email })
+            } catch (e) {
+                const { code, detail } = e as Record<string, any>
+                actions.setGeneralError(code || 'dev_login_failed', detail || 'Dev login failed')
+                return
+            }
+            handleLoginRedirect()
             window.location.reload()
         },
         precheckSuccess: async (_, breakpoint) => {

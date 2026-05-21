@@ -68,12 +68,12 @@ class License(models.Model):
         AvailableFeature.RECORDINGS_PLAYLISTS,
         AvailableFeature.RECORDINGS_FILE_EXPORT,
         AvailableFeature.RECORDINGS_PERFORMANCE,
+        AvailableFeature.HIGH_FREQUENCY_ALERTS,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
     ENTERPRISE_FEATURES = [
         *SCALE_FEATURES,
-        AvailableFeature.ADVANCED_PERMISSIONS,
         AvailableFeature.ACCESS_CONTROL,
         AvailableFeature.SAML,
         AvailableFeature.SCIM,

@@ -121,6 +121,15 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_retries: u32,
 
+    /// Maximum in-flight batches per worker. MUST match
+    /// `INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side, which is
+    /// passed into `BatchingPipeline.concurrentBatches`. The consumer caps
+    /// itself via a per-worker `Semaphore`; the worker still responds 503
+    /// if it sees `feed()` rejection, so any divergence is observable via
+    /// `ingestion_api_batch_capacity_rejections_total`.
+    #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
+    pub ingestion_worker_concurrent_batches: usize,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,
