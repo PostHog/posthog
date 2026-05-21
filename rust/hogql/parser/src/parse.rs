@@ -699,7 +699,7 @@ pub(crate) fn parse_number_literal<E: Emitter>(emit: &E, src: &str, negative: bo
             rest.to_string()
         };
         match i64::from_str_radix(&signed, 16) {
-            Ok(n) => return Ok(emit::constant(Value::from(n))),
+            Ok(n) => return Ok(emit.constant(emit.int(n))),
             Err(_) => {
                 let lit = if negative {
                     format!("-{src}")
@@ -1011,34 +1011,34 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
 /// inner already has `WITH a AS ...`, the outer's CTEs come *after* `a`
 /// in declaration order. Match that.
 pub(crate) fn inject_ctes_into_select<E: Emitter>(emit: &E, node: &mut E::Value, ctes: Vec<E::Value>) {
-    let mut cursor: &mut Value = node;
-    loop {
-        let Some(obj) = cursor.as_object_mut() else {
-            return;
-        };
-        match obj.get("node").and_then(Value::as_str) {
+    // Walk to the inner SelectQuery; the outer wrapper may be a
+    // SelectSetQuery that holds the SelectQuery in its
+    // `initial_select_query` slot. The walk uses owned recursion via
+    // get_field + set_field, mirroring chain_join's pattern (no
+    // mutable cursors into nested values for abstract E::Value).
+    fn walk<E: Emitter>(emit: &E, mut node: E::Value, ctes: Vec<E::Value>) -> E::Value {
+        match emit.node_kind(&node).as_deref() {
             Some("SelectQuery") => {
-                match obj.get_mut("ctes") {
-                    Some(existing) if existing.is_array() => {
-                        if let Some(arr) = existing.as_array_mut() {
-                            arr.extend(ctes);
-                        }
-                    }
-                    _ => {
-                        obj.insert("ctes".into(), Value::Array(ctes));
-                    }
-                }
-                return;
+                let existing = emit.get_field(&node, "ctes")
+                    .and_then(|v| emit.as_list(&v))
+                    .unwrap_or_default();
+                let mut combined = existing;
+                combined.extend(ctes);
+                emit.set_field(&mut node, "ctes", emit.list_value(combined));
+                node
             }
             Some("SelectSetQuery") => {
-                let Some(inner) = obj.get_mut("initial_select_query") else {
-                    return;
-                };
-                cursor = inner;
+                if let Some(inner) = emit.get_field(&node, "initial_select_query") {
+                    let updated = walk(emit, inner, ctes);
+                    emit.set_field(&mut node, "initial_select_query", updated);
+                }
+                node
             }
-            _ => return,
+            _ => node,
         }
     }
+    let owned = std::mem::replace(node, emit.null());
+    *node = walk(emit, owned, ctes);
 }
 
 /// Format a set operator from its base + modifier + by_name. Mirrors the
@@ -1071,22 +1071,19 @@ pub(crate) fn merge_select_decorators<E: Emitter>(emit: &E, mut node: E::Value, 
     if decorators.is_empty() {
         return node;
     }
-    if let Some(obj) = node.as_object_mut() {
-        for (k, v) in decorators {
-            // Clobber pre-existing values on the inner SelectQuery —
-            // cpp's `VISIT(SelectSetStmt)` walks the inner select
-            // first, then the trailing `orderByClause` /
-            // `limitAndOffsetClauseOptional`, so later writes (the SET
-            // level) overwrite earlier ones (the inner STMT level).
-            // A `Value::Null` is a sentinel for "remove this key" —
-            // the SET-level visitor writes all four limit-related
-            // fields, clearing the inner's `offset` even when the
-            // outer clause has no OFFSET of its own.
-            if v.is_null() {
-                obj.remove(&k);
-            } else {
-                obj.insert(k, v);
-            }
+    for (k, v) in decorators {
+        // Clobber pre-existing values on the inner SelectQuery —
+        // cpp's `VISIT(SelectSetStmt)` walks the inner select first,
+        // then the trailing `orderByClause` / `limitAndOffsetClauseOptional`,
+        // so later writes (the SET level) overwrite earlier ones (the
+        // inner STMT level). A null value is a sentinel for "remove
+        // this key" — the SET-level visitor writes all four limit-related
+        // fields, clearing the inner's `offset` even when the outer
+        // clause has no OFFSET of its own.
+        if emit.is_null(&v) {
+            emit.remove_field(&mut node, &k);
+        } else {
+            emit.set_field(&mut node, &k, v);
         }
     }
     node

@@ -43,6 +43,12 @@ pub trait Emitter {
     /// via `u64` (preserving the full magnitude); Py emits as a
     /// Python int.
     fn uint(&self, v: u64) -> Self::Value;
+    /// Raw map value (JSON object / Python dict) keyed by string.
+    /// Used for AST fields whose JSON shape is `{key: child_node, …}`
+    /// rather than a list: `window_exprs`, `ctes` (when emitted as a
+    /// dict-form), `replace`. The deserialiser respects this via
+    /// `_DICT_FIELDS`.
+    fn string_keyed_map(&self, pairs: Vec<(String, Self::Value)>) -> Self::Value;
     /// Raw list value (JSON array / Python list). Distinct from the
     /// `Array(...)` AST node: this is used for fields whose value is
     /// a plain list, e.g. HogQLXAttribute.children.
@@ -229,6 +235,25 @@ pub trait Emitter {
         initial: Self::Value,
         subsequent: Vec<Self::Value>,
     ) -> Self::Value;
+    /// Empty `WindowExpr` shell — caller adds fields via `set_field`.
+    fn window_expr_empty(&self) -> Self::Value;
+    /// `WindowFrameExpr(frame_type, frame_value)`. `frame_value` may
+    /// be null (CURRENT ROW / UNBOUNDED forms) or a Constant / expr.
+    fn window_frame_bound(&self, frame_type: &str, frame_value: Self::Value) -> Self::Value;
+    /// `InterpolateExpr(expr, value?)`.
+    fn interpolate_expr(&self, expr: Self::Value, value: Option<Self::Value>) -> Self::Value;
+    /// `LimitByExpr(n, exprs, offset_value?)`.
+    fn limit_by_expr(
+        &self,
+        n: Self::Value,
+        exprs: Vec<Self::Value>,
+        offset_value: Option<Self::Value>,
+    ) -> Self::Value;
+    /// Empty `SelectQuery` shell — caller adds fields via `set_field`.
+    /// Used by the SELECT-clause builder which threads many optional
+    /// fields and surfacing each through a constructor argument list
+    /// would balloon the trait method count.
+    fn select_query_empty(&self) -> Self::Value;
     /// `SelectSetNode(select_query, set_operator)`. Used inside the
     /// SelectSetQuery `subsequent_select_queries` list.
     fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>) -> Self::Value;
@@ -393,6 +418,13 @@ impl Emitter for JsonEmitter {
     }
     fn list_value(&self, items: Vec<Value>) -> Value {
         Value::Array(items)
+    }
+    fn string_keyed_map(&self, pairs: Vec<(String, Value)>) -> Value {
+        let mut obj = serde_json::Map::new();
+        for (k, v) in pairs {
+            obj.insert(k, v);
+        }
+        Value::Object(obj)
     }
 
     fn constant(&self, value: Value) -> Value {
@@ -883,6 +915,34 @@ impl Emitter for JsonEmitter {
             "initial_select_query": initial,
             "subsequent_select_queries": subsequent,
         })
+    }
+    fn window_expr_empty(&self) -> Value {
+        json!({"node": "WindowExpr"})
+    }
+    fn window_frame_bound(&self, frame_type: &str, frame_value: Value) -> Value {
+        json!({"node": "WindowFrameExpr", "frame_type": frame_type, "frame_value": frame_value})
+    }
+    fn interpolate_expr(&self, expr: Value, value: Option<Value>) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("InterpolateExpr".into()));
+        obj.insert("expr".into(), expr);
+        if let Some(v) = value {
+            obj.insert("value".into(), v);
+        }
+        Value::Object(obj)
+    }
+    fn limit_by_expr(&self, n: Value, exprs: Vec<Value>, offset_value: Option<Value>) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("LimitByExpr".into()));
+        obj.insert("n".into(), n);
+        obj.insert("exprs".into(), Value::Array(exprs));
+        if let Some(o) = offset_value {
+            obj.insert("offset_value".into(), o);
+        }
+        Value::Object(obj)
+    }
+    fn select_query_empty(&self) -> Value {
+        json!({"node": "SelectQuery"})
     }
     fn select_set_node(&self, select_query: Value, set_operator: Option<&str>) -> Value {
         let mut obj = serde_json::Map::new();

@@ -480,13 +480,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 )));
             }
         };
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("VariableDeclaration".into()));
-        obj.insert("name".into(), Value::String(name));
-        if self.eat(TokenKind::ColonEquals)? {
-            obj.insert("expr".into(), self.parse_stmt_rhs_expr()?);
-        }
-        Ok(Value::Object(obj))
+        let expr_val = if self.eat(TokenKind::ColonEquals)? {
+            self.parse_stmt_rhs_expr()?
+        } else {
+            self.emit.null()
+        };
+        Ok(self.emit.variable_declaration(&name, expr_val))
     }
 
     /// Probe: starting at the `LET` token after `for (`, look ahead for
