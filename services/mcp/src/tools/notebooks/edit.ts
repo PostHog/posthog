@@ -27,26 +27,26 @@ import type { Schemas } from '@/api/generated'
 import { buildSchemaForDoc, packDocAttrs, type ProseMirrorNodeJSON, unpackDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
+const Subtree = z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
+
 export const NotebookEditSchema = z
     .object({
         short_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
-        old_value: z
-            .unknown()
-            .describe(
-                'The piece of content to find. Copy it straight out of the response from ' +
-                    '`notebooks-retrieve` — typically a single node like a text node or a whole ' +
-                    'paragraph. Must match exactly one place in the notebook unless `replace_all` ' +
-                    'is true; if it appears in more than one place, include more surrounding ' +
-                    'structure (e.g. pass the parent paragraph instead of just the text node) to ' +
-                    'make it unique.'
-            ),
-        new_value: z
-            .unknown()
-            .describe(
-                'What to put in place of `old_value`. Pass a JSON value of the same shape — the whole ' +
-                    'matched piece is replaced, so include every key you want preserved. Must differ ' +
-                    'from `old_value`.'
-            ),
+        old_value: Subtree.describe(
+            'The piece of content to find. Copy it straight out of the response from ' +
+                '`notebooks-retrieve` — typically a single node like a text node or a whole ' +
+                'paragraph. Must be a JSON object or array, not a primitive. Must match exactly ' +
+                'one place in the notebook unless `replace_all` is true; if it appears in more ' +
+                'than one place, include more surrounding structure (e.g. pass the parent ' +
+                'paragraph instead of just the text node) to make it unique. To append to the ' +
+                'end of a notebook, pass the last paragraph with content — trailing empty ' +
+                'paragraphs are often identical and will cause an ambiguity error.'
+        ),
+        new_value: Subtree.describe(
+            'What to put in place of `old_value`. Pass a JSON value of the same shape — the whole ' +
+                'matched piece is replaced, so include every key you want preserved. Must be a JSON ' +
+                'object or array, not a primitive. Must differ from `old_value`.'
+        ),
         replace_all: z
             .boolean()
             .optional()
