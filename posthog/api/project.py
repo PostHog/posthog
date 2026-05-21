@@ -436,7 +436,7 @@ class ProjectBackwardCompatSerializer(
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
-        attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
+        attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
 
         if self.instance:
             field_mappings = get_field_access_control_map(Team)
