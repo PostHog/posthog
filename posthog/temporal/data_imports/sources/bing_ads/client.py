@@ -59,6 +59,7 @@ class BingAdsClient:
             )
 
             user = service_client.GetUser(UserId=None).User
+            self._customer_id = user.CustomerId
         except Exception as e:
             logger.warning("Failed to fetch customer ID", error=str(e), error_type=type(e).__name__)
             # Preserve the underlying exception's type and message so the retry framework
@@ -67,7 +68,6 @@ class BingAdsClient:
             # signature and remain retryable.
             raise ValueError(f"Failed to fetch customer ID: {type(e).__name__}: {e}") from e
 
-        self._customer_id = user.CustomerId
         return self._customer_id
 
     def get_campaigns(self, account_id: int, customer_id: int) -> Generator[list[dict[str, Any]], None, None]:
