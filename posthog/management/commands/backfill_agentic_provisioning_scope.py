@@ -66,12 +66,7 @@ class Command(BaseCommand):
                     continue
                 old_scope = list(access_token.scoped_teams or [])
                 base_team_id = old_scope[0] if old_scope else 0
-                new_scope = _compute_partner_scoped_teams(
-                    application,
-                    user,
-                    base_team_id,
-                    bypass_flag=True,
-                )
+                new_scope = _compute_partner_scoped_teams(application, user, base_team_id)
                 if sorted(new_scope) == sorted(old_scope):
                     continue
                 changed_access += 1
@@ -95,12 +90,7 @@ class Command(BaseCommand):
                     continue
                 old_scope = list(refresh_token.scoped_teams or [])
                 base_team_id = old_scope[0] if old_scope else 0
-                new_scope = _compute_partner_scoped_teams(
-                    application,
-                    user,
-                    base_team_id,
-                    bypass_flag=True,
-                )
+                new_scope = _compute_partner_scoped_teams(application, user, base_team_id)
                 if sorted(new_scope) == sorted(old_scope):
                     continue
                 changed_refresh += 1

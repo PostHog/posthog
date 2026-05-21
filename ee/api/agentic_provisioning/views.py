@@ -1363,8 +1363,6 @@ def _compute_partner_scoped_teams(
     application: OAuthApplication | None,
     user: User,
     base_team_id: int,
-    *,
-    bypass_flag: bool = False,
 ) -> list[int]:
     """Compute the durable scope for a partner OAuth token at issuance/refresh.
 
@@ -1374,24 +1372,12 @@ def _compute_partner_scoped_teams(
     level access. ``base_team_id`` is included only when the user can access it;
     stale scope must not grant ongoing access after ACL revocation.
 
-    When ``application`` is None (legacy refresh tokens with no app binding) or
-    the kill-switch flag is off, returns ``[base_team_id]`` (pre-pivot behavior).
-    Without the None guard, ``filter(application=None)`` would match every TPC row
-    with NULL application across every partner.
-
-    ``bypass_flag`` is for the backfill management command: when running a one-shot
-    rehydration over existing tokens we don't want each user's flag-eval result to
-    silently narrow scope back to ``[base_team_id]`` for users the flag hasn't
-    rolled out to yet.
+    When ``application`` is None (legacy refresh tokens with no app binding),
+    returns ``[base_team_id]``. Without the None guard,
+    ``filter(application=None)`` would match every TPC row with NULL application
+    across every partner.
     """
     if application is None:
-        return [base_team_id]
-
-    if not bypass_flag and not posthoganalytics.feature_enabled(
-        "agentic-provisioning-scope-rehydration",
-        user.distinct_id,
-        only_evaluate_locally=False,
-    ):
         return [base_team_id]
 
     candidate_team_ids = set(

@@ -1,14 +1,11 @@
-from unittest.mock import patch
-
 from django.test import override_settings
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-@patch("ee.api.agentic_provisioning.views.posthoganalytics.feature_enabled", return_value=True)
 class TestPartnerTokenScopeHydration(ProvisioningTestBase):
-    def test_issuance_hydrates_with_previously_provisioned_teams(self, _flag):
+    def test_issuance_hydrates_with_previously_provisioned_teams(self):
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication
         from posthog.models.team.team import Team
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -29,7 +26,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert self.team.id in access_token.scoped_teams
         assert previously_provisioned.id in access_token.scoped_teams
 
-    def test_other_partner_teams_excluded(self, _flag):
+    def test_other_partner_teams_excluded(self):
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication
         from posthog.models.team.team import Team
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -58,7 +55,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert other_partner_team.id not in access_token.scoped_teams
 
-    def test_cross_org_teams_excluded(self, _flag):
+    def test_cross_org_teams_excluded(self):
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
@@ -80,7 +77,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert foreign_team.id not in access_token.scoped_teams
 
-    def test_team_with_revoked_access_excluded(self, _flag):
+    def test_team_with_revoked_access_excluded(self):
         from posthog.constants import AvailableFeature
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication
         from posthog.models.organization import OrganizationMembership
@@ -117,7 +114,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert restricted_team.id not in access_token.scoped_teams
 
-    def test_base_team_excluded_when_user_loses_access(self, _flag):
+    def test_base_team_excluded_when_user_loses_access(self):
         # base_team_id must not be unconditionally included. If the user has
         # since lost access to it, the new token should not carry it.
         from posthog.constants import AvailableFeature
@@ -144,7 +141,7 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert self.team.id not in access_token.scoped_teams
 
-    def test_refresh_rehydrates_with_new_teams(self, _flag):
+    def test_refresh_rehydrates_with_new_teams(self):
         from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
         from posthog.models.team.team import Team
         from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -174,29 +171,3 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         new_access_token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
         assert self.team.id in new_access_token.scoped_teams
         assert newly_provisioned.id in new_access_token.scoped_teams
-
-
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestPartnerTokenScopeHydrationFlagDisabled(ProvisioningTestBase):
-    @patch("ee.api.agentic_provisioning.views.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_falls_back_to_base_team_only(self, _flag):
-        # Kill switch: when the flag is off, scoped_teams should be [base_team_id]
-        # regardless of TPC state.
-        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-        from posthog.models.team.team import Team
-        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-
-        stripe_app = OAuthApplication.objects.get(client_id="test_stripe_oauth_client_id")
-        other_team = Team.objects.create_with_data(
-            initiating_user=self.user,
-            organization=self.organization,
-            name="Other team",
-        )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=other_team,
-            defaults={"stripe_project_id": "proj_other", "application": stripe_app},
-        )
-
-        token = self._get_bearer_token()
-        access_token = OAuthAccessToken.objects.get(token=token)
-        assert access_token.scoped_teams == [self.team.id]
