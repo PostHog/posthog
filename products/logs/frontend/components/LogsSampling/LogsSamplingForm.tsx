@@ -96,6 +96,38 @@ export function LogsSamplingForm(): JSX.Element {
                 </LemonField.Pure>
             </div>
 
+            <SceneSection title="Action" titleSize="sm">
+                <LemonField.Pure label="What to do when a log matches">
+                    <LemonSegmentedButton
+                        value={samplingForm.rule_type}
+                        onChange={(v) => v && setSamplingFormValue('rule_type', v)}
+                        options={ACTION_OPTIONS}
+                        size="small"
+                    />
+                </LemonField.Pure>
+                {isRateLimit && (
+                    <LemonField.Pure
+                        label="Rate limit"
+                        help="Minimum 1 KB/s, maximum 1 GB/s. Fractional values allowed (e.g. 1.5 MB/s)."
+                        error={samplingFormErrors.rate_limit_amount}
+                    >
+                        <div className="flex gap-2 items-center max-w-sm">
+                            <LemonInput
+                                value={samplingForm.rate_limit_amount}
+                                onChange={(v) => setSamplingFormValue('rate_limit_amount', v)}
+                                placeholder="e.g. 5"
+                                inputMode="decimal"
+                            />
+                            <LemonSelect<RateLimitUnit>
+                                value={samplingForm.rate_limit_unit}
+                                onChange={(v) => v && setSamplingFormValue('rate_limit_unit', v)}
+                                options={RATE_LIMIT_UNIT_OPTIONS}
+                            />
+                        </div>
+                    </LemonField.Pure>
+                )}
+            </SceneSection>
+
             <SceneSection
                 title="Match"
                 titleSize="sm"
@@ -144,38 +176,6 @@ export function LogsSamplingForm(): JSX.Element {
                         )}
                     </div>
                 </div>
-            </SceneSection>
-
-            <SceneSection title="Action" titleSize="sm">
-                <LemonField.Pure label="What to do when a log matches">
-                    <LemonSegmentedButton
-                        value={samplingForm.rule_type}
-                        onChange={(v) => v && setSamplingFormValue('rule_type', v)}
-                        options={ACTION_OPTIONS}
-                        size="small"
-                    />
-                </LemonField.Pure>
-                {isRateLimit && (
-                    <LemonField.Pure
-                        label="Rate limit"
-                        help="Minimum 1 KB/s, maximum 1 GB/s. Fractional values allowed (e.g. 1.5 MB/s)."
-                        error={samplingFormErrors.rate_limit_amount}
-                    >
-                        <div className="flex gap-2 items-center max-w-sm">
-                            <LemonInput
-                                value={samplingForm.rate_limit_amount}
-                                onChange={(v) => setSamplingFormValue('rate_limit_amount', v)}
-                                placeholder="e.g. 5"
-                                inputMode="decimal"
-                            />
-                            <LemonSelect<RateLimitUnit>
-                                value={samplingForm.rate_limit_unit}
-                                onChange={(v) => v && setSamplingFormValue('rate_limit_unit', v)}
-                                options={RATE_LIMIT_UNIT_OPTIONS}
-                            />
-                        </div>
-                    </LemonField.Pure>
-                )}
             </SceneSection>
         </div>
     )
