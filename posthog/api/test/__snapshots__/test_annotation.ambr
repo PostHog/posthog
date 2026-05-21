@@ -29,11 +29,18 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.1
@@ -49,6 +56,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -177,6 +187,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -235,6 +248,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -328,6 +344,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -357,7 +376,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -437,12 +462,24 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_annotation"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_annotation"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -480,11 +517,18 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.18
@@ -500,6 +544,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -628,6 +675,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -757,6 +807,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -815,6 +868,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -908,6 +964,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -937,7 +996,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1017,12 +1082,24 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_annotation"
   LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_annotation"."created_by_id" = "posthog_user"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1062,6 +1139,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1155,6 +1235,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -1184,7 +1267,13 @@
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
+  LEFT OUTER JOIN "posthog_dashboarditem" ON ("posthog_annotation"."dashboard_item_id" = "posthog_dashboarditem"."id")
+  LEFT OUTER JOIN "posthog_dashboard" ON ("posthog_annotation"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT "posthog_annotation"."deleted"
+         AND ("posthog_annotation"."dashboard_item_id" IS NULL
+              OR NOT "posthog_dashboarditem"."deleted")
+         AND ("posthog_annotation"."dashboard_id" IS NULL
+              OR NOT "posthog_dashboard"."deleted")
          AND (("posthog_annotation"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
                AND "posthog_annotation"."scope" = 'organization')
               OR "posthog_annotation"."team_id" = 99999))
@@ -1220,11 +1309,18 @@
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.9
@@ -1240,6 +1336,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",

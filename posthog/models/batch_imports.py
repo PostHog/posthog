@@ -36,7 +36,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     lease_id = models.TextField(null=True, blank=True)
     leased_until = models.DateTimeField(null=True, blank=True)
-    status = models.TextField(choices=Status.choices, default=Status.RUNNING)
+    status = models.TextField(choices=Status, default=Status.RUNNING)
     # Status message to save to the job, so that a developer can debug why a commit might have failed
     # Not displayed to the user
     status_message = models.TextField(null=True, blank=True)
@@ -97,10 +97,11 @@ class BatchImportConfigBuilder:
         region: str,
         access_key_id: str,
         secret_access_key: str,
+        endpoint_url: str | None = None,
         access_key_id_key: str = "aws_access_key_id",
         secret_access_key_key: str = "aws_secret_access_key",
     ) -> Self:
-        self.batch_import.import_config["source"] = {
+        source: dict = {
             "type": "s3",
             "bucket": bucket,
             "prefix": prefix,
@@ -108,6 +109,9 @@ class BatchImportConfigBuilder:
             "access_key_id_key": access_key_id_key,
             "secret_access_key_key": secret_access_key_key,
         }
+        if endpoint_url:
+            source["endpoint_url"] = endpoint_url
+        self.batch_import.import_config["source"] = source
         self.batch_import.secrets[access_key_id_key] = access_key_id
         self.batch_import.secrets[secret_access_key_key] = secret_access_key
         return self
@@ -119,10 +123,11 @@ class BatchImportConfigBuilder:
         region: str,
         access_key_id: str,
         secret_access_key: str,
+        endpoint_url: str | None = None,
         access_key_id_key: str = "aws_access_key_id",
         secret_access_key_key: str = "aws_secret_access_key",
     ) -> Self:
-        self.batch_import.import_config["source"] = {
+        source: dict = {
             "type": "s3_gzip",
             "bucket": bucket,
             "prefix": prefix,
@@ -130,6 +135,9 @@ class BatchImportConfigBuilder:
             "access_key_id_key": access_key_id_key,
             "secret_access_key_key": secret_access_key_key,
         }
+        if endpoint_url:
+            source["endpoint_url"] = endpoint_url
+        self.batch_import.import_config["source"] = source
         self.batch_import.secrets[access_key_id_key] = access_key_id
         self.batch_import.secrets[secret_access_key_key] = secret_access_key
         return self

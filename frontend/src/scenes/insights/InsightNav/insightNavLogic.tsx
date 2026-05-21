@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -98,7 +97,7 @@ export interface QueryPropertyCache
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
-    series?: (AnyEntityNode | GroupNode)[]
+    series?: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
@@ -120,17 +119,17 @@ const cleanSeriesEntityMath = (
         )
     }
 
-    // TODO: This should be improved to keep a math that differs from the default.
-    // For this we need to know wether the math was actively changed e.g.
-    // On which insight type the math properties have been set.
     if (mathAvailability === MathAvailability.All) {
-        // return entity with default all availability math set
+        if (math != null) {
+            return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
+        }
         return { ...baseEntity, math: BaseMathType.TotalCount }
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
-        // return entity with default actors only availability math set
+        if (math != null) {
+            return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
+        }
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
     }
-    // return entity without math properties for insights that don't support it
     return baseEntity
 }
 
@@ -235,10 +234,12 @@ type SeriesArray = (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 
 interface InsightTypeCapabilities {
     series?: ((series: SeriesArray) => SeriesArray) | true
+    seriesMath?: true
     interval?: ((interval: IntervalType) => IntervalType) | true
     breakdownFilter?: ((bf: BreakdownFilter) => BreakdownFilter) | true
     compareFilter?: true
     funnelPathsFilter?: true
+    aggregationGroupTypeIndex?: true
 }
 
 const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
@@ -266,17 +267,41 @@ const filterRetentionBreakdowns = (bf: BreakdownFilter): BreakdownFilter => {
     return { ...bf, breakdowns: bf.breakdowns.filter((b) => b.type === 'person' || b.type === 'event') }
 }
 
+const carryForwardSeriesMath = (newSeries: SeriesArray, cachedSeries: SeriesArray | undefined): SeriesArray => {
+    if (!cachedSeries) {
+        return newSeries
+    }
+    return newSeries.map((entity, index) => {
+        const cachedEntity = cachedSeries[index]
+        if (cachedEntity && cachedEntity.math !== undefined && entity.math === undefined) {
+            return {
+                ...entity,
+                math: cachedEntity.math,
+                ...(cachedEntity.math_property != null ? { math_property: cachedEntity.math_property } : {}),
+                ...(cachedEntity.math_group_type_index != null
+                    ? { math_group_type_index: cachedEntity.math_group_type_index }
+                    : {}),
+                ...(cachedEntity.math_hogql != null ? { math_hogql: cachedEntity.math_hogql } : {}),
+            }
+        }
+        return entity
+    })
+}
+
 const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
     [NodeKind.TrendsQuery]: {
         series: (s) => cleanSeries(s, MathAvailability.All, NodeKind.DataWarehouseNode),
+        seriesMath: true,
         interval: true,
         breakdownFilter: true,
         compareFilter: true,
+        aggregationGroupTypeIndex: true,
     },
     [NodeKind.FunnelsQuery]: {
         series: (s) => cleanSeries(s, MathAvailability.FunnelsOnly, NodeKind.FunnelsDataWarehouseNode),
         interval: downgradeMinuteInterval,
         breakdownFilter: truncateToSingleBreakdown,
+        aggregationGroupTypeIndex: true,
     },
     [NodeKind.RetentionQuery]: {
         // TODO: map series to/from retentionFilter.targetEntity/returningEntity so switching
@@ -293,6 +318,7 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
                 MathAvailability.ActorsOnly,
                 NodeKind.DataWarehouseNode
             ),
+        seriesMath: true,
         interval: downgradeMinuteInterval,
         compareFilter: true,
     },
@@ -473,14 +499,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     // We don't display it otherwise and humans shouldn't be able to click to select this tab
                     // it only opens when you select "Open as new insight" from the Web Analytics dashboard.
                     tabs.push({
-                        label: (
-                            <>
-                                Web Analytics{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
+                        label: 'Web analytics',
                         type: InsightType.WEB_ANALYTICS,
                         dataAttr: 'insight-web-analytics-tab',
                     })
@@ -496,14 +515,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                             ? identifierToHuman(query.kind.replace(/(Node|Query)$/g, ''), 'title')
                             : null
                     tabs.push({
-                        label: (
-                            <>
-                                {humanFriendlyQueryKind ?? 'Custom'}{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
-                                    Beta
-                                </LemonTag>
-                            </>
-                        ),
+                        label: humanFriendlyQueryKind ?? 'Custom',
                         type: InsightType.JSON,
                         dataAttr: 'insight-json-tab',
                     })
@@ -611,6 +623,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (cache?.funnelPathsFilter && !caps?.funnelPathsFilter) {
         newCache.funnelPathsFilter = cache.funnelPathsFilter
     }
+    if (cache?.aggregation_group_type_index !== undefined && !caps?.aggregationGroupTypeIndex) {
+        newCache.aggregation_group_type_index = cache.aggregation_group_type_index
+    }
     // Only Trends supports multiple breakdowns — preserve the full set through
     // types that truncate to single breakdown (Funnels, Retention)
     if (cache?.breakdownFilter?.breakdowns?.length && !isTrendsQuery(query) && isInsightQueryWithBreakdown(query)) {
@@ -619,6 +634,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     // Preserve minute interval through types that downgrade it to hour
     if (cache?.interval === 'minute' && !isTrendsQuery(query)) {
         newCache.interval = cache.interval
+    }
+    if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
+        newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
 
     /** store the insight specific filter in commonFilter */
@@ -660,6 +678,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
         ...(cache.properties !== undefined ? { properties: cache.properties } : {}),
         ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+        ...(cache.filterTestAccounts !== undefined ? { filterTestAccounts: cache.filterTestAccounts } : {}),
     }
 
     // Insight-specific filter merge (web analytics already returned above)
@@ -696,6 +715,9 @@ const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): 
     }
     if (caps.funnelPathsFilter && cache.funnelPathsFilter) {
         result.funnelPathsFilter = cache.funnelPathsFilter
+    }
+    if (caps.aggregationGroupTypeIndex && cache.aggregation_group_type_index !== undefined) {
+        result.aggregation_group_type_index = cache.aggregation_group_type_index
     }
     return result
 }

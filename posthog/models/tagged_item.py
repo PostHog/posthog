@@ -64,7 +64,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
         related_name="tagged_items",
     )
     action = models.ForeignKey(
-        "Action",
+        "actions.Action",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
@@ -103,7 +103,7 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
                 for related_field in RELATED_OBJECTS
             ],
             models.CheckConstraint(
-                check=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
+                condition=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_related_object"
             ),
         ]
 

@@ -15,13 +15,15 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+    GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
     get_incremental_fields as get_google_ads_incremental_fields,
@@ -34,7 +36,9 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig], OAuthMixin):
+class GoogleAdsSource(
+    ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
+):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -47,6 +51,11 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
             "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
+            # Google returns `invalid_grant` from the OAuth token endpoint when the user's
+            # refresh token has been revoked, expired, or otherwise invalidated (common
+            # variants: "Token has been expired or revoked.", "Bad Request"). Only the user
+            # can fix this by reconnecting their Google Ads account.
+            "invalid_grant": "Your Google Ads authorization has expired or been revoked. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -62,6 +71,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         google_ads_schemas = get_google_ads_schemas(
             config,
@@ -91,13 +101,20 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
 
         return schemas
 
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GoogleAdsResumeConfig]:
+        return ResumableSourceManager[GoogleAdsResumeConfig](inputs, GoogleAdsResumeConfig)
+
     def source_for_pipeline(
-        self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, inputs: SourceInputs
+        self,
+        config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
+        inputs: SourceInputs,
     ) -> SourceResponse:
         return google_ads_source(
             config=config,
             resource_name=inputs.schema_name,
             team_id=inputs.team_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             incremental_field_type=inputs.incremental_field_type if inputs.should_use_incremental_field else None,
@@ -124,6 +141,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="123-456-7890",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
@@ -142,6 +160,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="123-456-7890",
+                                    secret=False,
                                 )
                             ],
                         ),

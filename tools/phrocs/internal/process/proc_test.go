@@ -337,31 +337,32 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 	}
 }
 
+// runReadLoop drives readLoop against an in-memory reader and waits for it to
+// return. Bypassing the PTY avoids a known Linux kernel race (commit
+// 1a48632ffed6) where data written and immediately followed by close() on the
+// child's PTY end can be dropped before the parent's read is scheduled.
+func runReadLoop(t *testing.T, p *Process, input string) {
+	t.Helper()
+	outChannel := make(chan tea.Msg, 64)
+	done := make(chan struct{})
+	go func() {
+		p.readLoop(strings.NewReader(input), outChannel)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readLoop did not return")
+	}
+}
+
 func TestHasPrompt_partialLine(t *testing.T) {
-	// printf writes a partial line (no trailing \n), which readLoop should
-	// detect and set HasPrompt = true.
-	p := NewProcess("prompt-test", config.ProcConfig{
-		Shell: `printf "Enter name: "`,
-	}, 100, "")
+	p := NewProcess("prompt-test", config.ProcConfig{}, 100, "")
+	runReadLoop(t, p, "Enter name: ")
 
-	send, _, _ := collectMsgs()
-	if err := p.Start(send); err != nil {
-		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	if !p.HasPrompt() {
+		t.Error("HasPrompt should be true for a partial line")
 	}
-
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for HasPrompt")
-		default:
-		}
-		if p.HasPrompt() {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
 	lines := p.Lines()
 	if len(lines) == 0 {
 		t.Fatal("expected at least one buffered line")
@@ -372,30 +373,8 @@ func TestHasPrompt_partialLine(t *testing.T) {
 }
 
 func TestHasPrompt_completeLine(t *testing.T) {
-	// echo writes a complete line (with trailing \n), so HasPrompt should
-	// be false once the process finishes.
-	p := NewProcess("no-prompt", config.ProcConfig{
-		Shell: `echo "hello"`,
-	}, 100, "")
-
-	send, _, _ := collectMsgs()
-	if err := p.Start(send); err != nil {
-		t.Skipf("skipping: cannot spawn subprocess: %v", err)
-	}
-
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for process to finish")
-		default:
-		}
-		st := p.Status()
-		if st == StatusDone || st == StatusCrashed {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	p := NewProcess("no-prompt", config.ProcConfig{}, 100, "")
+	runReadLoop(t, p, "hello\n")
 
 	if p.HasPrompt() {
 		t.Error("HasPrompt should be false after a complete line")
@@ -811,5 +790,101 @@ func TestBuildCmd_cmdBypassesShell(t *testing.T) {
 	cmd := p.buildCmd()
 	if cmd.Args[0] != "echo" {
 		t.Errorf("Cmd mode should bypass shell, got Args[0]=%q", cmd.Args[0])
+	}
+}
+
+func TestProcess_logFileTee(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo hello-log-tee; sleep 0.1`}, 100, "")
+	p.SetLogDir(dir)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the process to exit so the log file flush is complete.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("process did not exit in time")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	data, err := os.ReadFile(dir + "/svc.log")
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if !strings.Contains(string(data), "hello-log-tee") {
+		t.Errorf("expected log file to contain 'hello-log-tee', got %q", string(data))
+	}
+}
+
+func TestProcess_logFileTruncatesOnRestart(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo first-run; sleep 0.05`}, 100, "")
+	p.SetLogDir(dir)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	// Wait for first run to finish.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("first run did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// Replace shell and restart to verify truncation.
+	p.Cfg.Shell = `echo second-run; sleep 0.05`
+	if err := p.Start(send); err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	deadline = time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("second run did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	data, err := os.ReadFile(dir + "/svc.log")
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if strings.Contains(string(data), "first-run") {
+		t.Errorf("expected first-run to be truncated, got %q", string(data))
+	}
+	if !strings.Contains(string(data), "second-run") {
+		t.Errorf("expected second-run in log, got %q", string(data))
+	}
+}
+
+func TestProcess_logFileDisabledByDefault(t *testing.T) {
+	dir := t.TempDir()
+	p := NewProcess("svc", config.ProcConfig{Shell: `echo no-log; sleep 0.05`}, 100, "")
+	// Note: no SetLogDir call.
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("did not finish")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	if _, err := os.Stat(dir + "/svc.log"); !os.IsNotExist(err) {
+		t.Errorf("expected no log file when logDir unset; got err=%v", err)
 	}
 }

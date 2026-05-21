@@ -1,6 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { urls } from 'scenes/urls'
 
 import type { HealthIssue } from '../types'
 import { dismissActionColumn, severityColumn } from './healthTableColumns'
@@ -9,6 +10,7 @@ interface CheckMeta {
     title: string
     description: string
     docsUrl?: string
+    linkLabel?: string
 }
 
 const CHECK_META: Record<string, CheckMeta> = {
@@ -25,12 +27,13 @@ const CHECK_META: Record<string, CheckMeta> = {
     scroll_depth: {
         title: 'Scroll depth',
         description: 'Enable scroll depth to see how far users read your content before leaving.',
-        docsUrl: 'https://posthog.com/docs/web-analytics/scroll-depth',
+        docsUrl: 'https://posthog.com/tutorials/scroll-depth',
     },
     authorized_urls: {
         title: 'Authorized URLs',
         description: "No authorized URLs configured. Some filters won't work correctly until you set your domains.",
-        docsUrl: 'https://posthog.com/docs/web-analytics/authorized-urls',
+        docsUrl: urls.settings('environment-web-analytics', 'web-analytics-authorized-urls'),
+        linkLabel: 'Settings',
     },
     reverse_proxy: {
         title: 'Reverse proxy',
@@ -74,7 +77,7 @@ export function WebAnalyticsHealthTable({
                             )}
                             {meta?.docsUrl && (
                                 <Link to={meta.docsUrl} className="text-xs text-muted">
-                                    Docs
+                                    {meta.linkLabel ?? 'Docs'}
                                 </Link>
                             )}
                         </div>

@@ -22,7 +22,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/query-examples/references/
+#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -109,7 +109,7 @@ SELECT id, key, name FROM system.feature_flags WHERE active = 1 LIMIT 10
 ### Extending query examples
 
 When you add a new system table,
-also add a model reference file to [`products/posthog_ai/skills/query-examples/references/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/skills/query-examples/references).
+also add a model reference file to [`products/posthog_ai/skills/querying-posthog-data/references/`](https://github.com/PostHog/posthog/tree/master/products/posthog_ai/skills/querying-posthog-data/references).
 The naming convention is `models-<domain>.md`.
 
 Existing references:
@@ -126,8 +126,8 @@ Existing references:
 - `models-variables.md`
 
 Each file documents the table's columns, types, nullability, and notable structures (like JSON fields).
-See [`models-flags-experiments.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/references/models-flags-experiments.md) for a good example.
-Register your new reference in [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md) under **Data Schema**.
+See [`models-flags-experiments.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/references/models-flags-experiments.md) for a good example.
+Register your new reference in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
 
 ## Code generation pipeline
 
@@ -344,9 +344,9 @@ A `schema.json` integration into the codegen pipeline is planned.
 
 ## Agent skills that support the MCP server
 
-- **`query-examples`** – HogQL query patterns, system model schemas, and available functions.
+- **`querying-posthog-data`** – HogQL query patterns, system model schemas, and available functions.
   Extend this skill to explain how agents should use your HogQL-exposed tables and queries.
-  See [`products/posthog_ai/skills/query-examples/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/query-examples/SKILL.md).
+  See [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/skills/querying-posthog-data/SKILL.md).
 - **`improving-drf-endpoints`** – Audit checklist and patterns for DRF serializers and viewsets.
   Use when editing or reviewing endpoints to ensure `help_text`, field types, and `@extend_schema` annotations
   flow correctly through the type pipeline.

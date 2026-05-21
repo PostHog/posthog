@@ -1,3 +1,4 @@
+import typing
 import datetime as dt
 from datetime import timedelta
 from enum import IntEnum
@@ -5,6 +6,7 @@ from math import ceil
 from zoneinfo import ZoneInfo
 
 from django.db import models
+from django.db.models import Q
 
 import pytz
 
@@ -15,6 +17,7 @@ import pytz
 from posthog.clickhouse.client import sync_execute  # noqa: F401
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 # this is what is used by the Team model
@@ -66,6 +69,7 @@ class BatchExportDestination(UUIDTModel):
         WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
+        FILE_DOWNLOAD = "FileDownload"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
@@ -78,10 +82,11 @@ class BatchExportDestination(UUIDTModel):
         "HTTP": {"token"},
         "NoOp": set(),
         "Workflows": set(),
+        "FileDownload": set(),
     }
 
     type = models.CharField(
-        choices=Destination.choices,
+        choices=Destination,
         max_length=64,
         help_text="A choice of supported BatchExportDestination types.",
     )
@@ -109,12 +114,22 @@ class BatchExportDestination(UUIDTModel):
 
 
 class BatchExportRun(UUIDTModel):
-    """A model of a single run of a PostHog BatchExport given a time interval.
+    """A single run of a PostHog batch export defined by its data interval bounds.
 
-    It is used to keep track of the status and progress of the export
-    between the specified time interval, as well as communicating any errors
-    that may have occurred during the process.
+    It is used to keep track of the status of the export and once it finishes to
+    store any result metadata, and errors that may have occurred during the process.
     """
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    Q(batch_export__isnull=False, batch_export_on_demand__isnull=True)
+                    | Q(batch_export__isnull=True, batch_export_on_demand__isnull=False)
+                ),
+                name="run_has_exactly_one_parent_batch_export_or_batch_export_on_demand",
+            )
+        ]
 
     class Status(models.TextChoices):
         """Possible states of the BatchExportRun."""
@@ -133,9 +148,16 @@ class BatchExportRun(UUIDTModel):
     batch_export = models.ForeignKey(
         "BatchExport",
         on_delete=models.CASCADE,
-        help_text="The BatchExport this run belongs to.",
+        null=True,
+        help_text="The `BatchExport` this run belongs to.",
     )
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this run.")
+    batch_export_on_demand = models.ForeignKey(
+        "BatchExportOnDemand",
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="The `BatchExportOnDemand` this run belongs to.",
+    )
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this run.")
     records_completed = models.IntegerField(null=True, help_text="The number of records that have been exported.")
     records_failed = models.IntegerField(
         null=True,
@@ -175,8 +197,33 @@ class BatchExportRun(UUIDTModel):
 
     @property
     def workflow_id(self) -> str:
-        """Return the Workflow id that corresponds to this BatchExportRun model."""
-        return f"{self.batch_export.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+        """Return the Workflow id that corresponds to this model."""
+        parent = self.parent
+
+        if isinstance(parent, BatchExport):
+            return f"{parent.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+
+        if isinstance(parent, BatchExportOnDemand):
+            return (
+                f"{parent.id}-{self.data_interval_start:%Y-%m-%dT%H:%M:%S}Z-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
+            )
+
+        typing.assert_never(parent)
+
+    @property
+    def parent(self) -> "BatchExport | BatchExportOnDemand":
+        """Get this run's parent batch export.
+
+        It is enforced by a check constraint that either a `BatchExport` or a
+        `BatchExportOnDemand` must be defined in this run, but we must communicate that
+        to the Python type checker too via this property.
+        """
+        if self.batch_export is not None:
+            return self.batch_export
+        if self.batch_export_on_demand is not None:
+            return self.batch_export_on_demand
+
+        raise ValueError("One of batch export or batch export on demand must always be defined")
 
 
 BATCH_EXPORT_INTERVALS = [
@@ -195,15 +242,21 @@ BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
 
 
 class BatchExport(ModelActivityMixin, UUIDTModel):
-    """
-    Defines the configuration of PostHog to export data to a destination,
-    either on a schedule (via the interval parameter), or manually by a
-    "backfill". Specific instances of a unit process of exporting data is called
-    a BatchExportRun.
+    """A model for a PostHog batch export that runs on a schedule.
+
+    A batch export exports data from PostHog to the configured destination on a
+    schedule given by its `interval`, `interval_offset`, and `timezone`.
+
+    An instance of a batch export for a particular period of the schedule is called a
+    "run", and runs are modelled by the `BatchExportRun` model.
+
+    Old periods of time can be re-exported by executing a "backfill", even periods from
+    before the batch export was created. Backfills are modelled via the
+    `BatchExportBackfill` model.
     """
 
     class Model(models.TextChoices):
-        """Possible models that this BatchExport can export."""
+        """Possible data models that this BatchExport can export."""
 
         EVENTS = "events"
         PERSONS = "persons"
@@ -259,7 +312,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         max_length=64,
         null=True,
         blank=True,
-        choices=Model.choices,
+        choices=Model,
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
     )
@@ -392,7 +445,7 @@ class BatchExportBackfill(UUIDTModel):
     )
     start_at = models.DateTimeField(help_text="The start of the data interval.", null=True)
     end_at = models.DateTimeField(help_text="The end of the data interval.", null=True)
-    status = models.CharField(choices=Status.choices, max_length=64, help_text="The status of this backfill.")
+    status = models.CharField(choices=Status, max_length=64, help_text="The status of this backfill.")
     created_at = models.DateTimeField(
         auto_now_add=True,
         help_text="The timestamp at which this BatchExportBackfill was created.",
@@ -469,3 +522,98 @@ class BatchExportBackfill(UUIDTModel):
                 BatchExportRun.Status.FAILED,
             ],
         ).count()
+
+
+class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
+    """Represents a file made available to download by a batch export.
+
+    When creating a "file-download" batch export, the output is a row in this table
+    containing pre-signed URLs to access the data exported.
+    """
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "key"], name="team_key_idx"),
+        ]
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    batch_export_run = models.ForeignKey(
+        "BatchExportRun",
+        on_delete=models.CASCADE,
+        help_text="The batch export run that generated this file downloads.",
+    )
+    key = models.TextField(help_text="The S3 key containing the file to download.")
+    expires_at = models.DateTimeField(null=True, help_text="When will this key expire, if available.")
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this was last updated.",
+    )
+
+    def is_expired(self) -> bool:
+        """Return whether this file download is expired.
+
+        If expired, then the file download should not be used to generate download URLs anymore.
+        """
+        if self.expires_at is None:
+            raise ValueError("Cannot determine if object is expired: `expires_at` missing.")
+
+        return dt.datetime.now(dt.UTC) > self.expires_at
+
+    def is_expired_or_close(self, threshold: dt.timedelta | int = dt.timedelta(hours=1)) -> bool:
+        """Return whether this file download is expired, or close to expiring."""
+        if self.is_expired():
+            return True
+
+        delta = self.expires_at - dt.datetime.now(dt.UTC)  # type: ignore
+
+        if isinstance(threshold, int):
+            threshold_delta = dt.timedelta(seconds=threshold)
+        else:
+            threshold_delta = threshold
+
+        return threshold_delta > delta
+
+
+class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
+    """A model for a PostHog batch export triggered on demand.
+
+    Shares a lot of similarities with a `BatchExport`, with the big difference that
+    an on demand batch export does not run on a schedule.
+    """
+
+    class Model(models.TextChoices):
+        """Possible data models that this BatchExport can export."""
+
+        EVENTS = "events"
+        PERSONS = "persons"
+        SESSIONS = "sessions"
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    destination = models.ForeignKey(
+        "BatchExportDestination",
+        on_delete=models.CASCADE,
+        help_text="The destination to export data to.",
+    )
+    deleted = models.BooleanField(default=False, help_text="Whether this is deleted or not.")
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this was last updated.",
+    )
+    model = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        choices=Model,
+        default=Model.EVENTS,
+        help_text="Which model this batch export is exporting.",
+    )
+    filters = models.JSONField(null=True, blank=True)

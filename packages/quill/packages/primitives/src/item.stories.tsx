@@ -13,6 +13,8 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
+    DropdownMenuSelectAll,
+    DropdownMenuSeparator,
 } from './dropdown-menu'
 import {
     Item,
@@ -85,7 +87,7 @@ export const Pressable: Story = {
 export const Group: Story = {
     render: () => (
         <ItemGroup>
-            <ItemGroup combined>
+            <ItemGroup>
                 <Item variant="outline">
                     <ItemContent>
                         <ItemTitle>Basic Item</ItemTitle>
@@ -120,7 +122,7 @@ export const Group: Story = {
 
 export const GroupList: Story = {
     render: () => (
-        <ItemGroup combined>
+        <ItemGroup>
             <Item
                 variant="pressable"
                 size="xs"
@@ -233,6 +235,67 @@ export const DropdownCheckboxesInItem: Story = {
                                         key={person.username}
                                         checked={checked[person.username]}
                                         onCheckedChange={() => handleCheckedChange(person.username)}
+                                        render={(props) => (
+                                            <ItemCheckbox size="xs" {...props}>
+                                                <ItemContent variant="menuItem">
+                                                    <ItemTitle>{person.username}</ItemTitle>
+                                                    <ItemDescription className="leading-none">
+                                                        {person.email}
+                                                    </ItemDescription>
+                                                </ItemContent>
+                                            </ItemCheckbox>
+                                        )}
+                                    />
+                                ))}
+                            </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </ItemActions>
+            </Item>
+        )
+    },
+} satisfies Story
+
+export const DropdownCheckboxesInItemWithSelectAll: Story = {
+    render: () => {
+        const [open, setOpen] = useState(true)
+        const [selected, setSelected] = useState<string[]>([people[0].username])
+
+        const usernames = people.map((p) => p.username)
+
+        const toggle = (username: string, checked: boolean): void => {
+            setSelected((prev) =>
+                checked ? [...prev, username] : prev.filter((u) => u !== username)
+            )
+        }
+
+        return (
+            <Item variant="outline" className="max-w-sm">
+                <ItemContent>
+                    <ItemTitle>Basic Item</ItemTitle>
+                    <ItemDescription>
+                        Multi-select with a headless select-all action above the list.
+                    </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <DropdownMenu open={open} onOpenChange={setOpen}>
+                        <DropdownMenuTrigger render={(props) => <Button variant="outline" {...props} />}>
+                            {selected.length} / {people.length} selected
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-auto" align="end">
+                            <DropdownMenuGroup>
+                                <DropdownMenuSelectAll
+                                    values={usernames}
+                                    selected={selected}
+                                    onChange={(next) => setSelected([...next])}
+                                />
+                                <DropdownMenuSeparator />
+                                {people.map((person) => (
+                                    <DropdownMenuCheckboxItem
+                                        key={person.username}
+                                        checked={selected.includes(person.username)}
+                                        onCheckedChange={(checked) => toggle(person.username, !!checked)}
+                                        closeOnClick={false}
                                         render={(props) => (
                                             <ItemCheckbox size="xs" {...props}>
                                                 <ItemContent variant="menuItem">

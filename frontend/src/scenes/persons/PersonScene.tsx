@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -39,13 +39,14 @@ import { Query } from '~/queries/Query/Query'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } from '~/types'
 
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
 import PersonProfileCanvas from './PersonProfileCanvas'
-import { PersonsLogicProps, personsLogic } from './personsLogic'
+import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 export const scene: SceneExport<PersonsLogicProps> = {
@@ -164,7 +165,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
     )
 }
 
-export function PersonScene(): JSX.Element | null {
+export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
@@ -177,6 +178,7 @@ export function PersonScene(): JSX.Element | null {
         distinctId,
         primaryDistinctId,
         eventsQuery,
+        eventsQueryIsDirty,
         exceptionsQuery,
         surveyResponsesQuery,
     } = useValues(mountedPersonsLogic)
@@ -188,6 +190,7 @@ export function PersonScene(): JSX.Element | null {
         setSplitMergeModalShown,
         setDistinctId,
         setEventsQuery,
+        resetEventsQuery,
         setExceptionsQuery,
         setSurveyResponsesQuery,
     } = useActions(mountedPersonsLogic)
@@ -197,6 +200,7 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
 
     if (personError) {
         return <NotFound object="person" meta={{ urlId }} />
@@ -220,6 +224,12 @@ export function PersonScene(): JSX.Element | null {
                 actions={
                     <>
                         <FeedbackButton id="customer-analytics-person-profile-feedback-button" />
+                        <ComposeTicketButton
+                            size="small"
+                            type="secondary"
+                            distinctId={person.distinct_ids[0]}
+                            email={typeof person.properties?.email === 'string' ? person.properties.email : undefined}
+                        />
                         {user?.is_staff && <OpenInAdminPanelButton />}
                         <NotebookSelectButton
                             resource={{
@@ -296,8 +306,29 @@ export function PersonScene(): JSX.Element | null {
                         content: (
                             <Query
                                 uniqueKey="person-profile-events"
+                                attachTo={mountedPersonsLogic}
                                 query={eventsQuery}
                                 setQuery={(q) => setEventsQuery(q)}
+                                context={{
+                                    insightProps: {
+                                        dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
+                                        tabId,
+                                        dataNodeCollectionId: eventsQueryLogicKey,
+                                    },
+                                    customActions: (
+                                        <LemonButton
+                                            key="reset-events-filters"
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => resetEventsQuery()}
+                                            disabledReason={eventsQueryIsDirty ? undefined : 'No active filters'}
+                                            data-attr="person-events-reset-filters"
+                                        >
+                                            Reset all filters
+                                        </LemonButton>
+                                    ),
+                                }}
                             />
                         ),
                     },
@@ -380,6 +411,7 @@ export function PersonScene(): JSX.Element | null {
                                               <div className="flex items-center">
                                                   Choose ID:
                                                   <Tooltip
+                                                      docLink="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
                                                       title={
                                                           <div className="deprecated-space-y-2">
                                                               <div>
@@ -393,10 +425,7 @@ export function PersonScene(): JSX.Element | null {
                                                               </div>
                                                               <div>
                                                                   This option may depend on your specific setup and
-                                                                  isn't always suitable. Read more in the{' '}
-                                                                  <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
-                                                                      documentation.
-                                                                  </Link>
+                                                                  isn't always suitable.
                                                               </div>
                                                           </div>
                                                       }
@@ -443,7 +472,7 @@ export function PersonScene(): JSX.Element | null {
                 ]}
             />
 
-            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} tabId={tabId} />}
         </SceneContent>
     )
 }

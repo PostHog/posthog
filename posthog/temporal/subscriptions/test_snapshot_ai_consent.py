@@ -13,6 +13,8 @@ from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs
 
+from ee.models import CoreMemory
+
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
@@ -149,6 +151,97 @@ async def test_skips_summary_when_summary_not_enabled(team, user):
     )
 
     assert result.summary_text is None
+
+
+async def test_stored_prompt_guide_is_ignored_when_prompt_guide_flag_is_off(team, user, monkeypatch):
+    # Stored `summary_prompt_guide` set while the flag was on must stop steering the LLM the
+    # moment the flag flips off, not only on the next edit — otherwise ungating on the frontend
+    # leaves users with no way to stop a value from taking effect.
+    subscription = await _create_subscription(team, user)
+    await sync_to_async(Subscription.objects.filter(pk=subscription.pk).update)(
+        summary_prompt_guide="secret ops context"
+    )
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    seen_prompt_guides: list[str] = []
+
+    def fake_generate(previous_states, current_states, *, prompt_guide: str = "", **kwargs):
+        seen_prompt_guides.append(prompt_guide)
+        return "- Pageviews is trending up"
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.posthoganalytics.feature_enabled",
+        lambda *a, **kw: False,
+    )
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert seen_prompt_guides == [""]
+
+
+async def test_stored_prompt_guide_flows_when_prompt_guide_flag_is_on(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await sync_to_async(Subscription.objects.filter(pk=subscription.pk).update)(summary_prompt_guide="focus on revenue")
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    seen_prompt_guides: list[str] = []
+
+    def fake_generate(previous_states, current_states, *, prompt_guide: str = "", **kwargs):
+        seen_prompt_guides.append(prompt_guide)
+        return "- Pageviews is trending up"
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.posthoganalytics.feature_enabled",
+        lambda *a, **kw: True,
+    )
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert seen_prompt_guides == ["focus on revenue"]
 
 
 async def test_captures_analytics_event_when_summary_is_generated(team, user, monkeypatch):
@@ -290,6 +383,63 @@ async def test_captures_event_with_team_prefixed_distinct_id_when_no_creator(tea
     events = [c for c in fake_client.captured if c.get("event") == "subscription_ai_summary_generated"]
     assert len(events) == 1
     assert events[0]["distinct_id"] == f"team_{team.id}"
+
+
+@pytest.mark.parametrize(
+    "stored_memory_text,expected_fragments",
+    [
+        pytest.param(
+            "Company is PostHog.\nFlagship product is product analytics.",
+            ["Company is PostHog.", "Flagship product is product analytics."],
+            id="memory_present",
+        ),
+        pytest.param("", [], id="no_memory_row"),
+    ],
+)
+async def test_core_memory_flows_into_change_summary(team, user, monkeypatch, stored_memory_text, expected_fragments):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    if stored_memory_text:
+        await sync_to_async(CoreMemory.objects.create)(team=team, text=stored_memory_text)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    seen_core_memory: list[str] = []
+
+    def fake_generate(previous_states, current_states, *, core_memory_text: str = "", **kwargs):
+        seen_core_memory.append(core_memory_text)
+        return "- Pageviews is trending up"
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert len(seen_core_memory) == 1
+    if expected_fragments:
+        for fragment in expected_fragments:
+            assert fragment in seen_core_memory[0]
+    else:
+        # No memory row → activity must pass through the empty string, not raise.
+        assert seen_core_memory[0] == ""
 
 
 async def test_unhandled_exception_is_logged_and_reraised(team, user, monkeypatch):

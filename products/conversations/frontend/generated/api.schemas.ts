@@ -49,14 +49,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -76,7 +72,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -148,6 +144,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `flags` - flags
  * `llm_analytics` - llm_analytics
  * `sandbox` - sandbox
+ * `user_interview` - user_interview
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -163,6 +160,7 @@ export const AgentModeEnumApi = {
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',
     Sandbox: 'sandbox',
+    UserInterview: 'user_interview',
 } as const
 
 /**
@@ -182,7 +180,7 @@ export interface MessageApi {
     session_id?: string
     agent_mode?: AgentModeEnumApi
     is_sandbox?: boolean
-    resume_payload?: unknown | null
+    resume_payload?: unknown
 }
 
 export type ConversationApiMessagesItem = { [key: string]: unknown }
@@ -225,8 +223,8 @@ export interface ConversationApi {
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
-Combines metadata from conversation.approval_decisions with payload from checkpoint
-interrupts (single source of truth for payload data). */
+  Combines metadata from conversation.approval_decisions with payload from checkpoint
+  interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
 }
 
@@ -278,8 +276,8 @@ export interface PatchedConversationApi {
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
-Combines metadata from conversation.approval_decisions with payload from checkpoint
-interrupts (single source of truth for payload data). */
+  Combines metadata from conversation.approval_decisions with payload from checkpoint
+  interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
 }
 
@@ -313,6 +311,7 @@ export interface PaginatedTicketViewListApi {
  * `email` - Email
  * `slack` - Slack
  * `teams` - Microsoft Teams
+ * `github` - GitHub
  */
 export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
 
@@ -321,6 +320,7 @@ export const ChannelSourceEnumApi = {
     Email: 'email',
     Slack: 'slack',
     Teams: 'teams',
+    Github: 'github',
 } as const
 
 /**
@@ -331,6 +331,7 @@ export const ChannelSourceEnumApi = {
  * `teams_bot_mention` - Teams bot mention
  * `widget_embedded` - Widget
  * `widget_api` - API
+ * `github_issue` - GitHub issue
  */
 export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
 
@@ -342,6 +343,7 @@ export const ChannelDetailEnumApi = {
     TeamsBotMention: 'teams_bot_mention',
     WidgetEmbedded: 'widget_embedded',
     WidgetApi: 'widget_api',
+    GithubIssue: 'github_issue',
 } as const
 
 /**
@@ -377,12 +379,12 @@ export const PriorityEnumApi = {
 /**
  * @nullable
  */
-export type TicketAssignmentApiUser = { [key: string]: string } | null | null
+export type TicketAssignmentApiUser = { [key: string]: string } | null
 
 /**
  * @nullable
  */
-export type TicketAssignmentApiRole = { [key: string]: string } | null | null
+export type TicketAssignmentApiRole = { [key: string]: string } | null
 
 /**
  * Serializer for ticket assignment (user or role).
@@ -418,22 +420,22 @@ export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
-    readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
+    readonly channel_detail: ChannelDetailEnumApi | null
     readonly distinct_id: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
-* `new` - New
-* `open` - Open
-* `pending` - Pending
-* `on_hold` - On hold
-* `resolved` - Resolved */
+  * `new` - New
+  * `open` - Open
+  * `pending` - Pending
+  * `on_hold` - On hold
+  * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, or high. Null if unset.
 
-* `low` - Low
-* `medium` - Medium
-* `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+  * `low` - Low
+  * `medium` - Medium
+  * `high` - High */
+    priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -472,6 +474,10 @@ export interface TicketApi {
     /** @nullable */
     readonly email_to: string | null
     readonly cc_participants: unknown
+    /** @nullable */
+    readonly github_repo: string | null
+    /** @nullable */
+    readonly github_issue_number: number | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -492,22 +498,22 @@ export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
-    readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
+    readonly channel_detail?: ChannelDetailEnumApi | null
     readonly distinct_id?: string
     /** Ticket status: new, open, pending, on_hold, or resolved
 
-* `new` - New
-* `open` - Open
-* `pending` - Pending
-* `on_hold` - On hold
-* `resolved` - Resolved */
+  * `new` - New
+  * `open` - Open
+  * `pending` - Pending
+  * `on_hold` - On hold
+  * `resolved` - Resolved */
     status?: TicketStatusEnumApi
     /** Ticket priority: low, medium, or high. Null if unset.
 
-* `low` - Low
-* `medium` - Medium
-* `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
+  * `low` - Low
+  * `medium` - Medium
+  * `high` - High */
+    priority?: PriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
@@ -546,6 +552,10 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly email_to?: string | null
     readonly cc_participants?: unknown
+    /** @nullable */
+    readonly github_repo?: string | null
+    /** @nullable */
+    readonly github_issue_number?: number | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -580,9 +590,9 @@ export interface BulkUpdateTagsRequestApi {
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-* `add` - add
-* `remove` - remove
-* `set` - set */
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -601,6 +611,37 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface ComposeTicketApi {
+    /** Recipient email address. */
+    recipient_email: string
+    /**
+     * PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.
+     * @maxLength 400
+     */
+    recipient_distinct_id?: string
+    /**
+     * Email subject line.
+     * @maxLength 500
+     */
+    email_subject?: string
+    /** ID of the EmailChannel to send from. */
+    email_config_id: string
+    /**
+     * Message content in markdown.
+     * @maxLength 5000
+     */
+    message: string
+    /** TipTap rich content JSON for formatted messages. */
+    rich_content?: unknown
+}
+
+export interface ComposeTicketResponseApi {
+    /** Created ticket UUID. */
+    id: string
+    /** Human-readable ticket number. */
+    ticket_number: number
 }
 
 export type ConversationsListParams = {
@@ -688,6 +729,7 @@ export type ConversationsTicketsListChannelDetail =
     (typeof ConversationsTicketsListChannelDetail)[keyof typeof ConversationsTicketsListChannelDetail]
 
 export const ConversationsTicketsListChannelDetail = {
+    GithubIssue: 'github_issue',
     SlackBotMention: 'slack_bot_mention',
     SlackChannelMessage: 'slack_channel_message',
     SlackEmojiReaction: 'slack_emoji_reaction',
@@ -702,6 +744,7 @@ export type ConversationsTicketsListChannelSource =
 
 export const ConversationsTicketsListChannelSource = {
     Email: 'email',
+    Github: 'github',
     Slack: 'slack',
     Teams: 'teams',
     Widget: 'widget',

@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -152,6 +153,7 @@ describe('postOnboardingModalLogic', () => {
             obLogic.mount()
             // Set productKey so the onboarding-completion guard passes
             obLogic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            userLogic.actions.loadUserSuccess({ is_organization_first_user: true } as any)
         })
 
         afterEach(() => {
@@ -171,7 +173,7 @@ describe('postOnboardingModalLogic', () => {
             }).toDispatchActions(['openPostOnboardingModal'])
         })
 
-        it('control: dispatches openGlobalSetup when flag is control', async () => {
+        it('control: does NOT auto-open Quick Start (manual click only)', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT], {
                 [FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT]: 'control',
             })
@@ -179,26 +181,32 @@ describe('postOnboardingModalLogic', () => {
                 obLogic.actions.updateCurrentTeamSuccess({} as any, {
                     has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
                 })
-            }).toDispatchActions(['openGlobalSetup'])
+            }).toNotHaveDispatchedActions(['openGlobalSetup'])
         })
 
-        it('control: dispatches openGlobalSetup when flag is absent', async () => {
+        it('control: does NOT auto-open Quick Start when flag is absent', async () => {
             // Do NOT set the feature flag — default state
             await expectLogic(obLogic, () => {
                 obLogic.actions.updateCurrentTeamSuccess({} as any, {
                     has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
                 })
-            }).toDispatchActions(['openGlobalSetup'])
+            }).toNotHaveDispatchedActions(['openGlobalSetup'])
         })
 
-        it('guard: non-onboarding team save still calls openGlobalSetup', async () => {
+        it('non-onboarding team save does NOT auto-open Quick Start', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT], {
                 [FEATURE_FLAGS.POST_ONBOARDING_MODAL_EXPERIMENT]: 'test',
             })
             // Payload does NOT include has_completed_onboarding_for for the current product
             await expectLogic(obLogic, () => {
                 obLogic.actions.updateCurrentTeamSuccess({} as any, { name: 'My Team' } as any)
-            }).toDispatchActions(['openGlobalSetup'])
+            }).toNotHaveDispatchedActions(['openGlobalSetup'])
+        })
+
+        it('skipOnboarding does NOT auto-open Quick Start', async () => {
+            await expectLogic(obLogic, () => {
+                obLogic.actions.skipOnboarding()
+            }).toNotHaveDispatchedActions(['openGlobalSetup'])
         })
     })
 })

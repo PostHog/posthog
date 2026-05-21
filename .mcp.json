@@ -3,6 +3,10 @@
         "phrocs": {
             "command": "uv",
             "args": ["run", "python", "tools/phrocs/mcp_server.py"]
+        },
+        "traffic-sim": {
+            "command": "uv",
+            "args": ["run", "python", "tools/traffic-sim/mcp_server.py"]
         }
     }
 }

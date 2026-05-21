@@ -6,7 +6,7 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumer } from '../../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
@@ -16,7 +16,7 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueue
 import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
 
 export class CyclotronJobQueueKafka {
-    private kafkaConsumer?: KafkaConsumer
+    private kafkaConsumer?: KafkaConsumerInterface
     private kafkaProducer?: KafkaProducerWrapper
     private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
@@ -45,7 +45,7 @@ export class CyclotronJobQueueKafka {
         const topic = `cdp_cyclotron_${this.queue}`
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
-        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
+        this.kafkaConsumer = createKafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
         await this.kafkaConsumer.connect(async (messages) => {

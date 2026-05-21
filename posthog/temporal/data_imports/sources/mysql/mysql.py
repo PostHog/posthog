@@ -20,7 +20,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -190,9 +193,10 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
+    operator = incremental_type_to_operator(incremental_field_type)
     query = (
         f"SELECT * FROM {table}{hint}"
-        f" WHERE {_sanitize_identifier(incremental_field)} >= %(incremental_value)s"
+        f" WHERE {_sanitize_identifier(incremental_field)} {operator} %(incremental_value)s"
         f" ORDER BY {_sanitize_identifier(incremental_field)} ASC"
     )
 
@@ -372,6 +376,65 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: Error: {e}. Returning None", exc_info=e)
         capture_exception(e)
         return None
+
+
+def get_leading_index_columns_for_schemas(
+    host: str,
+    user: str,
+    password: str,
+    database: str,
+    schema: str,
+    port: int,
+    table_names: list[str],
+    using_ssl: bool = True,
+) -> dict[str, set[str]] | None:
+    """Return the leading column of each index per table.
+
+    `information_schema.STATISTICS` lists every index (including primary, unique,
+    secondary) row-per-column. `SEQ_IN_INDEX = 1` identifies the first column
+    of each index, which is what speeds up `WHERE col >= …` predicates.
+
+    Returns None when discovery fails so the caller defaults to no warning.
+    Tables with no indexes still appear in the dict with an empty set so the
+    UI distinguishes them from "lookup failed".
+    """
+    if not table_names:
+        return {}
+
+    result: dict[str, set[str]] = {table: set() for table in table_names}
+
+    try:
+        ssl_ca: str | None = None
+        if using_ssl:
+            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        with pymysql.connect(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            connect_timeout=10,
+            ssl_ca=ssl_ca,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT TABLE_NAME, COLUMN_NAME
+                    FROM information_schema.STATISTICS
+                    WHERE TABLE_SCHEMA = %(schema)s
+                      AND TABLE_NAME IN %(names)s
+                      AND SEQ_IN_INDEX = 1
+                    """,
+                    {"schema": schema, "names": tuple(table_names)},
+                )
+                for table_name, column_name in cursor.fetchall():
+                    result.setdefault(table_name, set()).add(column_name)
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index columns for MySQL schemas", exc_info=e)
+        return None
+
+    return result
 
 
 def get_primary_keys_for_schemas(

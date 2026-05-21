@@ -19,7 +19,7 @@ case "$SHELL_NAME" in
     fi
 
     echo "Installing bash completion to $COMPLETION_DIR/hogli..."
-    python -m hogli.core.completion --shell bash > "$COMPLETION_DIR/hogli"
+    python -m hogli.completion --shell bash > "$COMPLETION_DIR/hogli"
     chmod 644 "$COMPLETION_DIR/hogli"
     echo "✅ Bash completion installed. Restart your shell or run: source $COMPLETION_DIR/hogli"
     ;;
@@ -35,7 +35,7 @@ case "$SHELL_NAME" in
     fi
 
     echo "Installing zsh completion to $COMPLETION_DIR/_hogli..."
-    python -m hogli.core.completion --shell zsh > "$COMPLETION_DIR/_hogli"
+    python -m hogli.completion --shell zsh > "$COMPLETION_DIR/_hogli"
     chmod 644 "$COMPLETION_DIR/_hogli"
     echo "✅ Zsh completion installed. Restart your shell or run: rehash"
     ;;
