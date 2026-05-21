@@ -1031,6 +1031,15 @@ export interface UserBlastRadiusResponseApi {
     total: number
 }
 
+export interface FlagValueItemApi {
+    name: unknown
+}
+
+export interface FlagValueResponseApi {
+    results: FlagValueItemApi[]
+    refreshing: boolean
+}
+
 /**
  * * `FeatureFlag` - feature flag
  */
@@ -1288,6 +1297,13 @@ export type FeatureFlagsMyFlagsRetrieveParams = {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string
+}
+
+export type FlagValueValuesRetrieveParams = {
+    /**
+     * The flag ID
+     */
+    key?: string
 }
 
 export type ScheduledChangesListParams = {
