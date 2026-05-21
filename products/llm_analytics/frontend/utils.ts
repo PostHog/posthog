@@ -897,7 +897,7 @@ function parseStringifiedStructuredContent(content: string): string | MultiModal
 }
 
 /**
- * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
+ * Normalizes a message from an LLM provider into a format that is compatible with the PostHog AI observability schema.
  *
  * @param rawMessage - Original message from an LLM provider.
  * @param defaultRole - The default role to use if the message doesn't have one.
