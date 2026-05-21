@@ -24,8 +24,10 @@ import json
 import stat
 import time
 import shutil
+import socket
 import traceback
 import subprocess
+import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -41,6 +43,10 @@ PROGRESS_FILE = Path("/tmp/sandbox-progress")
 
 # Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.
 STATUS_FILE = Path("/tmp/sandbox-status")
+
+# Touched by the host's detached restore once its synchronous ClickHouse RESTORE
+# has fully landed; the setup window waits on it before migrating (cache creates).
+CH_RESTORED_MARKER = Path("/tmp/sandbox-ch-restored")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -672,6 +678,53 @@ def user_phase() -> None:
     sys.exit(1)
 
 
+def _port_open(host: str, port: int) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+def _clickhouse_ready() -> bool:
+    """True once ClickHouse answers a trivial query over HTTP."""
+    try:
+        with urllib.request.urlopen("http://clickhouse:8123/", data=b"SELECT 1", timeout=3) as resp:
+            return resp.read().strip() == b"1"
+    except OSError:
+        return False
+
+
+def _wait_for(label: str, ready: Callable[[], bool], timeout: int = 300) -> None:
+    """Poll `ready` until true, updating the status bar; raise on timeout."""
+    _write_status(f"waiting for {label}")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if ready():
+            return
+        time.sleep(2)
+    raise RuntimeError(f"{label} not ready within {timeout}s")
+
+
+def _wait_for_databases() -> None:
+    """Block until infra is ready before migrating.
+
+    Postgres restores before its container boots, so a reachable db is already
+    restored. ClickHouse restores onto a *running* server, and the database can
+    appear mid-restore — so for a cache-backed create we wait on the marker the
+    host touches once its synchronous RESTORE has fully landed, not on a probe.
+    """
+    _wait_for(
+        "Postgres",
+        lambda: run_quiet(["psql", "-h", "db", "-U", "posthog", "-d", "posthog", "-tAc", "SELECT 1"]).returncode == 0,
+    )
+    if os.environ.get("SANDBOX_USE_CACHE") == "1":
+        _wait_for("ClickHouse cache restore", CH_RESTORED_MARKER.exists)
+    else:
+        _wait_for("ClickHouse", _clickhouse_ready)
+    _wait_for("Kafka", lambda: _port_open("kafka", 9092))
+
+
 def run_setup() -> None:
     """Tmux window 2: install deps, migrate, seed data, spawn phrocs, exec bash.
 
@@ -682,23 +735,24 @@ def run_setup() -> None:
     _write_status("setup starting")
 
     try:
-        # Kafka is health-gated by compose, safe to call early.
-        create_kafka_topics()
-
-        def install_python_and_migrate() -> None:
-            install_python_deps()
-            _write_status("running migrations")
-            run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
-            _write_status("seeding demo data")
-            ensure_demo_data()
-
+        # Deps need no database, so install them while the host brings up and
+        # restores infra in the background.
         _run_parallel(
             {
-                "python deps + migrations": install_python_and_migrate,
+                "python deps": install_python_deps,
                 "node deps": install_node_deps,
                 "rust crates": fetch_rust_crates,
             }
         )
+
+        # Gate DB work on infra being ready (and the cache restore having landed)
+        # so we never migrate a half-restored database.
+        _wait_for_databases()
+        create_kafka_topics()
+        _write_status("running migrations")
+        run(["python", "manage.py", "sandbox_migrate", "--progress-file", str(PROGRESS_FILE)])
+        _write_status("seeding demo data")
+        ensure_demo_data()
 
         # generate_mprocs_config needs the hogli symlink created by install_python_deps.
         generate_mprocs_config()
