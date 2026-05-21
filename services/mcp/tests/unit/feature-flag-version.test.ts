@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockIsFeatureEnabled = vi.fn()
-
 vi.mock('posthog-node', () => ({
     PostHog: vi.fn().mockImplementation(() => ({
         isFeatureEnabled: mockIsFeatureEnabled,
@@ -9,7 +8,7 @@ vi.mock('posthog-node', () => ({
 }))
 
 // Must import after vi.mock
-import { isFeatureFlagEnabled } from '@/lib/analytics'
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 
 describe('isFeatureFlagEnabled', () => {
     beforeEach(() => {

@@ -1,13 +1,16 @@
 import { dimensions, makeSeries } from '../testing'
 import {
     autoFormatYTick,
+    buildStackedResolveValue,
     computePercentStackData,
     computeStackData,
     createScales,
     createXScale,
     createYScale,
+    niceLogDomain,
     yTickCountForHeight,
 } from './scales'
+import type { StackedBand } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 describe('hog-charts scales', () => {
@@ -491,6 +494,62 @@ describe('hog-charts scales', () => {
 
         it('formats negative values correctly', () => {
             expect(autoFormatYTick(-5, 10)).toBe('-5')
+        })
+    })
+
+    describe('niceLogDomain', () => {
+        it.each([
+            { minPositive: 740, max: 4200, expected: [100, 5000] },
+            { minPositive: 1, max: 100, expected: [0.1, 100] },
+            { minPositive: 0.5, max: 9, expected: [0.1, 9] },
+            { minPositive: 25, max: 25, expected: [10, 30] },
+            { minPositive: 1000, max: 9999, expected: [100, 10000] },
+        ])('rounds [$minPositive, $max] to $expected', ({ minPositive, max, expected }) => {
+            const [niceMin, niceMax] = niceLogDomain(minPositive, max)
+            expect(niceMin).toBeCloseTo(expected[0], 5)
+            expect(niceMax).toBeCloseTo(expected[1], 5)
+        })
+
+        it('always rounds minPositive down past it (next decade lower)', () => {
+            const [niceMin] = niceLogDomain(50, 1000)
+            expect(niceMin).toBeLessThanOrEqual(50)
+        })
+    })
+
+    describe('buildStackedResolveValue', () => {
+        const series = makeSeries({ key: 'a', data: [10, 20, 30] })
+
+        it('returns undefined when stackedData is undefined', () => {
+            expect(buildStackedResolveValue(undefined)).toBeUndefined()
+        })
+
+        it('returns the stacked top when present and finite', () => {
+            const stacked = new Map<string, StackedBand>([['a', { top: [100, 200, 300], bottom: [0, 0, 0] }]])
+            const resolve = buildStackedResolveValue(stacked)!
+            expect(resolve(series, 0)).toBe(100)
+            expect(resolve(series, 2)).toBe(300)
+        })
+
+        it('falls back to the raw value when the series is not in the stack', () => {
+            const stacked = new Map<string, StackedBand>()
+            const resolve = buildStackedResolveValue(stacked)!
+            expect(resolve(series, 1)).toBe(20)
+        })
+
+        it('falls back to the raw value when the stacked top is non-finite', () => {
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, Infinity, 50], bottom: [0, 0, 0] }]])
+            const resolve = buildStackedResolveValue(stacked)!
+            expect(resolve(series, 0)).toBe(10)
+            expect(resolve(series, 1)).toBe(20)
+            expect(resolve(series, 2)).toBe(50)
+        })
+
+        it('returns 0 when both stacked top and raw value are non-finite', () => {
+            const nanSeries = makeSeries({ key: 'a', data: [NaN, Infinity, 0] })
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, NaN, 0], bottom: [0, 0, 0] }]])
+            const resolve = buildStackedResolveValue(stacked)!
+            expect(resolve(nanSeries, 0)).toBe(0)
+            expect(resolve(nanSeries, 1)).toBe(0)
         })
     })
 })

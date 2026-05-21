@@ -9,15 +9,15 @@ import { captureException } from '~/utils/posthog'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
-import { logger } from '../../utils/logger'
+import { logger, serializeError } from '../../utils/logger'
 import { UUIDT } from '../../utils/utils'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CyclotronJobInvocation, HogFunctionFilters } from '../types'
-import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
+import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals, logEntry } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { counterBatchHogFlowTriggerFailed, counterParseError } from './metrics'
 
 export interface BatchHogFlowRequest {
     teamId: number
@@ -107,6 +107,11 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
 
         if (!filters.properties || !filters.properties.length) {
             logger.error('Batch HogFlow request missing property filters', { batchHogFlowRequest })
+            this.recordBatchTriggerFailure(
+                batchHogFlowRequestMessage,
+                'missing_filters',
+                'Batch trigger has no property filters configured.'
+            )
             return []
         }
 
@@ -124,58 +129,80 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         let cursor: string | null = null
         let totalPersonsProcessed = 0
 
-        // Fetch persons in batches using cursor-based pagination
-        do {
-            const blastRadiusPersons = await instrumentFn(
-                'cdpProducer.generateBatch.queueMatchingPersons.getBlastRadiusPersons',
-                async () => {
-                    return await this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
-                        team,
-                        filters,
-                        batchHogFlowRequest.group_type_index,
-                        cursor
-                    )
-                }
-            )
-
-            const batchPersonsCount = blastRadiusPersons.users_affected.length
-            totalPersonsProcessed += batchPersonsCount
-
-            if (totalPersonsProcessed > this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE) {
-                logger.warn(
-                    '⚠️',
-                    `Batch HogFlow run ${batchHogFlowRequest.parentRunId} has exceeded the maximum audience size of ${this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE}. Stopping further processing.`,
-                    { totalPersonsProcessed, batchHogFlowRequest }
+        try {
+            // Fetch persons in batches using cursor-based pagination
+            do {
+                const blastRadiusPersons = await instrumentFn(
+                    'cdpProducer.generateBatch.queueMatchingPersons.getBlastRadiusPersons',
+                    async () => {
+                        return await this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
+                            team,
+                            filters,
+                            batchHogFlowRequest.group_type_index,
+                            cursor
+                        )
+                    }
                 )
-                break
-            }
 
-            logger.info(
-                '📝',
-                `Fetched ${batchPersonsCount} persons (${totalPersonsProcessed} total) for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
+                const batchPersonsCount = blastRadiusPersons.users_affected.length
+                totalPersonsProcessed += batchPersonsCount
+
+                if (totalPersonsProcessed > this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE) {
+                    logger.warn(
+                        '⚠️',
+                        `Batch HogFlow run ${batchHogFlowRequest.parentRunId} has exceeded the maximum audience size of ${this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE}. Stopping further processing.`,
+                        { totalPersonsProcessed, batchHogFlowRequest }
+                    )
+                    break
+                }
+
+                logger.info(
+                    '📝',
+                    `Fetched ${batchPersonsCount} persons (${totalPersonsProcessed} total) for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
+                )
+
+                // Create invocations for this batch of persons
+                const batchInvocations = blastRadiusPersons.users_affected.map((personId) =>
+                    this.createHogFlowInvocation({
+                        parentRunId: batchHogFlowRequest.parentRunId,
+                        hogFlow,
+                        team,
+                        personId,
+                        defaultVariables,
+                    })
+                )
+
+                allInvocations.push(...batchInvocations)
+
+                // Update cursor for next iteration
+                cursor = blastRadiusPersons.cursor
+
+                // Continue if there are more persons to fetch
+                if (!blastRadiusPersons.has_more) {
+                    break
+                }
+            } while (cursor)
+        } catch (error) {
+            // Audience resolution failed (e.g. unsupported filter property like a feature flag in person scope).
+            // Record a workflow-level failure so the run is observable in logs/metrics, then drop the batch
+            // instead of crashing the consumer and re-processing the same poison message in a tight loop.
+            const message = error instanceof Error ? error.message : String(error)
+            logger.error('🔴', 'Failed to resolve audience for batch HogFlow run, skipping batch', {
+                error: serializeError(error),
+                hogFlowId: hogFlow.id,
+                teamId: team.id,
+                parentRunId: batchHogFlowRequest.parentRunId,
+            })
+            captureException(error, {
+                tags: { hogFlowId: hogFlow.id, parentRunId: batchHogFlowRequest.parentRunId },
+            })
+            this.recordBatchTriggerFailure(
+                batchHogFlowRequestMessage,
+                'audience_query_failed',
+                `Failed to resolve batch audience: ${message}`
             )
-
-            // Create invocations for this batch of persons
-            const batchInvocations = blastRadiusPersons.users_affected.map((personId) =>
-                this.createHogFlowInvocation({
-                    parentRunId: batchHogFlowRequest.parentRunId,
-                    hogFlow,
-                    team,
-                    personId,
-                    defaultVariables,
-                })
-            )
-
-            allInvocations.push(...batchInvocations)
-
-            // Update cursor for next iteration
-            cursor = blastRadiusPersons.cursor
-
-            // Continue if there are more persons to fetch
-            if (!blastRadiusPersons.has_more) {
-                break
-            }
-        } while (cursor)
+            return []
+        }
 
         logger.info(
             '✅',
@@ -183,6 +210,41 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         )
 
         return allInvocations
+    }
+
+    private recordBatchTriggerFailure(
+        batchHogFlowRequestMessage: BatchHogFlowRequestMessage,
+        reason: 'missing_filters' | 'audience_query_failed',
+        userMessage: string
+    ): void {
+        const { batchHogFlowRequest, hogFlow } = batchHogFlowRequestMessage
+
+        counterBatchHogFlowTriggerFailed.labels({ hog_flow_id: hogFlow.id, reason }).inc()
+
+        this.hogFunctionMonitoringService.queueAppMetric(
+            {
+                team_id: hogFlow.team_id,
+                app_source_id: hogFlow.id,
+                instance_id: batchHogFlowRequest.parentRunId,
+                metric_kind: 'failure',
+                metric_name: 'trigger_failed',
+                count: 1,
+            },
+            'hog_flow'
+        )
+
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: hogFlow.team_id,
+                    log_source: 'hog_flow',
+                    log_source_id: batchHogFlowRequest.parentRunId,
+                    instance_id: batchHogFlowRequest.parentRunId,
+                    ...logEntry('error', userMessage),
+                },
+            ],
+            'hog_flow'
+        )
     }
 
     private async processBatchHogFlowRequest(

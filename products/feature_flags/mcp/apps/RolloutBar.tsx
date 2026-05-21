@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-import { Tooltip, cn } from '@posthog/mosaic'
+import { cn, Progress, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@posthog/quill'
 
 export interface RolloutBarProps {
     percentage: number
@@ -13,18 +13,19 @@ export function RolloutBar({ percentage, tooltip, className }: RolloutBarProps):
 
     const bar = (
         <div className={cn('flex items-center gap-2', className)}>
-            <div className="h-2 flex-1 rounded-full bg-bg-tertiary overflow-hidden">
-                <div className="h-full rounded-full bg-info transition-all" style={{ width: `${clamped}%` }} />
-            </div>
-            <span className="text-xs font-medium text-text-secondary tabular-nums shrink-0">{clamped}%</span>
+            <Progress value={clamped} className="flex-1" />
+            <span className="text-xs font-medium text-muted-foreground tabular-nums shrink-0">{clamped}%</span>
         </div>
     )
 
     if (tooltip) {
         return (
-            <Tooltip content={tooltip} position="top">
-                {bar}
-            </Tooltip>
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger render={<div className="block">{bar}</div>} />
+                    <TooltipContent side="top">{tooltip}</TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
         )
     }
 

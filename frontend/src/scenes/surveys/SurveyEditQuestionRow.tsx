@@ -27,13 +27,12 @@ import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } fr
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
-import { isThumbQuestion } from './utils'
+import { isThumbQuestion, splitChoicesOnPaste } from './utils'
 
 type SurveyQuestionHeaderProps = {
     index: number
     survey: Survey | NewSurvey
     setSelectedPageIndex: (index: number) => void
-    setSurveyValue: (key: string, value: any) => void
     translationValidationErrors?: Array<{ language: string; questionIndex: number; field: string; error: string }>
     translationErrorsByQuestion?: (
         questionIndex: number
@@ -55,11 +54,10 @@ export function SurveyEditQuestionHeader({
     index,
     survey,
     setSelectedPageIndex,
-    setSurveyValue,
     translationErrorsByQuestion,
 }: SurveyQuestionHeaderProps): JSX.Element {
-    const { hasBranchingLogic, editingLanguage } = useValues(surveyLogic)
-    const { deleteBranchingLogic } = useActions(surveyLogic)
+    const { editingLanguage } = useValues(surveyLogic)
+    const { removeQuestion } = useActions(surveyLogic)
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
@@ -104,39 +102,9 @@ export function SurveyEditQuestionHeader({
                         size="xsmall"
                         data-attr={`delete-survey-question-${index}`}
                         onClick={(e) => {
-                            const deleteQuestion = (): void => {
-                                e.stopPropagation()
-                                setSelectedPageIndex(index <= 0 ? 0 : index - 1)
-                                setSurveyValue(
-                                    'questions',
-                                    survey.questions.filter((_, i) => i !== index)
-                                )
-                            }
-
-                            if (hasBranchingLogic) {
-                                LemonDialog.open({
-                                    title: 'Your survey has active branching logic',
-                                    description: (
-                                        <p className="py-2">
-                                            Deleting the question will remove your branching logic. Are you sure you
-                                            want to continue?
-                                        </p>
-                                    ),
-                                    primaryButton: {
-                                        children: 'Continue',
-                                        status: 'danger',
-                                        onClick: () => {
-                                            deleteBranchingLogic()
-                                            deleteQuestion()
-                                        },
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                })
-                            } else {
-                                deleteQuestion()
-                            }
+                            e.stopPropagation()
+                            setSelectedPageIndex(index <= 0 ? 0 : index - 1)
+                            removeQuestion(index)
                         }}
                         tooltipPlacement="top-end"
                     />
@@ -685,7 +653,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name={getFieldName('choices')} label="Choices">
+                                <LemonField
+                                    name={getFieldName('choices')}
+                                    label="Choices"
+                                    info="Tip: paste a list of options separated by new lines (or from a spreadsheet column) to add them all at once."
+                                >
                                     {({ value, onChange }) => {
                                         const handleChoicesChange = (newChoices: string[]): void => {
                                             onChange(newChoices)
@@ -699,6 +671,26 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             if (!editingLanguage) {
                                                 syncChoicesInTranslations(newChoices)
                                             }
+                                        }
+
+                                        const handlePasteIntoChoice = (
+                                            event: React.ClipboardEvent<HTMLInputElement>,
+                                            choiceIndex: number
+                                        ): void => {
+                                            if (editingLanguage) {
+                                                return
+                                            }
+                                            const merged = splitChoicesOnPaste(
+                                                event.clipboardData.getData('text'),
+                                                value || [],
+                                                choiceIndex,
+                                                hasOpenChoice
+                                            )
+                                            if (!merged) {
+                                                return
+                                            }
+                                            event.preventDefault()
+                                            handleChoicesChange(merged)
                                         }
 
                                         return (
@@ -718,6 +710,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                         newChoices[index] = val
                                                                         handleChoicesChange(newChoices)
                                                                     }}
+                                                                    onPaste={(event) =>
+                                                                        handlePasteIntoChoice(event, index)
+                                                                    }
                                                                     placeholder={
                                                                         editingLanguage
                                                                             ? originalChoices[index]

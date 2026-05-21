@@ -86,6 +86,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpApi ||
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
+            capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow
@@ -225,6 +226,18 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        // Legacy postgres v1 drain for hogflow jobs — delete once cdp-cyclotron-worker-hogflows-pg-legacy is shut down
+        if (capabilities.cdpCyclotronWorkerHogFlowLegacyPg) {
+            serviceLoaders.push(async () => {
+                const worker = new CdpCyclotronWorkerHogFlow(
+                    { ...this.config, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
+                    cdpDeps!
+                )
+                await worker.start()
+                return worker.service
+            })
+        }
+
         if (capabilities.cdpHogflowScheduler) {
             serviceLoaders.push(() => {
                 const scheduler = new HogFlowScheduleService(this.config)
@@ -239,6 +252,14 @@ export class PluginServer implements NodeServer {
             this.lifecycle.expressApp.use('/', serverCommands.router())
             return Promise.resolve(serverCommands.service)
         })
+
+        if (capabilities.cdpBatchHogFlow) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
 
         if (capabilities.cdpPrecalculatedFilters) {
             serviceLoaders.push(async () => {

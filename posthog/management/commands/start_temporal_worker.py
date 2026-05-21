@@ -165,9 +165,17 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
+from products.deployments.backend.temporal import (
+    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
+    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
+)
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
+)
+from products.replay_vision.backend.temporal import (
+    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
+    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
@@ -302,6 +310,11 @@ _task_queue_specs = [
         + SUMMARIZATION_SWEEP_ACTIVITIES,
     ),
     (
+        settings.REPLAY_VISION_TASK_QUEUE,
+        REPLAY_VISION_WORKFLOWS,
+        REPLAY_VISION_ACTIVITIES,
+    ),
+    (
         settings.MESSAGING_TASK_QUEUE,
         MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
         MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
@@ -335,6 +348,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.DEPLOYMENTS_TASK_QUEUE,
+        DEPLOYMENTS_WORKFLOWS,
+        DEPLOYMENTS_ACTIVITIES,
     ),
 ]
 

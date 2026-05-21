@@ -40,6 +40,16 @@ class NodeRole(StrEnum):
     SESSIONS = "sessions"
 
 
+# Roles that host replicated MergeTree data; valid ALTER TABLE targets.
+DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
+    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+)
+# Single-shard data clusters: ALTER runs on one host, replication propagates.
+SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+)
+
+
 _default_workload = Workload.ONLINE
 
 

@@ -1784,7 +1784,7 @@ def capture_report(
 
 
 # extend this with future usage based products
-def has_non_zero_usage(report: FullUsageReport) -> bool:
+def has_non_zero_usage(report: UsageReportCounters) -> bool:
     return (
         report.event_count_in_period > 0
         or report.enhanced_persons_event_count_in_period > 0

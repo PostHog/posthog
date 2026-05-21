@@ -131,6 +131,15 @@ After fixing, commit and push so CI can re-run.
 #   2. Second cleanup PR (after another full drain): delete this helper and
 #      `_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT`.
 _PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
+
+# The follow-up queue patch swapped the single-slot `_pending_followup` for a
+# `_pending_followups` list inside the `send_followup_message` signal handler.
+# Calling `workflow.patched(...)` from a signal handler is unsafe: signals can
+# land in different workflow-task boundaries across replays (rolling deploys,
+# sticky-cache eviction, worker restarts), which leaves the patch marker in
+# history with no matching command on replay (TMPRL1100). Switch to
+# `deprecate_patch(...)` so the marker is treated as compatible regardless of
+# which workflow task records it. Same two-step lifecycle as above.
 _PATCH_ID_FOLLOWUP_QUEUE = "tasks-follow-up-message-queue"
 
 
@@ -930,10 +939,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             artifact_count=len(artifact_ids or []),
         )
         pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
-        if workflow.patched(_PATCH_ID_FOLLOWUP_QUEUE):
-            self._pending_followups.append(pending_followup)
-        else:
-            self._pending_followup = pending_followup
+        # Always queue. `deprecate_patch` accepts existing non-deprecated
+        # markers from workflows that ran the prior `workflow.patched(...)`
+        # gate, so this is safe to deploy alongside in-flight workflows. The
+        # consumption loop in `run()` still drains a stray `_pending_followup`
+        # for defense in depth, but new code never sets it.
+        workflow.deprecate_patch(_PATCH_ID_FOLLOWUP_QUEUE)
+        self._pending_followups.append(pending_followup)
 
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(

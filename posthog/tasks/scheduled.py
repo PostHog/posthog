@@ -10,7 +10,6 @@ from celery.schedules import crontab
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.tasks.alerts.checks import alerts_backlog_task, checks_cleanup_task, reset_stuck_alerts_task
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
     send_error_tracking_weekly_digest,
@@ -55,6 +54,7 @@ from posthog.tasks.tasks import (
     delete_expired_exported_assets,
     find_flags_with_enriched_analytics,
     ingestion_lag,
+    kill_stale_queued_task_runs,
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
@@ -197,6 +197,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         cleanup_stale_expiry_tracking_task.s(),
         name="team metadata expiry tracking cleanup",
+    )
+
+    # Stale QUEUED task run cleanup - hourly
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="0"),
+        kill_stale_queued_task_runs.s(),
+        name="kill stale queued task runs",
     )
 
     # Flags cache sync - hourly
@@ -485,24 +493,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         update_survey_adaptive_sampling.s(),
         name="update survey's sampling feature flag rollout  based on date",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="*/12"),
-        alerts_backlog_task.s(),
-        name="alerts_backlog_task",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="*/15"),
-        reset_stuck_alerts_task.s(),
-        name="reset_stuck_alerts_task",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="8", minute="0"),
-        checks_cleanup_task.s(),
-        name="clean up old alert checks",
     )
 
     sender.add_periodic_task(

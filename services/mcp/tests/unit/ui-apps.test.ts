@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildAppStubHtml } from '@/resources/ui-apps'
-import { UI_APPS } from '@/resources/ui-apps.generated'
+import { UI_APPS, URI_MAP } from '@/resources/ui-apps.generated'
 
 describe('ui-apps', () => {
     describe('buildAppStubHtml', () => {
@@ -116,7 +116,10 @@ describe('ui-apps', () => {
             expect(registeredNames).toContain('MCP Apps Debug')
             expect(registeredNames).toContain('Query Results')
             expect(registeredNames).toContain('PostHog Feature Flag')
+            expect(registeredNames).toContain('PostHog Feature Flag Testing')
             expect(registeredNames).toContain('PostHog Experiment Results')
+
+            expect(URI_MAP['feature-flag-testing']).toBe('ui://posthog/feature-flag-testing.html')
         })
 
         it('includes base URL in CSP resourceDomains', async () => {

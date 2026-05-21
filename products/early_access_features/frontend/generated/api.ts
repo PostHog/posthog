@@ -117,7 +117,7 @@ export const getEarlyAccessFeaturePartialUpdateUrl = (projectId: string, id: str
 export const earlyAccessFeaturePartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEarlyAccessFeatureApi: NonReadonly<PatchedEarlyAccessFeatureApi>,
+    patchedEarlyAccessFeatureApi?: NonReadonly<PatchedEarlyAccessFeatureApi>,
     options?: RequestInit
 ): Promise<EarlyAccessFeatureApi> => {
     return apiMutator<EarlyAccessFeatureApi>(getEarlyAccessFeaturePartialUpdateUrl(projectId, id), {

@@ -35,12 +35,14 @@ export interface ExperimentData {
     _posthogUrl?: string
 }
 
-export function getStatus(exp: ExperimentData): { label: string; variant: 'success' | 'warning' | 'neutral' | 'info' } {
+export type StatusVariant = 'success' | 'warning' | 'default' | 'info'
+
+export function getStatus(exp: ExperimentData): { label: string; variant: StatusVariant } {
     if (exp.archived) {
-        return { label: 'Archived', variant: 'neutral' }
+        return { label: 'Archived', variant: 'default' }
     }
     if (!exp.start_date) {
-        return { label: 'Draft', variant: 'neutral' }
+        return { label: 'Draft', variant: 'default' }
     }
     if (exp.end_date) {
         return { label: 'Complete', variant: 'success' }
@@ -48,16 +50,18 @@ export function getStatus(exp: ExperimentData): { label: string; variant: 'succe
     return { label: 'Running', variant: 'info' }
 }
 
-export function getConclusion(exp: ExperimentData): { label: string; variant: 'success' | 'danger' | 'neutral' } {
+export type ConclusionVariant = 'success' | 'destructive' | 'default'
+
+export function getConclusion(exp: ExperimentData): { label: string; variant: ConclusionVariant } {
     if (exp.conclusion === 'won') {
         return { label: 'Won', variant: 'success' }
     }
     if (exp.conclusion === 'lost') {
-        return { label: 'Lost', variant: 'danger' }
+        return { label: 'Lost', variant: 'destructive' }
     }
 
     return {
         label: exp.conclusion ? exp.conclusion.charAt(0).toUpperCase() + exp.conclusion.slice(1) : 'Inconclusive',
-        variant: 'neutral',
+        variant: 'default',
     }
 }

@@ -20,6 +20,7 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
+import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
@@ -87,6 +88,7 @@ export function GlobalModals(): JSX.Element {
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigurePinnedTabsModal isOpen={isConfigurePinnedTabsModalOpen} onClose={hideConfigurePinnedTabsModal} />
             <MaybeWelcomeDialog />
+            <ComposeTicketModal />
         </>
     )
 }

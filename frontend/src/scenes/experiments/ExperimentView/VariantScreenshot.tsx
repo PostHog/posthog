@@ -250,5 +250,3 @@ export function VariantScreenshot({
         </div>
     )
 }
-
-export default VariantScreenshot

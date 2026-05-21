@@ -293,10 +293,7 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
 export interface DrawGridOptions {
     gridColor?: string
     orientation?: 'vertical' | 'horizontal'
-    /** Pixel positions on the categorical axis at which to draw cross-axis grid lines, producing
-     *  a square grid. In `'vertical'` mode these are x-pixel positions (vertical lines); in
-     *  `'horizontal'` mode they are y-pixel positions (horizontal lines). Empty/undefined keeps
-     *  the value-axis-only grid. */
+    /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
 }
 
@@ -322,6 +319,11 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
+    // Skip the first category tick when it falls right next to the axis baseline
+    // (left edge in vertical mode, top edge in horizontal) — otherwise it renders
+    // as a faint second line hugging the axis.
+    const AXIS_BASELINE_GAP = 4
+
     if (orientation === 'horizontal') {
         for (const tick of valueTicks) {
             const x = Math.round(yScale(tick)) + 0.5
@@ -331,7 +333,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
             ctx.stroke()
         }
         for (const coord of categoryTicks) {
-            if (!isFinite(coord)) {
+            if (!isFinite(coord) || coord - dimensions.plotTop < AXIS_BASELINE_GAP) {
                 continue
             }
             const y = Math.round(coord) + 0.5
@@ -357,7 +359,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     }
 
     for (const coord of categoryTicks) {
-        if (!isFinite(coord)) {
+        if (!isFinite(coord) || coord - dimensions.plotLeft < AXIS_BASELINE_GAP) {
             continue
         }
         const x = Math.round(coord) + 0.5
@@ -484,9 +486,7 @@ export function drawBars(
     }
 }
 
-/** Hover highlight is a translucent fill on the *overlay* canvas, layered over the static bar.
- *  The overlay's alpha composites with the bar pixel underneath, darkening it without us
- *  having to know how to darken every possible color string the consumer passes. */
+/** Translucent fill on the overlay canvas, alpha-composited over the static bar. */
 export function drawBarHighlight(
     ctx: CanvasRenderingContext2D,
     bar: BarRect,

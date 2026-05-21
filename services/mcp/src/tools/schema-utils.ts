@@ -149,9 +149,11 @@ export function summarizeSchema(schema: JSONSchema, toolName: string, fieldPath?
             entry.items = describeItems(prop.items as JSONSchema)
         }
 
-        // Add drill-down hint for complex fields
+        // Add drill-down hint for complex fields. Phrased as an imperative, not a
+        // description — models observably treat declarative notes as advisory, so
+        // the directive lives on the field the model is about to populate.
         if (isComplex(prop)) {
-            entry.hint = `Run \`schema ${toolName} ${pathPrefix}${name}\` for full structure`
+            entry.hint = `DO NOT GUESS — you MUST run \`schema ${toolName} ${pathPrefix}${name}\` before populating this field`
         }
 
         result[name] = entry

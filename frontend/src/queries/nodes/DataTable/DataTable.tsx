@@ -37,13 +37,15 @@ import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTable
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { DATETIME_KEYS, getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
+    orderByForSelectKey,
+    removeAsAlias,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -244,6 +246,12 @@ export function DataTable({
         const col = getContextColumn(colName, context?.columns)
         return !col?.queryContextColumn?.hidden
     })
+    const orderByForKey = (key: string): string => {
+        const rawSelect = sourceFeatures.has(QueryFeature.selectAndOrderByColumns)
+            ? ((query.source as EventsQuery).select ?? [])
+            : []
+        return orderByForSelectKey(key, rawSelect)
+    }
     const rowFillFractionIndex = allColumns.findIndex((colName) => {
         const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
@@ -329,6 +337,24 @@ export function DataTable({
                                     <div className="font-mono truncate">{removeExpressionComment(key)}</div>
                                 )}
                             </div>
+                            {(isEventsQuery(query.source) || isActorsQuery(query.source)) &&
+                            DATETIME_KEYS.includes(removeExpressionComment(key)) ? (
+                                <>
+                                    <LemonDivider />
+                                    <LemonButton
+                                        fullWidth
+                                        data-attr="datatable-toggle-absolute-time"
+                                        onClick={() => {
+                                            setQuery?.({
+                                                ...query,
+                                                showAbsoluteTime: !query.showAbsoluteTime,
+                                            })
+                                        }}
+                                    >
+                                        {query.showAbsoluteTime ? 'Show relative time' : 'Show absolute time'}
+                                    </LemonButton>
+                                </>
+                            ) : null}
                             {columnFeatures.includes(ColumnFeature.canEdit) && (
                                 <>
                                     <LemonDivider />
@@ -355,8 +381,11 @@ export function DataTable({
                                                 const source = query.source as EventsQuery
                                                 const columns = columnsInLemonTable ?? getDataNodeDefaultColumns(source)
                                                 const isAggregation = isHogQLAggregation(hogQl)
-                                                const isOrderBy = source.orderBy?.[0] === key
-                                                const isDescOrderBy = source.orderBy?.[0] === `${key} DESC`
+                                                const orderKey = orderByForKey(key)
+                                                const isOrderBy = source.orderBy?.[0] === orderKey
+                                                const isDescOrderBy =
+                                                    source.orderBy?.[0] === `${orderKey} DESC` ||
+                                                    source.orderBy?.[0] === `${orderKey}\n DESC`
                                                 setQuery({
                                                     ...query,
                                                     source: {
@@ -370,7 +399,11 @@ export function DataTable({
                                                             ),
                                                         orderBy:
                                                             isOrderBy || isDescOrderBy
-                                                                ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
+                                                                ? [
+                                                                      isDescOrderBy
+                                                                          ? `${removeAsAlias(hogQl)}\n DESC`
+                                                                          : removeAsAlias(hogQl),
+                                                                  ]
                                                                 : source.orderBy,
                                                     },
                                                 })
@@ -393,7 +426,7 @@ export function DataTable({
                                                 query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
                                                 query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'ASC')
-                                                    : [key]
+                                                    : [orderByForKey(key)]
                                             setQuery?.({
                                                 ...query,
                                                 source: {
@@ -413,7 +446,7 @@ export function DataTable({
                                                 query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
                                                 query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'DESC')
-                                                    : [`${key}\n DESC`]
+                                                    : [`${orderByForKey(key)}\n DESC`]
                                             setQuery?.({
                                                 ...query,
                                                 source: {
@@ -946,6 +979,7 @@ export function DataTable({
                                                   return (
                                                       <EventRowActions
                                                           event={(result as any[])[columnsInResponse.indexOf('*')]}
+                                                          hideRecordingButton={recordingColumnShown}
                                                       />
                                                   )
                                               }

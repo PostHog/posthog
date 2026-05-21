@@ -33,9 +33,21 @@ export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
 export const visualReviewReposQuarantineCreateBodyReasonMax = 255
 
 export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object({
-    identifier: zod.string().max(visualReviewReposQuarantineCreateBodyIdentifierMax),
-    reason: zod.string().max(visualReviewReposQuarantineCreateBodyReasonMax),
-    expires_at: zod.iso.datetime({}).nullish(),
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    source_run_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
@@ -46,9 +58,21 @@ export const visualReviewReposQuarantineExpireCreateBodyIdentifierMax = 512
 export const visualReviewReposQuarantineExpireCreateBodyReasonMax = 255
 
 export const VisualReviewReposQuarantineExpireCreateBody = /* @__PURE__ */ zod.object({
-    identifier: zod.string().max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax),
-    reason: zod.string().max(visualReviewReposQuarantineExpireCreateBodyReasonMax),
-    expires_at: zod.iso.datetime({}).nullish(),
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    source_run_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**

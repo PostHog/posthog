@@ -23,7 +23,9 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
-use crate::event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext};
+use crate::event_restrictions::{
+    AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
+};
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::payload::decompression::decompress_gzip_to_bytes;
@@ -217,7 +219,9 @@ pub async fn ai_handler(
             now_ts: state.timesource.current_time().timestamp(),
         };
 
-        let applied = service.get_restrictions(token, &event_ctx).await;
+        let applied = service
+            .get_restrictions(token, &event_ctx, Pipeline::Ai)
+            .await;
 
         if applied.should_drop() {
             report_dropped_events("event_restriction_drop", 1);

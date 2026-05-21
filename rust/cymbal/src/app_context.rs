@@ -115,7 +115,11 @@ impl AppContext {
             config.symbol_store_cache_max_bytes,
         )));
 
-        let smp = SourcemapProvider::new(config);
+        let smp = SourcemapProvider::new(config).with_chunk_id_rescue(
+            posthog_pool.clone(),
+            s3_client.clone(),
+            config.object_storage_bucket.clone(),
+        );
         let smp_chunk = ChunkIdFetcher::new(
             smp,
             s3_client.clone(),

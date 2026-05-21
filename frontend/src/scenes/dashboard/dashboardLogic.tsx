@@ -40,6 +40,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -81,11 +82,11 @@ import {
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
+import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
 import { dashboardQuickFiltersLogic } from './dashboardQuickFiltersLogic'
 import {
-    AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
@@ -102,7 +103,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
-    scheduleSharedDashboardStaleAutoForceIfEligible,
+    shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -217,6 +218,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: (payload?: { withAnalysis?: boolean }) => ({
             withAnalysis: payload?.withAnalysis ?? false,
         }),
+        /**
+         * If the latest tile data is older than SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
+         * queue a single force-blocking refresh on the next microtask. Reads
+         * `effectiveLastRefresh` from values, so always sees the live age — no closure.
+         */
+        forceRefreshIfStale: true,
         /** Manually refresh a single insight from the insight card on the dashboard. */
         refreshDashboardItem: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
@@ -1761,6 +1768,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         updateTileColor: async ({ tileId, color }) => {
+            // Defense in depth: shared dashboards (DashboardPlacement.Public)
+            // shouldn't render the tile-color editor, so this listener should
+            // never fire from shared mode. Guarding here avoids a phantom
+            // optimistic local state change that reverts on the inevitable 401.
+            if (isSharedView()) {
+                return
+            }
             const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
             actions.setTileProperty(tileId, { color })
             try {
@@ -1773,6 +1787,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         toggleTileDescription: async ({ tileId }) => {
+            // Defense in depth — same reason as updateTileColor above.
+            if (isSharedView()) {
+                return
+            }
             const matchingTile = values.tiles.find((tile) => tile.id === tileId)
             const previousValue = matchingTile?.show_description
             const newValue = previousValue === false
@@ -1917,6 +1935,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (values.dashboard) {
                 dashboardsModel.actions.updateDashboard({ id: values.dashboard.id, ...payload })
             }
+        },
+        forceRefreshIfStale: () => {
+            // Dedupe: this listener can be invoked from multiple sources for the same
+            // freshness state — the post-load auto-trigger in refreshDashboardItems and
+            // the visibility-change callback in ExporterDashboardScene can both fire on
+            // the same render tick. Tracking the last `effectiveLastRefresh` we already
+            // forced a refresh against ensures we queue at most one trigger per
+            // freshness window. Once a refresh lands, `effectiveLastRefresh` advances
+            // and a future stale window can re-fire.
+            const currentRefreshKey = values.effectiveLastRefresh?.valueOf() ?? null
+            if (cache.lastAutoForcedFor === currentRefreshKey) {
+                return
+            }
+            if (!shouldSharedDashboardAutoForceForStaleTime(values.effectiveLastRefresh)) {
+                return
+            }
+            cache.lastAutoForcedFor = currentRefreshKey
+            queueMicrotask(() => {
+                void actions.triggerDashboardRefresh()
+            })
         },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
         triggerDashboardRefresh: async ({ withAnalysis }, breakpoint) => {
@@ -2199,12 +2237,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 tilesAbortedCount === 0 &&
                 values.placement === DashboardPlacement.Public
             ) {
-                scheduleSharedDashboardStaleAutoForceIfEligible({
-                    effectiveLastRefresh: values.effectiveLastRefresh,
-                    triggerDashboardRefresh: () => {
-                        void actions.triggerDashboardRefresh()
-                    },
-                })
+                actions.forceRefreshIfStale()
             }
         },
         saveEditModeChanges: () => {
@@ -2366,7 +2399,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 .map((insight: QueryBasedInsightModel) => insight?.id)
                 .filter((id): id is number => !!id)
 
-            if (insightIds.length > 0 && values.currentTeamId) {
+            if (insightIds.length > 0 && values.currentTeamId && !isSharedView()) {
                 void api.create(`api/environments/${values.currentTeamId}/insights/viewed`, {
                     insight_ids: insightIds,
                 })

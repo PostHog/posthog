@@ -20,6 +20,7 @@ class HogFunctionAdminForm(forms.ModelForm):
         self.fields["state"].initial = instance.status["state"]
 
 
+@admin.register(HogFunction)
 class HogFunctionAdmin(admin.ModelAdmin):
     form = HogFunctionAdminForm
     list_select_related = ("team",)

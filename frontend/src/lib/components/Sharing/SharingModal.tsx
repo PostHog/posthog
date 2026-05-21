@@ -90,6 +90,7 @@ export interface SharingModalBaseProps {
      */
     recordingLinkTimeForm?: ReactNode
     userAccessLevel?: AccessControlLevel
+    onSharingEnabledChange?: (enabled: boolean) => void
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -110,6 +111,7 @@ export function SharingModalContent({
     previewIframe = false,
     recordingLinkTimeForm = undefined,
     userAccessLevel,
+    onSharingEnabledChange,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
@@ -117,10 +119,11 @@ export function SharingModalContent({
         recordingId,
         notebookShortId,
         additionalParams,
+        onSharingEnabledChange,
     }
     const {
         whitelabelAvailable,
-        advancedPermissionsAvailable,
+        accessControlAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
         showPreview,
@@ -258,7 +261,7 @@ export function SharingModalContent({
                                                 label={
                                                     <div className="flex items-center">
                                                         Password protect
-                                                        {!advancedPermissionsAvailable && (
+                                                        {!accessControlAvailable && (
                                                             <Tooltip title="This is a premium feature, click to learn more.">
                                                                 <IconLock className="ml-1.5 text-muted text-lg" />
                                                             </Tooltip>
@@ -267,9 +270,8 @@ export function SharingModalContent({
                                                 }
                                                 onChange={(passwordRequired: boolean) => {
                                                     if (passwordRequired) {
-                                                        guardAvailableFeature(
-                                                            AvailableFeature.ADVANCED_PERMISSIONS,
-                                                            () => setPasswordRequired(passwordRequired)
+                                                        guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () =>
+                                                            setPasswordRequired(passwordRequired)
                                                         )
                                                     } else {
                                                         setPasswordRequired(passwordRequired)

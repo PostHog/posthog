@@ -110,16 +110,33 @@ class TestGetSandboxMcpConfigs(TestCase):
             ]
 
     @parameterized.expand(
-        [
-            ("http://localhost:8000",),
-            ("https://custom.example.com",),
-        ]
+        [("https://custom.example.com",)],
     )
     def test_returns_empty_list_for_unknown_hosts(self, site_url: str) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = site_url
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
+
+    @parameterized.expand(
+        [
+            ("http://localhost:8000",),
+            ("http://127.0.0.1:8001",),
+        ]
+    )
+    def test_localhost_site_url_uses_host_docker_internal_mcp(self, site_url: str) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = site_url
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="http://host.docker.internal:8787/mcp",
+                    headers=self._expected_headers(),
+                )
+            ]
 
     def test_returns_empty_list_when_no_site_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
@@ -466,3 +483,60 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
 
         assert result is None
+
+    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        organization = Organization.objects.create(name="bot-fallback-org")
+        Team.objects.create(organization=organization, name="bot-fallback-team")
+        user = User.objects.create(email="bot-fallback@test.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="install-1",
+            config={},
+            sensitive_config={"access_token": "ghs_user_install"},
+        )
+
+        result = get_sandbox_github_token(
+            None,
+            run_id="run-1",
+            state={"pr_authorship_mode": "bot"},
+            github_user_integration_id=str(user_integration.id),
+        )
+
+        assert result == "ghs_user_install"
+
+    def test_bot_authorship_prefers_team_integration_over_user_install_token(self) -> None:
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.user import User
+        from posthog.models.user_integration import UserIntegration
+
+        organization = Organization.objects.create(name="bot-precedence-org")
+        team = Team.objects.create(organization=organization, name="bot-precedence-team")
+        team_integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="team-install",
+            config={},
+            sensitive_config={"access_token": "ghs_team"},
+        )
+        user = User.objects.create(email="bot-precedence@test.com")
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="user-install",
+            config={},
+            sensitive_config={"access_token": "ghs_user_install"},
+        )
+
+        result = get_sandbox_github_token(
+            team_integration.id,
+            run_id="run-1",
+            state={"pr_authorship_mode": "bot"},
+            github_user_integration_id=str(user_integration.id),
+        )
+
+        assert result == "ghs_team"

@@ -74,7 +74,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -107,8 +107,6 @@ jobs:
                         # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
                         - 'common/__init__.py'
-                        - 'tools/hogli/**'
-                        - 'tools/hogli-commands/**'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
                         - 'common/ingestion/**'
@@ -154,8 +152,6 @@ jobs:
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
                         - 'common/__init__.py'
-                        - 'tools/hogli/**'
-                        - 'tools/hogli-commands/**'
                         - 'common/hogql_parser/**'
                         - 'common/hogvm/**'
                         - 'common/ingestion/**'
@@ -266,7 +262,7 @@ jobs:
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
@@ -345,7 +341,7 @@ jobs:
                 include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Start Docker early (before dependency installs) so containers can pull
             # images and initialize while we install deps. This matches the pattern
@@ -359,7 +355,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   bin/ci-wait-for-docker launch --background --down \
@@ -382,7 +378,7 @@ jobs:
               run: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Set up Python
-              uses: actions/setup-python@v6
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
@@ -432,12 +428,12 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.9.8
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
               run: bin/ci-wait-for-docker wait
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ needs.turbo-discover.outputs.schema_cache_key }}
@@ -516,15 +512,10 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
-        name: Repo checks (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false},{"runner":"blacksmith-2vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Repo checks (depot-ubuntu-latest)
+        runs-on: depot-ubuntu-latest
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -539,8 +530,14 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Bootstrap scaffold product
+              run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
+
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
+
+            - name: Check version specifiers
+              run: python .github/scripts/check-version-specifiers.py
 
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
@@ -574,7 +571,7 @@ jobs:
         runs-on: depot-ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -636,7 +633,7 @@ jobs:
 
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
                   clean: false
@@ -683,7 +680,7 @@ jobs:
 
             # Now we can consider this PR's migrations
             - name: Checkout this PR
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # For same-repo PRs, checkout the actual branch (not the merge commit)
                   # so OpenAPI type generation can be committed directly. Fork PRs fall
@@ -886,7 +883,13 @@ jobs:
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
-              if: always() && github.event_name == 'pull_request'
+              #
+              # Skipped on PRs from forks: GITHUB_TOKEN is read-only for fork
+              # PRs regardless of the workflow's `permissions:` block, so the
+              # check-runs POST 403s. The analyzer itself still runs in earlier
+              # steps and fails the job on Blocked migrations; reviewers can
+              # read the verdict in the uploaded migration-analysis artifact.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -1000,7 +1003,7 @@ jobs:
               # so they always get a schema from their exact branch point rather than
               # the newest master. LRU eviction handles cleanup.
               if: github.event_name == 'push'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: posthog-schema-master-${{ github.sha }}
@@ -1243,7 +1246,7 @@ jobs:
                 include: ${{ fromJson(needs.build_django_matrix.outputs.include) }}
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -1401,7 +1404,7 @@ jobs:
 
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ needs.turbo-discover.outputs.schema_cache_key }}
@@ -1536,7 +1539,12 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=600 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  # Bumped from 900 → 1500: shards 1/4 consistently exceed 900s in the
+                  # package-scoped django_db_setup → migrate → create_clickhouse_tables
+                  # chain (the first package on those shards is heavier). 1500s gives
+                  # ample headroom while still catching genuine hangs before the
+                  # 30-minute job-level kill.
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=1500 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -1632,7 +1640,7 @@ jobs:
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
@@ -1707,7 +1715,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -1820,7 +1828,7 @@ jobs:
         permissions:
             contents: read
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
@@ -1874,13 +1882,12 @@ jobs:
                   retention-days: 90
 
     async-migrations:
-        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (${{ matrix.runner }})
+        name: Async migrations tests -  ${{ matrix.clickhouse-server-image }} (depot-ubuntu-latest)
         needs: [changes, turbo-discover, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
-                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
@@ -1888,12 +1895,11 @@ jobs:
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
                   clean: false
@@ -1976,7 +1982,7 @@ jobs:
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always() && !startsWith(matrix.runner, 'blacksmith')
+              if: always()
               with:
                   name: junit-results-async-migrations
                   path: junit.xml
@@ -2040,7 +2046,7 @@ jobs:
             )
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: github.run_attempt == '1'
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}

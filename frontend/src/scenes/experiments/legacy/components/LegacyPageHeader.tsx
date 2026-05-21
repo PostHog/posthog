@@ -4,11 +4,19 @@ import { router } from 'kea-router'
 import { IconArchive, IconFlask, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import {
@@ -53,9 +61,38 @@ export function LegacyPageHeader(): JSX.Element {
     const isExperimentRunning =
         experiment.status === ExperimentStatus.Running || experiment.status === ExperimentStatus.Paused
     const isExperimentStopped = experiment.status === ExperimentStatus.Stopped
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
 
     return (
         <>
+            {sceneMenuBarEnabled && experiment && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr="experiment-menubar-file">
+                        <SceneMenuBarFileItems dataAttrKey="experiment" />
+                        {(canArchive || canDelete) && <SceneMenuBarSeparator />}
+                        {canArchive && (
+                            <SceneMenuBarItem
+                                variant="destructive"
+                                onClick={handleArchive}
+                                data-attr="experiment-menubar-archive"
+                            >
+                                <IconArchive />
+                                Archive experiment
+                            </SceneMenuBarItem>
+                        )}
+                        {canDelete && (
+                            <SceneMenuBarItem
+                                variant="destructive"
+                                onClick={handleDelete}
+                                data-attr="experiment-menubar-delete"
+                            >
+                                <IconTrash />
+                                Delete experiment
+                            </SceneMenuBarItem>
+                        )}
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
             <SceneTitleSection
                 name={experiment?.name}
                 description={null}

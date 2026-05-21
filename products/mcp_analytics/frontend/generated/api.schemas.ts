@@ -24,8 +24,8 @@ export interface MCPAnalyticsSubmissionApi {
     readonly id: string
     /** Whether this submission is general feedback or a missing capability report.
 
-* `feedback` - Feedback
-* `missing_capability` - Missing capability */
+  * `feedback` - Feedback
+  * `missing_capability` - Missing capability */
     readonly kind: MCPAnalyticsSubmissionKindEnumApi
     /** The user's goal in plain language. */
     goal: string
@@ -133,11 +133,11 @@ export interface MCPFeedbackCreateApi {
     feedback: string
     /** High-level category for the feedback.
 
-* `results` - Results
-* `usability` - Usability
-* `bug` - Bug
-* `docs` - Docs
-* `other` - Other */
+  * `results` - Results
+  * `usability` - Usability
+  * `bug` - Bug
+  * `docs` - Docs
+  * `other` - Other */
     category?: MCPFeedbackCreateCategoryEnumApi
 }
 

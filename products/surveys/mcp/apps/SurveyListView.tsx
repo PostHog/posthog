@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, formatDate, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView, formatDate } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { SurveyView, type SurveyData } from './SurveyView'
 import { STATUS_VARIANTS, SURVEY_TYPE_LABELS } from './utils'
@@ -30,12 +31,14 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                         sortable: true,
                         render: (row): ReactNode =>
                             onSurveyClick ? (
-                                <button
+                                <Button
+                                    variant="link"
+                                    size="sm"
                                     onClick={() => handleClick(row)}
-                                    className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors"
+                                    className="h-auto px-0 text-left"
                                 >
                                     {row.name}
-                                </button>
+                                </Button>
                             ) : (
                                 row.name
                             ),
@@ -45,11 +48,9 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                         header: 'Type',
                         render: (row): ReactNode =>
                             row.type ? (
-                                <Badge variant="neutral" size="sm">
-                                    {SURVEY_TYPE_LABELS[row.type] ?? row.type}
-                                </Badge>
+                                <Badge>{SURVEY_TYPE_LABELS[row.type] ?? row.type}</Badge>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                     {
@@ -58,7 +59,7 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                         render: (row): ReactNode => {
                             const status = row.status ?? 'draft'
                             return (
-                                <Badge variant={STATUS_VARIANTS[status] ?? 'neutral'} size="sm">
+                                <Badge variant={STATUS_VARIANTS[status] ?? 'default'}>
                                     {status.charAt(0).toUpperCase() + status.slice(1)}
                                 </Badge>
                             )
@@ -68,7 +69,7 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                         key: 'questions' as keyof SurveyData,
                         header: 'Questions',
                         render: (row): ReactNode => (
-                            <span className="text-text-secondary">{row.questions?.length ?? 0}</span>
+                            <span className="text-muted-foreground">{row.questions?.length ?? 0}</span>
                         ),
                     },
                     {
@@ -77,18 +78,18 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                         sortable: true,
                         render: (row): ReactNode =>
                             row.created_at ? (
-                                <span className="text-text-secondary">{formatDate(row.created_at)}</span>
+                                <span className="text-muted-foreground">{formatDate(row.created_at)}</span>
                             ) : (
-                                <span className="text-text-secondary">&mdash;</span>
+                                <span className="text-muted-foreground">&mdash;</span>
                             ),
                     },
                 ]
 
                 return (
                     <div className="p-4">
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-text-secondary">
+                                <span className="text-sm text-muted-foreground">
                                     {data.results.length} survey{data.results.length === 1 ? '' : 's'}
                                 </span>
                             </div>
@@ -99,7 +100,7 @@ export function SurveyListView({ data, onSurveyClick }: SurveyListViewProps): Re
                                 defaultSort={{ key: 'name', direction: 'asc' }}
                                 emptyMessage="No surveys found"
                             />
-                        </Stack>
+                        </div>
                     </div>
                 )
             }}

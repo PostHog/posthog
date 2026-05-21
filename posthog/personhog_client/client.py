@@ -10,7 +10,7 @@ import grpc
 import structlog
 from prometheus_client import Counter, Enum, Histogram
 
-from posthog.personhog_client.interceptor import ClientNameInterceptor, MetricsInterceptor
+from posthog.personhog_client.interceptor import ClientNameInterceptor, ConsistencyHeaderInterceptor, MetricsInterceptor
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
@@ -61,6 +61,8 @@ from posthog.personhog_client.proto import (
     InsertCohortMembersResponse,
     ListCohortMemberIdsRequest,
     ListCohortMemberIdsResponse,
+    ListGroupsRequest,
+    ListGroupsResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
@@ -166,7 +168,10 @@ class PersonHogClient:
         ]
         channel = grpc.insecure_channel(addr, options=options)
         self._channel = grpc.intercept_channel(
-            channel, ClientNameInterceptor(client_name), MetricsInterceptor(client_name)
+            channel,
+            ClientNameInterceptor(client_name),
+            ConsistencyHeaderInterceptor(),
+            MetricsInterceptor(client_name),
         )
         self._state_monitor = _ChannelStateMonitor(channel, client_name)
         self._stub = PersonHogServiceStub(self._channel)
@@ -256,6 +261,9 @@ class PersonHogClient:
 
     def get_groups_batch(self, request: GetGroupsBatchRequest) -> GetGroupsBatchResponse:
         return self._stub.GetGroupsBatch(request, timeout=self._timeout)
+
+    def list_groups(self, request: ListGroupsRequest) -> ListGroupsResponse:
+        return self._stub.ListGroups(request, timeout=self._timeout)
 
     def create_group(self, request: CreateGroupRequest) -> CreateGroupResponse:
         return self._stub.CreateGroup(request, timeout=self._timeout)

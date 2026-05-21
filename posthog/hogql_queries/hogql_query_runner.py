@@ -15,7 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import validate_user_query
@@ -59,7 +59,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
+            parsed_select = parse_select(
+                self.query.query,
+                timings=self.timings,
+                placeholders=values,
+                cache_origin=CacheOrigin.USER,
+            )
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):

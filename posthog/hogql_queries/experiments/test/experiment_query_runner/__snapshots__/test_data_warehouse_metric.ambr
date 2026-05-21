@@ -40,6 +40,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -191,6 +192,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -246,6 +248,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -301,6 +304,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -356,6 +360,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -411,6 +416,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -466,6 +472,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -521,6 +528,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -576,6 +584,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -631,6 +640,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -696,6 +706,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -761,6 +772,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -816,6 +828,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -871,6 +884,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -926,6 +940,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -981,6 +996,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1036,6 +1052,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1094,6 +1111,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1149,6 +1167,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1217,6 +1236,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1272,6 +1292,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1335,6 +1356,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1390,6 +1412,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1445,6 +1468,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1500,6 +1524,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,
@@ -1571,6 +1596,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        format_csv_allow_double_quotes=1,
                        readonly=2,
                        max_execution_time=600,

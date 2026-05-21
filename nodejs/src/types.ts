@@ -21,6 +21,7 @@ import type { CookielessManager } from './ingestion/cookieless/cookieless-manage
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
+import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
@@ -30,23 +31,25 @@ import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
-export { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
 type Brand<K, T> = K & { __brand: T }
 
 // Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
-export { CdpConfig } from './cdp/config'
-export { LlmAnalyticsConfig } from './llm-analytics/config'
-export { CommonConfig, KafkaSaslMechanism, LogLevel, PluginServerMode, stringToPluginServerMode } from './common/config'
-export {
+export type { CdpConfig } from './cdp/config'
+export type { LlmAnalyticsConfig } from './llm-analytics/config'
+export { KafkaSaslMechanism, PluginServerMode, stringToPluginServerMode } from './common/config'
+export type { CommonConfig, LogLevel } from './common/config'
+export type {
     IngestionConsumerConfig,
     IngestionLane,
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
-export { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
-export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
+export type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
+export type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+export type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
+export type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
 interface HealthCheckResultResponse {
     service: string
@@ -117,6 +120,7 @@ export interface PluginsServerConfig
         LogsIngestionConsumerConfig,
         TracesIngestionConsumerConfig,
         ErrorTrackingConsumerConfig,
+        MetricsIngestionConsumerConfig,
         SessionRecordingConfig,
         SessionRecordingApiConfig,
         // Producer envs needed by the CDP producer registry the legacy big server builds.
@@ -150,6 +154,8 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     errorTrackingIngestion?: boolean
+    logsIngestion?: boolean
+    metricsIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
@@ -160,6 +166,7 @@ export interface PluginServerCapabilities {
     cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
+    cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean

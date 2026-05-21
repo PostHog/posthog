@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 
-import { Badge, Tooltip } from '@posthog/mosaic'
+import { Badge, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@posthog/quill'
 
 export interface PropertyFilter {
     key: string
@@ -46,27 +46,30 @@ function getOperatorDisplay(operator?: string): OperatorDisplay {
 
 export function PropertyFilterList({ filters }: PropertyFilterListProps): ReactElement {
     if (filters.length === 0) {
-        return <span className="text-sm text-text-secondary">No property filters</span>
+        return <span className="text-sm text-muted-foreground">No property filters</span>
     }
 
     return (
-        <div className="flex flex-col gap-1.5">
-            {filters.map((filter, i) => {
-                const op = getOperatorDisplay(filter.operator)
-                return (
-                    <div key={i} className="flex items-center gap-1.5 text-sm flex-wrap">
-                        <Badge variant="info" size="sm">
-                            {filter.key}
-                        </Badge>
-                        <Tooltip content={op.full} position="top">
-                            <span className="text-text-secondary cursor-default">{op.short}</span>
-                        </Tooltip>
-                        {filter.operator !== 'is_set' && filter.operator !== 'is_not_set' && (
-                            <span className="font-medium text-text-primary">{formatValue(filter.value)}</span>
-                        )}
-                    </div>
-                )
-            })}
-        </div>
+        <TooltipProvider>
+            <div className="flex flex-col gap-1.5">
+                {filters.map((filter, i) => {
+                    const op = getOperatorDisplay(filter.operator)
+                    return (
+                        <div key={i} className="flex items-center gap-1.5 text-sm flex-wrap">
+                            <Badge variant="info">{filter.key}</Badge>
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={<span className="text-muted-foreground cursor-default">{op.short}</span>}
+                                />
+                                <TooltipContent side="top">{op.full}</TooltipContent>
+                            </Tooltip>
+                            {filter.operator !== 'is_set' && filter.operator !== 'is_not_set' && (
+                                <span className="font-medium">{formatValue(filter.value)}</span>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+        </TooltipProvider>
     )
 }

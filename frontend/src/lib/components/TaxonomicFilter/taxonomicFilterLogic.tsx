@@ -729,6 +729,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                 : undefined,
                             exclude_hidden: true,
+                            exclude_restricted: true,
                         }).url,
                         scopedEndpoint:
                             eventNames.length > 0
@@ -740,6 +741,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                           ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                           : undefined,
                                       exclude_hidden: true,
+                                      exclude_restricted: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
@@ -1010,12 +1012,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'span attributes',
                         type: TaxonomicFilterGroupType.SpanAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                            attribute_type: 'span',
+                            attribute_type: 'span_attribute',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                                attribute_type: 'span',
+                                attribute_type: 'span_attribute',
                                 key: key,
                                 ...endpointFilters,
                             }).url,
@@ -1028,12 +1030,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'span resources',
                         type: TaxonomicFilterGroupType.SpanResourceAttributes,
                         endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
-                            attribute_type: 'resource',
+                            attribute_type: 'span_resource_attribute',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>
                             combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
-                                attribute_type: 'resource',
+                                attribute_type: 'span_resource_attribute',
                                 key: key,
                                 ...endpointFilters,
                             }).url,
@@ -1063,6 +1065,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
                                 : undefined,
                             exclude_hidden: true,
+                            exclude_restricted: true,
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
@@ -1561,6 +1564,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: 'group',
                         group_type_index: type.group_type_index,
                         exclude_hidden: true,
+                        exclude_restricted: true,
                     }).url,
                     valuesEndpoint: (key) =>
                         `api/projects/${projectId}/groups/property_values?${toParams({

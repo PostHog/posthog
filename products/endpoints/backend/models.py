@@ -95,6 +95,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
     This allows users to execute specific versions or track query evolution over time.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
     team = models.ForeignKey(

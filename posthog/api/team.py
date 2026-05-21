@@ -16,6 +16,8 @@ from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
+from pydantic import TypeAdapter
+from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -42,6 +44,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -73,6 +76,7 @@ from posthog.session_recordings.data_retention import (
     retention_violates_entitlement,
     validate_retention_period,
 )
+from posthog.types import AnyPropertyFilter
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -324,11 +328,23 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    activity_event = serializers.JSONField(required=False)
-    signup_pageview_event = serializers.JSONField(required=False)
-    signup_event = serializers.JSONField(required=False)
-    subscription_event = serializers.JSONField(required=False)
-    payment_event = serializers.JSONField(required=False)
+    activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
+    signup_pageview_event = serializers.JSONField(
+        required=False, help_text="Event used to count signup pageviews on dashboards."
+    )
+    signup_event = serializers.JSONField(required=False, help_text="Event used to count signups on dashboards.")
+    subscription_event = serializers.JSONField(
+        required=False, help_text="Event used to count subscriptions on dashboards."
+    )
+    payment_event = serializers.JSONField(required=False, help_text="Event used to count payments on dashboards.")
+    account_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Index of the group type to treat as an Account in customer analytics. "
+            "Must reference an existing group type configured for the project."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -338,7 +354,12 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "signup_event",
             "subscription_event",
             "payment_event",
+            "account_group_type_index",
         ]
+
+    @staticmethod
+    def validate_account_group_type_index(value):
+        return validate_group_type_index("account_group_type_index", value)
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {
@@ -382,6 +403,18 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
         # All supported operators require a value (is_set/is_not_set are not supported)
         if "value" not in prop:
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
+
+
+test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
+
+
+def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    try:
+        test_account_filters_adapter.validate_python(value)
+    except PydanticValidationError as error:
+        raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
+
+    return cast(list[dict[str, object]], value)
 
 
 _default_theme_id_cache: int | None = None
@@ -579,6 +612,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     )
     def get_available_setup_task_ids(self, obj) -> list[str]:
         return [e.value for e in SetupTaskId]
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1342,6 +1379,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "signup_event": instance.customer_analytics_config.signup_event,
             "subscription_event": instance.customer_analytics_config.subscription_event,
             "payment_event": instance.customer_analytics_config.payment_event,
+            "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
@@ -1666,6 +1704,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "default_experiment_stats_method",
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
+                    "default_cuped_enabled",
                 ]
 
         team = self.get_object()

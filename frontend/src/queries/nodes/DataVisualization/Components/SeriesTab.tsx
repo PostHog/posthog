@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
+    LemonColorButton,
     LemonColorGlyph,
     LemonColorPicker,
     LemonInput,
@@ -16,10 +17,12 @@ import {
     Popover,
 } from '@posthog/lemon-ui'
 
-import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
+import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
 
+import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
@@ -654,16 +657,34 @@ const BreakdownSeries = ({
     series: AxisBreakdownSeries<number | null>
     index: number
 }): JSX.Element => {
+    const { chartSettings } = useValues(dataVisualizationLogic)
+    const { updateChartSettings } = useActions(dataVisualizationLogic)
+    const { getTheme } = useValues(dataThemeLogic)
+
+    const theme = getTheme(undefined)
+    const themeTokens = theme ? (Object.keys(theme) as DataColorToken[]) : []
+    const selectedToken = chartSettings.resultCustomizations?.[series.breakdownValue]?.color ?? null
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
-        <div className="flex gap-1 mb-2">
-            <div className="flex gap-2">
-                <LemonColorGlyph color={seriesColor} className="mr-2" />
-                <span>{series.name ? series.name : '[No value]'}</span>
-            </div>
-            {/* For now let's keep things simple and not allow too much configuration */}
-            {/* We may just want to add a show/hide button here */}
+        <div className="flex gap-1 mb-2 items-center">
+            <LemonColorPicker
+                colorTokens={themeTokens}
+                selectedColorToken={selectedToken}
+                customButton={<LemonColorButton type="tertiary" color={seriesColor} className="mr-2" />}
+                onSelectColorToken={(token) => {
+                    updateChartSettings({
+                        resultCustomizations: {
+                            ...chartSettings.resultCustomizations,
+                            [series.breakdownValue]: {
+                                assignmentBy: ResultCustomizationBy.Value,
+                                color: token,
+                            },
+                        },
+                    })
+                }}
+            />
+            <span>{series.name ? series.name : '[No value]'}</span>
         </div>
     )
 }

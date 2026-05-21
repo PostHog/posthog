@@ -28,7 +28,7 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install autogen-agentchat "autogen-ext[openai]" openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
+                            pip install autogen-agentchat "autogen-ext[openai]" openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
                         `}
                     />
                 </>
