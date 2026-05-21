@@ -20,6 +20,7 @@ Read these before changing code:
 4. [posthog/models/team/README.md](posthog/models/team/README.md) (team extension model rule)
 5. [docs/published/handbook/engineering/type-system.md](docs/published/handbook/engineering/type-system.md) (serializer/OpenAPI type flow)
 6. [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) (schema quality and team isolation expectations)
+7. [.agents/security.md](.agents/security.md) (SQL/HogQL security guidelines)
 
 Use Visual review as the concrete reference implementation:
 
@@ -31,11 +32,20 @@ Use Visual review as the concrete reference implementation:
 - [products/visual_review/backend/tests/test_api.py](products/visual_review/backend/tests/test_api.py)
 - [products/visual_review/backend/tests/test_presentation.py](products/visual_review/backend/tests/test_presentation.py)
 
-For detailed sequencing, load [references/phased-migration-plan.md](references/phased-migration-plan.md).
+Before changing code, get the baseline:
+
+```bash
+hogli product:maturity <name>    # scores models, facade, presentation, boundaries, codegen
+hogli product:lint <name>        # structural lint + isolation chain (strict if facade/contracts.py exists)
+rg -n "from products\.<name>\.backend\.(models|logic|presentation|tasks|storage)" .
+```
+
+The `rg` output is your import map: every line is a caller that needs to migrate to the facade.
 
 ## Guardrails
 
 - Keep facades thin; put business rules in `logic.py`.
+- Transaction boundaries belong in the facade (or logic), not in views.
 - Never return ORM models across product boundaries.
 - Keep contracts pure (no Django/DRF imports).
 - Filter by `team_id` in querysets.
@@ -102,9 +112,9 @@ with a `⚠ has legacy interface leaks` warning.
 
 Default to several PRs instead of one big migration:
 
-- PR 1: Add contracts + facade methods without changing external callers.
+- PR 1: Add contracts + facade methods, with no caller behavior changes. For a small product this PR can also flip `api.py`/`webhooks.py` into `presentation/` and enable the 4-step chain (see `user_interviews` PR #59132 for that combined shape).
 - PR 2-N: Migrate caller clusters one-by-one to the facade.
-- Final PR: Remove deprecated internal import paths, tighten tach boundaries, and clean dead adapters.
+- Final PR: Remove deprecated internal import paths, drop "Legacy leaks" `[[interfaces]]` blocks and `ignore_imports` TODOs, and clean dead adapters.
 
 If a product has many endpoints, migrate in this order:
 
