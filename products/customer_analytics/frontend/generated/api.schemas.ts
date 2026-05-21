@@ -342,6 +342,22 @@ export interface PatchedGroupUsageMetricApi {
 
 export type AccountsListParams = {
     /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -349,6 +365,10 @@ export type AccountsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string
     /**
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
      */

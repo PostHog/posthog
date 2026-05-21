@@ -69,6 +69,9 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
     serializer_class = AccountSerializer
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
 
+    ROLE_FILTER_FIELDS = ("csm", "account_executive", "account_owner")
+    ALLOWED_ORDERING = frozenset({"name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"})
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -80,6 +83,44 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
                     'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. '
                     "Returns accounts that have any of the listed tags."
                 ),
+            ),
+            OpenApiParameter(
+                name="csm",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=("Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id."),
+            ),
+            OpenApiParameter(
+                name="account_executive",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by account executive. Use 'unassigned' or an integer user id.",
+            ),
+            OpenApiParameter(
+                name="account_owner",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by account owner. Use 'unassigned' or an integer user id.",
+            ),
+            OpenApiParameter(
+                name="all_roles_unassigned",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, returns only accounts where CSM, account executive, and account owner are all unset."
+                ),
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"],
+                description="Sort order. Defaults to '-created_at'.",
             ),
         ],
     )
@@ -93,10 +134,34 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
         if tags_param:
             try:
                 tags_list = json.loads(tags_param)
+                if isinstance(tags_list, list) and tags_list:
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
             except json.JSONDecodeError:
-                return queryset
-            if isinstance(tags_list, list) and tags_list:
-                queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+                pass
+
+        if self.request.query_params.get("all_roles_unassigned", "").lower() == "true":
+            queryset = queryset.filter(
+                _properties__csm__isnull=True,
+                _properties__account_executive__isnull=True,
+                _properties__account_owner__isnull=True,
+            )
+
+        for role_field in self.ROLE_FILTER_FIELDS:
+            value = self.request.query_params.get(role_field)
+            if not value:
+                continue
+            if value == "unassigned":
+                queryset = queryset.filter(**{f"_properties__{role_field}__isnull": True})
+            else:
+                try:
+                    user_id = int(value)
+                except ValueError:
+                    continue
+                queryset = queryset.filter(**{f"_properties__{role_field}__id": user_id})
+
+        ordering = self.request.query_params.get("ordering")
+        if ordering in self.ALLOWED_ORDERING:
+            queryset = queryset.order_by(ordering)
 
         return queryset
 
