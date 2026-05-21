@@ -172,7 +172,7 @@ class TestInstanceSettings(APIBaseTest):
         for name, input_value, expected in valid_cases:
             with self.subTest(name):
                 response = self.client.patch(
-                    "/api/instance_settings/CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
+                    "/api/instance_settings/CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
                     {"value": input_value},
                     content_type="application/json",
                 )
@@ -186,7 +186,7 @@ class TestInstanceSettings(APIBaseTest):
         for name, input_value in invalid_cases:
             with self.subTest(name):
                 response = self.client.patch(
-                    "/api/instance_settings/CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
+                    "/api/instance_settings/CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
                     {"value": input_value},
                     content_type="application/json",
                 )

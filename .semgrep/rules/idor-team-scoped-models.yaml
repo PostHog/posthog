@@ -165,6 +165,8 @@ rules:
                               |MessageRecipientPreference
                               |MessageTemplate
                               |MCPAnalyticsSubmission
+                              |MCPIntentClusterSnapshot
+                              |MCPSession
                               |OptOutSyncConfig
                               |Node
                               |NotificationEvent
@@ -385,6 +387,8 @@ rules:
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageTemplate
+                        |MCPIntentClusterSnapshot
+                        |MCPSession
                         |OptOutSyncConfig
                         |Node
                         |NotificationEvent

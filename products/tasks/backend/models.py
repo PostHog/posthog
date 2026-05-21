@@ -121,6 +121,15 @@ class Task(DeletedMetaFields, models.Model):
         help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
+    archived = models.BooleanField(
+        default=False,
+        help_text=(
+            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "to share archive state across desktop and mobile."
+        ),
+    )
+    archived_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     ci_prompt = models.TextField(
@@ -134,6 +143,7 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
         ]
 
     def __str__(self):

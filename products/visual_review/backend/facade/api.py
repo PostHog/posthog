@@ -26,6 +26,24 @@ from .enums import ReviewDecision
 
 User = get_user_model()
 
+# Server-owned run.metadata keys — never accept these from client input.
+# Allowing clients to set these would let them target arbitrary GitHub
+# comments for PATCH, or spoof baseline commit SHAs in the audit trail.
+_RESERVED_RUN_METADATA_KEYS = frozenset(
+    {
+        "github_comment_id",
+        "baseline_commit_sha",
+        "baseline_healed_from_merge_base",
+    }
+)
+
+
+def _sanitize_run_metadata(metadata: dict | None) -> dict:
+    if not metadata:
+        return {}
+    return {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+
+
 # Re-export exceptions for callers
 RepoNotFoundError = logic.RepoNotFoundError
 RunNotFoundError = logic.RunNotFoundError
@@ -320,7 +338,7 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         unchanged_count=input.unchanged_count,
         removed_identifiers=list(input.removed_identifiers),
         purpose=input.purpose,
-        metadata=dict(input.metadata) if input.metadata else {},
+        metadata=_sanitize_run_metadata(input.metadata),
     )
 
     upload_targets = [

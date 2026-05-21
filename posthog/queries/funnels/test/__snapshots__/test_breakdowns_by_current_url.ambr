@@ -65,8 +65,8 @@
                            array(if(empty(trim(TRAILING '/?#'
                                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
                                                                                                                                            from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')))) AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_attribution))) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
@@ -165,8 +165,8 @@
                            array(if(empty(trim(TRAILING '/?#'
                                                from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
                                                                                                                                         from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', '')))) AS prop_basic,
-                           prop_basic as prop,
-                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
+                           prop_basic as prop_attribution,
+                           argMinIf(prop_attribution, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_attribution))) over (PARTITION by aggregation_target) as prop_vals
                     FROM events e
                     LEFT OUTER JOIN
                       (SELECT distinct_id,
