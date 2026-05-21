@@ -390,6 +390,29 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.is_cached, True)
             mock_on_commit.assert_called_once()
 
+    def test_fresh_cache_hit_skips_async_query_status_read(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            # Prime the cache with a fresh result.
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            self.assertEqual(response.is_cached, False)
+
+            # A fresh hit must not pay for the extra Redis round-trip to read async query status.
+            with mock.patch.object(runner, "get_async_query_status") as mock_status:
+                response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                self.assertEqual(response.is_cached, True)
+                self.assertIsNone(response.query_status)
+                mock_status.assert_not_called()
+
+        # Once stale, force_cache still attaches in-flight status, so the read must happen there.
+        with freeze_time(datetime(2023, 2, 4, 13, 37 + 11, 42)):
+            with mock.patch.object(runner, "get_async_query_status", return_value=None) as mock_status:
+                response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+                self.assertEqual(response.is_cached, True)
+                mock_status.assert_called_once()
+
     @mock.patch("django.db.transaction.on_commit")
     def test_recent_cache_calculate_async_if_stale_and_blocking_on_miss(self, mock_on_commit):
         TestQueryRunner = self.setup_test_query_runner_class()

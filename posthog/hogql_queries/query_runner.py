@@ -1249,8 +1249,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
-                # We have a valid result that's fresh enough, let's return it
-                cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
+                # Fresh hit: the caller already has good data, so skip the extra Redis round-trip
+                # for async query status. There's no in-flight calculation the caller needs to track
+                # on a fresh result, and async pollers read status from the dedicated status endpoint,
+                # not from here. This is the hottest cache path (every dashboard tile and insight load),
+                # so dropping the round-trip cuts Redis load fleet-wide. query_status stays None (its
+                # default — it is never persisted to the cache); the stale/miss branches below still
+                # fetch it because there the in-flight status is meaningful.
                 return cached_response
 
             count_query_cache_hit(self.team.pk, hit="stale", trigger=cached_response.calculation_trigger or "")
