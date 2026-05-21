@@ -21,6 +21,8 @@ import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } fr
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
+import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
@@ -124,6 +126,8 @@ describe('CDP hog invocation rerun e2e', () => {
     let cyclotronWorker: CdpCyclotronWorker
     let rerunManager: RerunJobManager
     let rerunWorker: CdpRerunWorkerConsumer
+    let kafkaQueue: CyclotronJobQueueKafka
+    let postgresV2Queue: CyclotronJobQueuePostgresV2
     let nodeAssertPool: Pool
     let clickhouse: Clickhouse
 
@@ -163,10 +167,6 @@ describe('CDP hog invocation rerun e2e', () => {
         hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
         hub.CYCLOTRON_NODE_DATABASE_URL = NODE_DB_URL
         hub.HOG_INVOCATION_RESULTS_ENABLED = true
-        // Route via cyclotron-v2 so the rerun path exercises the ON CONFLICT
-        // upsert (rerun re-enqueue uses the original invocation_id, which
-        // would otherwise collide on the cyclotron_jobs PK).
-        hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:postgres-v2'
 
         // Clean any stale rerun wrapper jobs from prior runs.
         nodeAssertPool = new Pool({ connectionString: NODE_DB_URL })
@@ -190,9 +190,13 @@ describe('CDP hog invocation rerun e2e', () => {
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
 
-        const cyclotronConfig = { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres-v2' as const }
+        kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub)
+        postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
-        eventsConsumer = new CdpEventsConsumer(cyclotronConfig, createCdpConsumerDeps(hub, kafkaProducer))
+        eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: kafkaQueue,
+            hogflowQueue: postgresV2Queue,
+        })
         // We call processBatch directly — no need to actually join the kafka group.
         // Stubbing keeps the test off Redpanda's stale-group-protocol coordinator,
         // which otherwise fails the join with "Inconsistent group protocol".
@@ -203,7 +207,7 @@ describe('CDP hog invocation rerun e2e', () => {
         } as any
         await eventsConsumer.start()
 
-        cyclotronWorker = new CdpCyclotronWorker(cyclotronConfig, createCdpConsumerDeps(hub, kafkaProducer))
+        cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
         await cyclotronWorker.start()
 
         rerunManager = new RerunJobManager({ dbUrl: NODE_DB_URL, maxCount: 10000 })
@@ -295,7 +299,8 @@ describe('CDP hog invocation rerun e2e', () => {
         // ── 3. Rerun worker drains the wrapper job ────────────────────────────────
         rerunWorker = new CdpRerunWorkerConsumer(
             { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
-            createCdpConsumerDeps(hub, kafkaProducer)
+            createCdpConsumerDeps(hub, kafkaProducer),
+            { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
         )
         await rerunWorker.start()
 

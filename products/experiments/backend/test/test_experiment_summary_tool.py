@@ -38,7 +38,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
     def test_parse_metric_dict_funnel(self):
         metric_dict = {
             "metric_type": "funnel",
-            "series": [{"event": "purchase"}],
+            "series": [{"kind": "EventsNode", "event": "purchase"}],
         }
         result = parse_metric_dict(metric_dict)
         assert result is not None

@@ -58,7 +58,10 @@ class ReplayLensSerializer(serializers.ModelSerializer):
         help_text="What the lens does: monitor, classifier, scorer, summarizer, or indexer.",
     )
     lens_config = serializers.JSONField(
-        help_text="Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc.",
+        help_text=(
+            "Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; "
+            "classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`."
+        ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
         serializers.JSONField(
