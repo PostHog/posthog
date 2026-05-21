@@ -21027,10 +21027,6 @@
                 },
                 "useWebAnalyticsPreAggregatedTables": {
                     "type": "boolean"
-                },
-                "useWebAnalyticsPrecompute": {
-                    "description": "Opt the team into the web_overview_query lazy precompute path. The team must also be enrolled in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` (instance setting). *",
-                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -40074,6 +40070,10 @@
                 },
                 "useSessionsTable": {
                     "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web_overview_query precompute path. Requires the team to be in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist for the gate to pass. *",
                     "type": "boolean"
                 },
                 "version": {

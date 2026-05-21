@@ -7333,14 +7333,6 @@ class HogQLQueryModifiers(BaseModel):
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
     useWebAnalyticsPreAggregatedTables: bool | None = None
-    useWebAnalyticsPrecompute: bool | None = Field(
-        default=None,
-        description=(
-            "Opt the team into the web_overview_query lazy precompute path. The team"
-            " must also be enrolled in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`"
-            " (instance setting). *"
-        ),
-    )
 
 
 class HogQuery(BaseModel):
@@ -18706,6 +18698,14 @@ class WebOverviewQuery(BaseModel):
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web_overview_query precompute path."
+            " Requires the team to be in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`"
+            " allowlist for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

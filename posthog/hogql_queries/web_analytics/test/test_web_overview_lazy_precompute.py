@@ -77,7 +77,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare) if compare else None,
             conversionGoal=conversion_goal,
             sampling=sampling,
-            modifiers=HogQLQueryModifiers(useWebAnalyticsPrecompute=True) if opt_in_precompute else None,
+            useWebAnalyticsPrecompute=opt_in_precompute,
         )
 
     def _run(self, query: WebOverviewQuery):
@@ -210,8 +210,8 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_modifier_alone_falls_through_when_team_not_enrolled(self):
-        # `useWebAnalyticsPrecompute` modifier is set BUT team is not in the
+    def test_query_optin_alone_falls_through_when_team_not_enrolled(self):
+        # `query.useWebAnalyticsPrecompute=True` BUT team is not in the
         # `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist. Should fall
         # through — the env var is the operator-controlled rollout gate.
         self._seed_two_sessions()
@@ -220,11 +220,10 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_allowlist_alone_falls_through_when_modifier_missing(self):
-        # Team is in the allowlist BUT the query modifier is not set (the team
-        # admin hasn't enabled the "Allow precompute" toggle in the
-        # ScenePanel). Should fall through — the modifier is the per-team
-        # opt-in / kill switch.
+    def test_allowlist_alone_falls_through_when_query_not_opted_in(self):
+        # Team is in the allowlist BUT the query param is not set (the team
+        # hasn't enabled the "Allow precompute" toggle in the ScenePanel).
+        # Should fall through — the param is the per-team opt-in / kill switch.
         self._seed_two_sessions()
         with self._enable_lazy():
             self._run(self._build_query(opt_in_precompute=False))

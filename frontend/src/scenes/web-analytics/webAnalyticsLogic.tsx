@@ -1273,7 +1273,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            modifiers: useWebAnalyticsPrecompute ? { useWebAnalyticsPrecompute: true } : undefined,
+                            useWebAnalyticsPrecompute,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: true,
