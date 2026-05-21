@@ -39,6 +39,7 @@ class Migration(migrations.Migration):
         ("alerts", "0001_migrate_models"),
         ("actions", "0001_migrate_actions_models"),
         ("posthog", "1167_remove_alertconfiguration_is_calculating"),
+        ("surveys", "0002_action_fk_repoint"),
     ]
 
     operations = [
