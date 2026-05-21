@@ -177,7 +177,7 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
 
     loaders(({ values }) => ({
         filterPreview: [
-            null as { time: string; service_name: string; count: number; bytes_uncompressed?: number }[] | null,
+            null as { time: string; service: string; count: number; bytes_uncompressed?: number }[] | null,
             {
                 loadFilterPreview: async (_, breakpoint) => {
                     await breakpoint(400)
@@ -192,9 +192,11 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                             sparklineBreakdownBy: 'service',
                         },
                     })
+                    // The backend returns each row keyed by the breakdown value ('service' here),
+                    // not by the underlying column name (service_name).
                     return response as {
                         time: string
-                        service_name: string
+                        service: string
                         count: number
                         bytes_uncompressed?: number
                     }[]

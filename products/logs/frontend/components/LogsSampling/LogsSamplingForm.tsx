@@ -39,7 +39,7 @@ interface SparklineSeriesData {
     chartMax: number
 }
 
-type FilterPreviewPoint = { time: string; service_name: string; count: number; bytes_uncompressed?: number }
+type FilterPreviewPoint = { time: string; service: string; count: number; bytes_uncompressed?: number }
 
 function buildSparklineSeries(points: FilterPreviewPoint[] | null, metric: 'count' | 'bytes'): SparklineSeriesData {
     if (!points || points.length === 0) {
@@ -56,7 +56,7 @@ function buildSparklineSeries(points: FilterPreviewPoint[] | null, metric: 'coun
             seenTimes.add(point.time)
             timeOrder.push(point.time)
         }
-        const svc = point.service_name || 'unknown'
+        const svc = point.service || 'unknown'
         const value = metric === 'bytes' ? (point.bytes_uncompressed ?? 0) : point.count
         const bucket = byService[svc] ?? (byService[svc] = new Map())
         bucket.set(point.time, (bucket.get(point.time) ?? 0) + value)
