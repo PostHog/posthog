@@ -14,9 +14,7 @@ function ReactEnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[`VITE_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`, `VITE_POSTHOG_HOST=${apiHostOrigin()}`].join(
-                '\n'
-            )}
+            {[`VITE_POSTHOG_TOKEN=${currentTeam?.api_token}`, `VITE_POSTHOG_HOST=${apiHostOrigin()}`].join('\n')}
         </CodeSnippet>
     )
 }
@@ -37,7 +35,7 @@ const options = {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_PROJECT_TOKEN} options={options}>
+    <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_TOKEN} options={options}>
       <App />
     </PostHogProvider>
   </StrictMode>
