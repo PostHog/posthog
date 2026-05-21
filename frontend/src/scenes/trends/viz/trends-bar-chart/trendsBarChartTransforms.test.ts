@@ -220,6 +220,17 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         expect(cfg.goalLines).toEqual([expect.objectContaining({ value: 50, label: 'Target' })])
     })
 
+    it('passes custom axis labels into the chart config', () => {
+        const cfg = buildTrendsBarTimeSeriesConfig({
+            isPercentStackView: false,
+            isGrouped: false,
+            xAxisLabel: 'Signup date',
+            yAxisLabel: 'Total events',
+        })
+        expect(cfg.xAxis?.label).toBe('Signup date')
+        expect(cfg.yAxis?.label).toBe('Total events')
+    })
+
     it('passes valueLabels and tooltip through unchanged', () => {
         const formatter = (v: number): string => `~${v}`
         const cfg = buildTrendsBarTimeSeriesConfig({

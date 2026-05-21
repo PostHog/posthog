@@ -158,6 +158,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
+                xAxisLabel: trendsFilter?.xAxisLabel,
+                yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: TIME_SERIES_TOOLTIP_CONFIG,
@@ -171,6 +173,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             interval,
             timezone,
             currentPeriodResult?.days,
+            trendsFilter?.xAxisLabel,
+            trendsFilter?.yAxisLabel,
             goalLines,
             showValuesOnSeries,
             valueLabelFormatter,
@@ -190,8 +194,10 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
             yTickFormatter: aggregatedYTickFormatter,
+            xAxisLabel: trendsFilter?.xAxisLabel,
+            yAxisLabel: trendsFilter?.yAxisLabel,
         }),
-        [yAxisScaleType, aggregatedYTickFormatter]
+        [yAxisScaleType, aggregatedYTickFormatter, trendsFilter?.xAxisLabel, trendsFilter?.yAxisLabel]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal

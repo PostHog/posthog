@@ -50,6 +50,8 @@ chart.seriesCount // visible series count, from the canvas's aria-label
 chart.yTicks() // ['0', '20', '40', …]
 chart.yRightTicks() // right-axis ticks (multi-axis charts)
 chart.xTicks() // post-collision-avoidance x ticks
+chart.xAxisTitle() // optional x-axis title
+chart.yAxisTitle() // optional y-axis title
 chart.hasRightAxis // boolean
 chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]

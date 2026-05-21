@@ -400,6 +400,16 @@ describe('trendsChartTransforms', () => {
             expect(config.xAxis?.interval).toBe('day')
         })
 
+        it('passes custom axis labels into the chart config', () => {
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
+            })
+            expect(config.xAxis?.label).toBe('Signup date')
+            expect(config.yAxis?.label).toBe('Unique users')
+        })
+
         it('derives yAxis from buildTrendsYAxisConfig when isPercentStackView is true and passes through tooltip / showCrosshair', () => {
             const config = buildTrendsLineTimeSeriesConfig({
                 ...baseOpts,

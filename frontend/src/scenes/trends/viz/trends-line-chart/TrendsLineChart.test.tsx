@@ -445,6 +445,27 @@ describe('TrendsLineChart', () => {
     })
 
     describe('multi-axis', () => {
+        it('renders custom axis titles from the trends filter', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(getHogChart().xAxisTitle()).toBe('Signup date')
+            expect(getHogChart().yAxisTitle()).toBe('Unique users')
+        })
+
+        it('renders no axis titles when the trends filter omits them', async () => {
+            renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(getHogChart().xAxisTitle()).toBeNull()
+            expect(getHogChart().yAxisTitle()).toBeNull()
+        })
+
         it.each([
             { name: 'renders a right y-axis when showMultipleYAxes is true', enabled: true, expectedRight: true },
             { name: 'omits the right y-axis by default', enabled: false, expectedRight: false },

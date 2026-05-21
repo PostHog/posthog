@@ -176,6 +176,8 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     interval?: IntervalType | null
     timezone?: string
     allDays?: string[]
+    xAxisLabel?: string | null
+    yAxisLabel?: string | null
     goalLines?: SchemaGoalLine[] | null
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
@@ -212,11 +214,15 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     })
     return {
         xAxis: {
+            ...(opts.xAxisLabel ? { label: opts.xAxisLabel } : {}),
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
         },
-        yAxis,
+        yAxis: {
+            ...yAxis,
+            ...(opts.yAxisLabel ? { label: opts.yAxisLabel } : {}),
+        },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         ...derivedConfigs,

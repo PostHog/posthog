@@ -30,12 +30,22 @@ describe('useChartMargins', () => {
         expect(render().bottom).toBe(DEFAULT_MARGINS.bottom)
     })
 
+    it('adds bottom space for an x-axis title', () => {
+        expect(render({ xAxisLabel: 'Signup date' }).bottom).toBeGreaterThan(DEFAULT_MARGINS.bottom)
+    })
+
     it('collapses left margin when hideYAxis is true', () => {
         expect(render({ hideYAxis: true }).left).toBe(8)
     })
 
     it('left margin is at least 20 when y-axis is shown', () => {
         expect(render({ series: [], labels: [] }).left).toBeGreaterThanOrEqual(20)
+    })
+
+    it('adds left space for a y-axis title', () => {
+        const withoutTitle = render()
+        const withTitle = render({ yAxisLabel: 'Unique users' })
+        expect(withTitle.left).toBeGreaterThan(withoutTitle.left)
     })
 
     it('grows the right margin to at least 48 when multiple y-axes are present', () => {

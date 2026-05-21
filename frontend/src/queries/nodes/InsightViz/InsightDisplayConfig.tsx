@@ -18,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
@@ -102,6 +103,24 @@ export function InsightDisplayConfig(): JSX.Element {
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
+    const lineDisplays = [
+        ChartDisplayType.ActionsLineGraph,
+        ChartDisplayType.ActionsLineGraphCumulative,
+        ChartDisplayType.ActionsAreaGraph,
+    ]
+    const barDisplays = [
+        ChartDisplayType.ActionsBar,
+        ChartDisplayType.ActionsUnstackedBar,
+        ChartDisplayType.ActionsBarValue,
+    ]
+    const isLineDisplay = (!display && isTrendsQuery(querySource)) || lineDisplays.includes(display as ChartDisplayType)
+    const isBarDisplay = barDisplays.includes(display as ChartDisplayType)
+    const showAxisLabelsConfig =
+        isTrends &&
+        !isLifecycle &&
+        !isStickiness &&
+        ((isLineDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) ||
+            (isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]))
     const isLineGraph =
         display === ChartDisplayType.ActionsLineGraph ||
         display === ChartDisplayType.ActionsAreaGraph ||
@@ -308,6 +327,14 @@ export function InsightDisplayConfig(): JSX.Element {
                         ]),
               ]
             : []),
+        ...(showAxisLabelsConfig
+            ? [
+                  {
+                      title: 'Axis labels',
+                      items: [{ label: () => <AxisLabelsFilter /> }],
+                  },
+              ]
+            : []),
         ...(mightContainFractionalNumbers && isTrends && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
@@ -337,6 +364,8 @@ export function InsightDisplayConfig(): JSX.Element {
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showAxisLabelsConfig && trendsFilter?.xAxisLabel ? 1 : 0) +
+        (showAxisLabelsConfig && trendsFilter?.yAxisLabel ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
 

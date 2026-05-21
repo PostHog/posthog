@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
+import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
 import { composeDrawHoverWithCrosshair } from './canvas-renderer'
@@ -106,6 +107,8 @@ export function Chart<Meta = unknown>({
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
+        xAxisLabel,
+        yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
         axisOrientation = 'vertical',
@@ -123,6 +126,8 @@ export function Chart<Meta = unknown>({
         labels,
         hideXAxis,
         hideYAxis,
+        xAxisLabel,
+        yAxisLabel,
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
@@ -194,8 +199,17 @@ export function Chart<Meta = unknown>({
 
     const ariaLabel = useMemo(() => {
         const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
-        return `Chart with ${visible} data series`
-    }, [coloredSeries])
+        const parts = [`Chart with ${visible} data series`]
+        const cleanXAxisLabel = xAxisLabel?.trim()
+        const cleanYAxisLabel = yAxisLabel?.trim()
+        if (!hideXAxis && cleanXAxisLabel) {
+            parts.push(`X-axis: ${cleanXAxisLabel}`)
+        }
+        if (!hideYAxis && cleanYAxisLabel) {
+            parts.push(`Y-axis: ${cleanYAxisLabel}`)
+        }
+        return parts.join('. ')
+    }, [coloredSeries, hideXAxis, hideYAxis, xAxisLabel, yAxisLabel])
 
     const canvasBounds = useCallback(
         (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
@@ -253,6 +267,13 @@ export function Chart<Meta = unknown>({
                                 axisColor={theme.axisColor}
                                 orientation={axisOrientation}
                                 labelToCoord={labelToCoord}
+                            />
+                            <AxisTitles
+                                xAxisLabel={xAxisLabel}
+                                yAxisLabel={yAxisLabel}
+                                hideXAxis={hideXAxis}
+                                hideYAxis={hideYAxis}
+                                axisColor={theme.axisColor}
                             />
 
                             {children}

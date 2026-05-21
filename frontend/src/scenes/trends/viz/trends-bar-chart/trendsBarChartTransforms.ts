@@ -64,6 +64,8 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     interval?: IntervalType | null
     timezone?: string
     allDays?: string[]
+    xAxisLabel?: string | null
+    yAxisLabel?: string | null
     goalLines?: SchemaGoalLine[] | null
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
@@ -77,11 +79,15 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     return {
         xAxis: {
+            ...(opts.xAxisLabel ? { label: opts.xAxisLabel } : {}),
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
         },
-        yAxis,
+        yAxis: {
+            ...yAxis,
+            ...(opts.yAxisLabel ? { label: opts.yAxisLabel } : {}),
+        },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         barLayout: opts.isPercentStackView ? 'percent' : opts.isGrouped ? 'grouped' : 'stacked',

@@ -49,6 +49,10 @@ export interface HogChart<Meta = unknown> {
     yRightTicks(): string[]
     /** Visible x-axis tick labels (post-collision-avoidance). */
     xTicks(): string[]
+    /** Optional x-axis title. */
+    xAxisTitle(): string | null
+    /** Optional y-axis title. */
+    yAxisTitle(): string | null
     /** Whether a right-y axis was rendered. */
     hasRightAxis: boolean
     /** All reference lines currently rendered for this chart (goal/alert/marker). */
@@ -166,6 +170,10 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-x"]')).map(
                 (el) => el.textContent ?? ''
             ),
+        xAxisTitle: () =>
+            wrapper.querySelector<HTMLElement>('[data-attr="hog-chart-axis-title-x"]')?.textContent ?? null,
+        yAxisTitle: () =>
+            wrapper.querySelector<HTMLElement>('[data-attr="hog-chart-axis-title-y"]')?.textContent ?? null,
         referenceLines: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-reference-line"]')).map(
                 readReferenceLine

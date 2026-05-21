@@ -13,12 +13,16 @@ const MIN_LEFT_MARGIN = 20
 const MIN_RIGHT_MARGIN_DUAL_AXIS = 48
 const Y_LABEL_RIGHT_PADDING = 12
 const X_LABEL_EDGE_PADDING = 4
+const X_AXIS_TITLE_MARGIN = 22
+const Y_AXIS_TITLE_MARGIN = 24
 
 interface UseChartMarginsOptions {
     series: Series[]
     labels: string[]
     hideXAxis: boolean
     hideYAxis: boolean
+    xAxisLabel?: string
+    yAxisLabel?: string
     xTickFormatter?: (value: string, index: number) => string | null
     yTickFormatter?: (value: number) => string
     axisOrientation?: 'vertical' | 'horizontal'
@@ -63,6 +67,8 @@ export function useChartMargins({
     labels,
     hideXAxis,
     hideYAxis,
+    xAxisLabel,
+    yAxisLabel,
     xTickFormatter,
     yTickFormatter,
     axisOrientation = 'vertical',
@@ -101,16 +107,18 @@ export function useChartMargins({
     }, [labels, xTickFormatter, hideXAxis, isHorizontal, series, yTickFormatter])
 
     return useMemo<ChartMargins>(() => {
-        const bottom = hideXAxis ? COLLAPSED_AXIS_MARGIN : DEFAULT_MARGINS.bottom
+        const bottom = hideXAxis
+            ? COLLAPSED_AXIS_MARGIN
+            : DEFAULT_MARGINS.bottom + (xAxisLabel ? X_AXIS_TITLE_MARGIN : 0)
         const left = hideYAxis
             ? COLLAPSED_AXIS_MARGIN
             : Math.max(
                   MIN_LEFT_MARGIN,
                   Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING,
                   xLabelHalfWidth + X_LABEL_EDGE_PADDING
-              )
+              ) + (yAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
         const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const right = Math.max(rightFloor, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
         return { top: DEFAULT_MARGINS.top, right, bottom, left }
-    }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
+    }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth, xAxisLabel, yAxisLabel])
 }

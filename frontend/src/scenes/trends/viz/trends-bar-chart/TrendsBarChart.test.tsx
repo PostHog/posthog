@@ -135,6 +135,23 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
     })
 
+    it('renders custom axis titles in horizontal aggregated mode', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBarValue,
+                    xAxisLabel: 'Total events',
+                    yAxisLabel: 'Series',
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i })
+        expect(getHogChart().xAxisTitle()).toBe('Total events')
+        expect(getHogChart().yAxisTitle()).toBe('Series')
+    })
+
     it('emits one series per breakdown so each bar gets its own color', async () => {
         renderInsight({
             query: aggregatedBar({

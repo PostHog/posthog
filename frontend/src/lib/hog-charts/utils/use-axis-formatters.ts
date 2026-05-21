@@ -4,6 +4,8 @@ import { createXAxisTickCallback, type TimeInterval } from './dates'
 import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
+    /** Optional title rendered under the x-axis. */
+    label?: string
     /** Explicit tick formatter. When set, it wins over the auto date formatter. */
     tickFormatter?: (value: string, index: number) => string | null
     hide?: boolean
@@ -16,6 +18,8 @@ export interface XAxisConfig {
 }
 
 export interface YAxisConfig extends YFormatterConfig {
+    /** Optional title rendered alongside the y-axis. */
+    label?: string
     scale?: 'linear' | 'log'
     /** Custom tick formatter. When set, it wins over `format`. */
     tickFormatter?: (value: number) => string
