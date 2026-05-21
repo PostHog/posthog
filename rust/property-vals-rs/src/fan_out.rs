@@ -2,24 +2,9 @@ use serde_json::Value;
 
 use crate::types::{Event, GroupIdentify, PropertyType, TupleKey};
 
-/// Length cap on `property_key` in Unicode codepoints. Matches Django
-/// `PropertyDefinition.name` max_length.
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
-
-/// Length cap on `property_value` in Unicode codepoints. Values longer
-/// than this are dropped. Matches the storage column width minus one.
 pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
 
-/// Fan one Event out to its constituent property-value tuples.
-///
-/// For each entry in `properties` / `person_properties`:
-///   - drop entries whose JSON value is `null`
-///   - coerce non-string values to their JSON string form (numbers, bools, etc.)
-///   - drop entries with empty `property_key` or `property_key` longer than 400 chars
-///   - drop entries with empty `property_value` or `property_value` 256+ chars
-///
-/// Group property values come from the `clickhouse_groups` topic via
-/// `fan_out_group`, not from this stream.
 pub fn fan_out(event: &Event) -> Vec<TupleKey> {
     let mut out = Vec::new();
 
@@ -33,27 +18,20 @@ pub fn fan_out(event: &Event) -> Vec<TupleKey> {
     out
 }
 
-/// Fan one $groupidentify message out to its constituent (group_N, key, value)
-/// tuples. Same length caps and value coercion as the events fan-out so the
-/// produced tuples are guaranteed to match what the storage MV will accept.
 pub fn fan_out_group(event: &GroupIdentify) -> Vec<TupleKey> {
     let mut out = Vec::new();
-    let property_type = match event.group_type_index {
-        0 => PropertyType::Group0,
-        1 => PropertyType::Group1,
-        2 => PropertyType::Group2,
-        3 => PropertyType::Group3,
-        4 => PropertyType::Group4,
-        _ => return out,
-    };
     if let Some(raw) = &event.group_properties {
-        emit_from_blob(event.team_id, property_type, raw, &mut out);
+        emit_from_blob(
+            event.team_id,
+            PropertyType::Group(event.group_type_index),
+            raw,
+            &mut out,
+        );
     }
     out
 }
 
 fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mut Vec<TupleKey>) {
-    // Treat parse errors as an empty object (no emissions).
     let parsed: Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => return,
@@ -116,9 +94,6 @@ mod tests {
         }
     }
 
-    // Generators span both sides of the codepoint caps so the length-cap
-    // invariants below get meaningful coverage. Multi-byte characters are
-    // included so codepoint vs byte-length confusion would also be caught.
     fn arb_property_string() -> impl Strategy<Value = String> {
         prop_oneof!["[a-zA-Z0-9_$ -]{0,450}", r#"[\x{3042}\x{1F600}]{0,500}"#,]
     }
@@ -154,7 +129,7 @@ mod tests {
     prop_compose! {
         fn arb_group_identify()(
             team_id: i64,
-            group_type_index in 0u8..=10,
+            group_type_index: u8,
             group_properties in prop::option::of(arb_blob()),
         ) -> GroupIdentify {
             GroupIdentify { team_id, group_type_index, group_properties }
@@ -195,23 +170,9 @@ mod tests {
         }
 
         #[test]
-        fn fan_out_group_only_emits_matching_property_type(g in arb_group_identify()) {
-            let expected = match g.group_type_index {
-                0 => Some(PropertyType::Group0),
-                1 => Some(PropertyType::Group1),
-                2 => Some(PropertyType::Group2),
-                3 => Some(PropertyType::Group3),
-                4 => Some(PropertyType::Group4),
-                _ => None,
-            };
-            let tuples = fan_out_group(&g);
-            match expected {
-                Some(pt) => {
-                    for t in tuples {
-                        prop_assert_eq!(t.property_type, pt);
-                    }
-                }
-                None => prop_assert!(tuples.is_empty()),
+        fn fan_out_group_property_type_matches_index(g in arb_group_identify()) {
+            for t in fan_out_group(&g) {
+                prop_assert_eq!(t.property_type, PropertyType::Group(g.group_type_index));
             }
         }
     }
@@ -278,10 +239,10 @@ mod tests {
     }
 
     #[test]
-    fn group_identify_index_0_emits_group_0_type() {
+    fn group_identify_index_0_emits_group_type() {
         let tuples = fan_out_group(&group_identify(0, r#"{"plan":"enterprise"}"#));
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Group0);
+        assert_eq!(tuples[0].property_type, PropertyType::Group(0));
         assert_eq!(tuples[0].property_key, "plan");
         assert_eq!(tuples[0].property_value, "enterprise");
     }
@@ -290,13 +251,14 @@ mod tests {
     fn group_identify_index_4_emits_group_4_type() {
         let tuples = fan_out_group(&group_identify(4, r#"{"region":"us-east"}"#));
         assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].property_type, PropertyType::Group4);
+        assert_eq!(tuples[0].property_type, PropertyType::Group(4));
     }
 
     #[test]
-    fn group_identify_index_out_of_range_drops() {
-        let tuples = fan_out_group(&group_identify(5, r#"{"plan":"enterprise"}"#));
-        assert!(tuples.is_empty());
+    fn group_identify_high_index_still_emits() {
+        let tuples = fan_out_group(&group_identify(7, r#"{"plan":"enterprise"}"#));
+        assert_eq!(tuples.len(), 1);
+        assert_eq!(tuples[0].property_type, PropertyType::Group(7));
     }
 
     #[test]

@@ -2,9 +2,6 @@ use std::collections::HashMap;
 
 use crate::types::TupleKey;
 
-/// In-memory accumulator for one Kafka partition's worth of tuples. Inserts
-/// increment the per-tuple count; `drain` returns the accumulated map and
-/// clears state in one shot so the next flush window starts fresh.
 pub struct Aggregator {
     counts: HashMap<TupleKey, u64>,
 }
@@ -16,19 +13,6 @@ impl Aggregator {
         }
     }
 
-    pub fn record(&mut self, tuple: TupleKey) {
-        *self.counts.entry(tuple).or_insert(0) += 1;
-    }
-
-    pub fn record_many<I: IntoIterator<Item = TupleKey>>(&mut self, tuples: I) {
-        for t in tuples {
-            self.record(t);
-        }
-    }
-
-    /// Increment by an arbitrary count. Used by the flush-failure restore
-    /// path to merge a previously drained snapshot back into the live state
-    /// without re-counting one event at a time.
     pub fn add(&mut self, tuple: TupleKey, count: u64) {
         *self.counts.entry(tuple).or_insert(0) += count;
     }
@@ -41,7 +25,6 @@ impl Aggregator {
         self.counts.is_empty()
     }
 
-    /// Atomically take the accumulated state and reset for the next window.
     pub fn drain(&mut self) -> HashMap<TupleKey, u64> {
         std::mem::take(&mut self.counts)
     }
@@ -72,16 +55,10 @@ mod tests {
         prop_oneof![
             Just(PropertyType::Event),
             Just(PropertyType::Person),
-            Just(PropertyType::Group0),
-            Just(PropertyType::Group1),
-            Just(PropertyType::Group2),
-            Just(PropertyType::Group3),
-            Just(PropertyType::Group4),
+            (0u8..=10).prop_map(PropertyType::Group),
         ]
     }
 
-    // Small generator domain so duplicates are likely and the aggregator's
-    // dedup-and-sum behavior gets meaningful coverage.
     prop_compose! {
         fn arb_tuple()(
             team_id in -5i64..=5,
@@ -93,44 +70,17 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone)]
-    enum Op {
-        Record(TupleKey),
-        RecordMany(Vec<TupleKey>),
-        Add(TupleKey, u64),
-    }
-
-    fn arb_op() -> impl Strategy<Value = Op> {
-        prop_oneof![
-            arb_tuple().prop_map(Op::Record),
-            prop::collection::vec(arb_tuple(), 0..8).prop_map(Op::RecordMany),
-            (arb_tuple(), 1u64..1_000).prop_map(|(t, n)| Op::Add(t, n)),
-        ]
-    }
-
     proptest! {
         #[test]
-        fn drained_counts_equal_per_tuple_sum(ops in prop::collection::vec(arb_op(), 0..200)) {
+        fn drained_counts_equal_per_tuple_sum(
+            ops in prop::collection::vec((arb_tuple(), 1u64..1_000), 0..200),
+        ) {
             let mut agg = Aggregator::new();
             let mut expected: HashMap<TupleKey, u64> = HashMap::new();
 
-            for op in &ops {
-                match op {
-                    Op::Record(t) => {
-                        agg.record(t.clone());
-                        *expected.entry(t.clone()).or_insert(0) += 1;
-                    }
-                    Op::RecordMany(ts) => {
-                        agg.record_many(ts.clone());
-                        for t in ts {
-                            *expected.entry(t.clone()).or_insert(0) += 1;
-                        }
-                    }
-                    Op::Add(t, n) => {
-                        agg.add(t.clone(), *n);
-                        *expected.entry(t.clone()).or_insert(0) += *n;
-                    }
-                }
+            for (t, n) in &ops {
+                agg.add(t.clone(), *n);
+                *expected.entry(t.clone()).or_insert(0) += *n;
             }
 
             prop_assert_eq!(agg.drain(), expected);
@@ -140,7 +90,7 @@ mod tests {
     #[test]
     fn drain_clears_state() {
         let mut agg = Aggregator::new();
-        agg.record(tuple(2, "$browser", "Chrome"));
+        agg.add(tuple(2, "$browser", "Chrome"), 1);
 
         let first = agg.drain();
         assert_eq!(first.len(), 1);
