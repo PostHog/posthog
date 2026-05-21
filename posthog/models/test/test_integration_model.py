@@ -2324,6 +2324,8 @@ class TestPostgreSQLIntegrationModel(BaseTest):
 
         assert "password" not in integration.config
 
+        assert integration.sensitive_config["password"] == "super-secret"
+
 
 class TestIntercomIntegrationModel(BaseTest):
     def create_integration(
@@ -2435,5 +2437,3 @@ class TestIntercomIntegrationModel(BaseTest):
 
         assert IntercomIntegration(integration).validate_access_token() is False
         mock_get.assert_not_called()
-
-        assert integration.sensitive_config["password"] == "super-secret"

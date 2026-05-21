@@ -2,7 +2,7 @@ import time
 from typing import Optional
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -71,7 +71,7 @@ class TestIntegrationsTasks(APIBaseTest):
             assert scheduled_ids == sorted([integration_never.id, integration_stale.id])
 
     @patch("posthog.models.integration.requests.get")
-    def test_validate_intercom_integration_marks_errors_on_401(self, mock_get) -> None:
+    def test_validate_intercom_integration_marks_errors_on_401(self, mock_get: MagicMock) -> None:
         mock_get.return_value.status_code = 401
         integration = Integration.objects.create(
             team=self.team,
@@ -86,7 +86,7 @@ class TestIntegrationsTasks(APIBaseTest):
         assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
 
     @patch("posthog.models.integration.requests.get")
-    def test_validate_intercom_integration_noop_for_wrong_kind(self, mock_get) -> None:
+    def test_validate_intercom_integration_noop_for_wrong_kind(self, mock_get: MagicMock) -> None:
         integration = self.create_integration("slack")
         validate_intercom_integration(integration.id)
         mock_get.assert_not_called()
