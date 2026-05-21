@@ -9,11 +9,8 @@ import {
     KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_TRACES_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
-// Note: defaults below select MSK_PRODUCER for app_metrics — flip to
-// WARPSTREAM_INGESTION_PRODUCER via `LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER`
-// to migrate the route off MSK.
 import { isProdEnv } from '../utils/env-utils'
-import { LogsProducerName, MSK_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
+import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 
 export type LogsIngestionOutputsConfig = {
     LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
@@ -25,7 +22,7 @@ export type LogsIngestionOutputsConfig = {
 export function getDefaultLogsIngestionOutputsConfig(): LogsIngestionOutputsConfig {
     return {
         LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
-        LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: MSK_PRODUCER,
+        LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
         LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
     }
@@ -48,6 +45,10 @@ export type LogsIngestionConsumerConfig = {
     LOGS_LIMITER_TTL_SECONDS: number
     LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    /** Comma-separated team IDs, or `*` for all teams, or empty to disable sampling evaluation entirely. Default `*`; set empty in env to turn off globally. */
+    LOGS_SAMPLING_ENABLED_TEAMS: string
+    /** When `true`, sampling always keeps every record (metrics path may still run). */
+    LOGS_SAMPLING_KILLSWITCH: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -72,6 +73,8 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        LOGS_SAMPLING_ENABLED_TEAMS: '*',
+        LOGS_SAMPLING_KILLSWITCH: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

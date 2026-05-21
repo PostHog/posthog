@@ -80,6 +80,7 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
                                             required=False,
                                             placeholder="github_pat_...",
                                             caption="You can create a personal access token in your [GitHub Settings](https://github.com/settings/tokens) under **Developer settings > Personal access tokens**.",
+                                            secret=True,
                                         ),
                                     ],
                                 ),
@@ -92,6 +93,7 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="owner/repo",
+                        secret=False,
                     ),
                 ],
             ),
@@ -124,7 +126,12 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
         return integration.access_token
 
     def get_schemas(
-        self, config: GithubSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: GithubSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

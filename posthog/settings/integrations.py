@@ -71,13 +71,17 @@ ATLASSIAN_APP_CLIENT_SECRET = get_from_env("ATLASSIAN_APP_CLIENT_SECRET", "")
 # with our internal OAuth system to allow the Stripe app to make API calls to users' PostHog instances.
 # We also support their agentic provisioning protocol which requires us to check even more stuff
 # - STRIPE_APP_CLIENT_ID: The app's public client ID, used in the OAuth authorize redirect URL
+# - STRIPE_APP_SANDBOX_CLIENT_ID: Separate client ID Stripe issues for sandbox installs of the same app
 # - STRIPE_APP_OVERRIDE_AUTHORIZE_URL: Optional override for testing (e.g., with a channel link URL)
-# - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during token exchange/refresh
+# - STRIPE_APP_SECRET_KEY: API secret key used for HTTP Basic auth during live token exchange/refresh
+# - STRIPE_APP_SANDBOX_SECRET_KEY: API secret key used to redeem sandbox-issued OAuth codes (sk_test_*)
 # - STRIPE_POSTHOG_OAUTH_CLIENT_ID: Client ID of the PostHog OAuthApplication for Stripe to authenticate with PostHog APIs
 # - STRIPE_SIGNING_SECRET: Used to verify the authenticity of incoming webhook/agentic provisioning requests from Stripe
 STRIPE_APP_CLIENT_ID = get_from_env("STRIPE_APP_CLIENT_ID", "")
+STRIPE_APP_SANDBOX_CLIENT_ID = get_from_env("STRIPE_APP_SANDBOX_CLIENT_ID", "")
 STRIPE_APP_OVERRIDE_AUTHORIZE_URL = get_from_env("STRIPE_APP_OVERRIDE_AUTHORIZE_URL", "")
 STRIPE_APP_SECRET_KEY = get_from_env("STRIPE_APP_SECRET_KEY", "")
+STRIPE_APP_SANDBOX_SECRET_KEY = get_from_env("STRIPE_APP_SANDBOX_SECRET_KEY", "")
 STRIPE_POSTHOG_OAUTH_CLIENT_ID = get_from_env("STRIPE_POSTHOG_OAUTH_CLIENT_ID", "")
 STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 STRIPE_ORCHESTRATOR_CALLBACK_URL = get_from_env("STRIPE_ORCHESTRATOR_CALLBACK_URL", "")
@@ -102,9 +106,3 @@ PANDADOC_API_KEY = get_from_env("PANDADOC_API_KEY", "")
 PANDADOC_WEBHOOK_SECRET = get_from_env("PANDADOC_WEBHOOK_SECRET", "")
 PANDADOC_BAA_TEMPLATE_ID = get_from_env("PANDADOC_BAA_TEMPLATE_ID", "")
 PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
-
-# Slack incoming-webhook URL for internal legal-document notifications. The URL
-# is bound to a single channel at creation time in Slack's app admin, so there's
-# no channel to configure and no bot token to manage. Separate from the per-org
-# Slack integration used in products/slack_app.
-SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL = get_from_env("SLACK_LEGAL_DOCUMENTS_WEBHOOK_URL", "")

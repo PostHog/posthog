@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
 from temporalio.client import Client, Schedule, ScheduleOverlapPolicy, ScheduleUpdate, ScheduleUpdateInput
+from temporalio.service import RPCError, RPCStatusCode
 
 if TYPE_CHECKING:
     from temporalio.common import TypedSearchAttributes
@@ -136,6 +137,12 @@ async def a_pause_schedule(temporal: Client, schedule_id: str, note: str | None 
     await handle.pause(note=note)
 
 
+async def a_unpause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
+    """Unpause a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    await handle.unpause(note=note)
+
+
 @async_to_sync
 async def trigger_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Trigger a Temporal Schedule."""
@@ -155,14 +162,18 @@ async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
     try:
         await temporal.get_schedule_handle(schedule_id).describe()
         return True
-    except:
-        return False
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
 
 
 async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists."""
+    """Check whether a schedule exists. See :func:`schedule_exists`."""
     try:
         await temporal.get_schedule_handle(schedule_id).describe()
         return True
-    except:
-        return False
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise

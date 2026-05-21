@@ -12,11 +12,12 @@ from django.dispatch import receiver
 from dateutil.rrule import DAILY, rrule
 from django_deprecate_fields import deprecate_field
 
-from posthog.models import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel
 from posthog.storage.hypercache import HyperCache
+
+from products.actions.backend.models.action import Action
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
@@ -98,7 +99,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="surveys_internal_response_sampling_flag",
         related_query_name="surveys_internal_response_sampling_flag",
     )
-    type = models.CharField(max_length=40, choices=SurveyType.choices)
+    type = models.CharField(max_length=40, choices=SurveyType)
     conditions = models.JSONField(blank=True, null=True)
     questions = models.JSONField(
         blank=True,
@@ -237,7 +238,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         null=True,
         blank=True,
         max_length=6,
-        choices=SurveySamplingIntervalType.choices,
+        choices=SurveySamplingIntervalType,
         default=SurveySamplingIntervalType.WEEK,
     )
     response_sampling_interval = models.PositiveIntegerField(null=True, blank=True)
@@ -259,7 +260,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     current_iteration_start_date = models.DateTimeField(null=True)
     schedule = models.CharField(
         max_length=40,
-        choices=Schedule.choices,
+        choices=Schedule,
         default=Schedule.ONCE,
         null=True,
         blank=True,

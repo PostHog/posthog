@@ -8,7 +8,7 @@ from products.visual_review.backend.diffing import process_diffs
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.tasks.tasks import process_run_diffs
+from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -32,7 +32,7 @@ class TestProcessRunDiffs:
         )
 
         # Process (should complete immediately since no changed snapshots need diffing)
-        process_run_diffs(str(create_result.run_id))
+        process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is completed
         run = api.get_run(create_result.run_id)
@@ -55,7 +55,7 @@ class TestProcessRunDiffs:
             mock.side_effect = Exception("Something went wrong")
 
             with pytest.raises(Exception):
-                process_run_diffs(str(create_result.run_id))
+                process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is marked as failed
         run = api.get_run(create_result.run_id)
@@ -161,3 +161,42 @@ class TestProcessRunDiffs:
             mock_logger.warning.assert_called()
             call_args = [call[0][0] for call in mock_logger.warning.call_args_list]
             assert any("diff_skipped_missing_artifact" in arg for arg in call_args)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestPostApprovalCommentTask:
+    @pytest.fixture
+    def repo(self, team):
+        return api.create_repo(team_id=team.id, repo_external_id=88888, repo_full_name="org/approval")
+
+    def test_calls_logic_helper(self, repo):
+        with patch("products.visual_review.backend.logic.post_approval_comment_for_run") as helper:
+            post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000001")
+        helper.assert_called_once()
+        args, kwargs = helper.call_args
+        assert str(args[0]) == "00000000-0000-0000-0000-000000000001"
+        assert kwargs["team_id"] == repo.team_id
+
+    def test_swallows_unexpected_errors(self, repo):
+        with patch(
+            "products.visual_review.backend.logic.post_approval_comment_for_run",
+            side_effect=RuntimeError("boom"),
+        ):
+            # Must not raise — failure to comment must never block other work.
+            post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000002")
+
+    def test_retries_on_rate_limit(self, repo):
+        from posthog.models.integration import GitHubRateLimitError
+
+        with (
+            patch(
+                "products.visual_review.backend.logic.post_approval_comment_for_run",
+                side_effect=GitHubRateLimitError("rate limited", retry_after=42),
+            ),
+            patch.object(post_approval_comment, "retry", side_effect=RuntimeError("retry called")) as retry_mock,
+        ):
+            with pytest.raises(RuntimeError, match="retry called"):
+                post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000003")
+
+        retry_mock.assert_called_once()
+        assert retry_mock.call_args.kwargs["countdown"] == 42

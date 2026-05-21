@@ -268,7 +268,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.projectHomepage()]: (_, searchParams) => {
             const urlMode = (searchParams.mode as HomepageMode) || 'idle'
-            const urlQuery = (searchParams.q as string) || ''
+            const urlQuery = searchParams.q != null ? String(searchParams.q) : ''
             const urlChat = (searchParams.chat as string) || ''
 
             if (urlMode === 'idle' && values.mode !== 'idle') {
@@ -324,7 +324,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
         const { searchParams } = router.values
         const urlMode = (searchParams.mode as HomepageMode) || 'idle'
-        const urlQuery = (searchParams.q as string) || ''
+        const urlQuery = searchParams.q != null ? String(searchParams.q) : ''
         const urlChat = (searchParams.chat as string) || ''
 
         if (urlMode === 'ai') {

@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     delete_all_temp_destination_tables,
     delete_table,
     filter_incremental_fields as filter_bigquery_incremental_fields,
+    get_leading_indexed_columns_for_schemas as get_bigquery_leading_indexed_columns_for_schemas,
     get_primary_keys_for_schemas as get_bigquery_primary_keys_for_schemas,
     get_schemas as get_bigquery_schemas,
     validate_credentials as validate_bigquery_credentials,
@@ -28,7 +29,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -45,10 +46,21 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
         return {
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
+            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `INT64` widened from a
+            # narrower numeric type) after the destination table was created with the narrower
+            # type. Delta Lake can't widen an existing column in place, so retrying won't help —
+            # the table must be reset and fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def get_schemas(
-        self, config: BigQuerySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: BigQuerySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         bq_schemas = get_bigquery_schemas(
             config,
@@ -62,25 +74,34 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
             structlog.get_logger().warning("Failed to detect primary keys for BigQuery schemas", exc_info=e)
             detected_pks = {}
 
+        indexed_columns_by_table = get_bigquery_leading_indexed_columns_for_schemas(
+            config, table_names=list(bq_schemas.keys())
+        )
+
         filtered_results = [
             (table_name, filter_bigquery_incremental_fields(columns)) for table_name, columns in bq_schemas.items()
         ]
+
+        def _build_incremental_fields(table_name: str, columns: list[tuple[str, IncrementalFieldType, bool]]) -> list:
+            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
+            return [
+                {
+                    "label": column_name,
+                    "type": column_type,
+                    "field": column_name,
+                    "field_type": column_type,
+                    "nullable": nullable,
+                    "is_indexed": True if indexed_cols is None else column_name in indexed_cols,
+                }
+                for column_name, column_type, nullable in columns
+            ]
 
         return [
             SourceSchema(
                 name=table_name,
                 supports_incremental=len(columns) > 0,
                 supports_append=len(columns) > 0,
-                incremental_fields=[
-                    {
-                        "label": column_name,
-                        "type": column_type,
-                        "field": column_name,
-                        "field_type": column_type,
-                        "nullable": nullable,
-                    }
-                    for column_name, column_type, nullable in columns
-                ],
+                incremental_fields=_build_incremental_fields(table_name, columns),
                 columns=bq_schemas[table_name],
                 detected_primary_keys=detected_pks.get(table_name),
             )
@@ -234,6 +255,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="us-east1",
+                                    secret=False,
                                 ),
                             ],
                         ),
@@ -244,6 +266,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="temporary-dataset",
@@ -259,6 +282,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
+                                    secret=False,
                                 )
                             ],
                         ),
@@ -277,6 +301,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
+                                    secret=False,
                                 )
                             ],
                         ),

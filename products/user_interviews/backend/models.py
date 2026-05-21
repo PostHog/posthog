@@ -29,3 +29,58 @@ class UserInterview(UUIDTModel, CreatedMetaFields):
     )
     transcript = models.TextField(blank=True)
     summary = models.TextField(blank=True)
+    # Optional topic linkage for AI voice interviews triggered via SharingConfiguration links.
+    topic = models.ForeignKey(
+        "UserInterviewTopic",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="interviews",
+    )
+    interviewee_identifier = models.CharField(max_length=400, blank=True, default="")
+    recording_url = models.URLField(blank=True, default="", max_length=2048)
+    call_metadata = models.JSONField(default=dict, blank=True)
+
+
+class UserInterviewTopic(UUIDTModel, CreatedMetaFields):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    interviewee_emails = ArrayField(
+        models.CharField(max_length=254, validators=[EmailWithDisplayNameValidator()]),
+        default=list,
+        blank=True,
+    )
+    interviewee_distinct_ids = ArrayField(
+        models.CharField(max_length=400),
+        default=list,
+        blank=True,
+    )
+    topic = models.TextField()
+    agent_context = models.TextField(blank=True, default="")
+    questions = ArrayField(
+        models.TextField(),
+        default=list,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class IntervieweeContext(UUIDTModel, CreatedMetaFields):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    topic = models.ForeignKey(
+        UserInterviewTopic,
+        on_delete=models.CASCADE,
+        related_name="interviewee_contexts",
+    )
+    interviewee_identifier = models.CharField(max_length=400)
+    agent_context = models.TextField()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["topic", "interviewee_identifier"],
+                name="unique_interviewee_per_topic",
+            ),
+        ]

@@ -84,6 +84,10 @@
         margin-left: 0.5rem;
     }
 
+    // `Popover--enter-active` is the class this component now emits via its
+    // `isOpen` state. `Popover--enter-done` is kept as an alias so external
+    // consumers that statically apply it (e.g. InternalMultipleChoiceSurvey)
+    // continue to render in the settled state.
     .Popover.Popover--enter-active &,
     .Popover.Popover--enter-done & {
         opacity: 1;

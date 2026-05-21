@@ -47,21 +47,11 @@
             "maxLength": 150,
             "type": "string"
         },
-        "has_seen_product_intro_for": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
-        },
-        "hedgehog_config": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ]
+        "has_seen_product_intro_for": {},
+        "hedgehog_config": {},
+        "hide_mcp_hints": {
+            "description": "When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
+            "type": "boolean"
         },
         "last_name": {
             "maxLength": 150,
@@ -104,21 +94,13 @@
         "shortcut_position": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `above` - Above\n* `below` - Below\n* `hidden` - Hidden",
-                            "enum": ["above", "below", "hidden"],
-                            "type": "string"
-                        },
-                        {
-                            "enum": [""],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `above` - Above\n* `below` - Below\n* `hidden` - Hidden",
+                    "enum": ["above", "below", "hidden"],
+                    "type": "string"
+                },
+                {
+                    "enum": [""],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -128,21 +110,13 @@
         "theme_mode": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `light` - Light\n* `dark` - Dark\n* `system` - System",
-                            "enum": ["light", "dark", "system"],
-                            "type": "string"
-                        },
-                        {
-                            "enum": [""],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `light` - Light\n* `dark` - Dark\n* `system` - System",
+                    "enum": ["light", "dark", "system"],
+                    "type": "string"
+                },
+                {
+                    "enum": [""],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -152,21 +126,13 @@
         "toolbar_mode": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `disabled` - disabled\n* `toolbar` - toolbar",
-                            "enum": ["disabled", "toolbar"],
-                            "type": "string"
-                        },
-                        {
-                            "enum": [""],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `disabled` - disabled\n* `toolbar` - toolbar",
+                    "enum": ["disabled", "toolbar"],
+                    "type": "string"
+                },
+                {
+                    "enum": [""],
+                    "type": "string"
                 },
                 {
                     "type": "null"

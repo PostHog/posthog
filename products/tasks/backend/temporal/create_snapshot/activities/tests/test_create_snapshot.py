@@ -12,7 +12,17 @@ from products.tasks.backend.temporal.create_snapshot.activities.create_snapshot 
     create_snapshot,
 )
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, SnapshotCreationError
+
+
+def _run_or_skip_on_modal_outage(activity_environment, fn, input_data):
+    # Skip when Modal's snapshot service returns its opaque outage signature.
+    try:
+        return async_to_sync(activity_environment.run)(fn, input_data)
+    except SnapshotCreationError as e:
+        if "Failed to create image" in str(e):
+            pytest.skip(f"Modal snapshot service unavailable: {e}")
+        raise
 
 
 @pytest.mark.skipif(
@@ -27,7 +37,7 @@ class TestCreateSnapshotActivity:
             team_id=github_integration.team_id,
         )
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_create_snapshot_success(self, activity_environment, github_integration):
         config = SandboxConfig(
             name="test-create-snapshot",
@@ -42,7 +52,7 @@ class TestCreateSnapshotActivity:
             context = self._create_context(github_integration, "test-owner/test-repo")
             input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 
-            result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
+            result = _run_or_skip_on_modal_outage(activity_environment, create_snapshot, input_data)
 
             assert result is not None
             uuid.UUID(result)
@@ -64,7 +74,7 @@ class TestCreateSnapshotActivity:
             if created_snapshot_external_id:
                 Sandbox.delete_snapshot(created_snapshot_external_id)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_create_snapshot_contains_only_current_repo(self, activity_environment, github_integration):
         """Verify that snapshots only contain the current repository, not accumulated repos from base."""
         base_snapshot = SandboxSnapshot.objects.create(
@@ -87,7 +97,7 @@ class TestCreateSnapshotActivity:
             context = self._create_context(github_integration, "new-owner/new-repo")
             input_data = CreateSnapshotInput(context=context, sandbox_id=sandbox.id)
 
-            result = async_to_sync(activity_environment.run)(create_snapshot, input_data)
+            result = _run_or_skip_on_modal_outage(activity_environment, create_snapshot, input_data)
 
             created_snapshot = SandboxSnapshot.objects.get(id=result)
             created_snapshot_external_id = created_snapshot.external_id
@@ -105,7 +115,7 @@ class TestCreateSnapshotActivity:
             if created_snapshot_external_id:
                 Sandbox.delete_snapshot(created_snapshot_external_id)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_create_snapshot_sandbox_not_found(self, activity_environment, github_integration):
         context = self._create_context(github_integration, "test-owner/test-repo")
         input_data = CreateSnapshotInput(context=context, sandbox_id="non-existent-sandbox-id")

@@ -25,6 +25,10 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
                     id: SurveyEventName.SENT,
                     type: 'events',
                 },
+                {
+                    id: SurveyEventName.DISMISSED,
+                    type: 'events',
+                },
             ],
         },
     },
@@ -127,22 +131,53 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     },
 }
 
+const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
+
+function buildFlagChangeVerbPhrase(): string {
+    const activity = 'event.properties.activity'
+    const change = 'event.properties.detail.changes[1]'
+    const afterGroups = `length(ifNull(${change}.after.groups, []))`
+    const beforeGroups = `length(ifNull(${change}.before.groups, []))`
+
+    const activeFieldVerb = `${change}.after == 'true' ? 'enabled' : 'disabled'`
+
+    const filtersFieldVerb = [
+        `${change}.after.multivariate != null ? 'updated variant rollout for'`,
+        `${afterGroups} > ${beforeGroups} ? 'added a release condition to'`,
+        `${afterGroups} < ${beforeGroups} ? 'removed a release condition from'`,
+        `'updated release conditions on'`,
+    ].join(' : ')
+
+    const verbPhrase = [
+        `${activity} == 'created' ? 'created'`,
+        `${activity} == 'deleted' ? 'deleted'`,
+        `${activity} == 'restored' ? 'restored'`,
+        `${change}.field == 'active' ? (${activeFieldVerb})`,
+        `${change}.field == 'filters' ? (${filtersFieldVerb})`,
+        `'updated'`,
+    ].join(' : ')
+
+    return `{${verbPhrase}}`
+}
+
+const FLAG_CHANGE_VERB_PHRASE = buildFlagChangeVerbPhrase()
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'survey-response': [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-webhook',
             name: 'HTTP Webhook on survey response',
-            description: 'Send a webhook when a survey response is submitted',
+            description: 'Send a webhook when a survey is completed or dismissed',
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-discord',
             name: 'Post to Discord on survey response',
-            description: 'Posts a message to Discord when a user responds to a survey',
+            description: 'Posts a message to Discord when a survey is completed or dismissed',
             inputs: {
                 content: {
-                    value: '**{person.name}** responded to survey **{event.properties.$survey_name}**',
+                    value: "**{person.name}** {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey **{event.properties.$survey_name}**",
                 },
             },
         },
@@ -150,10 +185,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-microsoft-teams',
             name: 'Post to Microsoft Teams on survey response',
-            description: 'Posts a message to Microsoft Teams when a user responds to a survey',
+            description: 'Posts a message to Microsoft Teams when a survey is completed or dismissed',
             inputs: {
                 text: {
-                    value: '**{person.name}** responded to survey **{event.properties.$survey_name}**',
+                    value: "**{person.name}** {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey **{event.properties.$survey_name}**",
                 },
             },
         },
@@ -161,13 +196,13 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['survey-response'],
             template_id: 'template-slack',
             name: 'Post to Slack on survey response',
-            description: 'Posts a message to Slack when a user responds to a survey',
+            description: 'Posts a message to Slack when a survey is completed or dismissed',
             inputs: {
                 blocks: {
                     value: [
                         {
                             text: {
-                                text: '*{person.name}* responded to survey *{event.properties.$survey_name}*',
+                                text: "*{person.name}* {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey *{event.properties.$survey_name}*",
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -190,7 +225,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: '*{person.name}* responded to survey *{event.properties.$survey_name}*',
+                    value: "*{person.name}* {event.event == 'survey dismissed' ? 'dismissed' : 'completed'} survey *{event.properties.$survey_name}*",
                 },
             },
         },
@@ -266,7 +301,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Send a webhook when a team activity occurs',
             inputs: {
                 content: {
-                    value: "**{person.name ?? 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
+                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
                 },
             },
         },
@@ -277,7 +312,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when a team activity occurs',
             inputs: {
                 content: {
-                    value: "**{person.name ?? 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
+                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
                 },
             },
         },
@@ -288,7 +323,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when a team activity occurs',
             inputs: {
                 content: {
-                    value: "**{person.name ?? 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
+                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`",
                 },
             },
         },
@@ -302,7 +337,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         {
                             text: {
-                                text: "*{person.name ?? 'PostHog'}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                                text: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -310,7 +345,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: "*{person.name ?? 'PostHog'}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                    value: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
                 },
             },
         },
@@ -323,7 +358,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Send a webhook when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{person.name ?? 'PostHog'}** {event.properties.activity} feature flag `{event.properties.item_id}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -334,7 +369,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{person.name ?? 'PostHog'}** {event.properties.activity} feature flag `{event.properties.item_id}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -345,7 +380,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{person.name ?? 'PostHog'}** {event.properties.activity} feature flag `{event.properties.item_id}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -359,7 +394,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         {
                             text: {
-                                text: "*{person.name ?? 'PostHog'}* {event.properties.activity} feature flag `{event.properties.item_id}`",
+                                text: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -377,7 +412,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: "*{person.name ?? 'PostHog'}* {event.properties.activity} feature flag `{event.properties.item_id}`",
+                    value: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -639,6 +674,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         },
     ],
     'error-tracking-issue-spiking': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on issue spiking',
+            description: 'Send a webhook when an issue is spiking',
+        },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
             template_id: 'template-discord',

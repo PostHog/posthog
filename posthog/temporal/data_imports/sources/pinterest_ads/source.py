@@ -62,6 +62,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Pinterest Ads ad account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="pinterest_ads_integration_id",
@@ -102,6 +103,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

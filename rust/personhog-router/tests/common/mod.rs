@@ -17,13 +17,17 @@ use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHo
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
-    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
-    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
     DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
     DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
@@ -31,11 +35,15 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, Person, PersonsByDistinctIdsInTeamResponse,
-    PersonsByDistinctIdsResponse, PersonsResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
-use personhog_router::backend::{LeaderBackend, ReplicaBackend, ReplicaBackendConfig};
+use personhog_router::backend::{
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+};
 use personhog_router::config::RetryConfig;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
@@ -302,6 +310,16 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(GetGroupsBatchResponse { results: vec![] }))
     }
 
+    async fn list_groups(
+        &self,
+        _request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        Ok(Response::new(ListGroupsResponse {
+            groups: vec![],
+            has_more: false,
+        }))
+    }
+
     async fn get_group_type_mappings_by_team_id(
         &self,
         _request: Request<GetGroupTypeMappingsByTeamIdRequest>,
@@ -335,6 +353,68 @@ impl PersonHogReplica for TestReplicaService {
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         Ok(Response::new(GroupTypeMappingsBatchResponse {
             results: vec![],
+        }))
+    }
+
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        _request: Request<GetGroupTypeMappingByDashboardIdRequest>,
+    ) -> Result<Response<GetGroupTypeMappingByDashboardIdResponse>, Status> {
+        Ok(Response::new(GetGroupTypeMappingByDashboardIdResponse {
+            mapping: None,
+        }))
+    }
+
+    async fn create_group(
+        &self,
+        _request: Request<CreateGroupRequest>,
+    ) -> Result<Response<CreateGroupResponse>, Status> {
+        Ok(Response::new(CreateGroupResponse { group: None }))
+    }
+
+    async fn update_group(
+        &self,
+        _request: Request<UpdateGroupRequest>,
+    ) -> Result<Response<UpdateGroupResponse>, Status> {
+        Ok(Response::new(UpdateGroupResponse {
+            group: None,
+            updated: false,
+        }))
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        _request: Request<DeleteGroupsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupsBatchForTeamResponse>, Status> {
+        Ok(Response::new(DeleteGroupsBatchForTeamResponse {
+            deleted_count: 0,
+        }))
+    }
+
+    async fn update_group_type_mapping(
+        &self,
+        _request: Request<UpdateGroupTypeMappingRequest>,
+    ) -> Result<Response<UpdateGroupTypeMappingResponse>, Status> {
+        Ok(Response::new(UpdateGroupTypeMappingResponse {
+            mapping: None,
+        }))
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        _request: Request<DeleteGroupTypeMappingRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingResponse>, Status> {
+        Ok(Response::new(DeleteGroupTypeMappingResponse {
+            deleted: false,
+        }))
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        _request: Request<DeleteGroupTypeMappingsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingsBatchForTeamResponse>, Status> {
+        Ok(Response::new(DeleteGroupTypeMappingsBatchForTeamResponse {
+            deleted_count: 0,
         }))
     }
 
@@ -531,6 +611,12 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
+        // The production `LeaderBackend` configures its gRPC client with
+        // `send_compressed(Zstd) + accept_compressed(Zstd)`, so the test
+        // leader must accept (and may send) Zstd-compressed payloads to
+        // mirror real wire behavior. Without this the LeaderBackend
+        // forwards a Zstd-compressed body and the server returns
+        // `Unimplemented: Content is compressed with zstd which isn't supported`.
         Server::builder()
             .add_service(
                 PersonHogLeaderServer::new(service)
@@ -588,11 +674,14 @@ pub async fn start_test_router_with_leader(
     let leader = LeaderBackend::new(
         routing_table,
         address_resolver,
-        num_partitions,
-        Duration::from_secs(5),
-        retry_config,
-        4 * 1024 * 1024,
-        4 * 1024 * 1024,
+        LeaderBackendConfig {
+            num_partitions,
+            timeout: Duration::from_secs(5),
+            retry_config,
+            max_send_message_size: 4 * 1024 * 1024,
+            max_recv_message_size: 4 * 1024 * 1024,
+        },
+        StashTable::with_bounds(usize::MAX, usize::MAX),
     );
 
     let router = PersonHogRouter::new(Arc::new(replica)).with_leader(Arc::new(leader));

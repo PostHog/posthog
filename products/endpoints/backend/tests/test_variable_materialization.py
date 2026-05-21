@@ -1307,6 +1307,26 @@ class TestQueryTransformation(APIBaseTest):
         group_by_part = transformed_query.split("GROUP BY")[1] if "GROUP BY" in transformed_query else ""
         assert "toDate" in group_by_part
 
+    @parameterized.expand(["sumIf", "maxIf", "countIf"])
+    def test_transform_top_level_combinator_aggregate_with_cte_variable(self, fn):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH cte AS ("
+                "  SELECT event, count() AS c FROM events "
+                "  WHERE event = {variables.event_name} GROUP BY event"
+                f") SELECT {fn}(c, c > 0) FROM cte"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize, reason
+        transformed = transform_query_for_materialization(query, var_infos, self.team)["query"]
+        assert "event_name" in transformed
+        assert "GROUP BY" in transformed
+        group_by_part = transformed.rsplit("GROUP BY", 1)[1]
+        assert "event_name" in group_by_part
+
 
 class TestMaterializedQueryExecution(APIBaseTest):
     """Test that materialized queries handle pre-aggregated data correctly."""
@@ -2343,6 +2363,23 @@ class TestCTEGraph(APIBaseTest):
         order = _topological_order(graph, {"b", "c"})
         assert order.index("b") < order.index("c")
 
+    def test_shadowed_cte_name_is_not_counted_as_reference(self):
+        node = self._parse(
+            "WITH a AS (SELECT 1 AS x), b AS (WITH a AS (SELECT 99 AS y) SELECT y FROM a) SELECT * FROM b"
+        )
+        graph = _build_cte_read_graph(node)
+        assert graph["b"] == set()
+        assert _downstream_ctes(graph, "a") == set()
+
+    def test_shadow_inside_nested_subquery_also_honored(self):
+        node = self._parse(
+            "WITH a AS (SELECT 1 AS x), "
+            "b AS (SELECT 2 AS y WHERE 1 = (WITH a AS (SELECT 99 AS y) SELECT y FROM a)) "
+            "SELECT * FROM b"
+        )
+        graph = _build_cte_read_graph(node)
+        assert graph["b"] == set()
+
 
 class TestDownstreamCTEClassifier(APIBaseTest):
     """Unit tests for the downstream CTE shape classifier."""
@@ -2366,6 +2403,16 @@ class TestDownstreamCTEClassifier(APIBaseTest):
     def test_aggregation_shape(self):
         expr = self._get_cte(
             "WITH base AS (SELECT 1 AS x), agg AS (SELECT x, count() FROM base GROUP BY x) SELECT * FROM agg",
+            "agg",
+        )
+        plan = _classify_downstream_cte("agg", expr, {"base", "agg"}, ["event_name"])
+        assert plan.reject_reason is None
+        assert plan.shape == DownstreamCTEShape.AGGREGATION
+
+    @parameterized.expand(["MAX", "MIN", "SUM", "AVG", "COUNT"])
+    def test_aggregation_shape_uppercase_function(self, fn):
+        expr = self._get_cte(
+            f"WITH base AS (SELECT 1 AS x), agg AS (SELECT {fn}(x) AS m FROM base) SELECT * FROM agg",
             "agg",
         )
         plan = _classify_downstream_cte("agg", expr, {"base", "agg"}, ["event_name"])
@@ -2434,6 +2481,122 @@ class TestDownstreamCTEClassifier(APIBaseTest):
         assert plan.reject_reason is not None
         assert "nested subquery" in plan.reject_reason
 
+    def test_scalar_subquery_in_where_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), "
+            "agg AS (SELECT max(x) AS m FROM base), "
+            "use AS (SELECT x FROM base WHERE x = (SELECT m FROM agg)) "
+            "SELECT * FROM use",
+            "use",
+        )
+        plan = _classify_downstream_cte("use", expr, {"base", "agg", "use"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "scalar subquery" in plan.reject_reason
+
+    def test_scalar_subquery_in_select_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), "
+            "agg AS (SELECT max(x) AS m FROM base), "
+            "use AS (SELECT x, (SELECT m FROM agg) AS latest FROM base) "
+            "SELECT * FROM use",
+            "use",
+        )
+        plan = _classify_downstream_cte("use", expr, {"base", "agg", "use"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "scalar subquery" in plan.reject_reason
+
+    def test_scalar_subquery_in_nested_cte_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), "
+            "use AS ("
+            "  WITH latest AS (SELECT max(x) AS m FROM base) "
+            "  SELECT x FROM base WHERE x = (SELECT m FROM latest)"
+            ") "
+            "SELECT * FROM use",
+            "use",
+        )
+        plan = _classify_downstream_cte("use", expr, {"base", "use"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "scalar subquery" in plan.reject_reason
+
+    def test_scalar_subquery_in_join_on_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x, 2 AS y), "
+            "agg AS (SELECT max(x) AS m FROM base), "
+            "use AS (SELECT b.x FROM base b JOIN base b2 ON b.y = (SELECT m FROM agg)) "
+            "SELECT * FROM use",
+            "use",
+        )
+        plan = _classify_downstream_cte("use", expr, {"base", "agg", "use"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "scalar subquery" in plan.reject_reason
+
+    def test_scalar_subquery_in_limit_by_rejected(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x, 2 AS y), "
+            "agg AS (SELECT max(x) AS m FROM base), "
+            "use AS (SELECT x, y FROM base LIMIT 5 BY (SELECT m FROM agg)) "
+            "SELECT * FROM use",
+            "use",
+        )
+        plan = _classify_downstream_cte("use", expr, {"base", "agg", "use"}, ["event_name"])
+        assert plan.reject_reason is not None
+        assert "scalar subquery" in plan.reject_reason
+
+    @parameterized.expand(["maxIf", "MAXIF", "sumIf", "SUMIF", "countIf", "COUNTIF"])
+    def test_aggregation_shape_detects_combinator_regardless_of_case(self, fn):
+        expr = self._get_cte(
+            f"WITH base AS (SELECT 1 AS x, 1 AS c), agg AS (SELECT {fn}(x, c > 0) AS m FROM base) SELECT * FROM agg",
+            "agg",
+        )
+        plan = _classify_downstream_cte("agg", expr, {"base", "agg"}, ["event_name"])
+        assert plan.reject_reason is None
+        assert plan.shape == DownstreamCTEShape.AGGREGATION
+
+    @parameterized.expand(
+        [
+            ("count(DISTINCT event)", "countDistinct"),
+            ("COUNT(DISTINCT event)", "countDistinct"),
+            ("countDistinct(event)", "countDistinct"),
+            ("COUNTDISTINCT(event)", "countDistinct"),
+            ("CountDistinct(event)", "countDistinct"),
+        ]
+    )
+    def test_extract_aggregate_name_canonicalizes_count_distinct(self, src, expected):
+        from posthog.hogql.parser import parse_expr as _parse_expr
+
+        from products.endpoints.backend.materialization import _extract_aggregate_name as _extract
+
+        assert _extract(_parse_expr(src)) == expected
+
+    @parameterized.expand(
+        [
+            ("max(x)", "max"),
+            ("MAX(x)", "max"),
+            ("Max(x)", "max"),
+            ("sum(x)", "sum"),
+            ("SUM(x)", "sum"),
+        ]
+    )
+    def test_extract_aggregate_name_canonicalizes_base_aggregates(self, src, expected):
+        from posthog.hogql.parser import parse_expr as _parse_expr
+
+        from products.endpoints.backend.materialization import _extract_aggregate_name as _extract
+
+        assert _extract(_parse_expr(src)) == expected
+
+    def test_nested_subquery_shadowing_does_not_flag_as_bypass(self):
+        expr = self._get_cte(
+            "WITH base AS (SELECT 1 AS x), "
+            "use AS ("
+            "  SELECT x FROM base WHERE x = (WITH base AS (SELECT 99 AS x) SELECT x FROM base)"
+            ") "
+            "SELECT * FROM use",
+            "use",
+        )
+        plan = _classify_downstream_cte("use", expr, {"base", "use"}, ["event_name"])
+        assert plan.reject_reason is None
+
     def test_column_name_collision_rejected(self):
         expr = self._get_cte(
             "WITH base AS (SELECT 1 AS x), clash AS (SELECT x, 'a' AS event_name FROM base) SELECT * FROM clash",
@@ -2499,6 +2662,37 @@ class TestDownstreamAnalysisRejections(APIBaseTest):
         can_materialize, reason, _ = analyze_variables_for_materialization(query)
         assert can_materialize is False
         assert "nested subquery" in reason
+
+    def test_downstream_scalar_subquery_in_where_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event, distinct_id, timestamp FROM events WHERE event = {variables.event_name}), "
+                "latest AS (SELECT max(timestamp) AS ts FROM base), "
+                "use AS (SELECT distinct_id FROM base WHERE timestamp = (SELECT ts FROM latest)) "
+                "SELECT distinct_id FROM use"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, variables = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "scalar subquery" in reason
+        assert variables == []
+
+    def test_downstream_scalar_subquery_in_select_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH base AS (SELECT event, distinct_id, timestamp FROM events WHERE event = {variables.event_name}), "
+                "latest AS (SELECT max(timestamp) AS ts FROM base), "
+                "use AS (SELECT distinct_id, (SELECT ts FROM latest) AS ts FROM base) "
+                "SELECT distinct_id FROM use"
+            ),
+            "variables": {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+        }
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+        assert can_materialize is False
+        assert "scalar subquery" in reason
 
     def test_downstream_union_leg_unable_to_propagate_rejected(self):
         query = {

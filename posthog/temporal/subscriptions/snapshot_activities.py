@@ -1,11 +1,12 @@
-import re
 import uuid
 from typing import Any
 
+import posthoganalytics
 import temporalio.activity
 from prometheus_client import Counter
 from structlog import get_logger
 
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
@@ -13,8 +14,11 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.subscriptions.llm_change_summary import generate_change_summary
+from posthog.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+
+from ee.models import CoreMemory
 
 LOGGER = get_logger(__name__)
 
@@ -207,8 +211,55 @@ def _get_insight_query_kinds(insight_ids: list[int]) -> dict[int, str]:
     return result
 
 
-def _sanitize_prompt_guide(prompt_guide: str) -> str:
-    return re.sub(r"</?[a-zA-Z_][^>]*>", "", prompt_guide)
+def _load_core_memory_text(subscription: Subscription) -> str:
+    """Load the team's saved core memory facts so the summary tool can use them.
+
+    Returns an empty string when no memory exists yet or anything goes wrong —
+    memory is a nice-to-have for the summary, never load-bearing for the delivery.
+    """
+    if not subscription.team_id:
+        return ""
+    try:
+        memory = CoreMemory.objects.filter(team_id=subscription.team_id).only("text").first()
+    except Exception:
+        LOGGER.warning(
+            "subscription_ai_summary.core_memory_load_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            exc_info=True,
+        )
+        return ""
+    if not memory:
+        return ""
+    return memory.formatted_text
+
+
+def _prompt_guide_feature_enabled_for_subscription(subscription: Subscription) -> bool:
+    """Gate the *read* side of `summary_prompt_guide` on the same flag as writes.
+
+    Writes are gated in `ee/api/subscription.py`, but without this read-side check
+    a value stored while the flag was on would keep steering the LLM after the
+    flag flipped off. Flipping the flag off must stop the guide from taking effect
+    on the next delivery, not just stop new writes. Evaluated per subscription —
+    anchored on the creator's distinct_id so the gate tracks whoever set it, with
+    the subscription's team organization as group context.
+
+    Subscriptions without a creator (or whose creator has no distinct_id) default
+    to disallowed — same fail-closed stance as the serializer gate.
+    """
+    creator = subscription.created_by
+    if not creator or not creator.distinct_id:
+        return False
+    org_id = str(subscription.team.organization_id) if subscription.team_id else ""
+    return bool(
+        posthoganalytics.feature_enabled(
+            SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
+            str(creator.distinct_id),
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=False,
+        )
+    )
 
 
 def _capture_summary_generated_event(
@@ -290,7 +341,7 @@ def _load_insight_images(exported_asset_ids: list[int], team_id: int) -> dict[in
             SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED.labels(reason="duplicate_insight").inc()
             continue
 
-        content: bytes | None = asset.content
+        content: bytes | None = bytes(asset.content) if asset.content else None
         if not content and asset.content_location:
             try:
                 content = object_storage.read_bytes(asset.content_location, missing_ok=True)
@@ -425,7 +476,15 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
     summary_text: str | None = None
     try:
         temporalio.activity.heartbeat("generating LLM summary")
-        prompt_guide = _sanitize_prompt_guide(subscription.summary_prompt_guide or "")
+        # Gate the read side on the same flag as writes so stored guides stop steering
+        # the LLM as soon as the flag flips off — not only the next time someone edits.
+        if subscription.summary_prompt_guide and await database_sync_to_async(
+            _prompt_guide_feature_enabled_for_subscription, thread_sensitive=False
+        )(subscription):
+            prompt_guide = sanitize_user_text(subscription.summary_prompt_guide, PROMPT_GUIDE_MAX_LEN)
+        else:
+            prompt_guide = ""
+        core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
         summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
             previous_states,
             current_states,
@@ -434,6 +493,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             team=subscription.team,
             delivery_id=inputs.delivery_id,
             insight_images=insight_images or None,
+            core_memory_text=core_memory_text,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

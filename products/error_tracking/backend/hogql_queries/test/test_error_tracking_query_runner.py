@@ -22,6 +22,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
+    EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -738,6 +739,52 @@ class ErrorTrackingQueryRunnerTestsMixin:
 class TestErrorTrackingQueryRunner(ErrorTrackingQueryRunnerTestsMixin, ClickhouseTestMixin, APIBaseTest):
     __test__ = True
     use_v2 = False
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_event_filter_group_operator(self):
+        firefox_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5333"
+        chrome_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5334"
+        safari_issue_id = "01936e80-aa51-746f-aec4-cdf16a5c5335"
+        self.create_events_and_issue(
+            issue_id=firefox_issue_id,
+            fingerprint="firefox_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Firefox"},
+        )
+        self.create_events_and_issue(
+            issue_id=chrome_issue_id,
+            fingerprint="chrome_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Chrome"},
+        )
+        self.create_events_and_issue(
+            issue_id=safari_issue_id,
+            fingerprint="safari_issue_fingerprint",
+            distinct_ids=[self.distinct_id_one],
+            additional_properties={"$browser": "Safari"},
+        )
+        flush_persons_and_events()
+
+        browser_filters = [
+            EventPropertyFilter(key="$browser", value=["Firefox"], operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$browser", value=["Chrome"], operator=PropertyOperator.EXACT),
+        ]
+
+        or_results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.OR_, values=browser_filters)],
+            )
+        )["results"]
+        self.assertEqual({result["id"] for result in or_results}, {firefox_issue_id, chrome_issue_id})
+
+        and_results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=browser_filters)],
+            )
+        )["results"]
+        self.assertEqual([result["id"] for result in and_results], [])
 
 
 class TestSearchTokenizer(TestCase):

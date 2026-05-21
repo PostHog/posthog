@@ -1,17 +1,13 @@
 use crate::{
     api::v1::query::Manager, config::Config, group_type_resolver::GroupTypeResolver, types::Update,
 };
-use health::{HealthHandle, HealthRegistry};
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use time::Duration;
 
 pub struct AppContext {
     // this points to the original (shared) CLOUD DB instance in prod deployments
     pub pool: PgPool,
 
     pub query_manager: Manager,
-    pub liveness: HealthRegistry,
-    pub worker_liveness: HealthHandle,
     pub skip_writes: bool,
     pub skip_reads: bool,
 
@@ -30,18 +26,11 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
-        let liveness: HealthRegistry = HealthRegistry::new("liveness");
-        let worker_liveness = liveness
-            .register("worker".to_string(), Duration::seconds(60))
-            .await;
-
         let group_type_resolver = GroupTypeResolver::new(config);
 
         Ok(Self {
             pool,
             query_manager: qmgr,
-            liveness,
-            worker_liveness,
             skip_writes: config.skip_writes,
             skip_reads: config.skip_reads,
             enable_mirror: config.enable_mirror,

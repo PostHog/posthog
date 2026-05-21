@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -14,7 +14,7 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedLegacyExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { DEFAULT_MDE } from '~/scenes/experiments/experimentLogic'
+import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { legacyExperimentLogic, getInsightType } from '~/scenes/experiments/legacy'
 import { formatUnitByQuantity } from '~/scenes/experiments/utils'
 import { Experiment, InsightType } from '~/types'
@@ -221,6 +221,7 @@ export function LegacyDataCollection(): JSX.Element {
                     <div className="deprecated-space-x-1 text-sm flex">
                         <span>Minimum detectable effect</span>
                         <Tooltip
+                            docLink="https://posthog.com/docs/experiments/sample-size-running-time#minimum-detectable-effect-mde"
                             title={
                                 <div className="deprecated-space-y-2">
                                     <div>
@@ -231,15 +232,8 @@ export function LegacyDataCollection(): JSX.Element {
                                         To make things easier, we initially set this value to a reasonable default.
                                         However, we encourage you to review and adjust it based on your specific goals.
                                     </div>
-                                    <div>
-                                        Read more in the{' '}
-                                        <Link to="https://posthog.com/docs/experiments/sample-size-running-time#minimum-detectable-effect-mde">
-                                            documentation.
-                                        </Link>
-                                    </div>
                                 </div>
                             }
-                            closeDelayMs={200}
                         >
                             <IconInfo className="text-secondary text-base" />
                         </Tooltip>

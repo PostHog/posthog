@@ -1,5 +1,5 @@
+import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import isEqual from 'lodash.isequal'
 import { useMemo, useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -183,7 +183,7 @@ export function CustomChannelTypes(): JSX.Element {
                     reportCustomChannelTypeRulesUpdated(customChannelTypeRules.length)
                     setSavedCustomChannelTypeRules(customChannelTypeRules)
                 }}
-                isSaveDisabled={isEqual(customChannelTypeRules, savedCustomChannelTypeRules)}
+                isSaveDisabled={equal(customChannelTypeRules, savedCustomChannelTypeRules)}
                 canEdit={!restrictedReason}
             />
         </div>

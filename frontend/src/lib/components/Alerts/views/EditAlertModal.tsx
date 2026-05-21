@@ -52,6 +52,7 @@ import { SimulationSummary } from './SimulationSummary'
 
 function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {
     switch (interval) {
+        case AlertCalculationInterval.EVERY_15_MINUTES:
         case AlertCalculationInterval.HOURLY:
             return [
                 { label: 'Last 24h', value: '-24h' },
@@ -84,6 +85,8 @@ function getSimulationRangeOptions(interval: AlertCalculationInterval): { label:
 
 function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return '15 minutes'
         case AlertCalculationInterval.HOURLY:
             return 'hour'
         case AlertCalculationInterval.DAILY:
@@ -114,9 +117,9 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
-    const alertsHistoryChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
+    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
 
-    const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
+    const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
@@ -142,7 +145,6 @@ export function EditAlertModal({
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
-        historyChartEnabled: alertsHistoryChartEnabled,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -161,7 +163,7 @@ export function EditAlertModal({
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
-    const quietHoursEnabled = useFeatureFlag('ALERTS_QUIET_HOURS')
+    const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -208,13 +210,14 @@ export function EditAlertModal({
             n += 1
         }
         if (
-            (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
+            (alertForm.calculation_interval === AlertCalculationInterval.EVERY_15_MINUTES ||
+                alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
                 alertForm.calculation_interval === AlertCalculationInterval.HOURLY) &&
             alertForm.skip_weekend
         ) {
             n += 1
         }
-        if (quietHoursEnabled && (alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
+        if ((alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
             n += 1
         }
         return n
@@ -224,11 +227,10 @@ export function EditAlertModal({
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
-        quietHoursEnabled,
     ])
 
     return (
-        <LemonModal onClose={handleClose} isOpen={isOpen} width={750} simple title="">
+        <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
                 <SpinnerOverlay />
             ) : (
@@ -478,6 +480,103 @@ export function EditAlertModal({
                                         />
                                     )}
 
+                                    {alertMode === 'detector' &&
+                                        alertForm.detector_config &&
+                                        investigationAgentEnabled && (
+                                            <div className="deprecated-space-y-2">
+                                                <div className="flex items-center gap-1">
+                                                    <h4 className="m-0">Investigation agent</h4>
+                                                    <Tooltip
+                                                        title="An optional AI agent that investigates anomaly fires against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
+                                                        placement="right"
+                                                        delayMs={0}
+                                                    >
+                                                        <IconInfo />
+                                                    </Tooltip>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                                                    <LemonCheckbox
+                                                        data-attr="alertForm-investigation-agent-enabled"
+                                                        checked={!!alertForm.investigation_agent_enabled}
+                                                        onChange={(checked) =>
+                                                            setAlertFormValue('investigation_agent_enabled', checked)
+                                                        }
+                                                        label={
+                                                            <span className="flex items-center gap-1">
+                                                                Run investigation agent when this alert fires
+                                                                <Tooltip
+                                                                    title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </span>
+                                                        }
+                                                    />
+                                                    <LemonCheckbox
+                                                        data-attr="alertForm-investigation-gates-notifications"
+                                                        checked={!!alertForm.investigation_gates_notifications}
+                                                        onChange={(checked) =>
+                                                            setAlertFormValue(
+                                                                'investigation_gates_notifications',
+                                                                checked
+                                                            )
+                                                        }
+                                                        disabledReason={
+                                                            !alertForm.investigation_agent_enabled
+                                                                ? 'Enable the investigation agent first'
+                                                                : undefined
+                                                        }
+                                                        label={
+                                                            <span className="flex items-center gap-1">
+                                                                Wait for the verdict before notifying
+                                                                <Tooltip
+                                                                    title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
+                                                                    placement="right"
+                                                                    delayMs={0}
+                                                                >
+                                                                    <IconInfo />
+                                                                </Tooltip>
+                                                            </span>
+                                                        }
+                                                    />
+                                                </div>
+                                                {alertForm.investigation_agent_enabled &&
+                                                    alertForm.investigation_gates_notifications && (
+                                                        <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
+                                                            <span>On inconclusive verdict</span>
+                                                            <LemonSegmentedButton
+                                                                size="xsmall"
+                                                                value={
+                                                                    alertForm.investigation_inconclusive_action ??
+                                                                    'notify'
+                                                                }
+                                                                onChange={(value) =>
+                                                                    setAlertFormValue(
+                                                                        'investigation_inconclusive_action',
+                                                                        value
+                                                                    )
+                                                                }
+                                                                options={[
+                                                                    {
+                                                                        value: 'notify',
+                                                                        label: 'Notify',
+                                                                        tooltip:
+                                                                            'Safe default — an unsure agent is itself signal.',
+                                                                    },
+                                                                    {
+                                                                        value: 'suppress',
+                                                                        label: 'Suppress',
+                                                                        tooltip: 'Only notify on true positives.',
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        </div>
+                                                    )}
+                                            </div>
+                                        )}
+
                                     {alertMode === 'detector' && alertForm.detector_config && (
                                         <div className="deprecated-space-y-2">
                                             <div className="flex gap-2 items-center">
@@ -522,6 +621,9 @@ export function EditAlertModal({
                                                 options={Object.values(AlertCalculationInterval).map((interval) => ({
                                                     label: alertCalculationIntervalToLabel(interval),
                                                     value: interval,
+                                                    hidden:
+                                                        interval === AlertCalculationInterval.EVERY_15_MINUTES &&
+                                                        !alerts15MinuteIntervalEnabled,
                                                 }))}
                                             />
                                         </LemonField>
@@ -671,7 +773,9 @@ export function EditAlertModal({
                                                         <LemonCheckbox
                                                             checked={
                                                                 (alertForm?.calculation_interval ===
-                                                                    AlertCalculationInterval.DAILY ||
+                                                                    AlertCalculationInterval.EVERY_15_MINUTES ||
+                                                                    alertForm?.calculation_interval ===
+                                                                        AlertCalculationInterval.DAILY ||
                                                                     alertForm?.calculation_interval ===
                                                                         AlertCalculationInterval.HOURLY) &&
                                                                 alertForm?.skip_weekend
@@ -681,23 +785,23 @@ export function EditAlertModal({
                                                             label="Skip checking on weekends"
                                                             disabledReason={
                                                                 alertForm?.calculation_interval !==
+                                                                    AlertCalculationInterval.EVERY_15_MINUTES &&
+                                                                alertForm?.calculation_interval !==
                                                                     AlertCalculationInterval.DAILY &&
                                                                 alertForm?.calculation_interval !==
                                                                     AlertCalculationInterval.HOURLY &&
-                                                                'Can only skip weekend checking for hourly/daily alerts'
+                                                                'Can only skip weekend checking for 15-minute, hourly, or daily alerts'
                                                             }
                                                         />
                                                     </LemonField>
-                                                    {quietHoursEnabled ? (
-                                                        <QuietHoursFields
-                                                            scheduleRestriction={alertForm.schedule_restriction}
-                                                            calculationInterval={alertForm.calculation_interval}
-                                                            teamTimezone={projectTimezone}
-                                                            onChange={(next) =>
-                                                                setAlertFormValue('schedule_restriction', next)
-                                                            }
-                                                        />
-                                                    ) : null}
+                                                    <QuietHoursFields
+                                                        scheduleRestriction={alertForm.schedule_restriction}
+                                                        calculationInterval={alertForm.calculation_interval}
+                                                        teamTimezone={projectTimezone}
+                                                        onChange={(next) =>
+                                                            setAlertFormValue('schedule_restriction', next)
+                                                        }
+                                                    />
                                                 </div>
                                             ),
                                         },
@@ -710,7 +814,7 @@ export function EditAlertModal({
                             alert ? (
                                 <AlertHistorySection alertId={alert.id} />
                             ) : alertLoading ? (
-                                <AlertHistorySectionSkeleton showChartArea={alertsHistoryChartEnabled} />
+                                <AlertHistorySectionSkeleton />
                             ) : null
                         ) : null}
                     </LemonModal.Content>

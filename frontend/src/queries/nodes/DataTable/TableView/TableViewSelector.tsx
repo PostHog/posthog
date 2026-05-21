@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronDown, IconDownload, IconGear, IconPerson, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconDownload, IconGear, IconUser, IconGlobe, IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -14,6 +14,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { TableViewSupportedQueryType, tableViewLogic } from './tableViewLogic'
 
@@ -35,12 +37,7 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                 const canEditView = view.created_by === user?.id
                 return {
                     label: view.name,
-                    icon:
-                        view.visibility === 'private' ? (
-                            <Tooltip title="This view is private. Only you can see and use it.">
-                                <IconPerson className="text-muted" />
-                            </Tooltip>
-                        ) : undefined,
+                    icon: <ViewVisibilityIcon view={view} />,
                     active: currentView?.id === view.id,
                     onClick: () => applyView(view),
                     ...(canEditView && {
@@ -97,7 +94,14 @@ export function TableViewSelector({ contextKey, query, setQuery }: TableViewSele
                 {currentView ? (
                     <LemonMenu items={menuItems} closeOnClickInside={true}>
                         <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                            {currentView?.name || 'Select view'}
+                            {currentView.name ? (
+                                <>
+                                    <ViewVisibilityIcon view={currentView} />{' '}
+                                    <span className="ml-2">{currentView.name}</span>
+                                </>
+                            ) : (
+                                'Select view'
+                            )}
                         </LemonButton>
                     </LemonMenu>
                 ) : (
@@ -178,8 +182,12 @@ function CreateViewModal(): JSX.Element {
                     <LemonField name="visibility" label="Visibility">
                         <LemonSegmentedButton
                             options={[
-                                { value: 'private', label: 'Private (only visible to me)' },
-                                { value: 'shared', label: 'Shared with team' },
+                                {
+                                    value: 'private',
+                                    label: 'Private (only visible to me)',
+                                    icon: <IconUser fontSize="20" />,
+                                },
+                                { value: 'shared', label: 'Shared with team', icon: <IconGlobe fontSize="20" /> },
                             ]}
                             fullWidth
                         />
@@ -220,5 +228,17 @@ function DeleteConfirmationModal(): JSX.Element {
                 </>
             }
         />
+    )
+}
+
+export function ViewVisibilityIcon({ view }: { view: ColumnConfigurationApi }): JSX.Element {
+    return view.visibility === 'private' ? (
+        <Tooltip title="Only you can see this view.">
+            <IconUser fontSize="20" />
+        </Tooltip>
+    ) : (
+        <Tooltip title="Everyone on your team can see this view.">
+            <IconGlobe fontSize="20" />
+        </Tooltip>
     )
 }

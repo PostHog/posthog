@@ -92,6 +92,8 @@ function JobEditor({
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.EventMetadata,
+                        TaxonomicFilterGroupType.PersonProperties,
+                        TaxonomicFilterGroupType.Cohorts,
                     ]}
                     addText="Add filter"
                     hasRowOperator={false}
