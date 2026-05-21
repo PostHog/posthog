@@ -1,105 +1,149 @@
-import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
-import { handleToolError } from '@/lib/errors'
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
-import type { RequestProperties } from '@/lib/request-properties'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import {
+    buildToolResultPayload,
+    isToolCallPayload,
+} from "@/lib/build-tool-result";
+import { handleToolError } from "@/lib/errors";
+import { AnalyticsEvent } from "@/lib/posthog/analytics";
+import type { RequestProperties } from "@/lib/request-properties";
+import { createExecTool, type ExecInnerCallTracker } from "@/tools/exec";
 
-import { toolCallDurationSeconds, toolCallsTotal } from './metrics'
-import type { ToolCatalog } from './tool-catalog'
+import { toolCallDurationSeconds, toolCallsTotal } from "./metrics";
+import type { ToolCatalog } from "./tool-catalog";
 
-import type { InstructionsBuilder } from './instructions'
-import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
+import type { InstructionsBuilder } from "./instructions";
+import type { ListToolsResult } from "@modelcontextprotocol/sdk/types.js";
 
-import type { ResolvedState } from './request-state-resolver'
+import type { ResolvedState } from "./request-state-resolver";
 
 export class ToolExecutor {
-    private readonly catalog: ToolCatalog
-    private readonly instructionsBuilder: InstructionsBuilder
+    private readonly catalog: ToolCatalog;
+    private readonly instructionsBuilder: InstructionsBuilder;
 
-    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder) {
-        this.catalog = catalog
-        this.instructionsBuilder = instructionsBuilder
+    constructor(
+        catalog: ToolCatalog,
+        instructionsBuilder: InstructionsBuilder,
+    ) {
+        this.catalog = catalog;
+        this.instructionsBuilder = instructionsBuilder;
     }
 
-    async handleToolsList(state: ResolvedState, props: RequestProperties): Promise<ListToolsResult> {
+    async handleToolsList(
+        state: ResolvedState,
+        props: RequestProperties,
+    ): Promise<ListToolsResult> {
         if (state.useSingleExec) {
-            return { tools: [this.instructionsBuilder.buildExecToolEntry(state, props)] }
+            return {
+                tools: [
+                    this.instructionsBuilder.buildExecToolEntry(state, props),
+                ],
+            };
         }
 
-        const nameSet = new Set(state.allTools.map((t) => t.name))
-        let filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
+        const nameSet = new Set(state.allTools.map((t) => t.name));
+        let filteredTools = this.catalog
+            .getPreBuiltEntries()
+            .filter((e) => nameSet.has(e.name));
 
         if (state.version === 2) {
             filteredTools = filteredTools.map((entry) => {
-                if (entry.name === 'execute-sql') {
+                if (entry.name === "execute-sql") {
                     return {
                         ...entry,
-                        description: this.instructionsBuilder.formatExecuteSqlDescription(),
-                    }
+                        description:
+                            this.instructionsBuilder.formatExecuteSqlDescription(),
+                    };
                 }
-                return entry
-            })
+                return entry;
+            });
         }
 
-        return { tools: filteredTools }
+        return { tools: filteredTools };
     }
 
     async handleToolCall(
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
-        state: ResolvedState
+        state: ResolvedState,
     ): Promise<unknown> {
-        const toolName = params?.name as string
+        const toolName = params?.name as string;
+
         if (!toolName) {
-            return { content: [{ type: 'text', text: 'Missing tool name' }], isError: true }
+            return {
+                content: [{ type: "text", text: "Missing tool name" }],
+                isError: true,
+            };
         }
 
-        if (state.useSingleExec && toolName === 'exec') {
-            return this._handleExecToolCall(params, state, props)
+        if (state.useSingleExec && toolName === "exec") {
+            return this._handleExecToolCall(params, state, props);
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
-            toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            toolCallsTotal.inc({ tool: toolName, status: "error" });
+            return {
+                content: [{ type: "text", text: `Tool ${toolName} not found` }],
+                isError: true,
+            };
         }
 
-        const preBuilt = this.catalog.getToolByName(toolName)
+        const preBuilt = this.catalog.getToolByName(toolName);
         if (!preBuilt) {
-            toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            toolCallsTotal.inc({ tool: toolName, status: "error" });
+            return {
+                content: [{ type: "text", text: `Tool ${toolName} not found` }],
+                isError: true,
+            };
         }
 
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = preBuilt.base.schema.safeParse(toolArgs)
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>;
+        const validation = preBuilt.base.schema.safeParse(toolArgs);
         if (!validation.success) {
-            toolCallsTotal.inc({ tool: toolName, status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+            toolCallsTotal.inc({ tool: toolName, status: "validation_error" });
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `Invalid input: ${validation.error.message}`,
+                    },
+                ],
+                isError: true,
+            };
         }
 
-        const stop = toolCallDurationSeconds.startTimer({ tool: toolName })
+        const stop = toolCallDurationSeconds.startTimer({ tool: toolName });
 
         try {
-            const isContextSwitch = toolName === 'switch-project' || toolName === 'switch-organization'
+            const isContextSwitch =
+                toolName === "switch-project" ||
+                toolName === "switch-organization";
             const previousContext = isContextSwitch
                 ? await state.reqCtx.getAnalyticsContextSafe(state.context)
-                : undefined
+                : undefined;
 
-            const handlerResult = await preBuilt.base.handler(state.context, validation.data)
+            const handlerResult = await preBuilt.base.handler(
+                state.context,
+                validation.data,
+            );
 
             if (isContextSwitch) {
-                void state.reqCtx.trackContextSwitchEvent(toolName, state.context, previousContext)
+                void state.reqCtx.trackContextSwitchEvent(
+                    toolName,
+                    state.context,
+                    previousContext,
+                );
             }
 
-            toolCallsTotal.inc({ tool: toolName, status: 'success' })
-            stop({ status: 'success' })
+            toolCallsTotal.inc({ tool: toolName, status: "success" });
+            stop({ status: "success" });
 
             if (isToolCallPayload(handlerResult)) {
-                return handlerResult
+                return handlerResult;
             }
 
-            const hasUiResource = !!preBuilt.base._meta?.ui?.resourceUri
-            const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
-            const distinctId = needsDistinctId ? state.distinctId : undefined
+            const hasUiResource = !!preBuilt.base._meta?.ui?.resourceUri;
+            const needsDistinctId =
+                hasUiResource && typeof handlerResult !== "string";
+            const distinctId = needsDistinctId ? state.distinctId : undefined;
 
             return buildToolResultPayload({
                 handlerResult,
@@ -108,40 +152,55 @@ export class ToolExecutor {
                 params: validation.data,
                 clientName: props.mcpClientName,
                 distinctId,
-            })
+            });
         } catch (error: unknown) {
-            toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            stop({ status: 'error' })
-            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
-            return handleToolError(error, toolName, state.distinctId, sessionUuid)
+            toolCallsTotal.inc({ tool: toolName, status: "error" });
+            stop({ status: "error" });
+            const sessionUuid = await state.reqCtx.getSessionUuid(
+                props.sessionId,
+            );
+            return handleToolError(
+                error,
+                toolName,
+                state.distinctId,
+                sessionUuid,
+            );
         }
     }
 
     private async _handleExecToolCall(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        props: RequestProperties
+        props: RequestProperties,
     ): Promise<unknown> {
-        const stop = toolCallDurationSeconds.startTimer({ tool: 'exec' })
+        const stop = toolCallDurationSeconds.startTimer({ tool: "exec" });
 
         try {
-            const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
+            const commandReference =
+                this.instructionsBuilder.buildExecCommandReference(state);
 
-            const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+            const trackInnerCall: ExecInnerCallTracker = (
+                toolName,
+                properties,
+            ) => {
                 void (async () => {
-                    const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+                    const freshContext =
+                        await state.reqCtx.getAnalyticsContextSafe(
+                            state.context,
+                        );
                     await state.reqCtx.trackEvent(
                         AnalyticsEvent.MCP_TOOL_CALL,
                         { tool_name: toolName, ...properties },
                         freshContext,
                         undefined,
                         state.distinctId,
-                        props
-                    )
-                })().catch(() => {})
-            }
+                        props,
+                    );
+                })().catch(() => {});
+            };
 
-            const execToolDescription = this.instructionsBuilder.buildExecToolDescription()
+            const execToolDescription =
+                this.instructionsBuilder.buildExecToolDescription();
 
             const execTool = createExecTool(
                 state.allTools,
@@ -149,38 +208,62 @@ export class ToolExecutor {
                 execToolDescription,
                 commandReference,
                 props.mcpConsumer,
-                trackInnerCall
-            )
+                trackInnerCall,
+            );
 
-            const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-            const validation = execTool.schema.safeParse(toolArgs)
+            const toolArgs = (params?.arguments ?? {}) as Record<
+                string,
+                unknown
+            >;
+            const validation = execTool.schema.safeParse(toolArgs);
             if (!validation.success) {
-                toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
-                stop({ status: 'error' })
-                return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+                toolCallsTotal.inc({
+                    tool: "exec",
+                    status: "validation_error",
+                });
+                stop({ status: "error" });
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Invalid input: ${validation.error.message}`,
+                        },
+                    ],
+                    isError: true,
+                };
             }
 
-            const result = await execTool.handler(state.context, validation.data)
+            const result = await execTool.handler(
+                state.context,
+                validation.data,
+            );
 
-            toolCallsTotal.inc({ tool: 'exec', status: 'success' })
-            stop({ status: 'success' })
+            toolCallsTotal.inc({ tool: "exec", status: "success" });
+            stop({ status: "success" });
 
             if (isToolCallPayload(result)) {
-                return result
+                return result;
             }
 
             return buildToolResultPayload({
                 handlerResult: result,
                 toolMeta: execTool._meta,
-                toolName: 'exec',
+                toolName: "exec",
                 params: validation.data,
                 clientName: props.mcpClientName,
-            })
+            });
         } catch (error: unknown) {
-            toolCallsTotal.inc({ tool: 'exec', status: 'error' })
-            stop({ status: 'error' })
-            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
-            return handleToolError(error, 'exec', state.distinctId, sessionUuid)
+            toolCallsTotal.inc({ tool: "exec", status: "error" });
+            stop({ status: "error" });
+            const sessionUuid = await state.reqCtx.getSessionUuid(
+                props.sessionId,
+            );
+            return handleToolError(
+                error,
+                "exec",
+                state.distinctId,
+                sessionUuid,
+            );
         }
     }
 }

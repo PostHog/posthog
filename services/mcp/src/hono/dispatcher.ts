@@ -27,7 +27,7 @@ import { ToolCatalog } from './tool-catalog'
 
 import { AnalyticsBridge } from './analytics-bridge'
 import { InstructionsBuilder } from './instructions'
-import { RequestStateResolver, type MethodHandlerCallbacks, type ResolvedState } from './request-state-resolver'
+import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { ToolExecutor } from './tool-executor'
 
@@ -88,7 +88,7 @@ class McpDispatcher {
         this.catalog = catalog
         this.resourceCatalog = new ResourceCatalog(env)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
-        this.analyticsBridge = new AnalyticsBridge(env)
+        this.analyticsBridge = new AnalyticsBridge()
         this.instructionsBuilder = new InstructionsBuilder()
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
     }
@@ -156,9 +156,11 @@ class McpDispatcher {
         try {
             switch (method) {
                 case Method.Initialize:
+                    return jsonRpcResult(id, await this._handleInitialize(params, props, state!))
                 case Method.ToolsList:
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!, props))
                 case Method.ToolsCall:
-                    return await this._dispatchTracked(request, props, state!)
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, props, state!))
                 case Method.ResourcesList:
                     return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
                 case Method.ResourcesRead:
@@ -175,45 +177,6 @@ class McpDispatcher {
         } catch (error) {
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
-        }
-    }
-
-    private async _dispatchTracked(
-        request: JSONRPCRequest,
-        props: RequestProperties,
-        state: ResolvedState
-    ): Promise<JsonRpcResponse> {
-        const { id, method } = request
-
-        try {
-            const handlers = this._buildHandlerCallbacks()
-
-            if (this.analyticsBridge.available) {
-                const result = await this.analyticsBridge.dispatchThroughAnalytics(request, props, state, handlers)
-                return jsonRpcResult(id, result)
-            }
-
-            switch (method) {
-                case Method.Initialize:
-                    return jsonRpcResult(id, await handlers.handleInitialize(request.params, props, state))
-                case Method.ToolsList:
-                    return jsonRpcResult(id, await handlers.handleToolsList(state, props))
-                case Method.ToolsCall:
-                    return jsonRpcResult(id, await handlers.handleToolCall(request.params, props, state))
-                default:
-                    return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
-            }
-        } catch (error) {
-            console.error('[McpDispatcher] Tracked dispatch error:', error)
-            return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
-        }
-    }
-
-    private _buildHandlerCallbacks(): MethodHandlerCallbacks {
-        return {
-            handleInitialize: (params, props, state) => this._handleInitialize(params, props, state),
-            handleToolsList: (state, props) => this.toolExecutor.handleToolsList(state, props),
-            handleToolCall: (params, props, state) => this.toolExecutor.handleToolCall(params, props, state),
         }
     }
 

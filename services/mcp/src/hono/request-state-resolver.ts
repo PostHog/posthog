@@ -1,5 +1,3 @@
-import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
-
 import { MCPClientProfile } from '@/lib/client-detection'
 import { evaluateFeatureFlags } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
@@ -23,22 +21,6 @@ export interface ResolvedState {
     clientProfile: MCPClientProfile
     allTools: Tool<ZodObjectAny>[]
     distinctId: string
-}
-
-// ─── Method handler callbacks (used by AnalyticsBridge ↔ Dispatcher) ───
-
-export interface MethodHandlerCallbacks {
-    handleInitialize(
-        params: Record<string, unknown> | undefined,
-        props: RequestProperties,
-        state: ResolvedState
-    ): Promise<unknown>
-    handleToolsList(state: ResolvedState, props: RequestProperties): Promise<ListToolsResult>
-    handleToolCall(
-        params: Record<string, unknown> | undefined,
-        props: RequestProperties,
-        state: ResolvedState
-    ): Promise<unknown>
 }
 
 // ─── Pure helpers ───
