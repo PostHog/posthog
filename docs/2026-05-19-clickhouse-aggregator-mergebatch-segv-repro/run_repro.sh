@@ -127,11 +127,22 @@ run_repro_a() {
     awk '/^-- ============= CRASHING/{exit} {print}' \
         "$SCRIPT_DIR/repro_a_argminmerge.sql" \
         | docker exec -i "$NAME" clickhouse-client --multiquery || true
-    echo "==> Section 2: crashing SELECT"
-    sed -n '/^-- ============= CRASHING/,$p' \
-        "$SCRIPT_DIR/repro_a_argminmerge.sql" \
-        | tail -n +2 \
-        | docker exec -i "$NAME" clickhouse-client || true
+    # The crashing SELECT races with an unrelated LOGICAL_ERROR on one of the
+    # remote shards; retry up to 3 times to reliably land in the crash path.
+    local attempt
+    for attempt in 1 2 3; do
+        echo "==> Section 2: crashing SELECT (attempt $attempt/3)"
+        sed -n '/^-- ============= CRASHING/,$p' \
+            "$SCRIPT_DIR/repro_a_argminmerge.sql" \
+            | tail -n +2 \
+            | docker exec -i "$NAME" clickhouse-client || true
+        wait_ready
+        local after
+        after="$(ch -q "SELECT count() FROM system.crash_log" 2>/dev/null || echo 0)"
+        if [ "${after:-0}" -gt "$BASELINE" ]; then
+            break
+        fi
+    done
     check_crash "repro A"
 }
 
