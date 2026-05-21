@@ -1109,6 +1109,21 @@ def _posthog_code_flag_subject(integration: Integration) -> User | None:
     return fallback.user if fallback else None
 
 
+def _is_app_mention_edit(event: dict[str, Any]) -> bool:
+    """Detect app_mention events Slack re-fires when a user edits a mentioning message.
+
+    Why: Slack sends a fresh app_mention with a new event_id when a previously-posted
+    mention is edited, which gives the resulting Temporal workflow a different
+    workflow_id and bypasses USE_EXISTING — so without this guard the edit kicks off
+    a second task in parallel with the original.
+    """
+    if event.get("edited"):
+        return True
+    if event.get("subtype") == "message_changed":
+        return True
+    return False
+
+
 def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
     """Runtime gate for the coding agent on app_mention events.
 
@@ -1174,6 +1189,14 @@ def route_posthog_code_event_to_relevant_region(
 
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":
+            if _is_app_mention_edit(event):
+                logger.info(
+                    "posthog_code_event_edit_ignored",
+                    slack_team_id=slack_team_id,
+                    channel=event.get("channel"),
+                    message_ts=event.get("ts"),
+                )
+                return ROUTE_HANDLED_LOCALLY
             if not _posthog_code_enabled_for_integration(local_match):
                 logger.info(
                     "posthog_code_event_flag_off",
