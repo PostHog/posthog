@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import csv
 import json
 import errno
 import subprocess
@@ -2216,16 +2218,30 @@ class TestConfigSshArgs:
     @pytest.mark.parametrize(
         "socket",
         [
-            # 1Password's default path contains spaces; without quoting,
-            # OpenSSH parses the trailing path components as "extra arguments"
-            # and refuses to load the config file.
+            # 1Password's default path contains spaces; OpenSSH parses the
+            # trailing components as "extra arguments" unless the value is
+            # quoted, so the written ssh config must have IdentityAgent "<path>".
             "/Users/me/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
             "/tmp/agent.sock",
         ],
     )
     def test_quotes_identity_agent_socket(self, socket: str) -> None:
         args = coder._config_ssh_args(identity_agent_socket=socket)
-        assert f'IdentityAgent "{socket}"' in args
+        identity_value = self._ssh_option_value_with(args, "IdentityAgent")
+        # coder CSV-parses --ssh-option before writing the config; the parsed
+        # form is what lands in ~/.ssh/config and what OpenSSH must see quoted.
+        assert self._csv_decode(identity_value) == f'IdentityAgent "{socket}"'
+
+    @staticmethod
+    def _ssh_option_value_with(args: list[str], directive: str) -> str:
+        for i, arg in enumerate(args):
+            if arg == "--ssh-option" and directive in args[i + 1]:
+                return args[i + 1]
+        raise AssertionError(f"no --ssh-option containing {directive!r} in {args!r}")
+
+    @staticmethod
+    def _csv_decode(value: str) -> str:
+        return next(csv.reader(io.StringIO(value)))[0]
 
 
 class TestSetupGitSigning:

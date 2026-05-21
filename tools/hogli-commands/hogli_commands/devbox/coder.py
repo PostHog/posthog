@@ -601,6 +601,21 @@ def ensure_coder_reachable() -> None:
     _fail(body)
 
 
+def _csv_quote_ssh_option(value: str) -> str:
+    """CSV-escape a value for ``coder config-ssh --ssh-option``.
+
+    Why: coder parses each ``--ssh-option`` argument with Go's ``encoding/csv``
+    before writing it to ``~/.ssh/config``. A bare ``"`` in the middle of an
+    unquoted CSV field is rejected with ``bare " in non-quoted-field``. We need
+    the embedded quotes (so OpenSSH sees ``IdentityAgent "<path with spaces>"``
+    as a single argument), which means wrapping the whole CSV field in quotes
+    and doubling any internal quotes per RFC 4180.
+    """
+    if any(c in value for c in ('"', ",", "\n", "\r")):
+        return '"' + value.replace('"', '""') + '"'
+    return value
+
+
 def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path.
 
@@ -617,7 +632,7 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
         args += ["--coder-binary-path", str(managed)]
     args += ["--ssh-option", "ForwardAgent yes"]
     if identity_agent_socket:
-        args += ["--ssh-option", f'IdentityAgent "{identity_agent_socket}"']
+        args += ["--ssh-option", _csv_quote_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
     return args
 
 
