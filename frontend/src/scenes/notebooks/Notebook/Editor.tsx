@@ -98,7 +98,7 @@ export function Editor(): JSX.Element {
 
     const useCollab = collabEnabled && !!notebook && !previewContent
     // Collab suffix forces editor to re-initialize so the collab plugin is present
-    const editorLogicKey = `Notebook.${shortId}${useCollab ? '-collab' : ''}`
+    const editorKey = `Notebook.${shortId}${useCollab ? '-collab' : ''}`
 
     const extensions = [
         mode === 'notebook' ? CustomDocument : ExtensionDocument,
@@ -197,8 +197,8 @@ export function Editor(): JSX.Element {
 
     return (
         <RichContentEditor
-            key={editorLogicKey}
-            logicKey={editorLogicKey}
+            key={editorKey}
+            logicKey={editorKey}
             extensions={extensions}
             disabled={!isEditable}
             className="NotebookEditor flex flex-col flex-1"
