@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { userEvent, waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'

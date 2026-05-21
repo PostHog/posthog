@@ -517,6 +517,37 @@ describe('log-record-avro', () => {
             expect(body.message).toContain('{{REDACTED}}')
         })
 
+        it('scrubs log attributes when json parse is off and pii scrub is on', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: 'plain',
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: { note: 'only-attr@example.com' },
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const { value: outputBuffer, pii } = await processLogMessageBuffer(inputBuffer, {
+                json_parse_logs: false,
+                pii_scrub_logs: true,
+            })
+            expect(pii.piiReplacements).toBe(1)
+            const [_, __, decoded] = await decodeLogRecords(outputBuffer)
+            expect(decoded[0]?.body).toBe('plain')
+            expect(decoded[0]?.attributes).toEqual({ note: PII_REDACTED })
+        })
+
         it('scrubs body then enriches when both JSON parse and PII scrub are on', async () => {
             const records: LogRecord[] = [
                 {
@@ -542,12 +573,12 @@ describe('log-record-avro', () => {
                 json_parse_logs: true,
                 pii_scrub_logs: true,
             })
-            expect(pii.piiReplacements).toBe(1)
+            expect(pii.piiReplacements).toBe(2)
             const [_, __, decoded] = await decodeLogRecords(outputBuffer)
             expect(decoded[0]?.attributes).toEqual({
                 level: encodeAttributeCell('info'),
                 message: encodeAttributeCell(PII_REDACTED),
-                note: 'c@d.co',
+                note: PII_REDACTED,
             })
         })
 

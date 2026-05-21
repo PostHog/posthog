@@ -15,6 +15,7 @@ from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
+from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 from posthog.models import GroupTypeMapping, Insight, Organization, OrganizationMembership, Team, User
 from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
@@ -179,15 +180,23 @@ def copy_demo_data_to_new_team(
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
-        GroupTypeMapping.objects.filter(project_id=team.project_id).delete()
-        GroupTypeMapping.objects.bulk_create(
+        GroupTypeMapping.objects.filter(project_id=team.project_id).delete()  # nosemgrep: no-direct-persons-db-orm
+        GroupTypeMapping.objects.bulk_create(  # nosemgrep: no-direct-persons-db-orm
             GroupTypeMapping(team_id=team.id, project_id=team.project_id, **record)
-            for record in GroupTypeMapping.objects.filter(project_id=master_team.project_id).values(
+            for record in GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                project_id=master_team.project_id
+            ).values(  # nosemgrep: no-direct-persons-db-orm
                 "group_type", "group_type_index", "name_singular", "name_plural"
             )
         )
 
         MatrixManager._sync_postgres_with_clickhouse_data(master_team_id, team.id)
+
+        # Master team's taxonomy lives in PSQL keyed by team_id and isn't part of the CH copy.
+        # Re-infer from the freshly copied CH events so `read-data-schema` lookups for
+        # canonical properties (`$os`, `$browser`, `$session_duration`, ...) resolve on
+        # per-case teams instead of returning "does not exist in the taxonomy".
+        infer_taxonomy_for_team(team.id)
 
         with override_settings(TEST=False):
             _build_hedgebox_matrix().set_project_up(team, user)

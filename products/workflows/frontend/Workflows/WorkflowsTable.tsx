@@ -326,6 +326,7 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
                     }}
                     customHog={MailHog}
                     isEmpty
+                    mcpSurfaceKey="workflows.create"
                 />
             )}
             {!showProductIntroduction && (

@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { ModifiedRequest } from '~/api/router'
+import type { ModifiedRequest } from '~/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { HogFlow } from '~/schema/hogflow'
 
@@ -411,7 +411,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
-        await this.hogFunctionMonitoringService.queueInvocationResults([result])
+        await this.invocationResultsService.queueInvocationResults([result])
         return result
     }
 
@@ -454,7 +454,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             : await this.executeHogFunction(req, hogFunction, hogFunctionState)
 
         void this.promiseScheduler.schedule(
-            this.hogFunctionMonitoringService.flush(),
+            this.invocationResultsService.flush(),
             this.hogWatcher.observeResultsBuffered(result)
         )
 

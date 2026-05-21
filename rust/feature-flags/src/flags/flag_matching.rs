@@ -161,8 +161,10 @@ pub struct FlagEvaluationState {
     person_property_state: PersonPropertyState,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
-    /// Cohorts for the current request
-    cohorts: Option<Vec<Cohort>>,
+    /// Cohorts for the current request, shared via `Arc` either from the
+    /// preloaded hypercache slice or wrapped from a `CohortCacheManager`
+    /// fetch.
+    cohorts: Option<Arc<[Cohort]>>,
     /// Cache of cohort membership results (both static and realtime) to avoid repeated lookups.
     /// Static results come from `posthog_cohortpeople`, realtime results from `cohort_membership`.
     /// The two sources produce disjoint key sets partitioned by `CohortType`.
@@ -211,7 +213,7 @@ impl FlagEvaluationState {
         self.person_property_state = PersonPropertyState::Skipped;
     }
 
-    pub fn set_cohorts(&mut self, cohorts: Vec<Cohort>) {
+    pub fn set_cohorts(&mut self, cohorts: Arc<[Cohort]>) {
         self.cohorts = Some(cohorts);
     }
 
@@ -335,7 +337,11 @@ pub struct FeatureFlagMatcher {
     /// When present, scoped to only the cohorts referenced by flags (including transitive deps),
     /// so the matcher skips the CohortCacheManager PG query entirely.
     /// `None` means no preloaded data (PG fallback or old cache) — use CohortCacheManager.
-    preloaded_cohorts: Option<Vec<Cohort>>,
+    preloaded_cohorts: Option<Arc<[Cohort]>>,
+    /// Whether to include detailed condition analysis in flag evaluation results.
+    detailed_analysis: bool,
+    /// Whether to only use person properties from request payload, ignoring database properties.
+    only_use_override_person_properties: bool,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -385,6 +391,8 @@ impl FeatureFlagMatcher {
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
             preloaded_cohorts: None,
+            detailed_analysis: false,
+            only_use_override_person_properties: false,
         }
     }
 
@@ -413,6 +421,16 @@ impl FeatureFlagMatcher {
 
     pub fn with_realtime_cohort_evaluation(mut self, enable: bool) -> Self {
         self.enable_realtime_cohort_evaluation = enable;
+        self
+    }
+
+    pub fn with_detailed_analysis(mut self, detailed_analysis: bool) -> Self {
+        self.detailed_analysis = detailed_analysis;
+        self
+    }
+
+    pub fn with_only_use_override_person_properties(mut self, only_use_override: bool) -> Self {
+        self.only_use_override_person_properties = only_use_override;
         self
     }
 
@@ -680,7 +698,7 @@ impl FeatureFlagMatcher {
         &self,
         cohort_property_filters: &[&PropertyFilter],
         target_properties: &HashMap<String, Value>,
-        cohorts: Vec<Cohort>,
+        cohorts: Arc<[Cohort]>,
     ) -> Result<bool, FlagError> {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
@@ -808,7 +826,7 @@ impl FeatureFlagMatcher {
             &self.filtered_out_flag_ids,
         );
 
-        if flags_requiring_db_preparation.is_empty() {
+        if flags_requiring_db_preparation.is_empty() || self.only_use_override_person_properties {
             self.flag_evaluation_state.skip_person_properties();
             return false;
         }
@@ -927,6 +945,7 @@ impl FeatureFlagMatcher {
                         &result,
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
+                        person_property_overrides,
                     );
                 });
             }
@@ -948,6 +967,7 @@ impl FeatureFlagMatcher {
                         result,
                         &mut level_evaluated_flags_map,
                         &mut errors_while_computing_flags,
+                        person_property_overrides,
                     );
                 }
             }
@@ -975,13 +995,27 @@ impl FeatureFlagMatcher {
         result: &Result<FeatureFlagMatch, FlagError>,
         level_evaluated_flags_map: &mut HashMap<String, FlagDetails>,
         errors_while_computing_flags: &mut bool,
+        person_property_overrides: &Option<HashMap<String, Value>>,
     ) {
         match result {
             Ok(flag_match) => {
                 self.flag_evaluation_state
                     .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                level_evaluated_flags_map
-                    .insert(flag.key.clone(), FlagDetails::create(flag, flag_match));
+                let flag_details = if self.detailed_analysis {
+                    // Use merged person properties (DB + overrides) for condition analysis
+                    let merged_person_props = self
+                        .get_person_properties(person_property_overrides.as_ref())
+                        .ok();
+                    FlagDetails::create_with_analysis(
+                        flag,
+                        flag_match,
+                        true,
+                        merged_person_props.as_ref(),
+                    )
+                } else {
+                    FlagDetails::create(flag, flag_match)
+                };
+                level_evaluated_flags_map.insert(flag.key.clone(), flag_details);
             }
             Err(e) => {
                 *errors_while_computing_flags = true;
@@ -1569,7 +1603,6 @@ impl FeatureFlagMatcher {
                 }
             }
         }
-
         self.check_rollout(
             feature_flag,
             rollout_percentage,
@@ -1662,11 +1695,15 @@ impl FeatureFlagMatcher {
         &self,
         property_overrides: Option<&HashMap<String, Value>>,
     ) -> Result<HashMap<String, Value>, FlagError> {
-        // Start with DB properties (clone only when we need a mutable copy)
-        let mut merged_properties = self
-            .get_person_properties_from_evaluation_state()
-            .cloned()
-            .unwrap_or_default();
+        let mut merged_properties = if self.only_use_override_person_properties {
+            // When only_use_override_person_properties is true, ignore DB properties entirely
+            HashMap::new()
+        } else {
+            // Start with DB properties (clone only when we need a mutable copy)
+            self.get_person_properties_from_evaluation_state()
+                .cloned()
+                .unwrap_or_default()
+        };
 
         // Merge in overrides (overrides take precedence)
         if let Some(overrides) = property_overrides {
@@ -1966,7 +2003,7 @@ impl FeatureFlagMatcher {
         // Use preloaded cohorts from the flags cache when available (already scoped
         // to only referenced cohorts). Fall back to CohortCacheManager which fetches
         // ALL cohorts for the team.
-        let cohorts = match self.preloaded_cohorts.take() {
+        let cohorts: Arc<[Cohort]> = match self.preloaded_cohorts.take() {
             Some(preloaded) => {
                 inc(
                     FLAG_COHORT_SOURCE_COUNTER,
@@ -1981,10 +2018,10 @@ impl FeatureFlagMatcher {
                     &[("source".to_string(), "cache_manager".to_string())],
                     1,
                 );
-                self.cohort_cache.get_cohorts(self.team_id).await?
+                Arc::from(self.cohort_cache.get_cohorts(self.team_id).await?)
             }
         };
-        self.flag_evaluation_state.set_cohorts(cohorts.clone());
+        self.flag_evaluation_state.set_cohorts(Arc::clone(&cohorts));
 
         // Get static cohort IDs
         // NOTE: relies on `is_static` and `uses_realtime_membership()` being mutually exclusive

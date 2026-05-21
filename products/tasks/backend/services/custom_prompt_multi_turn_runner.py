@@ -13,13 +13,13 @@ if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 from posthog.temporal.common.client import async_connect
 
-from products.tasks.backend.services.custom_prompt_executor import extract_json_from_text
-from products.tasks.backend.services.custom_prompt_runner import (
+from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
-    _create_task_and_trigger,
-    _poll_for_turn,
+    create_task_and_trigger,
+    extract_json_from_text,
+    poll_for_turn,
 )
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
@@ -53,17 +53,19 @@ class MultiTurnSession:
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
-        origin_product: str | None = None,
+        origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        internal: bool = False,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first response."""
-        task, task_run = await _create_task_and_trigger(
+        task, task_run = await create_task_and_trigger(
             prompt,
             context,
             branch,
             step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            internal=internal,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns
@@ -78,7 +80,7 @@ class MultiTurnSession:
             _workflow_handle=workflow_handle,
         )
         started_at = time.monotonic()
-        last_message, _, session.log_lines_seen, session.printed_lines = await _poll_for_turn(
+        last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
             task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
         )
         logger.info(
@@ -132,7 +134,7 @@ class MultiTurnSession:
             attempt,
         )
         try:
-            last_message, _, self.log_lines_seen, self.printed_lines = await _poll_for_turn(
+            last_message, _, self.log_lines_seen, self.printed_lines = await poll_for_turn(
                 self.task_run,
                 skip_lines=self.log_lines_seen,
                 printed_lines=self.printed_lines,

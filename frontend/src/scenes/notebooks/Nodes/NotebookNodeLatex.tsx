@@ -1,8 +1,8 @@
-import { browserAdaptor } from 'mathjax-full/js/adaptors/browserAdaptor.js'
-import { RegisterHTMLHandler } from 'mathjax-full/js/handlers/html.js'
-import { TeX } from 'mathjax-full/js/input/tex.js'
-import { mathjax } from 'mathjax-full/js/mathjax.js'
-import { SVG } from 'mathjax-full/js/output/svg.js'
+import { browserAdaptor } from '@mathjax/src/mjs/adaptors/browserAdaptor.js'
+import { RegisterHTMLHandler } from '@mathjax/src/mjs/handlers/html.js'
+import { TeX } from '@mathjax/src/mjs/input/tex.js'
+import { mathjax } from '@mathjax/src/mjs/mathjax.js'
+import { SVG } from '@mathjax/src/mjs/output/svg.js'
 import { useEffect, useRef, useState } from 'react'
 
 import { LemonTextArea } from '@posthog/lemon-ui'

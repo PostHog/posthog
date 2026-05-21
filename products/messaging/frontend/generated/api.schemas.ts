@@ -43,6 +43,26 @@ export interface PaginatedMessageCategoryListApi {
     results: MessageCategoryApi[]
 }
 
+export interface AddOptOutRequestApi {
+    /**
+     * The recipient identifier to opt out (e.g. email address).
+     * @maxLength 512
+     */
+    identifier: string
+    /** Optional message category key. If omitted, the recipient is opted out of all marketing messages. */
+    category_key?: string
+}
+
+export interface MessagePreferencesApi {
+    readonly id: string
+    /** The recipient identifier (e.g. email address). */
+    identifier: string
+    /** When the preference was last updated. */
+    updated_at: string
+    /** Map of category ID to preference status. */
+    preferences: unknown
+}
+
 /**
  * * `hog` - hog
  * `liquid` - liquid
@@ -96,14 +116,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -123,7 +139,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 export interface MessageTemplateApi {

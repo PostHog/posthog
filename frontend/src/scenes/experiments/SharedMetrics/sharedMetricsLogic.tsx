@@ -16,6 +16,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
     actions({
         updateSharedMetricTags: (metricId: SharedMetric['id'], tags: string[]) => ({ metricId, tags }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        deleteSharedMetric: (metricId: SharedMetric['id']) => ({ metricId }),
     }),
 
     reducers({
@@ -57,6 +58,15 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
             } catch {
                 lemonToast.error('Failed to save tags')
                 actions.loadSharedMetrics()
+            }
+        },
+        deleteSharedMetric: async ({ metricId }) => {
+            try {
+                await api.delete(`api/projects/${values.currentProjectId}/experiment_saved_metrics/${metricId}`)
+                lemonToast.success('Shared metric deleted successfully')
+                actions.loadSharedMetrics()
+            } catch {
+                lemonToast.error('Failed to delete shared metric')
             }
         },
     })),

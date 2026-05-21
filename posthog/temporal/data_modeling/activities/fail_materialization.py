@@ -1,4 +1,6 @@
 import dataclasses
+from typing import TYPE_CHECKING
+from uuid import UUID
 
 from structlog import get_logger
 from structlog.contextvars import bind_contextvars
@@ -8,13 +10,46 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models import Node
+from products.data_warehouse.backend.data_load.saved_query_service import pause_saved_query_schedule
 from products.data_warehouse.backend.models import DataModelingJob
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 from .utils import strip_hostname_from_error, update_node_system_properties
 
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
 LOGGER = get_logger(__name__)
+
+CONSECUTIVE_TIMEOUTS_TO_PAUSE = 5
+
+
+def _get_previous_jobs(saved_query_id: UUID, current_job_id: UUID, count: int) -> "QuerySet[DataModelingJob]":
+    """Get the most recent jobs for a saved query, excluding the current job."""
+    return (
+        DataModelingJob.objects.filter(saved_query_id=saved_query_id)
+        .exclude(id=current_job_id)
+        .order_by("-created_at")[:count]
+    )
+
+
+def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job_id: UUID) -> tuple[bool, int]:
+    """Check if the schedule should be paused based on consecutive timeout failures.
+
+    Returns True only if all of the previous CONSECUTIVE_TIMEOUTS_TO_PAUSE jobs
+    failed due to query timeouts. This prevents pausing schedules for transient
+    timeouts that can occur due to temporary ClickHouse load.
+    """
+    previous_jobs = list(_get_previous_jobs(saved_query_id, current_job_id, CONSECUTIVE_TIMEOUTS_TO_PAUSE))
+    count = 0
+    for job in previous_jobs:
+        if job.status != DataModelingJobStatus.FAILED:
+            break
+        if not job.error or ("Timeout exceeded" not in job.error and "exceeded timeout" not in job.error.lower()):
+            break
+        count += 1
+    return count == CONSECUTIVE_TIMEOUTS_TO_PAUSE, count
 
 
 @dataclasses.dataclass
@@ -67,15 +102,22 @@ def _get_saved_query_for_job(job: DataModelingJob) -> DataWarehouseSavedQuery | 
 
 
 @database_sync_to_async
-def _pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWarehouseSavedQuery) -> None:
-    from products.data_warehouse.backend.data_load.saved_query_service import pause_saved_query_schedule
+def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWarehouseSavedQuery) -> bool:
+    """Pause the schedule only if the previous N jobs all failed due to timeouts.
+
+    Returns True if the schedule was paused, False otherwise. This prevents pausing
+    schedules for transient timeouts that can occur due to temporary ClickHouse load.
+    """
+    should_pause, _ = should_pause_schedule_for_timeout(saved_query.id, job.id)
+    if not should_pause:
+        return False
 
     saved_query.sync_frequency_interval = None
     saved_query.save(update_fields=["sync_frequency_interval"])
     pause_saved_query_schedule(saved_query)
-    # we can use this specific language in the error to add these jobs to the daily email digest later
     job.error = f"This materialized view sync schedule has been paused until you modify the query and reset the sync schedule. Error: {job.error}"
     job.save(update_fields=["error"])
+    return True
 
 
 @database_sync_to_async
@@ -110,10 +152,15 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
             return
 
         if "Timeout exceeded" in error:
-            await logger.ainfo(
-                f"Pausing schedule for node {inputs.node_id} due to timeout",
-            )
-            await _pause_schedule_on_timeout(job, saved_query)
+            paused = await _maybe_pause_schedule_on_timeout(job, saved_query)
+            if paused:
+                await logger.ainfo(
+                    f"Pausing schedule for node {inputs.node_id} due to {CONSECUTIVE_TIMEOUTS_TO_PAUSE} consecutive timeout failures",
+                )
+            else:
+                await logger.ainfo(
+                    f"Timeout for node {inputs.node_id} - not pausing schedule (fewer than {CONSECUTIVE_TIMEOUTS_TO_PAUSE} consecutive timeouts)",
+                )
         elif "Unknown table" in error:
             await logger.ainfo(
                 f"Reverting materialization for node {inputs.node_id} due to unknown table reference",

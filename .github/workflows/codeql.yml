@@ -1,12 +1,11 @@
 name: 'CodeQL Advanced'
 
+# Disabled: CodeQL Advanced runs are gated to manual dispatch while we evaluate
+# its impact on GITHUB_TOKEN usage. Re-add `push`, `pull_request`, and `schedule`
+# triggers to re-enable. Disabling via GitHub's UI alone is not sufficient for
+# Advanced workflows — the workflow file's triggers must also be removed.
 on:
-    push:
-        branches: ['master']
-    pull_request:
-        branches: ['master']
-    schedule:
-        - cron: '38 19 * * 1'
+    workflow_dispatch:
 
 # Cancel superseded PR runs; queue master/schedule so every commit gets scanned.
 concurrency:
@@ -58,7 +57,7 @@ jobs:
                 # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Add any setup steps before running the `github/codeql-action/init` action.
             # This includes steps like installing compilers or runtimes (`actions/setup-node`

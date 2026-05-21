@@ -138,6 +138,7 @@ class HyperCache:
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_alias: Optional[str] = None,
+        secondary_cache_alias: Optional[str] = None,
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
@@ -159,6 +160,13 @@ class HyperCache:
         else:
             self.cache_client = cache
             self.redis_url = settings.REDIS_URL
+
+        # Optional secondary cache; writes are mirrored on a best-effort basis.
+        self.secondary_cache_client = (
+            caches[secondary_cache_alias]
+            if secondary_cache_alias and secondary_cache_alias in settings.CACHES
+            else None
+        )
 
     @staticmethod
     def team_from_key(key: KeyType) -> Team:
@@ -232,47 +240,56 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
-    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str]]:
+    def batch_get_from_cache(self, teams: list[Team]) -> dict[int, tuple[dict | None, str, str | None]]:
         """
         Batch get cached values for multiple teams using MGET.
 
         Only reads from Redis (no S3 or DB fallback). This is optimized for
         verification where we want to check what's in cache without side effects.
 
+        When ``enable_etag=True``, etag keys are fetched in the same MGET so
+        the per-chunk Redis cost is one round trip regardless of how many
+        callers in the verify loop need the etag. The returned etag is
+        ``None`` when the key is absent (which the verifier surfaces as a
+        ``MISSING_ETAG`` mismatch) or when ``enable_etag=False``.
+
         Args:
             teams: List of Team objects to get cached values for
 
         Returns:
-            Dict mapping team_id to (cached_data, source) tuples.
+            Dict mapping team_id to (cached_data, source, etag) tuples.
             source is "redis" for hits, "miss" for cache misses.
+            etag is the cached etag string (or None when absent / disabled).
             Teams not in the result had no cache entry.
         """
         if not teams:
             return {}
 
-        # Build cache keys for all teams
+        # Build cache keys for all teams. When etags are enabled, append the
+        # etag keys to the same get_many call so we pay one round trip total.
         cache_keys = [self.get_cache_key(team) for team in teams]
+        etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
-        # Batch get from Redis using get_many (Django cache's MGET wrapper)
-        cached_values = self.cache_client.get_many(cache_keys)
+        cached_values = self.cache_client.get_many(cache_keys + etag_keys)
 
         # Map results back to team IDs, counting hits and misses for batch metrics
-        results: dict[int, tuple[dict | None, str]] = {}
+        results: dict[int, tuple[dict | None, str, str | None]] = {}
         hit_count = 0
         miss_count = 0
 
-        for team, cache_key in zip(teams, cache_keys):
+        for i, (team, cache_key) in enumerate(zip(teams, cache_keys)):
+            etag = cached_values.get(etag_keys[i]) if self.enable_etag else None
             data = cached_values.get(cache_key)
             if data is not None:
                 hit_count += 1
                 if data == _HYPER_CACHE_EMPTY_VALUE:
-                    results[team.id] = (None, "redis")
+                    results[team.id] = (None, "redis", etag)
                 else:
-                    results[team.id] = (json.loads(data), "redis")
+                    results[team.id] = (json.loads(data), "redis", etag)
             else:
                 # Cache miss - no S3/DB fallback in batch mode
                 miss_count += 1
-                results[team.id] = (None, "miss")
+                results[team.id] = (None, "miss", etag)
 
         # Batch increment Prometheus counters once per batch (avoids O(n) labels() overhead)
         if hit_count:
@@ -371,6 +388,24 @@ class HyperCache:
             self._track_expiry(key, data, ttl=ttl)
         return size
 
+    def set_cache_value_redis_only(
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+    ) -> int | None:
+        """
+        Write only to the configured cache backend (self.cache_client), skipping S3
+        and expiry tracking.
+
+        Use this for backfills where S3 is known to already hold fresh data
+        (e.g. populated by the normal sync() path) and the only cold tier is the
+        cache backend. In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is
+        the dedicated flags Redis; in dev/test it's whatever the alias resolves to.
+        Returns the serialized size in bytes, or None for None/missing values.
+        """
+        return self._set_cache_value_redis(key, data, ttl=ttl)
+
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
         Only meant for use in tests
@@ -386,6 +421,21 @@ class HyperCache:
         finally:
             self._remove_expiry_tracking(key)
 
+    def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
+        """Best-effort mirror write; failures are logged and captured, never propagated."""
+        if self.secondary_cache_client is None:
+            return
+        try:
+            op(self.secondary_cache_client)
+        except Exception as e:
+            logger.warning(
+                "HyperCache secondary cache write failed",
+                namespace=self.namespace,
+                value=self.value,
+                exc_info=True,
+            )
+            capture_exception(e)
+
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
     ) -> int | None:
@@ -398,8 +448,10 @@ class HyperCache:
         etag_key = self.get_etag_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
             self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
+            self._mirror_to_secondary(lambda c: c.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl))
             # Always delete ETag key to clean up stale ETags from when enable_etag was True
             self.cache_client.delete(etag_key)
+            self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
@@ -410,10 +462,13 @@ class HyperCache:
                 # Write data and ETag via pipeline (single Redis round trip)
                 # Note this is not strictly atomic, but good enough for our use case
                 self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
+                self._mirror_to_secondary(lambda c: c.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout))
             else:
                 self.cache_client.set(cache_key, json_data, timeout=timeout)
+                self._mirror_to_secondary(lambda c: c.set(cache_key, json_data, timeout=timeout))
                 # Clean up stale ETag if ETags were previously enabled
                 self.cache_client.delete(etag_key)
+                self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return len(json_data)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):

@@ -9,6 +9,7 @@ import {
     INTEGER_REGEX_MATCH_GROUPS,
     SHORT_CODE_REGEX_MATCH_GROUPS,
     UUID_REGEX_MATCH_GROUPS,
+    buildNotebookNodeClipboardHTML,
     createUrlRegex,
     sortProperties,
     useSyncedAttributes,
@@ -153,6 +154,88 @@ describe('notebook node utils', () => {
 
             jest.runOnlyPendingTimers()
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('buildNotebookNodeClipboardHTML', () => {
+        // Reads back an attribute the same way the per-attribute parseHTML in `createPostHogWidgetNode`
+        // does, so each round-trip exercises the actual paste path end-to-end.
+        function roundTrip(value: unknown): unknown {
+            const html = buildNotebookNodeClipboardHTML('ph-test-node', { x: value })
+            const parsed = new DOMParser().parseFromString(html, 'text/html')
+            const element = parsed.querySelector('ph-test-node')!
+            const raw = element.getAttribute('x')
+            return raw === null ? null : JSON.parse(raw)
+        }
+
+        it('uses the given tag name', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {})
+            expect(html.startsWith('<ph-query-node')).toBe(true)
+            expect(html.endsWith('</ph-query-node>')).toBe(true)
+        })
+
+        it('always includes the ProseMirror slice marker', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {})
+            expect(html).toContain('data-pm-slice="0 0 []"')
+        })
+
+        it('skips nodeId so paste does not duplicate IDs', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', { nodeId: 'abc-123', kind: 'X' })
+            expect(html).not.toContain('abc-123')
+            expect(html).toContain('kind=')
+        })
+
+        it('skips internal __-prefixed keys', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                __init: true,
+                __anything: 'private',
+                kind: 'X',
+            })
+            expect(html).not.toContain('__init')
+            expect(html).not.toContain('__anything')
+            expect(html).toContain('kind=')
+        })
+
+        it('skips null and undefined values', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                absent: null,
+                missing: undefined,
+                kind: 'X',
+            })
+            expect(html).not.toContain('absent')
+            expect(html).not.toContain('missing')
+            expect(html).toContain('kind=')
+        })
+
+        it.each([
+            ['object', { kind: 'DataTableNode', source: { kind: 'HogQLQuery' } }],
+            ['nested object', { a: { b: { c: 'deep' } } }],
+            ['array', [1, 2, 3]],
+            ['array of objects', [{ id: 1 }, { id: 2 }]],
+            ['string', 'print(1)'],
+            ['empty string', ''],
+            ['number', 42],
+            ['zero', 0],
+            ['negative number', -7.5],
+            ['boolean true', true],
+            ['boolean false', false],
+            ['string with apostrophe', "don't"],
+            ['string with double quotes', 'say "hi"'],
+            ['string with both quotes', `it's "fine"`],
+            ['string with angle brackets', '<div>x</div>'],
+            ['string with ampersand', 'a & b'],
+        ])('round-trips %s through copy and paste', (_label, value) => {
+            expect(roundTrip(value)).toEqual(value)
+        })
+
+        it('produces HTML that a DOMParser parses without errors', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                query: { kind: 'X', source: { value: 'it\'s "tricky"' } },
+                count: 5,
+            })
+            const doc = new DOMParser().parseFromString(html, 'text/html')
+            expect(doc.querySelector('parsererror')).toBeNull()
+            expect(doc.querySelector('ph-query-node')).not.toBeNull()
         })
     })
 

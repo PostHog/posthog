@@ -119,7 +119,7 @@ class TestFollowupDeliveryFailure:
     async def test_failed_followup_marks_run_as_failed_promptly(self):
         """The workflow must exit its main loop and mark the run as failed
         within seconds when a followup delivery fails — not after the
-        5-minute inactivity timeout."""
+        2-hour inactivity timeout."""
         _status_updates.clear()
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -208,6 +208,7 @@ def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
             fingerprint="closed-fp",
         )
     if behavior == "unchanged":
+        _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
         return GetPrContextOutput(
             pr_url="https://github.com/org/repo/pull/1",
             pr_state="open",
@@ -337,12 +338,12 @@ class TestCIFollowUpLoop:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(hours=2),
+                    execution_timeout=timedelta(hours=3),
                 )
                 # With CI gated off, the inactivity timer stays at its default
-                # 5m and is not extended to cover CI_FOLLOW_UP_DELAY (15m). The
-                # workflow therefore terminates via inactivity well before the
-                # CI deadline — which itself proves no follow-up could fire.
+                # 2h and is not extended to cover CI_FOLLOW_UP_DELAY (15m). No
+                # CI follow-up scheduler is armed, so the workflow terminates
+                # via inactivity — which itself proves no follow-up could fire.
                 await handle.result()
 
         assert _ci_followup_calls == []
@@ -442,7 +443,7 @@ class TestFollowupGuards:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(hours=2),
+                    execution_timeout=timedelta(hours=3),
                 )
                 # The CI loop stops after finding no PR, then the workflow
                 # exits via inactivity timeout — no signal needed.
@@ -475,9 +476,10 @@ class TestFollowupGuards:
         # The first CI check runs (fingerprint moves from None → "stable-fp"),
         # sending a single follow-up. Subsequent checks must see the stored
         # fingerprint match and skip — so only one follow-up should ever be
-        # dispatched. We drive the workflow to inactivity timeout to exercise
-        # multiple CI cycles; if skipping were broken, _ci_followup_calls
-        # would grow past 1.
+        # dispatched, and get_pr_context must be called at most once per
+        # CI_FOLLOW_UP_DELAY tick. If the skip path forgot to advance
+        # _last_active_time, _wait_for_ci_follow_up would return immediately
+        # on every loop iteration and burn the GitHub API rate limit.
         _pr_context_overrides["behavior"] = "unchanged"
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -491,12 +493,25 @@ class TestFollowupGuards:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=2),
                 )
-                # Sleep past the second CI deadline (30m) so a skip must fire.
-                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 2)
+                # Sleep well past the third CI deadline (45m+) so the skip
+                # path is exercised twice. With the bug, _wait_for_ci_follow_up
+                # returns instantly after each skip and the activity gets
+                # called as fast as the round-trip allows; with the fix, each
+                # skip resets _last_active_time and the next call is gated to
+                # +CI_FOLLOW_UP_DELAY.
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 3 + 60)
                 await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
                 await handle.result()
 
         assert len(_ci_followup_calls) == 1
+        # One call per CI tick: fire at T=15m, skip at T=30m, skip at T=45m.
+        # If _last_active_time isn't advanced on skip, _wait_for_ci_follow_up
+        # returns immediately and the activity gets hammered.
+        pr_context_calls = _pr_context_overrides.get("_call_count", 0)
+        assert pr_context_calls <= 4, (
+            f"expected ≤4 get_pr_context calls across 45m+, got {pr_context_calls} — "
+            "skip path is tight-looping and burning the GitHub rate limit"
+        )
 
     @pytest.mark.timeout(60)
     async def test_ci_follow_up_fires_on_changed_fingerprint_and_persists(self):
@@ -551,7 +566,7 @@ class TestFollowupGuards:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(hours=2),
+                    execution_timeout=timedelta(hours=3),
                 )
                 # No heartbeats sent — agent is idle. The CI loop should stop
                 # after one check and the workflow exits via inactivity timeout.

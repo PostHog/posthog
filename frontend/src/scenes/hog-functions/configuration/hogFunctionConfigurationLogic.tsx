@@ -947,8 +947,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
+                const baseGlobals = sampleGlobals ?? exampleInvocationGlobals
+
+                // Transformations only receive `project` and `event` at runtime
+                // (see HogTransformerService.createInvocationGlobals). Hide `person`,
+                // `groups`, `source`, etc. so input templates can't reference them
+                // and trigger a "Global variable not found" failure in production.
+                if (configuration.type === 'transformation') {
+                    return {
+                        project: baseGlobals.project,
+                        event: baseGlobals.event,
+                        inputs,
+                    }
+                }
+
                 return {
-                    ...(sampleGlobals ?? exampleInvocationGlobals),
+                    ...baseGlobals,
                     inputs,
                 }
             },

@@ -1,0 +1,8 @@
+// Constrain the trace scene to fill the visible area below the breadcrumbs on
+// desktop, so the trace tree and event content panels can scroll independently
+// instead of sharing a single page-level scroll.
+.LLMAnalyticsTraceScene__wrapper {
+    @media screen and (min-width: 768px) {
+        height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
+    }
+}

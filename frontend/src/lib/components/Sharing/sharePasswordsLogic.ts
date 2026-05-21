@@ -12,14 +12,15 @@ export interface SharePasswordsLogicProps {
     dashboardId?: number
     insightId?: number
     recordingId?: string
+    notebookShortId?: string
 }
 
 export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
     path(['lib', 'components', 'Sharing', 'sharePasswordsLogic']),
     props({} as SharePasswordsLogicProps),
     key(
-        ({ dashboardId, insightId, recordingId }) =>
-            `${dashboardId || 'no-dashboard'}-${insightId || 'no-insight'}-${recordingId || 'no-recording'}`
+        ({ dashboardId, insightId, recordingId, notebookShortId }) =>
+            `${dashboardId || 'no-dashboard'}-${insightId || 'no-insight'}-${recordingId || 'no-recording'}-${notebookShortId || 'no-notebook'}`
     ),
 
     actions({
@@ -41,6 +42,7 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
                     dashboardId: props.dashboardId,
                     insightId: props.insightId,
                     recordingId: props.recordingId,
+                    notebookShortId: props.notebookShortId,
                 })
                 return (response && (response as any).share_passwords) || []
             },
@@ -81,6 +83,7 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
                         dashboardId: props.dashboardId,
                         insightId: props.insightId,
                         recordingId: props.recordingId,
+                        notebookShortId: props.notebookShortId,
                     },
                     {
                         raw_password: password,
@@ -113,6 +116,7 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
                         dashboardId: props.dashboardId,
                         insightId: props.insightId,
                         recordingId: props.recordingId,
+                        notebookShortId: props.notebookShortId,
                     },
                     passwordId
                 )

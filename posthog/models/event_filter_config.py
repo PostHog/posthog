@@ -30,7 +30,7 @@ class EventFilterConfig(UUIDTModel):
     """
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE, related_name="event_filter")
-    mode = models.CharField(max_length=20, choices=EventFilterMode.choices, default=EventFilterMode.DISABLED)
+    mode = models.CharField(max_length=20, choices=EventFilterMode, default=EventFilterMode.DISABLED)
     filter_tree = models.JSONField(
         default=None,
         null=True,

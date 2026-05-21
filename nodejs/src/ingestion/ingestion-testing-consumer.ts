@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
-import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError, PluginServerService, PluginsServerConfig } from '../types'
 import { logger } from '../utils/logger'
@@ -47,7 +47,7 @@ export class IngestionTestingConsumer {
     protected groupId: string
     protected topic: string
     protected dlqTopic: string
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
     protected kafkaProducer?: KafkaProducerWrapper
     public readonly promiseScheduler = new PromiseScheduler()
@@ -75,7 +75,7 @@ export class IngestionTestingConsumer {
 
         this.name = `ingestion-testing-consumer-${this.topic}`
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
         })

@@ -8,6 +8,7 @@ import orjson
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
+from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -19,7 +20,6 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     LimitContext as SchemaLimitContext,
-    ProductKey,
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
@@ -30,18 +30,22 @@ from posthog.schema import (
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.monitoring import Feature, monitor
+from posthog.api.monitoring import (
+    Feature as MonitoringFeature,
+    monitor,
+)
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Product, get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
@@ -67,25 +71,13 @@ from common.hogvm.python.utils import HogVMException
 
 logger = structlog.get_logger(__name__)
 
+tracer = trace.get_tracer(__name__)
+
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
     "Query validation failures returned from the query API.",
     labelnames=["query_type", "validation_code"],
 )
-
-
-# Scene -> tags to apply. The scene is set by the frontend in the query payload's
-# `tags.scene` (see addTags in dataNodeLogic.ts). Add entries as new scenes need specific
-# tagging. Scenes not listed here stay untagged and trip UntaggedQueryError in DEBUG,
-# which is the signal to register them.
-_SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
-    "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
-}
-
-
-def _infer_query_tags(query: BaseModel) -> dict[str, Product | ProductKey | Feature]:
-    scene = getattr(getattr(query, "tags", None), "scene", None) or ""
-    return _SCENE_TO_TAGS.get(scene, {})
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -175,11 +167,12 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             200: QueryResponseAlternative,
         },
     )
-    @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
+    @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         self._validate_query_kind(request, kwargs.get("query_kind"))
         start_time = perf_counter()
-        upgraded_query = upgrade(request.data)
+        with tracer.start_as_current_span("posthog.query.upgrade"):
+            upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
 
         query = None
@@ -188,13 +181,6 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 data, self.team, data.client_query_id, request.user
             )
 
-            # Tag product and feature based on the frontend-supplied `tags.scene`. A per-query
-            # `tags.productKey` or a product-specific runner can still override this inside
-            # QueryRunner.run or QueryRunner.calculate before sync_execute fires. Scenes not
-            # registered in `_infer_query_tags` stay untagged — they surface as
-            # UntaggedQueryError in DEBUG, which is the signal to add them.
-            if inferred_tags := _infer_query_tags(query):
-                tag_queries(**inferred_tags)
             self._tag_client_query_id(client_query_id)
             analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
@@ -211,22 +197,31 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             else:
                 limit_context = None
 
-            result = process_query_model(
-                self.team,
-                query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user,  # type: ignore[arg-type]
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-                limit_context=limit_context,
-                analytics_props=analytics_props,
-            )
-            if isinstance(result, BaseModel):
-                result = result.model_dump(by_alias=True)
+            with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
+                process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
+                process_span.set_attribute(
+                    "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
+                )
+                if limit_context is not None:
+                    process_span.set_attribute("query.limit_context", limit_context.value)
+                result = process_query_model(
+                    self.team,
+                    query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user,  # type: ignore[arg-type]
+                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    limit_context=limit_context,
+                    analytics_props=analytics_props,
+                )
+                if isinstance(result, BaseModel):
+                    result = result.model_dump(by_alias=True)
 
             total_time_ms = round((perf_counter() - start_time) * 1000, 2)
             try:
-                response_bytes = len(orjson.dumps(result))
+                with tracer.start_as_current_span("posthog.query.serialize_response") as serialize_span:
+                    response_bytes = len(orjson.dumps(result))
+                    serialize_span.set_attribute("response.bytes", response_bytes)
                 report_user_or_team_action(
                     "query api response",
                     {
@@ -251,14 +246,24 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 else status.HTTP_200_OK
             )
 
-            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
-                formatted = self._try_format_for_llm(query, result)
-                if formatted is not None:
-                    result["formatted_results"] = formatted
+            if request.headers.get("x-posthog-client") == "mcp":
+                with tracer.start_as_current_span("posthog.query.format_for_llm") as llm_span:
+                    formatted = self._try_format_for_llm(query, result)
+                    llm_span.set_attribute("query.formatted", formatted is not None)
+                    if formatted is not None:
+                        result["formatted_results"] = formatted
 
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            detail = str(e)
+            extra: dict | None = None
+            if isinstance(e, ExposedHogQLError):
+                request_user = request.user if isinstance(request.user, User) else None
+                detail, extra = enrich_hogql_validation_error(query, self.team, request_user, detail)
+            validation_error = ValidationError(detail, getattr(e, "code_name", None))
+            if extra is not None:
+                validation_error.extra = extra  # type: ignore[attr-defined]
+            raise validation_error
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
@@ -285,7 +290,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: QueryStatusResponse},
     )
-    @monitor(feature=Feature.QUERY, endpoint="query", method="GET")
+    @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="GET")
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
         show_progress: bool = request.query_params.get("show_progress", False) == "true"
         show_progress = (
@@ -316,7 +321,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             204: OpenApiResponse(description="Query cancelled"),
         },
     )
-    @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
+    @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         dequeue_only = request.query_params.get("dequeue_only", False) == "true"
         message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)

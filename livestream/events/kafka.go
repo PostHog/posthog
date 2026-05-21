@@ -12,6 +12,7 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
+	"github.com/posthog/posthog/livestream/bot"
 	"github.com/posthog/posthog/livestream/configs"
 	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/metrics"
@@ -113,6 +114,12 @@ type PostHogEvent struct {
 	Lat         float64
 	Lng         float64
 	CountryCode string
+
+	// Bot classification (populated by bot.Classifier)
+	IsBot           bool
+	TrafficType     string
+	TrafficCategory string
+	BotName         string
 }
 
 type KafkaConsumerInterface interface {
@@ -122,14 +129,15 @@ type KafkaConsumerInterface interface {
 }
 
 type PostHogKafkaConsumer struct {
-	consumer     KafkaConsumerInterface
-	topic        string
-	geolocator   geo.GeoLocator
-	incoming     chan []byte
-	outgoingChan chan PostHogEvent
-	statsChan    chan CountEvent
-	parallel     int
-	Broker       *RedisEventBroker
+	consumer       KafkaConsumerInterface
+	topic          string
+	geolocator     geo.GeoLocator
+	botClassifier  *bot.Classifier
+	incoming       chan []byte
+	outgoingChan   chan PostHogEvent
+	statsChan      chan CountEvent
+	parallel       int
+	Broker         *RedisEventBroker
 }
 
 func NewPostHogKafkaConsumer(
@@ -155,13 +163,14 @@ func NewPostHogKafkaConsumer(
 	}
 
 	return &PostHogKafkaConsumer{
-		consumer:     consumer,
-		topic:        consumerConfig.Topic,
-		geolocator:   geolocator,
-		incoming:     make(chan []byte, (1+parallel)*100),
-		outgoingChan: outgoingChan,
-		statsChan:    statsChan,
-		parallel:     parallel,
+		consumer:      consumer,
+		topic:         consumerConfig.Topic,
+		geolocator:    geolocator,
+		botClassifier: bot.NewClassifier(),
+		incoming:      make(chan []byte, (1+parallel)*100),
+		outgoingChan:  outgoingChan,
+		statsChan:     statsChan,
+		parallel:      parallel,
 	}, nil
 }
 
@@ -209,7 +218,7 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 		if !ok {
 			return
 		}
-		phEvent := parse(c.geolocator, value)
+		phEvent := parse(c.geolocator, c.botClassifier, value)
 		if phEvent.Token == "" {
 			continue
 		}
@@ -222,7 +231,7 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 	}
 }
 
-func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
+func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
@@ -280,7 +289,54 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 		phEvent.CountryCode = geoResult.CountryCode
 	}
 
+	if classifier != nil && shouldClassifyBot(phEvent.Event) {
+		userAgent := extractUserAgent(phEvent.Properties)
+		if userAgent != "" {
+			result := classifier.Classify(userAgent)
+			phEvent.IsBot = result.IsBot
+			phEvent.TrafficType = result.TrafficType
+			phEvent.TrafficCategory = result.TrafficCategory
+			phEvent.BotName = result.BotName
+			// Inject $virt_* properties so they flow through both the
+			// in-memory filter and the Redis pub/sub path.
+			if result.TrafficType != "" {
+				phEvent.Properties["$virt_is_bot"] = result.IsBot
+				phEvent.Properties["$virt_traffic_type"] = result.TrafficType
+				phEvent.Properties["$virt_traffic_category"] = result.TrafficCategory
+				if result.BotName != "" {
+					phEvent.Properties["$virt_bot_name"] = result.BotName
+				}
+			}
+		}
+	}
+
 	return phEvent
+}
+
+var botClassifyEvents = map[string]bool{
+	"$pageview":  true,
+	"$pageleave": true,
+	"$screen":    true,
+	"$http_log":  true,
+	"$autocapture": true,
+}
+
+func shouldClassifyBot(event string) bool {
+	return botClassifyEvents[event]
+}
+
+func extractUserAgent(props map[string]interface{}) string {
+	if uaValue, ok := props["$user_agent"]; ok {
+		if ua, ok := uaValue.(string); ok && ua != "" {
+			return ua
+		}
+	}
+	if rawUA, ok := props["$raw_user_agent"]; ok {
+		if ua, ok := rawUA.(string); ok && ua != "" {
+			return ua
+		}
+	}
+	return ""
 }
 
 func (c *PostHogKafkaConsumer) Close() {

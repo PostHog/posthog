@@ -9,6 +9,10 @@ class LegalDocument(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UU
         BAA = "BAA", "Business Associate Agreement"
         DPA = "DPA", "Data Processing Agreement"
 
+        # MSA can only be created by staff via Django admin (uploads a counter-signed
+        # PDF directly). The public API serializer does not list MSA as a valid choice.
+        MSA = "MSA", "Master Service Agreement"
+
     class Status(models.TextChoices):
         SUBMITTED_FOR_SIGNATURE = "submitted_for_signature", "Submitted for signature"
         SIGNED = "signed", "Signed"
