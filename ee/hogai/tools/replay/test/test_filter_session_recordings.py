@@ -10,6 +10,7 @@ from posthog.schema import (
     MaxInnerUniversalFiltersGroup,
     MaxOuterUniversalFiltersGroup,
     MaxRecordingUniversalFilters,
+    PersonPropertyFilter,
     PropertyOperator,
     RecordingDurationFilter,
 )
@@ -173,6 +174,137 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("5.", result_text)
         self.assertNotIn("6.", result_text)
         self.assertIsNone(artifact)
+
+    async def test_warns_when_is_not_filter_on_person_property(self):
+        base_time = datetime(2025, 1, 15, 10, 0, 0)
+        self._produce_replay(
+            distinct_id="user_1",
+            first_timestamp=base_time,
+            last_timestamp=base_time + timedelta(minutes=5),
+        )
+
+        tool = await self._create_tool()
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[
+                            PersonPropertyFilter(
+                                key="email",
+                                operator=PropertyOperator.IS_NOT,
+                                value=["alice@example.com"],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+
+        result_text, _ = await tool._arun_impl(recordings_filters=filters)
+
+        self.assertIn("⚠️", result_text)
+        self.assertIn("`email`", result_text)
+        self.assertIn("unset or null", result_text)
+        self.assertIn("`email` vs `$email`", result_text)
+
+    async def test_no_warning_when_no_negative_operators(self):
+        base_time = datetime(2025, 1, 15, 10, 0, 0)
+        self._produce_replay(
+            distinct_id="user_1",
+            first_timestamp=base_time,
+            last_timestamp=base_time + timedelta(minutes=5),
+        )
+
+        tool = await self._create_tool()
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[
+                            PersonPropertyFilter(
+                                key="email",
+                                operator=PropertyOperator.EXACT,
+                                value=["alice@example.com"],
+                            )
+                        ],
+                    )
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+
+        result_text, _ = await tool._arun_impl(recordings_filters=filters)
+
+        self.assertNotIn("Heads up:", result_text)
+
+    def test_collect_negative_entity_filter_keys_deduplicates_and_orders(self):
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[
+                            PersonPropertyFilter(
+                                key="email",
+                                operator=PropertyOperator.IS_NOT,
+                                value=["a@b.com"],
+                            ),
+                            PersonPropertyFilter(
+                                key="plan",
+                                operator=PropertyOperator.NOT_ICONTAINS,
+                                value="enterprise",
+                            ),
+                            PersonPropertyFilter(
+                                key="email",
+                                operator=PropertyOperator.IS_NOT,
+                                value=["c@d.com"],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+        self.assertEqual(
+            FilterSessionRecordingsTool._collect_negative_entity_filter_keys(filters),
+            ["email", "plan"],
+        )
+
+    def test_collect_negative_entity_filter_keys_ignores_recording_metrics(self):
+        from posthog.schema import RecordingPropertyFilter
+
+        filters = MaxRecordingUniversalFilters(
+            filter_group=MaxOuterUniversalFiltersGroup(
+                type="AND",
+                values=[
+                    MaxInnerUniversalFiltersGroup(
+                        type="AND",
+                        values=[
+                            RecordingPropertyFilter(
+                                key="console_error_count",
+                                operator=PropertyOperator.IS_NOT,
+                                value=[0],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            duration=[],
+            date_from="-7d",
+        )
+        self.assertEqual(
+            FilterSessionRecordingsTool._collect_negative_entity_filter_keys(filters),
+            [],
+        )
 
     async def test_filters_by_duration(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)

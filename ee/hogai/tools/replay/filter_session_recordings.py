@@ -5,7 +5,7 @@ import structlog
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
 
-from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
+from posthog.schema import MaxRecordingUniversalFilters, PropertyOperator, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
@@ -58,7 +58,9 @@ class FilterSessionRecordingsToolArgs(BaseModel):
 
         **IMPORTANT — `element` is NOT a top-level filter type**: The top-level `filter_group.values` only accept types: `event`, `person`, `session`, `recording`, `group`, and `events`. Use `element` property filters only inside an `events` filter for an autocaptured interaction such as `$autocapture` or `$rageclick`. Example: `{{"id": "$autocapture", "type": "events", "properties": [{{"key": "text", "type": "element", "value": "Sign Up", "operator": "icontains"}}]}}`. This can match interacted-with element text/selectors, not arbitrary text that was merely visible on screen. If the user asks for text that was only visible, explain the limitation and only fall back to another verified event/property if one exists. Valid element property keys are: `tag_name`, `text`, `href`, `selector`.
 
-        **CRITICAL**: ALWAYS use read_taxonomy to discover properties before creating filters. Never assume property names or values exist without verification. If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.
+        **CRITICAL**: ALWAYS use read_taxonomy to discover properties before creating filters. Never assume property names or values exist without verification. **Never assume a property key prefix — `$`-prefixed names belong to PostHog auto-captured properties; user-defined fields like `email`, `name`, or `plan` are usually stored without the `$` prefix.** If you can't find an exact property match, try the next best match. Do not call the same tool twice for the same entity/event.
+
+        **Email-shaped values (REQUIRED PROBE)**: When the user mentions an email address (e.g. "exclude alice@example.com", "users where email contains @acme.com"), read_taxonomy MUST be called and the result MUST contain at least one of `email` (most common, lowercase no prefix), `$email`, `Email`, or `EMAIL` for the relevant entity (person typically). Probe for both `email` and `$email` variants — projects vary in which key they capture under. If neither variant appears in the taxonomy, tell the user the project does not appear to capture email on the entity and ask which property key to use instead of guessing.
 
         # Property Value Matching
 
@@ -70,7 +72,7 @@ class FilterSessionRecordingsToolArgs(BaseModel):
 
         **Event**: `$device_type` (Mobile/Desktop/Tablet), `$browser`, `$os`, `$screen_width`, `$screen_height`, `$current_url`, `$pathname`
         **Session**: `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`
-        **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`, custom fields
+        **Person**: `$geoip_country_code` (US/UK/FR), `$geoip_city_name`. Custom person fields (`email`, `name`, `plan`, etc.) are project-specific and rarely use the `$` prefix — discover via read_taxonomy, never assume.
         **Recording**: `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`
 
         # Filter Completion Strategy
@@ -186,7 +188,52 @@ class FilterSessionRecordingsTool(MaxTool):
                     content += f"{i + 1}. {self._format_recording_metadata(recording)}\n"
                 if total_count > 5:
                     content += f"\n...and {total_count - 5} more recordings"
+
+            negative_filter_keys = self._collect_negative_entity_filter_keys(recordings_filters)
+            if negative_filter_keys:
+                keys_display = ", ".join(f"`{k}`" for k in negative_filter_keys)
+                content += (
+                    f"\n\n⚠️ Heads up: a negative filter (`is_not` / `not_icontains` / `not_regex` / `not_in`) was applied on {keys_display}. "
+                    "Events where the snapshotted person/event property is unset or null are NOT excluded by these operators, "
+                    "so persons missing this property may still appear in results. "
+                    "If you expected those to be filtered out, also confirm the property key matches what your project captures "
+                    "(e.g. `email` vs `$email`) and consider adding an `is_set` filter alongside."
+                )
         return content, None
+
+    @staticmethod
+    def _collect_negative_entity_filter_keys(recordings_filters: MaxRecordingUniversalFilters) -> list[str]:
+        """Return keys of entity/event filters that use a negative operator susceptible to leaking null/unset values.
+
+        Person and event properties are snapshotted on the event row; `JSONExtractString` on a missing
+        property returns `''`, so a `NotEq` comparison evaluates to true for absent values and the row
+        is not excluded. Recording-type properties are stored as numeric metrics and aren't affected.
+        """
+        negative_ops = {
+            str(PropertyOperator.IS_NOT),
+            str(PropertyOperator.NOT_ICONTAINS),
+            str(PropertyOperator.NOT_REGEX),
+            str(PropertyOperator.NOT_IN),
+        }
+        seen: set[str] = set()
+        ordered: list[str] = []
+        outer = recordings_filters.filter_group
+        if outer is None:
+            return ordered
+        for inner in outer.values:
+            for prop in inner.values:
+                prop_type = getattr(prop, "type", None)
+                if prop_type not in ("person", "event", "session", "group"):
+                    continue
+                operator = getattr(prop, "operator", None)
+                if operator is None or str(operator) not in negative_ops:
+                    continue
+                key = getattr(prop, "key", None)
+                if not isinstance(key, str) or key in seen:
+                    continue
+                seen.add(key)
+                ordered.append(key)
+        return ordered
 
     def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
         """Get recordings from DB with filters"""
