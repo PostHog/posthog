@@ -14,6 +14,7 @@ class ProductTourManager(models.Manager):
 class ProductTour(models.Model):
     """A product tour guides users through application features."""
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     team = models.ForeignKey(

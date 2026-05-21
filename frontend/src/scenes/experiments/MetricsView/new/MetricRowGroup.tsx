@@ -9,7 +9,7 @@ import { IconTrending } from '@posthog/icons'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 
@@ -477,6 +477,7 @@ interface MetricRowGroupProps {
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
+    onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
     error?: any
@@ -497,6 +498,7 @@ export function MetricRowGroup({
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
+    onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
     error,
@@ -701,6 +703,7 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
                     </td>
@@ -809,6 +812,7 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />
                 </td>

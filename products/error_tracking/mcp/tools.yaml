@@ -128,7 +128,17 @@ tools:
         enabled: false
     error-tracking-grouping-rules-update:
         operation: error_tracking_grouping_rules_update
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update error tracking grouping rule
+        description: >
+            Update an error tracking grouping rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing
+            the rule also clears any auto-disable state so the rule is re-enabled.
     error-tracking-issues-activity-retrieve:
         operation: error_tracking_issues_activity_retrieve
         enabled: false
@@ -355,9 +365,6 @@ tools:
     error-tracking-symbol-sets-bulk-start-upload-create:
         operation: error_tracking_symbol_sets_bulk_start_upload_create
         enabled: false
-    error-tracking-symbol-sets-create:
-        operation: error_tracking_symbol_sets_create
-        enabled: false
     error-tracking-symbol-sets-destroy:
         operation: error_tracking_symbol_sets_destroy
         enabled: false
@@ -402,9 +409,6 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
-    error-tracking-symbol-sets-partial-update:
-        operation: error_tracking_symbol_sets_partial_update
-        enabled: false
     error-tracking-symbol-sets-retrieve:
         operation: error_tracking_symbol_sets_retrieve
         enabled: true
@@ -427,12 +431,6 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
-    error-tracking-symbol-sets-start-upload-create:
-        operation: error_tracking_symbol_sets_start_upload_create
-        enabled: false
-    error-tracking-symbol-sets-update:
-        operation: error_tracking_symbol_sets_update
-        enabled: false
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create
         enabled: true

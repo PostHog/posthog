@@ -245,7 +245,7 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
         value: 'llm-analytics',
         'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'LLM analytics',
+        label: 'AI observability',
     },
     {
         value: 'logs',
@@ -459,7 +459,7 @@ export const supportLogic = kea<supportLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ values }) => ({
         sendSupportRequest: {
             defaults: {
                 name: '',
@@ -471,9 +471,9 @@ export const supportLogic = kea<supportLogicType>([
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
-                    name: !values.user ? (!name ? 'Please enter your name' : '') : '',
-                    email: !values.user ? (!email ? 'Please enter your email' : '') : '',
-                    message: !message ? 'Please enter a message' : '',
+                    name: !values.user && !name ? 'Please enter your name' : undefined,
+                    email: !values.user && !email ? 'Please enter your email' : undefined,
+                    message: !message ? 'Please enter a message' : undefined,
                     kind: !kind ? 'Please choose' : undefined,
                     severity_level: !severity_level ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
@@ -483,9 +483,7 @@ export const supportLogic = kea<supportLogicType>([
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                actions.submitZendeskTicket(formValues)
-                // Form closing and resetting is now handled in submitZendeskTicket listener
-                // based on success/failure of the submission
+                await supportLogic.asyncActions.submitZendeskTicket(formValues)
             },
         },
     })),

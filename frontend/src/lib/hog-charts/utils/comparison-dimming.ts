@@ -1,6 +1,5 @@
-import { hexToRGBA } from 'lib/utils'
-
 import type { Series } from '../core/types'
+import { hexToRGBA } from './format'
 
 const COMPARISON_DIM_OPACITY = 0.5
 

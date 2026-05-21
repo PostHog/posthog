@@ -611,7 +611,11 @@ class ErrorTrackingSpikeEvent(UUIDModel):
 
 
 class ErrorTrackingRecommendation(UUIDTModel):
-    """Materialized recommendation for a team, computed live on API request."""
+    """Materialized recommendation for a team, computed asynchronously via Celery."""
+
+    class Status(models.TextChoices):
+        READY = "ready", "Ready"
+        COMPUTING = "computing", "Computing"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="error_tracking_recommendations")
     # Recommendation type identifier — kept as a free-form CharField rather than a TextChoices enum
@@ -620,6 +624,8 @@ class ErrorTrackingRecommendation(UUIDTModel):
     meta = models.JSONField(default=dict, blank=True)
     computed_at = models.DateTimeField(null=True, blank=True)
     dismissed_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.READY)
+    status_changed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

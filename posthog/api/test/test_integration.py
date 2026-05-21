@@ -25,6 +25,7 @@ from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     EmailIntegration,
     GitHubIntegration,
+    GitHubIntegrationError,
     Integration,
     SlackIntegration,
     StripeIntegration,
@@ -83,10 +84,10 @@ class TestSlackIntegration:
         channels = slack.list_channels(True, "test_user_id")
 
         mock_client.conversations_list.assert_called_once_with(
-            exclude_archived=True, types="public_channel", limit=200, cursor=None
+            exclude_archived=True, types="public_channel", limit=1000, cursor=None
         )
         mock_client.users_conversations.assert_called_once_with(
-            exclude_archived=True, types="private_channel", limit=200, cursor=None, user="test_user_id"
+            exclude_archived=True, types="private_channel", limit=1000, cursor=None, user="test_user_id"
         )
 
         assert len(channels) == 4
@@ -126,10 +127,10 @@ class TestSlackIntegration:
         channels = slack.list_channels(False, "test_user_id")
 
         mock_client.conversations_list.assert_called_once_with(
-            exclude_archived=True, types="public_channel", limit=200, cursor=None
+            exclude_archived=True, types="public_channel", limit=1000, cursor=None
         )
         mock_client.users_conversations.assert_called_once_with(
-            exclude_archived=True, types="private_channel", limit=200, cursor=None, user="test_user_id"
+            exclude_archived=True, types="private_channel", limit=1000, cursor=None, user="test_user_id"
         )
 
         assert len(channels) == 4
@@ -798,6 +799,78 @@ class TestIntegrationAPIKeyAccess:
         assert data["repositories"] == repos
         assert data["has_more"] is False
         mock_list_repos.assert_called_once_with(search="posthog", limit=1, offset=1)
+
+    @pytest.mark.parametrize(
+        "query_string,mock_return,expected_call",
+        [
+            (
+                "",
+                (
+                    [
+                        {"id": 1, "slug": "frontend-team", "name": "Frontend Team"},
+                        {"id": 2, "slug": "platform", "name": "Platform"},
+                    ],
+                    False,
+                ),
+                {"search": "", "limit": 100, "offset": 0},
+            ),
+            (
+                "?search=front&limit=10&offset=20",
+                (
+                    [
+                        {"id": 1, "slug": "frontend-team", "name": "Frontend Team"},
+                    ],
+                    True,
+                ),
+                {"search": "front", "limit": 10, "offset": 20},
+            ),
+        ],
+    )
+    @patch("posthog.models.integration.GitHubIntegration.list_teams")
+    def test_github_teams(self, mock_list_teams, query_string, mock_return, expected_call, client: HttpClient):
+        mock_list_teams.return_value = mock_return
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_teams/{query_string}",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["teams"] == mock_return[0]
+        assert data["has_more"] is mock_return[1]
+        mock_list_teams.assert_called_once_with(**expected_call)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_teams")
+    def test_github_teams_errors_return_400(self, mock_list_teams, client: HttpClient):
+        mock_list_teams.side_effect = GitHubIntegrationError("GitHubIntegration: list_teams failed")
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_teams/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            response.json()["detail"]
+            == "Unable to fetch GitHub teams. Please check integration settings and try again."
+        )
 
     @patch("posthog.models.integration.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):

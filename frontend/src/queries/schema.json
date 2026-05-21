@@ -371,16 +371,58 @@
                 "research",
                 "flags",
                 "llm_analytics",
-                "sandbox"
+                "sandbox",
+                "user_interview"
             ],
             "type": "string"
+        },
+        "AggregatedSpanRow": {
+            "additionalProperties": false,
+            "description": "One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view.",
+            "properties": {
+                "avg_duration_nano": {
+                    "type": "number"
+                },
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "p50_duration_nano": {
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "type": "number"
+                },
+                "service_name": {
+                    "type": "string"
+                },
+                "total_duration_nano": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "service_name",
+                "name",
+                "count",
+                "total_duration_nano",
+                "avg_duration_nano",
+                "p50_duration_nano",
+                "p95_duration_nano",
+                "error_count"
+            ],
+            "type": "object"
         },
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
             "type": "string"
         },
         "AlertCalculationInterval": {
-            "enum": ["hourly", "daily", "weekly", "monthly"],
+            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "AlertCondition": {
@@ -624,6 +666,12 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAggregationQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansTreeQuery"
                 },
                 {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
@@ -875,6 +923,12 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAggregationQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansTreeQueryResponse"
                 }
             ]
         },
@@ -1037,13 +1091,13 @@
                     "type": "string"
                 },
                 "operator": {
-                    "const": "in",
                     "default": "in",
+                    "enum": ["in", "not_in"],
                     "type": "string"
                 },
                 "type": {
                     "const": "cohort",
-                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`",
+                    "description": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
                     "type": "string"
                 },
                 "value": {
@@ -2320,6 +2374,30 @@
             "required": ["id", "kind", "name"],
             "type": "object"
         },
+        "AssistantLifecycleActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no per-actor `event_count` or matched recordings are projected — the underlying lifecycle runner does not surface a `matching_events` column.\n\nUse the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight is a 4-row stack (new / returning / resurrecting / dormant) per day.\n\nNote: lifecycle insights only support a single series and do not expose `compareFilter`, so `series` and `compare` selectors are intentionally omitted.",
+            "properties": {
+                "day": {
+                    "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantLifecycleQuery",
+                    "description": "The source lifecycle insight query whose bucket we are drilling into."
+                },
+                "status": {
+                    "$ref": "#/definitions/AssistantLifecycleStatus",
+                    "description": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted)."
+                }
+            },
+            "required": ["kind", "source", "day", "status"],
+            "type": "object"
+        },
         "AssistantLifecycleEventsNode": {
             "additionalProperties": false,
             "properties": {
@@ -2445,6 +2523,11 @@
                     "$ref": "#/definitions/AssistantLifecycleActionsNode"
                 }
             ]
+        },
+        "AssistantLifecycleStatus": {
+            "description": "A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`.",
+            "enum": ["new", "returning", "resurrecting", "dormant"],
+            "type": "string"
         },
         "AssistantMessage": {
             "additionalProperties": false,
@@ -3430,6 +3513,7 @@
                 "search_session_recordings",
                 "fix_hogql_query",
                 "analyze_user_interviews",
+                "create_user_interview_topic",
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
@@ -3474,7 +3558,8 @@
                 "call_mcp_server",
                 "search_llm_traces",
                 "run_hog_eval_test",
-                "diagnose_proxy"
+                "diagnose_proxy",
+                "web_analytics_doctor"
             ],
             "type": "string"
         },
@@ -8807,6 +8892,88 @@
             ],
             "type": "object"
         },
+        "CachedTraceSpansAggregationQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AggregatedSpanRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AggregatedSpanRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedTraceSpansQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -8869,6 +9036,88 @@
                     "description": "The date range used for the query"
                 },
                 "results": {},
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedTraceSpansTreeQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
                 "timezone": {
                     "type": "string"
                 },
@@ -10240,6 +10489,13 @@
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "resultCustomizations": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ResultCustomizationByValue"
+                    },
+                    "description": "Per-breakdown-value color customizations. Keyed by the raw breakdown column value.",
+                    "type": "object"
+                },
                 "rightYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
@@ -11086,6 +11342,16 @@
         "CustomerAnalyticsConfig": {
             "additionalProperties": false,
             "properties": {
+                "account_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "activity_event": {
                     "anyOf": [
                         {
@@ -16988,7 +17254,13 @@
             "type": "object"
         },
         "ExperimentFunnelMetricStep": {
-            "anyOf": [
+            "$ref": "#/definitions/ExperimentFunnelMetricStepUnion"
+        },
+        "ExperimentFunnelMetricStepUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -16998,7 +17270,9 @@
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
@@ -17313,20 +17587,7 @@
             "type": "object"
         },
         "ExperimentMetric": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/ExperimentMeanMetric"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentFunnelMetric"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentRatioMetric"
-                },
-                {
-                    "$ref": "#/definitions/ExperimentRetentionMetric"
-                }
-            ]
+            "$ref": "#/definitions/ExperimentMetricUnion"
         },
         "ExperimentMetricBaseProperties": {
             "additionalProperties": false,
@@ -17397,7 +17658,13 @@
             "type": "object"
         },
         "ExperimentMetricSource": {
-            "anyOf": [
+            "$ref": "#/definitions/ExperimentMetricSourceUnion"
+        },
+        "ExperimentMetricSourceUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -17407,7 +17674,9 @@
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "ExperimentMetricTimeseries": {
             "additionalProperties": false,
@@ -17495,6 +17764,27 @@
                     "$ref": "#/definitions/ExperimentRetentionMetricTypeProps"
                 }
             ]
+        },
+        "ExperimentMetricUnion": {
+            "discriminator": {
+                "propertyName": "metric_type"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/ExperimentMeanMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentFunnelMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRatioMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentRetentionMetric"
+                }
+            ],
+            "required": ["metric_type"],
+            "type": "object"
         },
         "ExperimentParameters": {
             "additionalProperties": false,
@@ -18429,7 +18719,8 @@
                 "Convex",
                 "ClickHouse",
                 "Plain",
-                "Resend"
+                "Resend",
+                "PgAnalyze"
             ],
             "type": "string"
         },
@@ -18650,6 +18941,7 @@
                 "error_tracking",
                 "heatmap",
                 "session_replay",
+                "replay_vision",
                 "session_profile",
                 "survey",
                 "product_tour",
@@ -18710,7 +19002,8 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
-                "exports"
+                "exports",
+                "deployments"
             ],
             "type": "string"
         },
@@ -22956,6 +23249,28 @@
             "required": ["results"],
             "type": "object"
         },
+        "LogsAlertFilters": {
+            "additionalProperties": false,
+            "description": "Filter criteria for a logs alert configuration. Subset of LogsViewerFilters (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or `filterGroup` must be set on a live (enabled=true) alert.",
+            "properties": {
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "items": {
+                        "$ref": "#/definitions/LogSeverityLevel"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "LogsOrderBy": {
             "enum": ["latest", "earliest"],
             "title": "LogsOrderBy",
@@ -23652,6 +23967,22 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_stats",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ad",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_group",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaign",
                             "type": "string"
@@ -23751,13 +24082,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "creative_stats",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "creatives",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaign_groups",
                             "type": "string"
@@ -23825,13 +24176,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_stats",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "adset_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "adsets",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24032,6 +24403,10 @@
                         "tableExclusions",
                         "defaultSources",
                         "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName",
                         "conversionActionTypes"
                     ],
                     "type": "object"
@@ -24039,6 +24414,22 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_report",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_report",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_groups",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24100,13 +24491,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_report",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_report",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_groups",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24168,13 +24579,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_performance_report",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ad_performance_report",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_performance_report",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_group_performance_report",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24242,13 +24673,33 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 },
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_stats_daily",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_squad_stats_daily",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_squads",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24349,6 +24800,10 @@
                         "tableExclusions",
                         "defaultSources",
                         "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName",
                         "conversionFields",
                         "conversionValueFields"
                     ],
@@ -24357,6 +24812,22 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "adStatsTableName": {
+                            "const": "ad_analytics",
+                            "type": "string"
+                        },
+                        "adTableName": {
+                            "const": "ads",
+                            "type": "string"
+                        },
+                        "adsetStatsTableName": {
+                            "const": "ad_group_analytics",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "ad_groups",
+                            "type": "string"
+                        },
                         "campaignTableName": {
                             "const": "campaigns",
                             "type": "string"
@@ -24418,7 +24889,11 @@
                         "tableKeywords",
                         "tableExclusions",
                         "defaultSources",
-                        "primarySource"
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName",
+                        "adTableName",
+                        "adStatsTableName"
                     ],
                     "type": "object"
                 }
@@ -25839,6 +26314,8 @@
                 "LogAttributesQuery",
                 "LogValuesQuery",
                 "TraceSpansQuery",
+                "TraceSpansAggregationQuery",
+                "TraceSpansTreeQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -26668,6 +27145,80 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PgAnalyzeIssueReference": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "queryText": {
+                    "type": ["string", "null"]
+                },
+                "url": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["kind", "name", "url", "queryText"],
+            "type": "object"
+        },
+        "PgAnalyzeIssueSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "database_id": {
+                    "type": ["string", "null"]
+                },
+                "references": {
+                    "items": {
+                        "$ref": "#/definitions/PgAnalyzeIssueReference"
+                    },
+                    "type": "array"
+                },
+                "server_human_id": {
+                    "type": ["string", "null"]
+                },
+                "server_name": {
+                    "type": ["string", "null"]
+                },
+                "severity": {
+                    "type": ["string", "null"]
+                },
+                "synced_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["severity", "references", "database_id", "server_human_id", "server_name", "synced_at"],
+            "type": "object"
+        },
+        "PgAnalyzeIssueSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/PgAnalyzeIssueSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "pganalyze",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "PinterestAdsDefaultSources": {
             "enum": ["pinterest"],
             "type": "string"
@@ -26910,6 +27461,7 @@
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
+                "deployments",
                 "early_access_features",
                 "endpoints",
                 "error_tracking",
@@ -26941,6 +27493,7 @@
                 "product_tours",
                 "revenue_analytics",
                 "session_replay",
+                "replay_vision",
                 "site_apps",
                 "subscriptions",
                 "streamlit_apps",
@@ -31382,6 +31935,100 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "compare": {
+                            "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                            "items": {
+                                "$ref": "#/definitions/AggregatedSpanRow"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/AggregatedSpanRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "compare": {
+                            "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                            "items": {
+                                "$ref": "#/definitions/SpanTreeNode"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/SpanTreeNode"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -32117,6 +32764,12 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAggregationQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansTreeQuery"
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
@@ -35305,6 +35958,9 @@
                 },
                 {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
                 }
             ]
         },
@@ -35339,7 +35995,8 @@
                 "zendesk",
                 "conversations",
                 "error_tracking",
-                "endpoints"
+                "endpoints",
+                "pganalyze"
             ],
             "type": "string"
         },
@@ -35839,6 +36496,60 @@
         "SpanPropertyFilterType": {
             "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
+        },
+        "SpanTreeNode": {
+            "additionalProperties": false,
+            "description": "One node in an aggregated span call tree. The `(service_name, name)` pair identifies the node; `(parent_service, parent_name)` links it to its parent. Spans without a matching parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.",
+            "properties": {
+                "avg_duration_nano": {
+                    "type": "number"
+                },
+                "avg_start_offset_nano": {
+                    "description": "Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph.",
+                    "type": "number"
+                },
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "p50_duration_nano": {
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "type": "number"
+                },
+                "parent_name": {
+                    "type": "string"
+                },
+                "parent_service": {
+                    "type": "string"
+                },
+                "service_name": {
+                    "type": "string"
+                },
+                "total_duration_nano": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "parent_service",
+                "parent_name",
+                "service_name",
+                "name",
+                "count",
+                "total_duration_nano",
+                "avg_duration_nano",
+                "p50_duration_nano",
+                "p95_duration_nano",
+                "error_count",
+                "avg_start_offset_nano"
+            ],
+            "type": "object"
         },
         "StepOrderValue": {
             "enum": ["strict", "unordered", "ordered"],
@@ -37188,6 +37899,94 @@
             "required": ["results"],
             "type": "object"
         },
+        "TraceSpansAggregationQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "TraceSpansAggregationQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansAggregationQueryResponse"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "kind"],
+            "type": "object"
+        },
+        "TraceSpansAggregationQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AggregatedSpanRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AggregatedSpanRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "TraceSpansQuery": {
             "additionalProperties": false,
             "properties": {
@@ -37291,6 +38090,102 @@
                     "description": "The date range used for the query"
                 },
                 "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "TraceSpansTreeQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "TraceSpansTreeQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansTreeQueryResponse"
+                },
+                "serviceName": {
+                    "description": "Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.",
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "spanName": {
+                    "description": "Span name to scope the matched trace set. Required because the `(trace_id, parent_span_id)` self-join is prohibitive without bounding the matched traces — at high name cardinality the query becomes unsafe to run.",
+                    "type": "string"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "kind", "serviceName", "spanName"],
+            "type": "object"
+        },
+        "TraceSpansTreeQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/SpanTreeNode"
+                    },
+                    "type": "array"
+                },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -37445,12 +38340,15 @@
             "properties": {
                 "aggregationAxisFormat": {
                     "$ref": "#/definitions/AggregationAxisFormat",
-                    "default": "numeric"
+                    "default": "numeric",
+                    "description": "Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.\n\n- `numeric` (default): raw numbers, e.g. `1,234`.\n- `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.\n- `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).\n- `percentage`: values are already in the 0-100 range; appends `%`.\n- `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.\n- `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.\n- `short`: compact notation for large counts (`1.2K`, `3.4M`)."
                 },
                 "aggregationAxisPostfix": {
+                    "description": "Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself.",
                     "type": "string"
                 },
                 "aggregationAxisPrefix": {
+                    "description": "Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself.",
                     "type": "string"
                 },
                 "breakdown_histogram_bin_count": {
@@ -37460,6 +38358,7 @@
                     "type": "number"
                 },
                 "decimalPlaces": {
+                    "description": "Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency.",
                     "type": "number"
                 },
                 "detailedResultsAggregationType": {

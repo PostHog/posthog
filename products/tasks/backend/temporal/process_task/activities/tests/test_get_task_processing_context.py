@@ -33,7 +33,7 @@ class TestGetTaskProcessingContextActivity:
     def _cleanup_task(self, task):
         task.soft_delete()
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_success(self, activity_environment, test_task):
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
@@ -48,7 +48,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_task_not_found(self, activity_environment):
         non_existent_run_id = "550e8400-e29b-41d4-a716-446655440000"
         input_data = GetTaskProcessingContextInput(run_id=non_existent_run_id)
@@ -56,7 +56,7 @@ class TestGetTaskProcessingContextActivity:
         with pytest.raises(TaskNotFoundError):
             async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_invalid_uuid(self, activity_environment):
         invalid_run_id = "not-a-uuid"
         input_data = GetTaskProcessingContextInput(run_id=invalid_run_id)
@@ -64,7 +64,7 @@ class TestGetTaskProcessingContextActivity:
         with pytest.raises(ValidationError):
             async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_with_different_repository(
         self, activity_environment, team, user, github_integration
     ):
@@ -83,7 +83,7 @@ class TestGetTaskProcessingContextActivity:
         finally:
             self._cleanup_task(task)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_with_create_pr_false(self, activity_environment, test_task):
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), create_pr=False)
@@ -92,7 +92,7 @@ class TestGetTaskProcessingContextActivity:
         assert isinstance(result, TaskProcessingContext)
         assert result.create_pr is False
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_resolves_user_github_integration_without_repository(
         self, activity_environment, team, user
     ):
@@ -122,7 +122,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_user_integration_id == str(user_integration.id)
         assert result.has_github_credentials is True
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_uses_team_integration_without_repository(
         self, activity_environment, team, user, github_integration
     ):
@@ -146,7 +146,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_user_integration_id is None
         assert result.has_github_credentials is True
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_resolves_allowed_domains(self, activity_environment, test_task):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=test_task.team,
@@ -164,7 +164,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_name == "Restricted env"
         assert result.allowed_domains == ["example.com"]
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_preserves_empty_restricted_domains(self, activity_environment, test_task):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=test_task.team,
@@ -181,7 +181,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains == []
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_keeps_full_access_unrestricted(self, activity_environment, test_task):
         sandbox_environment = SandboxEnvironment.objects.create(
             team=test_task.team,
@@ -198,7 +198,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.sandbox_environment_id == str(sandbox_environment.id)
         assert result.allowed_domains is None
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_rejects_other_users_private_sandbox_environment(
         self, activity_environment, test_task
     ):
@@ -225,7 +225,7 @@ class TestGetTaskProcessingContextActivity:
         with pytest.raises(TaskInvalidStateError):
             async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
         "flag_value, expected",
         [
@@ -253,7 +253,7 @@ class TestGetTaskProcessingContextActivity:
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):
         custom_prompt = "Re-run the failed mypy checks and push a fix."
         test_task.ci_prompt = custom_prompt
@@ -265,7 +265,7 @@ class TestGetTaskProcessingContextActivity:
 
         assert result.ci_prompt == custom_prompt
 
-    @pytest.mark.django_db
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_runtime_metadata(self, activity_environment, test_task):
         task_run = test_task.create_run(
             extra_state={

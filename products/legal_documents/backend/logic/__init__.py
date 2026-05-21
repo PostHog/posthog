@@ -237,6 +237,7 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
         created = client.create_document_from_template(
             template_id=template_id,
             name=f"PostHog {document.document_type} — {document.company_name}",
+            sender_email=POSTHOG_SIGNING_EMAIL,
             recipients=[
                 pandadoc_client.PandaDocRecipient(
                     email=POSTHOG_SIGNING_EMAIL, role=pandadoc_client.PandaDocRole.POSTHOG
@@ -254,7 +255,6 @@ def create_pandadoc_envelope(document: LegalDocument) -> str | None:
                 "organization_id": str(document.organization_id),
                 "document_type": document.document_type,
             },
-            owner_email=POSTHOG_SIGNING_EMAIL,
         )
         set_pandadoc_document_id(document, created.id)
         return created.id

@@ -681,6 +681,46 @@ class TestRunEvaluationWorkflow:
             assert exc_info.value.non_retryable is True
             assert exc_info.value.details[0] == {"error_type": "parse_error"}
 
+    @pytest.mark.parametrize(
+        "raised_exception, expected_label",
+        [
+            pytest.param(RuntimeError("network down"), "RuntimeError", id="runtime_error"),
+            pytest.param(ValueError("bad payload"), "ValueError", id="value_error"),
+            pytest.param(TimeoutError("read timeout"), "TimeoutError", id="timeout_error"),
+        ],
+    )
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
+        self, raised_exception: Exception, expected_label: str, setup_data
+    ):
+        evaluation_obj = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        event_data = create_mock_event_data(team.id)
+
+        with (
+            patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class,
+            patch("posthog.temporal.llm_analytics.run_evaluation.increment_errors") as mock_increment_errors,
+        ):
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = raised_exception
+
+            with pytest.raises(type(raised_exception)):
+                await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+            mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
+
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):

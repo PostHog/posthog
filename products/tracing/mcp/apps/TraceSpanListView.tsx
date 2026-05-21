@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 
-import { Badge, DataTable, type DataTableColumn, ListDetailView, Stack } from '@posthog/mosaic'
+import { DataTable, type DataTableColumn, ListDetailView } from '@posthog/mcp-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { TraceSpanView, type TraceSpanData } from './TraceSpanView'
 
@@ -39,10 +40,10 @@ function formatTimestamp(ts: string): string {
     }
 }
 
-const statusVariant: Record<string, 'success' | 'danger' | 'neutral'> = {
-    '0': 'neutral',
+const statusVariant: Record<string, 'success' | 'destructive' | 'default'> = {
+    '0': 'default',
     '1': 'success',
-    '2': 'danger',
+    '2': 'destructive',
 }
 
 const statusLabel: Record<string, string> = {
@@ -66,12 +67,14 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                         sortable: true,
                         render: (row): ReactNode =>
                             onSpanClick ? (
-                                <button
+                                <Button
+                                    variant="link"
+                                    size="sm"
                                     onClick={() => handleClick(row)}
-                                    className="text-link underline decoration-border-primary hover:decoration-link cursor-pointer text-left transition-colors max-w-xs truncate block"
+                                    className="h-auto px-0 text-left max-w-xs truncate"
                                 >
                                     {row.name}
-                                </button>
+                                </Button>
                             ) : (
                                 <span className="max-w-xs truncate block">{row.name}</span>
                             ),
@@ -81,7 +84,7 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                         header: 'Service',
                         sortable: true,
                         render: (row): ReactNode => (
-                            <span className="text-text-secondary">{row.service_name ?? '\u2014'}</span>
+                            <span className="text-muted-foreground">{row.service_name ?? '\u2014'}</span>
                         ),
                     },
                     {
@@ -89,11 +92,7 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                         header: 'Status',
                         render: (row): ReactNode => {
                             const key = String(row.status_code ?? '0')
-                            return (
-                                <Badge variant={statusVariant[key] ?? 'neutral'} size="sm">
-                                    {statusLabel[key] ?? key}
-                                </Badge>
-                            )
+                            return <Badge variant={statusVariant[key] ?? 'default'}>{statusLabel[key] ?? key}</Badge>
                         },
                     },
                     {
@@ -101,7 +100,7 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                         header: 'Duration',
                         sortable: true,
                         render: (row): ReactNode => (
-                            <span className="text-text-secondary font-mono text-xs">
+                            <span className="text-muted-foreground font-mono text-xs">
                                 {row.duration_nano != null ? formatDuration(row.duration_nano) : '\u2014'}
                             </span>
                         ),
@@ -111,16 +110,16 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                         header: 'Time',
                         sortable: true,
                         render: (row): ReactNode => (
-                            <span className="text-text-secondary text-xs">{formatTimestamp(row.timestamp)}</span>
+                            <span className="text-muted-foreground text-xs">{formatTimestamp(row.timestamp)}</span>
                         ),
                     },
                 ]
 
                 return (
                     <div className="p-4">
-                        <Stack gap="sm">
+                        <div className="flex flex-col gap-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-text-secondary">
+                                <span className="text-sm text-muted-foreground">
                                     {data.results.length} span{data.results.length === 1 ? '' : 's'}
                                     {data.hasMore ? '+' : ''}
                                 </span>
@@ -132,7 +131,7 @@ export function TraceSpanListView({ data, onSpanClick }: TraceSpanListViewProps)
                                 defaultSort={{ key: 'timestamp', direction: 'desc' }}
                                 emptyMessage="No trace spans found"
                             />
-                        </Stack>
+                        </div>
                     </div>
                 )
             }}

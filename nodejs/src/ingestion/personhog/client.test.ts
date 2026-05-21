@@ -23,6 +23,7 @@ import type {
 import {
     PersonHogClient,
     parseRolloutTeamIds,
+    resolveConsistencyHeader,
     shouldUseGrpcForTeam,
     shouldUseGrpcForTeamItems,
     shouldUseGrpcForTeams,
@@ -96,6 +97,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getGroup: () => ({}),
     getGroups: () => ({ groups: [], missingGroups: [] }),
     getGroupsBatch: () => ({ results: [] }),
+    listGroups: () => ({ groups: [], hasMore: false }),
     getGroupTypeMappingsByTeamId: () => ({ mappings: [] }),
     getGroupTypeMappingsByTeamIds: () => ({ results: [] }),
     getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
@@ -226,6 +228,28 @@ describe('shouldUseGrpcForTeamItems', () => {
 
     it('falls back to percentage when rollout set is empty', () => {
         expect(shouldUseGrpcForTeamItems(new Set(), [{ teamId: 1 }], 100)).toBe(true)
+    })
+})
+
+describe('resolveConsistencyHeader', () => {
+    it('returns "strong" when readOptions.consistency is STRONG', () => {
+        expect(resolveConsistencyHeader({ readOptions: { consistency: ConsistencyLevel.STRONG } })).toBe('strong')
+    })
+
+    it('returns "eventual" when readOptions.consistency is EVENTUAL', () => {
+        expect(resolveConsistencyHeader({ readOptions: { consistency: ConsistencyLevel.EVENTUAL } })).toBe('eventual')
+    })
+
+    it('returns "eventual" when readOptions is missing', () => {
+        expect(resolveConsistencyHeader({})).toBe('eventual')
+    })
+
+    it('returns "eventual" when message is undefined', () => {
+        expect(resolveConsistencyHeader(undefined)).toBe('eventual')
+    })
+
+    it('returns "eventual" when consistency is unset (0)', () => {
+        expect(resolveConsistencyHeader({ readOptions: { consistency: 0 } })).toBe('eventual')
     })
 })
 

@@ -1,3 +1,4 @@
+import { downloadFile, slugify } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
@@ -158,9 +159,16 @@ export function buildMinimalTraceJSON(trace: LLMTrace, tree: EnrichedTraceTreeNo
     return result
 }
 
-export async function exportTraceToClipboard(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): Promise<void> {
-    const exportData = buildMinimalTraceJSON(trace, tree)
-    const jsonString = JSON.stringify(exportData, null, 2)
+function buildTraceJSONString(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): string {
+    return JSON.stringify(buildMinimalTraceJSON(trace, tree), null, 2)
+}
 
-    await copyToClipboard(jsonString, 'trace data')
+export async function exportTraceToClipboard(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): Promise<void> {
+    await copyToClipboard(buildTraceJSONString(trace, tree), 'trace data')
+}
+
+export function exportTraceToFile(trace: LLMTrace, tree: EnrichedTraceTreeNode[]): void {
+    const filename = `${slugify(trace.id || 'trace')}.trace.json`
+    const file = new File([buildTraceJSONString(trace, tree)], filename, { type: 'application/json' })
+    downloadFile(file)
 }

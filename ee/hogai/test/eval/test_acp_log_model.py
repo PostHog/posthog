@@ -16,9 +16,16 @@ def _line(payload: dict) -> str:
     [
         pytest.param(
             [
-                _line({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"model": "claude-opus-4-7"}}),
+                _line(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "session/new",
+                        "params": {"model": "anthropic/claude-opus-4-7"},
+                    }
+                ),
             ],
-            "claude-opus-4-7",
+            "anthropic/claude-opus-4-7",
             id="captures_from_session_new_params",
         ),
         pytest.param(
@@ -37,7 +44,14 @@ def _line(payload: dict) -> str:
         ),
         pytest.param(
             [
-                _line({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"model": "claude-opus-4-7"}}),
+                _line(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "session/new",
+                        "params": {"model": "anthropic/claude-opus-4-7"},
+                    }
+                ),
                 _line(
                     {
                         "jsonrpc": "2.0",
@@ -46,7 +60,7 @@ def _line(payload: dict) -> str:
                     }
                 ),
             ],
-            "claude-opus-4-7",
+            "anthropic/claude-opus-4-7",
             id="prefers_params_over_result_when_both_present",
         ),
         pytest.param(

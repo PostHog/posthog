@@ -19,6 +19,7 @@ actions_that_require_current_team = [
     "reset_token",
     "generate_conversations_public_token",
     "default_release_conditions",
+    "experiments_config",
 ]
 
 
@@ -29,7 +30,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.file_system.file_system_view_log import FileSystemViewLog
     from posthog.models.insight_caching_state import InsightCachingState
-    from posthog.models.person import PersonlessDistinctId
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
@@ -43,7 +43,8 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _raw_delete(FileSystemViewLog.objects.filter(team_id__in=team_ids))
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(PersonlessDistinctId.objects.filter(team_id__in=team_ids))  # nosemgrep: no-direct-persons-db-orm
+    for team_id in team_ids:
+        _raw_delete_personless_distinct_ids_for_team(team_id)
     _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
 
     # Get cohort_ids from the default database first to avoid cross-database join
@@ -61,6 +62,47 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _delete_persons_for_teams(team_ids)
 
     _raw_delete(InsightCachingState.objects.filter(team_id__in=team_ids))
+
+
+def _raw_delete_personless_distinct_ids_for_team(team_id: int, batch_size: int = 10000) -> None:
+    """Delete posthog_personlessdistinctid rows for a single team in batches.
+
+    Uses a CTE + ctid pattern so each batch is one statement: the inner SELECT
+    streams ctids from the (team_id, distinct_id) unique index and the outer
+    DELETE targets heap tuples directly, avoiding a per-row primary key lookup.
+    Each batch runs in its own autocommit statement so row locks release between
+    batches and autovacuum can keep up.
+    """
+    from django.db import connections, router
+
+    from posthog.models.person import PersonlessDistinctId
+
+    db_alias = router.db_for_write(PersonlessDistinctId)
+    db_connection = connections[db_alias]
+    table_name = PersonlessDistinctId._meta.db_table
+
+    while True:
+        with db_connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                WITH deletion_candidates AS (
+                    SELECT ctid
+                    FROM {table_name}
+                    WHERE team_id = %s
+                    LIMIT %s
+                )
+                DELETE FROM {table_name} p
+                USING deletion_candidates d
+                WHERE p.ctid = d.ctid
+                """,  # nosemgrep: no-direct-persons-db-orm
+                [team_id, batch_size],
+            )
+            deleted = cursor.rowcount
+
+        if deleted < batch_size:
+            break
+
+        time.sleep(0.1)
 
 
 def _delete_persons_for_teams(team_ids: list[int]) -> None:

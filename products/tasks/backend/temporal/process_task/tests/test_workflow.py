@@ -277,8 +277,9 @@ class TestProcessTaskWorkflow:
 class TestProcessTaskWorkflowUnit:
     async def test_send_followup_message_can_arrive_before_context_is_loaded(self, monkeypatch):
         logger = Mock()
+        deprecate_patch = Mock()
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", deprecate_patch)
         workflow = ProcessTaskWorkflow()
 
         await workflow.send_followup_message("first", ["artifact-1"])
@@ -288,6 +289,8 @@ class TestProcessTaskWorkflowUnit:
             PendingFollowup(message="first", artifact_ids=["artifact-1"]),
             PendingFollowup(message="second", artifact_ids=["artifact-2"]),
         ]
+        assert workflow._pending_followup is None
+        deprecate_patch.assert_called_with(process_task_workflow_module._PATCH_ID_FOLLOWUP_QUEUE)
         logger.info.assert_any_call(
             "send_followup_signal_received",
             run_id=None,
@@ -300,19 +303,6 @@ class TestProcessTaskWorkflowUnit:
             message_length=6,
             artifact_count=1,
         )
-        assert logger.info.call_count == 2
-
-    async def test_send_followup_message_preserves_legacy_single_slot_before_patch(self, monkeypatch):
-        logger = Mock()
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=False))
-        workflow = ProcessTaskWorkflow()
-
-        await workflow.send_followup_message("first", ["artifact-1"])
-        await workflow.send_followup_message("second", ["artifact-2"])
-
-        assert workflow._pending_followup == PendingFollowup(message="second", artifact_ids=["artifact-2"])
-        assert workflow._pending_followups == []
         assert logger.info.call_count == 2
 
     @pytest.mark.parametrize(

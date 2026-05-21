@@ -99,60 +99,6 @@ await client.close()
 
 See also the main PostHog MCP docs for available tools and setup flows: [https://posthog.com/docs/model-context-protocol](https://posthog.com/docs/model-context-protocol)
 
-### Docker install
-
-If you prefer to use Docker instead of running npx directly:
-
-1. Build the Docker image:
-
-```bash
-pnpm docker:build
-# or
-docker build -t posthog-mcp .
-```
-
-2. Configure your MCP client with Docker:
-
-```json
-{
-  "mcpServers": {
-    "posthog": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--env",
-        "POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER}",
-        "--env",
-        "POSTHOG_REMOTE_MCP_URL=${POSTHOG_REMOTE_MCP_URL:-https://mcp.posthog.com/mcp}",
-        "posthog-mcp"
-      ],
-      "env": {
-        "POSTHOG_AUTH_HEADER": "Bearer {INSERT_YOUR_PERSONAL_API_KEY_HERE}",
-        "POSTHOG_REMOTE_MCP_URL": "https://mcp.posthog.com/mcp"
-      }
-    }
-  }
-}
-```
-
-3. Test Docker with MCP Inspector:
-
-```bash
-pnpm docker:inspector
-# or
-npx @modelcontextprotocol/inspector docker run -i --rm --env POSTHOG_AUTH_HEADER=${POSTHOG_AUTH_HEADER} posthog-mcp
-```
-
-**Environment Variables:**
-
-- `POSTHOG_AUTH_HEADER`: Your PostHog API token (required)
-- `POSTHOG_REMOTE_MCP_URL`: The MCP server URL (optional, defaults to `https://mcp.posthog.com/mcp`)
-
-This approach allows you to use the PostHog MCP server without needing Node.js or npm installed locally.
-
 ### Example Prompts
 
 Below are detailed examples showing realistic prompts and expected outputs:
@@ -287,7 +233,7 @@ Available features:
 | `hog_functions`          | [CDP function management](https://posthog.com/docs/cdp)                                                   |
 | `hog_function_templates` | CDP function template browsing                                                                            |
 | `insights`               | [Analytics insights](https://posthog.com/docs/product-analytics/insights)                                 |
-| `llm_analytics`          | [LLM analytics evaluations](https://posthog.com/docs/ai-engineering)                                      |
+| `llm_analytics`          | [AI observability evaluations](https://posthog.com/docs/ai-engineering)                                   |
 | `prompts`                | [LLM prompt management](https://posthog.com/docs/ai-engineering)                                          |
 | `logs`                   | [Log querying](https://posthog.com/docs/ai-engineering/observability)                                     |
 | `notebooks`              | [Notebook management](https://posthog.com/docs/notebooks)                                                 |
@@ -372,6 +318,18 @@ pnpm run dev
 ```
 
 And replace `https://mcp.posthog.com/mcp` with `http://localhost:8787/mcp` in the MCP configuration.
+
+### Hono runtime (Node)
+
+Alongside the Cloudflare Workers entry point, the same MCP code runs on Node via Hono — this is what ships to our k8s clusters. Useful locally when you want a CF-runtime-free debugger, fewer Wrangler quirks, or to repro a k8s-only bug.
+
+```bash
+pnpm run dev:hono
+```
+
+Defaults to port **3030**, reads config from `.env` (Node-only — separate from `.dev.vars`, which Wrangler reads), and expects a local Redis on port `6379` (used in place of Durable Objects for session state) for local development; production deployments must set `REDIS_URL` to a TLS-encrypted `rediss://` endpoint. Same routes as the CF server — point your client at `http://localhost:3030/mcp`.
+
+`bin/start-mcp-server` runs the Wrangler/CF version by default; set `MCP_RUNTIME=hono` to start the Hono runtime instead.
 
 ### Developing with local resources
 

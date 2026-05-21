@@ -57,6 +57,9 @@ DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
 
 
 class _VerificationCursor(typing.Protocol):
+    @property
+    def description(self) -> typing.Sequence[object] | None: ...
+
     def fetchone(self) -> tuple[object, ...] | None: ...
 
     def fetchall(self) -> list[tuple[object, ...]]: ...
@@ -766,11 +769,11 @@ def _fetch_delta_schema(
     conn: _VerificationConnection, source_uri: str, *, parameter_placeholder: str = "?"
 ) -> list[tuple[str, str]]:
     """Fetch schema from a Delta table."""
-    rows = conn.execute(
-        f"DESCRIBE SELECT * FROM delta_scan({parameter_placeholder}) LIMIT 0",
+    cursor = conn.execute(
+        f"SELECT * FROM delta_scan({parameter_placeholder}) LIMIT 0",
         [source_uri],
-    ).fetchall()
-    return [(str(row[0]), str(row[1])) for row in rows]
+    )
+    return _schema_from_cursor_description(cursor)
 
 
 def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:
@@ -784,8 +787,24 @@ def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str
 
 def _fetch_schema(conn: _VerificationConnection, table_name: str) -> list[tuple[str, str]]:
     """Fetch schema from a DuckLake table."""
-    rows = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
-    return [(str(row[1]), str(row[2])) for row in rows]
+    cursor = conn.execute(f"SELECT * FROM {table_name} LIMIT 0")
+    return _schema_from_cursor_description(cursor)
+
+
+def _schema_from_cursor_description(cursor: _VerificationCursor) -> list[tuple[str, str]]:
+    description = cursor.description
+    if not description:
+        raise ValueError("Schema query did not return column metadata")
+
+    schema: list[tuple[str, str]] = []
+    for column in description:
+        name = getattr(column, "name", None)
+        type_code = getattr(column, "type_code", None)
+        if name is None and isinstance(column, tuple):
+            name = column[0] if len(column) > 0 else None
+            type_code = column[1] if len(column) > 1 else None
+        schema.append((str(name or ""), str(type_code or "")))
+    return schema
 
 
 def _diff_schema(source_schema: list[tuple[str, str]], ducklake_schema: list[tuple[str, str]]) -> list[str]:

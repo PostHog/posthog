@@ -35,8 +35,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
-from posthog.models import Action, Filter, Team
-from posthog.models.action.util import format_action_filter
+from posthog.models import Filter, Team
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.dependencies import get_cohort_dependents
@@ -56,6 +55,9 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+
+from products.actions.backend.models.action import Action
+from products.actions.backend.models.util import format_action_filter
 
 if TYPE_CHECKING:
     from posthog.personhog_client import ReadConsistency
@@ -1449,9 +1451,7 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
         return 0
 
     def orm_fn() -> int:
-        qs = CohortPeople.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            cohort_id=cohort_id, person__team_id=team_id
-        )
+        qs = CohortPeople.objects.filter(cohort_id=cohort_id)  # nosemgrep: no-direct-persons-db-orm
         if consistency == "strong":
             from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 

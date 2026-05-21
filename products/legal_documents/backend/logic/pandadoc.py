@@ -121,34 +121,35 @@ class PandaDocClient:
         template_id: str,
         name: str,
         recipients: list[PandaDocRecipient],
+        sender_email: str | None = None,
         tokens: dict[str, str] | None = None,
         metadata: dict[str, str] | None = None,
-        owner_email: str | None = None,
     ) -> PandaDocDocument:
         """
         Create a new document from a PandaDoc template. The returned document is in
         `document.uploaded` state — call `send_document` to dispatch the signing email.
 
+        `sender_email` is the email address that will be used to send the signing
+        envelope. Defaults to the email address that owns the API key.
+
         `tokens` is a flat {name: value} map that maps onto the template's token
         placeholders (`[Client.Company]`, `[Client.StreetAddress]`, etc.). Only
         `Client.Email` is auto-populated from the recipient — everything else
         the template references has to be passed explicitly here.
-
-        `owner_email` overrides the document owner. PandaDoc sends the signing
-        envelope on behalf of the owner, so this also controls the From address
-        the signer sees. Defaults to the user that owns the API key.
         """
         payload: dict[str, Any] = {
             "name": name,
             "template_uuid": template_id,
             "recipients": [_serialize_recipient(r) for r in recipients],
         }
+
+        if sender_email:
+            payload["sender"] = {"email": sender_email}
         if tokens:
             payload["tokens"] = [{"name": name, "value": value} for name, value in tokens.items()]
         if metadata:
             payload["metadata"] = metadata
-        if owner_email:
-            payload["owner"] = {"email": owner_email}
+
         data = self._post("/public/v1/documents", payload)
         return PandaDocDocument(
             id=data["id"],
