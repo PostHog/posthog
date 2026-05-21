@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer import (
     DuckgresBatchConsumer,
     DuckgresConsumerConfig,
-    _group_by_key,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
 
@@ -162,17 +161,3 @@ class TestDuckgresProcessSingle:
             await consumer._process_single(_make_batch(latest_attempt=3))
 
         mock_fail.assert_called_once()
-
-
-class TestDuckgresGroupByKey:
-    def test_groups_by_team_and_schema(self):
-        batches = [
-            _make_batch(id="00000000-0000-0000-0000-000000000001", team_id=1, schema_id="a", batch_index=0),
-            _make_batch(id="00000000-0000-0000-0000-000000000002", team_id=1, schema_id="b", batch_index=0),
-            _make_batch(id="00000000-0000-0000-0000-000000000003", team_id=1, schema_id="a", batch_index=1),
-        ]
-
-        groups = _group_by_key(batches)
-
-        assert len(groups) == 2
-        assert [batch.batch_index for batch in groups[(1, "a")]] == [0, 1]

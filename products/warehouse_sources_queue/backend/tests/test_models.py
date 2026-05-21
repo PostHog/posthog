@@ -1,3 +1,5 @@
+from django.db.models import UniqueConstraint
+
 from products.warehouse_sources_queue.backend.models import (
     SourceBatch,
     SourceBatchDuckgresApply,
@@ -48,3 +50,13 @@ class TestSourceBatchDuckgresApplyModel:
     def test_batch_fk_has_no_db_constraint(self):
         field = SourceBatchDuckgresApply._meta.get_field("batch")
         assert not field.db_constraint  # type: ignore[attr-defined]
+
+    def test_unique_constraint_matches_apply_key(self):
+        constraint = next(
+            constraint
+            for constraint in SourceBatchDuckgresApply._meta.constraints
+            if constraint.name == "sbdga_unique_batch_apply"
+        )
+
+        assert isinstance(constraint, UniqueConstraint)
+        assert tuple(constraint.fields) == ("team_id", "schema_id", "run_uuid", "batch_index")
