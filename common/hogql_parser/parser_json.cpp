@@ -2877,28 +2877,20 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       json["value_type"] = "number";
     } else if (!is_hex && !is_binary && (text.find(".") != string::npos || text.find("e") != string::npos)) {
-      // `stod` throws `out_of_range` for BOTH overflow AND underflow,
-      // and we want to distinguish: overflow → ±Infinity; underflow
-      // → the actual subnormal value `strtod` returned (and zero for
-      // values below the smallest subnormal). Use `strtod` directly
-      // so the magnitude check decides.
+      // `stod` collapses overflow + underflow into the same `out_of_range`; use `strtod` + errno to keep them apart.
       errno = 0;
       const char* c_str = text.c_str();
       char* end = nullptr;
       double value = std::strtod(c_str, &end);
       bool consumed_all = end == c_str + text.size();
       if (!consumed_all) {
-        // strtod didn't consume the whole text — fall back to
-        // throwing the historical SyntaxError via stod, which lets
-        // existing callers/tests keep their behaviour.
+        // Malformed input — defer to `stod` so callers see the historical SyntaxError shape.
         json["value"] = Json(stod(text));
       } else if (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL)) {
-        // True overflow.
         json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
         json["value_type"] = "number";
       } else {
-        // Either no errno, or errno==ERANGE for an underflow (strtod
-        // returned a subnormal or 0). Preserve the value.
+        // No errno (in range) or `ERANGE` underflow (subnormal / 0) — keep the value.
         json["value"] = Json(value);
       }
       return json;
@@ -2927,12 +2919,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       return json;
     } else if (is_hex && ctx->floatingLiteral() != nullptr) {
-      // Hex-float literal — the FLOATING_LITERAL alt with hex content
-      // (`0x1p4`, `0x1.8p3`, etc.). The grammar uses strict C99
-      // `p`/`P` only as the exponent marker, so stod parses the text
-      // directly. (Without this branch the integer path's stoll would
-      // read only the leading hex digits and silently drop the
-      // exponent.)
+      // Hex-float literal (e.g. `0x1p4`) — route through `stod`; the integer path's `stoll` would drop the exponent.
       json["value"] = Json(stod(text));
       return json;
     } else {
@@ -2941,13 +2928,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         int base = is_hex ? 16 : 10;
         json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
-        // Beyond Int64 — keep the literal lossless rather than
-        // narrowing it to a double. Standard JSON numbers can't always
-        // round-trip a value wider than 64 bits through every backend,
-        // so the exact digit text (decimal, or `0x…` hex, with an
-        // optional leading `-`) is carried in the `value_type:
-        // "number"` string envelope; the deserialiser rebuilds an
-        // arbitrary-precision Python int.
+        // Beyond Int64 — keep the literal lossless via the `value_type: "number"` string envelope; the deserialiser rebuilds an arbitrary-precision Python int.
         json["value"] = text;
         json["value_type"] = "number";
       }

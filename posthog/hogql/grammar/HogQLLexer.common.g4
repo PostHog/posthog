@@ -162,9 +162,7 @@ QUOTED_IDENTIFIER
     | QUOTE_DOUBLE ( ~([\\"]) | ESCAPE_CHAR_COMMON | BACKSLASH QUOTE_DOUBLE | (QUOTE_DOUBLE QUOTE_DOUBLE) )* QUOTE_DOUBLE
     ;
 FLOATING_LITERAL
-    // Hex-float: strict C99 — `p`/`P` only. `e`/`E` stays a hex digit
-    // in this context, so `0x1e5` is the hex integer 485 (not a float)
-    // and `0x1e+4` is `0x1e` (=30) followed by an arithmetic `+4`.
+    // Hex-float exponent: strict C99 `p`/`P` only — `e`/`E` stays a hex digit, so `0x1e5` is 485, not a float.
     : HEXADECIMAL_LITERAL DOT HEX_DIGIT* P (PLUS | DASH)? DEC_DIGIT+
     | HEXADECIMAL_LITERAL P (PLUS | DASH)? DEC_DIGIT+
     | DECIMAL_LITERAL DOT DEC_DIGIT* E (PLUS | DASH)? DEC_DIGIT+
@@ -311,12 +309,7 @@ mode HOGQLX_TAG_OPEN;
 TAG_SELF_CLOSE_GT : '/>' -> type(SLASH_GT), popMode;   // <tag …/>
 TAG_OPEN_GT       :  '>' -> type(GT), popMode, pushMode(HOGQLX_TEXT);   // <tag …>
 
-// Block and line comments are skipped between attributes — without these
-// rules the lexer's recoverable token-recognition error would silently
-// drop the comment delimiters and re-tokenise the comment's identifier
-// content as a phantom attribute name (e.g. `<a /*c*/ b={1}/>` would
-// emit a fake `c` attribute alongside `b`). Mirrors the default-mode
-// comment rules.
+// Skip comments between attributes — without these, the recoverable lexer error drops the delimiters and re-tokenises the body as phantom attributes.
 TAG_MULTI_LINE_COMMENT  : '/*' .*? '*/'                                -> skip;
 TAG_SINGLE_LINE_COMMENT : ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
 
@@ -326,11 +319,7 @@ TAG_EQ      : '='                     -> type(EQ_SINGLE);
 TAG_STRING  : STRING_LITERAL          -> type(STRING_LITERAL);
 TAG_WS      : [ \t\r\n]+              -> channel(HIDDEN);
 TAG_LBRACE  : '{'                     -> type(LBRACE), pushMode(DEFAULT_MODE);
-// Catch-all: any byte not matched above (e.g. `#`, `&`, `@`) is emitted
-// as UNEXPECTED_CHARACTER, mirroring the default-mode fallback so the
-// parser fails loudly instead of dropping the character and silently
-// re-tokenising the surrounding text into a different valid-looking
-// attribute list.
+// Catch-all for unmatched bytes (e.g. `#`, `&`, `@`) so the parser fails loudly instead of silently re-tokenising the surrounding text.
 TAG_UNEXPECTED : . -> type(UNEXPECTED_CHARACTER);
 
 
