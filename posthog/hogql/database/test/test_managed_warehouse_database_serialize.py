@@ -32,7 +32,7 @@ class TestDatabaseSerializeManagedWarehouse(BaseTest):
         mock_org_id.return_value = "org-123"
         mock_get_server.return_value = _FakeDuckgresServer()
 
-        promoted = ManagedWarehousePromotedTable.objects.create(
+        promoted = ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team, source_schema_name="public", source_table_name="users"
         )
         DataWarehouseTable.objects.create(
@@ -62,7 +62,7 @@ class TestDatabaseSerializeManagedWarehouse(BaseTest):
         mock_org_id.return_value = "org-123"
         mock_get_server.return_value = _FakeDuckgresServer()
 
-        promoted = ManagedWarehousePromotedTable.objects.create(
+        promoted = ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team, source_schema_name="analytics", source_table_name="events"
         )
         DataWarehouseTable.objects.create(
@@ -86,7 +86,7 @@ class TestDatabaseSerializeManagedWarehouse(BaseTest):
         mock_org_id.return_value = "org-123"
         mock_get_server.return_value = _FakeDuckgresServer()
 
-        promoted = ManagedWarehousePromotedTable.objects.create(
+        promoted = ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team, source_schema_name="public", source_table_name="users"
         )
         DataWarehouseTable.objects.create(

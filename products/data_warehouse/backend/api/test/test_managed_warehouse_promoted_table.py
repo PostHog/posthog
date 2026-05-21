@@ -26,10 +26,10 @@ class TestManagedWarehousePromotedTableAPI(APIBaseTest):
         return AVAILABLE_URL.format(team_id=self.team.id)
 
     def test_list_returns_only_team_rows_and_excludes_soft_deleted(self):
-        ManagedWarehousePromotedTable.objects.create(
+        ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team, source_schema_name="public", source_table_name="users"
         )
-        ManagedWarehousePromotedTable.objects.create(
+        ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team,
             source_schema_name="public",
             source_table_name="hidden",
@@ -39,7 +39,7 @@ class TestManagedWarehousePromotedTableAPI(APIBaseTest):
         from posthog.models import Team
 
         other_team = Team.objects.create(organization=self.organization, name="other")
-        ManagedWarehousePromotedTable.objects.create(
+        ManagedWarehousePromotedTable.objects.unscoped().create(
             team=other_team, source_schema_name="public", source_table_name="orders"
         )
 
@@ -64,7 +64,7 @@ class TestManagedWarehousePromotedTableAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         body = response.json()
-        promoted = ManagedWarehousePromotedTable.objects.get(id=body["id"])
+        promoted = ManagedWarehousePromotedTable.objects.unscoped().get(id=body["id"])
         assert promoted.team_id == self.team.id
         assert promoted.created_by_id == self.user.id
 
@@ -98,10 +98,10 @@ class TestManagedWarehousePromotedTableAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         # No rows persisted on introspection failure.
-        assert ManagedWarehousePromotedTable.objects.filter(team_id=self.team.id).count() == 0
+        assert ManagedWarehousePromotedTable.objects.unscoped().filter(team_id=self.team.id).count() == 0
 
     def test_destroy_soft_deletes_promotion_and_linked_table(self):
-        promoted = ManagedWarehousePromotedTable.objects.create(
+        promoted = ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team, source_schema_name="public", source_table_name="users"
         )
         table = DataWarehouseTable.objects.create(
@@ -137,10 +137,10 @@ class TestManagedWarehousePromotedTableAPI(APIBaseTest):
             sql="<rendered>",
         )
 
-        ManagedWarehousePromotedTable.objects.create(
+        ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team, source_schema_name="public", source_table_name="users"
         )
-        ManagedWarehousePromotedTable.objects.create(
+        ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team,
             source_schema_name="analytics",
             source_table_name="events",

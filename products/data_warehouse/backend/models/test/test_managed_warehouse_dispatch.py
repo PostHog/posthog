@@ -24,7 +24,7 @@ class TestHogqlDefinitionDispatch(BaseTest):
     def _make_promoted_table(
         self, schema: str = "public", table_name: str = "users"
     ) -> tuple[ManagedWarehousePromotedTable, DataWarehouseTable]:
-        promoted = ManagedWarehousePromotedTable.objects.create(
+        promoted = ManagedWarehousePromotedTable.objects.unscoped().create(
             team=self.team, source_schema_name=schema, source_table_name=table_name
         )
         dw_table = DataWarehouseTable.objects.create(
