@@ -144,6 +144,10 @@ from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep import (
+    SURFACING_SCORING_SWEEP_ACTIVITIES,
+    SURFACING_SCORING_SWEEP_WORKFLOWS,
+)
 from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
@@ -365,6 +369,11 @@ _task_queue_specs = [
         settings.DEPLOYMENTS_TASK_QUEUE,
         DEPLOYMENTS_WORKFLOWS,
         DEPLOYMENTS_ACTIVITIES,
+    ),
+    (
+        settings.SURFACING_SCORING_SWEEP_TASK_QUEUE,
+        SURFACING_SCORING_SWEEP_WORKFLOWS,
+        SURFACING_SCORING_SWEEP_ACTIVITIES,
     ),
 ]
 
