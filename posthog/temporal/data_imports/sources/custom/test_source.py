@@ -228,6 +228,23 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert not ok
         assert "401" in (err or "")
 
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probes_every_resource(self, mock_session):
+        # The second resource fails — validation must catch it, not stop at the first.
+        manifest = _minimal_manifest()
+        manifest["resources"].append({"name": "orders", "endpoint": {"path": "/orders"}})
+        mock_session.return_value.request.side_effect = [
+            MagicMock(status_code=200, text="{}"),
+            MagicMock(status_code=404, text="not found"),
+        ]
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "orders" in (err or "")
+        assert "404" in (err or "")
+
     def test_returns_false_on_invalid_manifest(self):
         source = CustomSource()
         config = CustomSourceConfig(manifest_json="{not json}")

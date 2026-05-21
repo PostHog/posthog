@@ -249,21 +249,16 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         if not ok:
             return False, err
 
-        # Probe the first resource so we surface auth/connection errors at create-time
-        # rather than waiting for the first sync. Failure to reach the upstream is treated
-        # as a credential failure with the underlying error message returned to the user.
-        first = manifest["resources"][0]
-        endpoint = first.get("endpoint", {})
-        method = (endpoint.get("method") or "GET").upper()
-        path = endpoint.get("path", "")
-        url = (
-            path
-            if path.startswith(("http://", "https://"))
-            else f"{manifest['client']['base_url'].rstrip('/')}/{path.lstrip('/')}"
-        )
+        # Probe every resource so we surface auth/connection errors at create-time
+        # rather than waiting for the first sync. Failure to reach any endpoint is
+        # treated as a credential failure with the underlying error message returned
+        # to the user. The auth/header setup comes from the shared client config, so
+        # it is built once and reused across the per-resource requests.
+        client = manifest["client"]
+        base_url = client["base_url"]
 
-        headers: dict[str, str] = dict(manifest["client"].get("headers") or {})
-        auth: dict[str, Any] = dict(manifest["client"].get("auth") or {})
+        headers: dict[str, str] = dict(client.get("headers") or {})
+        auth: dict[str, Any] = dict(client.get("auth") or {})
         auth_type = auth.get("type")
         if auth_type == "bearer" and auth.get("token"):
             headers.setdefault("Authorization", f"Bearer {auth['token']}")
@@ -271,17 +266,27 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             if (auth.get("location") or "header") == "header":
                 headers[auth.get("name") or "Authorization"] = auth["api_key"]
 
-        session = make_tracked_session(headers=headers)
-        try:
-            basic_auth: tuple[str, str] | None = None
-            if auth_type == "http_basic":
-                basic_auth = (str(auth.get("username", "")), str(auth.get("password", "")))
-            response = session.request(method, url, auth=basic_auth, timeout=15)
-        except Exception as exc:
-            return False, f"Could not reach {url}: {exc}"
+        basic_auth: tuple[str, str] | None = None
+        if auth_type == "http_basic":
+            basic_auth = (str(auth.get("username", "")), str(auth.get("password", "")))
 
-        if response.status_code >= 400:
-            return False, f"HTTP {response.status_code} from {url}: {response.text[:200]}"
+        session = make_tracked_session(headers=headers)
+
+        for resource in manifest["resources"]:
+            endpoint = resource.get("endpoint", {})
+            method = (endpoint.get("method") or "GET").upper()
+            path = endpoint.get("path", "")
+            url = path if path.startswith(("http://", "https://")) else f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            try:
+                response = session.request(method, url, auth=basic_auth, timeout=15)
+            except Exception as exc:
+                return False, f"Resource {resource['name']!r}: could not reach {url}: {exc}"
+
+            if response.status_code >= 400:
+                return False, (
+                    f"Resource {resource['name']!r}: HTTP {response.status_code} from {url}: {response.text[:200]}"
+                )
+
         return True, None
 
     def get_schemas(
