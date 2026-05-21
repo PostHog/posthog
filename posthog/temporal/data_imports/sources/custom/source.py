@@ -138,25 +138,6 @@ def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     return _is_host_safe(parsed.hostname, team_id)
 
 
-_MANIFEST_PLACEHOLDER = """{
-  "client": {
-    "base_url": "https://api.example.com",
-    "auth": { "type": "bearer" }
-  },
-  "resources": [
-    {
-      "name": "users",
-      "primary_key": "id",
-      "endpoint": {
-        "path": "/v1/users",
-        "data_selector": "data",
-        "paginator": { "type": "json_response", "next_url_path": "links.next" }
-      }
-    }
-  ]
-}"""
-
-
 @SourceRegistry.register
 class CustomSource(SimpleSource[CustomSourceConfig]):
     """User-defined REST API source.
@@ -198,7 +179,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         label="Manifest (JSON)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
-                        placeholder=_MANIFEST_PLACEHOLDER,
+                        placeholder="",
                         secret=False,
                     ),
                     # One of the three is used per sync, selected by the manifest's
