@@ -120,37 +120,51 @@ class SentimentBatchResponseSerializer(serializers.Serializer):
 # key starts `(team_id, toDate(timestamp), event)` so date filtering prunes
 # granules cheaply, while ai_events is `(team_id, trace_id, timestamp)` —
 # unusable for date pruning until trace_id is bounded.
+#
+# The `max(timestamp)` / `min(timestamp)` aggregates intentionally use distinct
+# aliases (`ts_max` / `ts_min`) rather than reusing `timestamp` / `created_at`.
+# `replace_filters` injects a timestamp range as `toTimeZone(timestamp, '<tz>') > ...`
+# for teams whose timezone is non-UTC, and HogQL would bind that inner `timestamp`
+# to a same-named SELECT alias, producing `max(toTimeZone(timestamp, ...))` inside
+# WHERE — an illegal aggregate in WHERE that surfaces as a 500 to the Sentiment tab.
 _SENTIMENT_GENERATIONS_PREFLIGHT_SQL = f"""
 SELECT
     argMax(uuid, timestamp) as uuid,
     properties.$ai_trace_id as trace_id,
     argMax(properties.$ai_model, timestamp) as model,
     argMax(distinct_id, timestamp) as distinct_id,
-    max(timestamp) as timestamp,
-    min(timestamp) as created_at
+    max(timestamp) as ts_max,
+    min(timestamp) as ts_min
 FROM events
 WHERE event = '$ai_generation'
     AND length(coalesce(properties.$ai_trace_id, '')) > 0
     AND {{filters}}
 GROUP BY trace_id
-ORDER BY timestamp DESC, trace_id DESC
+ORDER BY ts_max DESC, trace_id DESC
 LIMIT {GENERATIONS_QUERY_LIMIT}
 """
 
-_SENTIMENT_GENERATIONS_HEAVY_SQL = """
+# The explicit `LIMIT` matches the preflight's `GENERATIONS_QUERY_LIMIT` —
+# without it, `execute_hogql_query` (via `LimitContext.QUERY`) injects its
+# default of 100 rows, silently truncating the heavy `GROUP BY trace_id`
+# to the first 100 trace_ids whenever the preflight returns more. That
+# manifests in the UI as blank sentiment cards for the truncated half,
+# even though the underlying input is present in ClickHouse.
+_SENTIMENT_GENERATIONS_HEAVY_SQL = f"""
 SELECT
     trace_id,
     argMax(input, timestamp) as ai_input
 FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
-    AND trace_id IN {trace_ids}
-    AND uuid IN {uuids}
-    AND timestamp >= {ts_start}
-    AND timestamp <= {ts_end}
+    AND trace_id IN {{trace_ids}}
+    AND uuid IN {{uuids}}
+    AND timestamp >= {{ts_start}}
+    AND timestamp <= {{ts_end}}
 GROUP BY trace_id
+LIMIT {GENERATIONS_QUERY_LIMIT}
 """
 
-_PreflightRow = namedtuple("_PreflightRow", ["uuid", "trace_id", "model", "distinct_id", "timestamp", "created_at"])
+_PreflightRow = namedtuple("_PreflightRow", ["uuid", "trace_id", "model", "distinct_id", "ts_max", "ts_min"])
 
 
 class SentimentGenerationsRequestSerializer(serializers.Serializer):
@@ -228,7 +242,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             400: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @llma_track_latency("llma_sentiment_create")
     @monitor(feature=None, endpoint="llma_sentiment_create", method="POST")
@@ -306,7 +320,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             400: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @action(detail=False, methods=["post"], url_path="generations")
     @llma_track_latency("llma_sentiment_generations")
@@ -359,19 +373,20 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
             trace_ids = [str(row.trace_id) for row in preflight_rows]
             uuids = [str(row.uuid) for row in preflight_rows]
-            ts_start = min(row.created_at for row in preflight_rows)
-            ts_end = max(row.timestamp for row in preflight_rows)
+            ts_start = min(row.ts_min for row in preflight_rows)
+            ts_end = max(row.ts_max for row in preflight_rows)
 
             heavy_query = parse_select(_SENTIMENT_GENERATIONS_HEAVY_SQL)
+            heavy_placeholders = {
+                "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+                "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
+                "ts_start": ast.Constant(value=ts_start),
+                "ts_end": ast.Constant(value=ts_end),
+            }
             try:
                 heavy_result = execute_with_ai_events_fallback(
                     query=heavy_query,
-                    placeholders={
-                        "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
-                        "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
-                        "ts_start": ast.Constant(value=ts_start),
-                        "ts_end": ast.Constant(value=ts_end),
-                    },
+                    placeholders=heavy_placeholders,
                     team=self.team,
                     query_type="LLMSentimentGenerations",
                     limit_context=LimitContext.QUERY,
@@ -388,6 +403,11 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 )
 
         ai_input_by_trace = {str(trace_id): ai_input for trace_id, ai_input in (heavy_result.results or [])}
+        # Positional response shape (unchanged, frontend depends on it): row[0..6] =
+        # [uuid, trace_id, ai_input, model, distinct_id, ts_max, ts_min]. The internal
+        # `ts_max` / `ts_min` aliases (see `_SENTIMENT_GENERATIONS_PREFLIGHT_SQL`) are
+        # the same values the frontend consumes as `timestamp` and `createdAt` at
+        # `llmAnalyticsSentimentLogic.ts::fetchGenerations`.
         results = [
             [
                 row.uuid,
@@ -395,8 +415,8 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 ai_input_by_trace.get(str(row.trace_id)),
                 row.model,
                 row.distinct_id,
-                row.timestamp,
-                row.created_at,
+                row.ts_max,
+                row.ts_min,
             ]
             for row in preflight_rows
         ]

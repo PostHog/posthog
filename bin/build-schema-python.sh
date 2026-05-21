@@ -13,6 +13,9 @@ datamodel-codegen \
     --set-default-enum-member --capitalise-enum-members \
     --wrap-string-literal
 
+# Re-apply discriminator keywords to array items dropped by datamodel-code-generator
+python3 bin/patch-schema-array-discriminators.py
+
 # Format and lint
 ruff format posthog/schema.py
 ruff check --fix posthog/schema.py

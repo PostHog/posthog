@@ -35,6 +35,7 @@ utility = true
 path = "ee"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.alerts",
     "products.dashboards",
     "products.data_warehouse",
@@ -50,6 +51,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.user_interviews",
 ]
 layer = "modules"
 
@@ -86,6 +88,7 @@ depends_on = [
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
+    "products.product_analytics",
     "products.product_tours",
     "products.replay_vision",
     "products.revenue_analytics",
@@ -96,9 +99,21 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.visual_review",
+    "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
+    "products.actions",
+    "products.alerts",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.actions"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.experiments",
 ]
 layer = "modules"
 
@@ -156,7 +171,9 @@ path = "products.dashboards"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.llm_analytics",
+    "products.mcp_analytics",
 ]
 layer = "modules"
 
@@ -237,6 +254,7 @@ path = "products.experiments"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.event_definitions",
     "products.notifications",
     "products.product_tours",
@@ -300,6 +318,7 @@ layer = "modules"
 path = "products.marketing_analytics"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.data_warehouse",
 ]
 layer = "modules"
@@ -308,6 +327,7 @@ layer = "modules"
 path = "products.mcp_analytics"
 depends_on = [
     "posthog",
+    "products.dashboards",
 ]
 layer = "modules"
 
@@ -378,7 +398,12 @@ layer = "modules"
 
 [[modules]]
 path = "products.product_analytics"
-depends_on = []
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.data_warehouse",
+    "products.event_definitions",
+]
 layer = "modules"
 
 [[modules]]
@@ -442,6 +467,7 @@ path = "products.surveys"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.product_tours",
 ]
 layer = "modules"
@@ -495,6 +521,7 @@ path = "products.web_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
 ]
 layer = "modules"
 
@@ -513,7 +540,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|visual_review)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -527,6 +554,15 @@ from = [
     "products.experiments",
 ]
 
+# user_interviews exposes Vapi webhook handlers that are routed directly from posthog/urls.py.
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.webhooks.*",
+]
+from = [
+    "products.user_interviews",
+]
+
 # Legacy leaks — core (posthog/ee) imports these internals directly.
 # Each block below should shrink as imports migrate to the facade.
 # These products have had backend:contract-check removed from package.json
@@ -537,6 +573,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
@@ -564,6 +601,19 @@ from = [
     "products.tracing",
 ]
 
+# TODO: legacy leaks — posthog/temporal/mcp_analytics/* and the dashboard
+# integration import models / dashboard_templates directly. Move those into
+# the product (and through the facade) so this interface can shrink back to
+# the isolated default.
+[[interfaces]]
+expose = [
+    "backend\\.dashboard_templates.*",
+    "backend\\.models.*",
+]
+from = [
+    "products.mcp_analytics",
+]
+
 [[modules]]
 path = "products.legal_documents"
 depends_on = [
@@ -580,6 +630,16 @@ depends_on = [
 ]
 layer = "modules"
 
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.access_control",
+]
+
+# Legacy leaks — core (posthog/ee) still imports these internals directly.
 [[interfaces]]
 expose = [
     "backend\\.models.*",

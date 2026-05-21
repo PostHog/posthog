@@ -1,7 +1,7 @@
 """Temporal workflow that kicks off the anomaly investigation agent and persists
 its findings as a Notebook linked to the AlertCheck.
 
-Triggered from posthog/tasks/alerts/checks.py when an alert transitions to FIRING.
+Triggered from posthog/temporal/alerts/workflows.py when an alert transitions to FIRING.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
@@ -31,7 +30,9 @@ from posthog.temporal.ai.anomaly_investigation.runner import run_investigation
 from posthog.temporal.ai.anomaly_investigation.tools import _run_detector_simulation
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.utils import absolute_uri
 
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.models import Notebook
 
 logger = structlog.get_logger(__name__)
@@ -270,7 +271,8 @@ def _build_breach_descriptions(
     if summary:
         lines.append(summary)
     if notebook_short_id:
-        lines.append(f"See /notebooks/{notebook_short_id} for the full investigation.")
+        notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}")
+        lines.append(f"See {notebook_url} for the full investigation.")
     return lines
 
 

@@ -36,13 +36,14 @@ from posthog.hogql_queries.insights.funnels.utils import (
     entity_config_mismatch,
     get_breakdown_expr,
 )
+from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID, strip_user_aliases
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.queries.breakdown_props import NOT_IN_COHORT_ID
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
+
+from products.actions.backend.models.action import Action
 
 
 @dataclass
@@ -432,10 +433,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
-            return ast.Alias(
-                alias="value",
-                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
-            )
+            exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]
+            return ast.Alias(alias="value", expr=ast.Array(exprs=exprs))
         elif breakdownType == "data_warehouse_person_property":
             assert isinstance(breakdown, str)
             return ast.Field(chain=["person", *breakdown.split(".")])
