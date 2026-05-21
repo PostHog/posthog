@@ -10,6 +10,8 @@ import { createRoot } from 'react-dom/client'
 
 import { PostHogProvider } from '@posthog/react'
 
+import { isChunkLoadError, isLikelyStaleChunkRuntimeError } from 'lib/utils/isChunkLoadError'
+import { reloadOnceForStaleChunk } from 'lib/utils/reloadOnceForStaleChunk'
 import { App } from 'scenes/App'
 
 import { initKea } from './initKea'
@@ -18,6 +20,43 @@ import { loadPostHogJS } from './loadPostHogJS'
 
 loadPostHogJS()
 initKea()
+
+/**
+ * Boot-time recovery for stale-chunk failures: if a deploy invalidates the chunk hashes
+ * referenced by an old cached `index.html`, the dynamic imports kicked off by
+ * `React.lazy` (or the idle pre-warm below) can fail synchronously inside `createRoot.render`
+ * before any React boundary mounts. When that happens, no in-tree boundary — including the
+ * `ChunkLoadErrorBoundary` — gets a chance to recover, and the user sees a blank screen.
+ *
+ * We mirror the boundary's reload-once behavior here for errors that escape the React tree:
+ *   1. A try/catch around the synchronous render call.
+ *   2. Global `error` / `unhandledrejection` listeners for async failures from idle imports.
+ * All three paths share the same localStorage guard, so we never reload more than once.
+ */
+function maybeReloadForStaleChunk(error: unknown): boolean {
+    if (!isChunkLoadError(error) && !isLikelyStaleChunkRuntimeError(error)) {
+        return false
+    }
+    if (reloadOnceForStaleChunk()) {
+        console.warn('[index] Boot-time chunk-load failure (likely stale deploy); reloading.', error)
+        return true
+    }
+    console.error('[index] Recently reloaded; surfacing boot-time chunk error.', error)
+    return false
+}
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('error', (event) => {
+        if (maybeReloadForStaleChunk(event.error)) {
+            event.preventDefault()
+        }
+    })
+    window.addEventListener('unhandledrejection', (event) => {
+        if (maybeReloadForStaleChunk(event.reason)) {
+            event.preventDefault()
+        }
+    })
+}
 
 const idle =
     typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
@@ -51,7 +90,11 @@ if (typeof window !== 'undefined') {
 
 function renderApp(): void {
     const root = document.getElementById('root')
-    if (root) {
+    if (!root) {
+        console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
+        return
+    }
+    try {
         createRoot(root).render(
             <ErrorBoundary>
                 <PostHogProvider client={posthog}>
@@ -61,8 +104,11 @@ function renderApp(): void {
                 </PostHogProvider>
             </ErrorBoundary>
         )
-    } else {
-        console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')
+    } catch (error) {
+        if (maybeReloadForStaleChunk(error)) {
+            return
+        }
+        throw error
     }
 }
 

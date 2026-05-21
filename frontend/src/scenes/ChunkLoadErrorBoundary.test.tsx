@@ -31,6 +31,10 @@ function ThrowRegularError(): JSX.Element {
     throw new Error('regular render failure')
 }
 
+function ThrowShortMinifiedTypeError(): JSX.Element {
+    throw new TypeError('g is not a function')
+}
+
 describe('ChunkLoadErrorBoundary', () => {
     let consoleErrorSpy: jest.SpyInstance
     let consoleWarnSpy: jest.SpyInstance
@@ -94,5 +98,51 @@ describe('ChunkLoadErrorBoundary', () => {
 
         expect(reload).not.toHaveBeenCalled()
         expect(screen.getByText('regular render failure')).toBeInTheDocument()
+    })
+
+    it('does not reload for short minified `is not a function` errors without the opt-in prop', () => {
+        const reload = jest.fn()
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload}>
+                    <ThrowShortMinifiedTypeError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).not.toHaveBeenCalled()
+        expect(screen.getByText('g is not a function')).toBeInTheDocument()
+    })
+
+    it('reloads for short minified `is not a function` errors when matchStaleChunkRuntimeErrors is on', () => {
+        const reload = jest.fn()
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload} matchStaleChunkRuntimeErrors>
+                    <ThrowShortMinifiedTypeError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).toHaveBeenCalledTimes(1)
+        expect(Number(window.localStorage.getItem(RELOAD_GUARD_KEY))).toBeGreaterThan(0)
+    })
+
+    it('surfaces repeated stale-chunk runtime errors instead of reloading in a loop', () => {
+        const reload = jest.fn()
+        window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
+
+        render(
+            <TestErrorBoundary>
+                <ChunkLoadErrorBoundary reload={reload} matchStaleChunkRuntimeErrors>
+                    <ThrowShortMinifiedTypeError />
+                </ChunkLoadErrorBoundary>
+            </TestErrorBoundary>
+        )
+
+        expect(reload).not.toHaveBeenCalled()
+        expect(screen.getByText('g is not a function')).toBeInTheDocument()
     })
 })

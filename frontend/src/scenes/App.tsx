@@ -148,7 +148,10 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <ChunkLoadErrorBoundary>
+        // `matchStaleChunkRuntimeErrors` because the lazy `AuthenticatedShell` import can
+        // resolve to a degenerate module after a deploy, surfacing as a short minified
+        // `X is not a function` TypeError instead of a clean `ChunkLoadError`.
+        <ChunkLoadErrorBoundary matchStaleChunkRuntimeErrors>
             <Suspense
                 fallback={
                     // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.

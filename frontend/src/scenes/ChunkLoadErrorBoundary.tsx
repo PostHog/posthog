@@ -1,13 +1,24 @@
 import { Component, type ReactNode } from 'react'
 
-import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-
-const RELOAD_GUARD_KEY = 'posthog-chunk-reload-at'
-const RELOAD_GUARD_WINDOW_MS = 20_000
+import { isChunkLoadError, isLikelyStaleChunkRuntimeError } from 'lib/utils/isChunkLoadError'
+import { reloadOnceForStaleChunk } from 'lib/utils/reloadOnceForStaleChunk'
 
 interface State {
     error: unknown
     surface: boolean
+}
+
+interface ChunkLoadErrorBoundaryProps {
+    children: ReactNode
+    reload?: () => void
+    /**
+     * When true, also treat short minified `X is not a function` TypeErrors as stale-chunk
+     * failures. Enable this on boundaries that wrap a `React.lazy(...)` import, where a
+     * stale chunk can resolve to a degenerate module and React throws inside render before
+     * any inner boundary mounts. Keep it off for general-purpose boundaries to avoid
+     * masking real bugs as reload-and-pray.
+     */
+    matchStaleChunkRuntimeErrors?: boolean
 }
 
 /**
@@ -17,11 +28,6 @@ interface State {
  * rather than spinning forever. Non-chunk errors are re-thrown so the regular
  * error UI still renders.
  */
-interface ChunkLoadErrorBoundaryProps {
-    children: ReactNode
-    reload?: () => void
-}
-
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
     override state: State = { error: null, surface: false }
 
@@ -29,42 +35,35 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
         return { error }
     }
 
+    private isRecoverableError(error: unknown): boolean {
+        if (isChunkLoadError(error)) {
+            return true
+        }
+        if (this.props.matchStaleChunkRuntimeErrors && isLikelyStaleChunkRuntimeError(error)) {
+            return true
+        }
+        return false
+    }
+
     override componentDidCatch(error: unknown): void {
-        if (!isChunkLoadError(error)) {
+        if (!this.isRecoverableError(error)) {
             return
         }
-        let lastReload = 0
-        try {
-            lastReload = Number(window.localStorage.getItem(RELOAD_GUARD_KEY) ?? 0)
-        } catch {
-            // localStorage may be unavailable (e.g. Safari private mode) - treat as no prior reload
-        }
-        if (lastReload && Date.now() - lastReload < RELOAD_GUARD_WINDOW_MS) {
+        if (!reloadOnceForStaleChunk(this.props.reload)) {
             console.error('[ChunkLoadErrorBoundary] Recently reloaded; surfacing error instead of looping.')
             this.setState({ surface: true })
             return
         }
         console.warn('[ChunkLoadErrorBoundary] Chunk-load failure (likely stale deploy); reloading.')
-        try {
-            window.localStorage.setItem(RELOAD_GUARD_KEY, String(Date.now()))
-        } catch {
-            // localStorage may throw QuotaExceededError (Safari private mode, full storage).
-            // Skip the guard and reload anyway - without the timestamp the worst case is
-            // a reload loop, which only happens if the chunk itself keeps failing.
-        }
-        if (this.props.reload) {
-            this.props.reload()
-        } else {
-            window.location.reload()
-        }
     }
 
     override render(): ReactNode {
         const { error, surface } = this.state
-        if (error && (!isChunkLoadError(error) || surface)) {
+        const recoverable = error != null && this.isRecoverableError(error)
+        if (error && (!recoverable || surface)) {
             throw error
         }
-        if (error && isChunkLoadError(error)) {
+        if (error && recoverable) {
             return null
         }
         return this.props.children
