@@ -8,19 +8,17 @@ import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSession
 /**
  * Live progress for the AI wizard, shown beneath the run-this-command block.
  *
- * Subscribes to the SSE stream for the (workflow_id, skill_id) the CLI emits
- * during onboarding. The CLI hardcodes `workflow_id = 'onboarding'`; the
- * `skill_id` reflects the framework the wizard detected. Until the CLI exposes
- * a discovery hook, we listen on a single hardcoded skill and render a friendly
- * "waiting for wizard" state when nothing is streaming yet.
+ * Subscribes to the SSE stream for the `posthog-integration` workflow without
+ * pinning a `skill_id` — the wizard's skill depends on the detected framework
+ * (`nextjs`, `django`, `laravel`, etc.) and we want to show progress regardless.
+ * The backend pattern-subscribes to all skills under that workflow.
  *
  * Keep this UI simple — it's a v1 indicator, not a full progress panel.
  */
-const WORKFLOW_ID = 'onboarding'
-const SKILL_ID = 'posthog_integration'
+const WORKFLOW_ID = 'posthog-integration'
 
 export function WizardProgressTracker(): JSX.Element | null {
-    const logic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID, skillId: SKILL_ID })
+    const logic = wizardSessionStreamLogic({ workflowId: WORKFLOW_ID })
     const { latestSession, connectionStatus, lastError } = useValues(logic)
     const { connect, disconnect } = useActions(logic)
 
