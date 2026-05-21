@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -55,26 +55,30 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
     const { queryInput, sourceQuery } = useValues(logic)
     const { initialize, runQuery, setQueryInput, setSourceQuery } = useActions(logic)
 
+    // Same two-ref approach as the Code variant — see comment there for the why.
+    const lastAttrRef = useRef<DataVisualizationNode | null>(null)
+    const lastLocalRef = useRef<DataVisualizationNode | null>(null)
+
     useEffect(() => {
         initialize()
     }, [initialize])
 
     useEffect(() => {
-        if (!editorSourceQuery || queryInput !== null) {
+        if (!editorSourceQuery) {
             return
         }
 
-        setQueryInput(editorSourceQuery.source.query)
-        setSourceQuery(editorSourceQuery)
-        runQuery(editorSourceQuery.source.query)
-    }, [editorSourceQuery, queryInput, runQuery, setQueryInput, setSourceQuery])
-
-    useEffect(() => {
-        if (!editorSourceQuery || queryInput === null) {
+        if (queryInput === null) {
+            // First mount — seed kea and run the query so results show immediately.
+            lastAttrRef.current = editorSourceQuery
+            lastLocalRef.current = editorSourceQuery
+            setQueryInput(editorSourceQuery.source.query)
+            setSourceQuery(editorSourceQuery)
+            runQuery(editorSourceQuery.source.query)
             return
         }
 
-        const nextQuery: DataVisualizationNode = {
+        const localQuery: DataVisualizationNode = {
             ...sourceQuery,
             source: {
                 ...sourceQuery.source,
@@ -83,10 +87,30 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
             display: sourceQuery.display ?? editorSourceQuery.display ?? ChartDisplayType.ActionsTable,
         }
 
-        if (!equal(nextQuery, editorSourceQuery)) {
-            updateAttributes({ query: nextQuery } as Partial<NotebookNodeAttributes<T>>)
+        if (equal(localQuery, editorSourceQuery)) {
+            lastAttrRef.current = editorSourceQuery
+            lastLocalRef.current = localQuery
+            return
         }
-    }, [editorSourceQuery, queryInput, sourceQuery, updateAttributes])
+
+        if (!equal(editorSourceQuery, lastAttrRef.current)) {
+            // Attribute moved — pull (overrides any in-flight typing: last write wins).
+            lastAttrRef.current = editorSourceQuery
+            lastLocalRef.current = editorSourceQuery
+            setQueryInput(editorSourceQuery.source.query)
+            setSourceQuery(editorSourceQuery)
+            return
+        }
+
+        if (!equal(localQuery, lastLocalRef.current)) {
+            // Editor moved — push to Tiptap.
+            lastLocalRef.current = localQuery
+            updateAttributes({ query: localQuery } as Partial<NotebookNodeAttributes<T>>)
+            return
+        }
+
+        // Tiptap hasn't propagated a push we already made — wait for the next render.
+    }, [editorSourceQuery, queryInput, sourceQuery, runQuery, setQueryInput, setSourceQuery, updateAttributes])
 
     return editorSourceQuery
 }
@@ -101,26 +125,44 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
     const { queryInput, sourceQuery } = useValues(logic)
     const { initialize, setQueryInput, setSourceQuery } = useActions(logic)
 
+    // Tracks the last `code` and `queryInput` we observed in sync. A real attribute change
+    // (remote step, undo, programmatic) shows up as `code !== lastCodeRef` → pull. A real
+    // local edit shows up as `queryInput !== lastQueryRef` → push. A transient mismatch
+    // right after a push (Tiptap hasn't propagated yet) shows up as neither → wait.
+    // One ref isn't enough: after a push it would falsely classify the lag as a remote change.
+    const lastCodeRef = useRef<string | null>(null)
+    const lastQueryRef = useRef<string | null>(null)
+
     useEffect(() => {
         initialize()
     }, [initialize])
 
     useEffect(() => {
-        if (queryInput !== null) {
+        if (queryInput === code) {
+            lastCodeRef.current = code
+            lastQueryRef.current = queryInput
             return
         }
 
-        setQueryInput(code)
-        setSourceQuery(buildSourceQuery(code))
-    }, [code, queryInput, setQueryInput, setSourceQuery])
-
-    useEffect(() => {
-        if (queryInput === null || queryInput === code) {
+        if (code !== lastCodeRef.current) {
+            // Attribute moved — pull into kea (overrides any in-flight typing: last write wins).
+            lastCodeRef.current = code
+            lastQueryRef.current = code
+            setQueryInput(code)
+            setSourceQuery(buildSourceQuery(code))
             return
         }
 
-        updateAttributes({ code: queryInput } as Partial<NotebookNodeAttributes<T>>)
-    }, [code, queryInput, updateAttributes])
+        if (queryInput !== lastQueryRef.current) {
+            // Editor moved — push to Tiptap.
+            lastQueryRef.current = queryInput
+            updateAttributes({ code: queryInput } as Partial<NotebookNodeAttributes<T>>)
+            return
+        }
+
+        // Both sides match what we last observed but each other doesn't — Tiptap is still
+        // catching up to a push we already made. Do nothing; the next render will reconcile.
+    }, [code, queryInput, setQueryInput, setSourceQuery, updateAttributes])
 
     useEffect(() => {
         if (queryInput === null) {
