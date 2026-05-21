@@ -6364,7 +6364,8 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
                 ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
                 ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
-                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi: out of range"),
+                # `stoi`'s `out_of_range::what()` differs by stdlib (libc++ adds `: out of range`, libstdc++ doesn't); match the platform-independent prefix only.
+                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoi"),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
             )
             for src, expected_msg in cases:
