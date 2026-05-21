@@ -6132,6 +6132,41 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_web_overview_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_overview_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Aggregate states matching WebOverviewQueryRunner.outer_select metrics.
+      -- `uniq` (HyperLogLog) is used over `uniqExact` because HogQL exposes
+      -- `uniqMergeIf` but not `uniqExactMergeIf`, and ~99% accuracy is fine for the
+      -- dashboard use case (matches the v2 pre-aggregation choice).
+      uniq_users_state AggregateFunction(uniq, UUID),
+      uniq_sessions_state AggregateFunction(uniq, String),
+      sum_pageviews_state AggregateFunction(sum, Int64),
+      avg_duration_state AggregateFunction(avg, Float64),
+      avg_bounce_state AggregateFunction(avg, Int64),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_overview_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[tophog]
   '''
   
@@ -6166,6 +6201,36 @@
       lane,
       labels
   FROM kafka_tophog
+  
+  '''
+# ---
+# name: test_create_table_query[web_overview_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS web_overview_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Aggregate states matching WebOverviewQueryRunner.outer_select metrics.
+      -- `uniq` (HyperLogLog) is used over `uniqExact` because HogQL exposes
+      -- `uniqMergeIf` but not `uniqExactMergeIf`, and ~99% accuracy is fine for the
+      -- dashboard use case (matches the v2 pre-aggregation choice).
+      uniq_users_state AggregateFunction(uniq, UUID),
+      uniq_sessions_state AggregateFunction(uniq, String),
+      sum_pageviews_state AggregateFunction(sum, Int64),
+      avg_duration_state AggregateFunction(avg, Float64),
+      avg_bounce_state AggregateFunction(avg, Int64),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_web_overview_preaggregated', sipHash64(job_id))
   
   '''
 # ---
@@ -9343,6 +9408,41 @@
   ORDER BY (pipeline, lane, metric, timestamp, key)
   
   SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_web_overview_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_overview_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Aggregate states matching WebOverviewQueryRunner.outer_select metrics.
+      -- `uniq` (HyperLogLog) is used over `uniqExact` because HogQL exposes
+      -- `uniqMergeIf` but not `uniqExactMergeIf`, and ~99% accuracy is fine for the
+      -- dashboard use case (matches the v2 pre-aggregation choice).
+      uniq_users_state AggregateFunction(uniq, UUID),
+      uniq_sessions_state AggregateFunction(uniq, String),
+      sum_pageviews_state AggregateFunction(sum, Int64),
+      avg_duration_state AggregateFunction(avg, Float64),
+      avg_bounce_state AggregateFunction(avg, Int64),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_overview_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
