@@ -26,11 +26,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let mut subsequent: Vec<E::Value> = Vec::new();
         while let Some(op) = self.try_consume_set_op()? {
             let next = self.parse_select_stmt_with_parens()?;
-            subsequent.push(json!({
-                "node": "SelectSetNode",
-                "select_query": next,
-                "set_operator": op,
-            }));
+            subsequent.push(self.emit.select_set_node(next, Some(op.as_str())));
         }
 
         // Optional trailing ORDER BY / LIMIT / OFFSET at the
@@ -59,16 +55,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // (lines 633-651) writes only `limit` and `offset`. Mirror
             // that: drop those two fields when collapsing to a single
             // SelectQuery.
-            let filtered: Vec<(String, Value)> = trailing
+            let filtered: Vec<(String, E::Value)> = trailing
                 .into_iter()
                 .filter(|(k, _)| k != "limit_percent" && k != "limit_with_ties")
                 .collect();
             // Clear the lift sentinel on the inner — it's only meaningful
             // when wrapping in a SelectSetQuery.
             let mut first = first;
-            if let Some(obj) = first.as_object_mut() {
-                obj.remove("__rust_offset_liftable");
-            }
+            self.emit.remove_field(&mut first, "__rust_offset_liftable");
             // A set-level LIMIT / OFFSET clause has nowhere to attach on a
             // bare `{placeholder}` select body — only `SelectQuery` /
             // `SelectSetQuery` carry those fields — so it is dropped, the
@@ -76,7 +70,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // be written onto the `Placeholder` node and crash AST
             // deserialization.
             let body_takes_decorators = matches!(
-                first.get("node").and_then(Value::as_str),
+                self.emit.node_kind(&first).as_deref(),
                 Some("SelectQuery") | Some("SelectSetQuery")
             );
             if !body_takes_decorators {
@@ -90,7 +84,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // limit / offset / limit_with_ties / limit_percent fields
             // without re-stamping positions — so the end stays at the
             // last body-level clause cpp consumed. Mirror that exactly.
-            let merged = merge_select_decorators(first, filtered);
+            let merged = merge_select_decorators(&self.emit, first, filtered);
             // `has_set_level_trailing` is unused here (we keep it
             // declared above for parity with the set-stmt branch's
             // OFFSET-lift heuristic, which it still feeds).
@@ -117,9 +111,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let mut first = first;
         // Clean the lift sentinel off the initial SELECT — cpp's lift
         // only ever applies to the LAST inner SELECT, never the first.
-        if let Some(obj) = first.as_object_mut() {
-            obj.remove("__rust_offset_liftable");
-        }
+        self.emit.remove_field(&mut first, "__rust_offset_liftable");
         // …and off every non-last subsequent SELECT (the lift only
         // applies to the trailing inner).
         let last_idx = subsequent.len().saturating_sub(1);
@@ -127,12 +119,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             if i == last_idx {
                 continue;
             }
-            if let Some(sq) = node
-                .as_object_mut()
-                .and_then(|n| n.get_mut("select_query"))
-                .and_then(Value::as_object_mut)
-            {
-                sq.remove("__rust_offset_liftable");
+            if let Some(mut sq) = self.emit.get_field(node, "select_query") {
+                self.emit.remove_field(&mut sq, "__rust_offset_liftable");
+                self.emit.set_field(node, "select_query", sq);
             }
         }
         // Lift the inner's verbose OFFSET to the outer SelectSetQuery
@@ -154,35 +143,35 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // `has_set_level_trailing` captures the ORDER-BY case (the
         // trailing decorator is consumed-and-dropped, so an
         // after-the-fact `trailing.iter()` check misses it).
-        let inner_offset = subsequent
-            .last_mut()
-            .and_then(Value::as_object_mut)
-            .and_then(|n| n.get_mut("select_query"))
-            .and_then(Value::as_object_mut)
-            .and_then(|sq| {
-                let liftable = sq
-                    .remove("__rust_offset_liftable")
-                    .and_then(|v| v.as_bool())
+        let inner_offset = if let Some(last) = subsequent.last_mut() {
+            if let Some(mut sq) = self.emit.get_field(last, "select_query") {
+                let liftable = self.emit
+                    .remove_field(&mut sq, "__rust_offset_liftable")
+                    .and_then(|v| self.emit.as_bool(&v))
                     == Some(true);
-                if liftable && !has_set_level_trailing {
-                    sq.remove("offset")
+                let off = if liftable && !has_set_level_trailing {
+                    self.emit.remove_field(&mut sq, "offset")
                 } else {
                     None
-                }
-            });
-        let mut wrap = serde_json::Map::new();
-        wrap.insert("node".into(), Value::String("SelectSetQuery".into()));
-        wrap.insert("initial_select_query".into(), first);
-        wrap.insert("subsequent_select_queries".into(), Value::Array(subsequent));
+                };
+                self.emit.set_field(last, "select_query", sq);
+                off
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let mut wrap = self.emit.select_set_query(first, subsequent);
         if let Some(off) = inner_offset {
-            wrap.insert("offset".into(), off);
+            self.emit.set_field(&mut wrap, "offset", off);
         }
         // Trailing decorators are applied last so they can override
         // the lifted inner offset when present.
         for (k, v) in trailing {
-            wrap.insert(k, v);
+            self.emit.set_field(&mut wrap, &k, v);
         }
-        Ok(self.wrap_pos(Value::Object(wrap), stmt_start))
+        Ok(self.wrap_pos(wrap, stmt_start))
     }
 
     fn try_consume_set_op(&mut self) -> Result<Option<String>, ParseError> {

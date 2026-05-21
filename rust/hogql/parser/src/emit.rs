@@ -223,15 +223,36 @@ pub trait Emitter {
         end_type: Option<&str>,
         end_expr: Option<Self::Value>,
     ) -> Self::Value;
+    /// `SelectSetQuery(initial_select_query, subsequent_select_queries)`.
+    fn select_set_query(
+        &self,
+        initial: Self::Value,
+        subsequent: Vec<Self::Value>,
+    ) -> Self::Value;
     /// `SelectSetNode(select_query, set_operator)`. Used inside the
     /// SelectSetQuery `subsequent_select_queries` list.
     fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>) -> Self::Value;
-    /// `JoinExpr(table, alias?, table_args?, column_aliases?, table_final?, sample?)`.
-    #[allow(clippy::too_many_arguments)]
     /// `SampleExpr(sample_value, offset_value?)`.
     fn sample_expr(&self, sample_value: Self::Value, offset_value: Option<Self::Value>) -> Self::Value;
     /// `RatioExpr(left, right?)`.
     fn ratio_expr(&self, left: Self::Value, right: Option<Self::Value>) -> Self::Value;
+    /// `PivotExpr(table, aggregates, columns, group_by?)`.
+    fn pivot_expr(
+        &self,
+        table: Self::Value,
+        aggregates: Vec<Self::Value>,
+        columns: Vec<Self::Value>,
+        group_by: Option<Vec<Self::Value>>,
+    ) -> Self::Value;
+    /// `UnpivotExpr(table, columns, include_nulls)`.
+    fn unpivot_expr(
+        &self,
+        table: Self::Value,
+        columns: Vec<Self::Value>,
+        include_nulls: bool,
+    ) -> Self::Value;
+    /// `JoinExpr(table, alias?, table_args?, column_aliases?, table_final?, sample?)`.
+    #[allow(clippy::too_many_arguments)]
     fn join_expr(
         &self,
         table: Self::Value,
@@ -316,6 +337,10 @@ pub trait Emitter {
     fn as_i64(&self, v: &Self::Value) -> Option<i64>;
 
     // ===== Mutation =====
+    /// Remove a named field from a node, returning the previous value
+    /// (or None when absent). Used to drop sentinel keys before the
+    /// node leaves the parser, e.g. the `__rust_offset_liftable` flag.
+    fn remove_field(&self, v: &mut Self::Value, name: &str) -> Option<Self::Value>;
     /// Set / overwrite a named field on a node. Used by AST-surgery
     /// sites that copy a node and tweak one field — primarily the
     /// BETWEEN-split recursion, the merge-select-decorators pass, and
@@ -848,6 +873,17 @@ impl Emitter for JsonEmitter {
         }
         Value::Object(obj)
     }
+    fn select_set_query(
+        &self,
+        initial: Value,
+        subsequent: Vec<Value>,
+    ) -> Value {
+        json!({
+            "node": "SelectSetQuery",
+            "initial_select_query": initial,
+            "subsequent_select_queries": subsequent,
+        })
+    }
     fn select_set_node(&self, select_query: Value, set_operator: Option<&str>) -> Value {
         let mut obj = serde_json::Map::new();
         obj.insert("node".into(), Value::String("SelectSetNode".into()));
@@ -911,6 +947,9 @@ impl Emitter for JsonEmitter {
     }
     fn as_i64(&self, v: &Value) -> Option<i64> {
         v.as_i64()
+    }
+    fn remove_field(&self, v: &mut Value, name: &str) -> Option<Value> {
+        v.as_object_mut().and_then(|obj| obj.remove(name))
     }
     fn set_field(&self, v: &mut Value, name: &str, value: Value) {
         if let Some(obj) = v.as_object_mut() {

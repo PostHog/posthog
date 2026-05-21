@@ -115,47 +115,33 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 )));
             }
         };
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("VariableDeclaration".into()));
-        obj.insert("name".into(), Value::String(name));
+        let mut expr_val = self.emit.null();
         if self.eat(TokenKind::ColonEquals)? {
             let cp = self.checkpoint();
             let expr = self.parse_stmt_rhs_expr()?;
             // cpp's varDecl grammar (`LET ident (':=' expression)?`)
             // has no place for a trailing `:=` after the expression.
             // When one follows, cpp's ANTLR ALL(*) shortens the
-            // expression to the shortest prefix (the leading single
-            // token) that leaves the trailing `:=` as the START of a
-            // *new* statement's varAssignment lvalue. `let x := y *
-            // (z) := 3` → `let x := y` + `*(z) := 3`. Rust used to
-            // greedy-parse the full `y * (z)` and then choke on the
-            // dangling `:=`.
+            // expression to the shortest prefix that leaves the
+            // trailing `:=` as the START of a *new* statement's
+            // varAssignment lvalue. `let x := y * (z) := 3` →
+            // `let x := y` + `*(z) := 3`.
             if self.peek() == TokenKind::ColonEquals {
-                // Shorten to the leading primary form. cpp's ALL(*)
-                // does the equivalent: take the shortest columnExpr
-                // prefix (typically just one primary — a single token
-                // for ident/number/string/`*`, or a paren-wrapped
-                // group unwrapped to its inner) that leaves the
-                // trailing `:=` and its rhs as a separate statement.
-                // `parse_prefix` handles all primary shapes cleanly.
                 self.restore(cp)?;
                 match self.parse_prefix() {
                     Ok(primary) => {
-                        obj.insert("expr".into(), primary);
+                        expr_val = primary;
                     }
                     Err(_) => {
-                        // Re-parse and accept the full greedy result —
-                        // we'll error at the next statement boundary
-                        // the same way the original code did.
                         self.restore(cp)?;
-                        obj.insert("expr".into(), self.parse_stmt_rhs_expr()?);
+                        expr_val = self.parse_stmt_rhs_expr()?;
                     }
                 }
             } else {
-                obj.insert("expr".into(), expr);
+                expr_val = expr;
             }
         }
-        Ok(Value::Object(obj))
+        Ok(self.emit.variable_declaration(&name, expr_val))
     }
 
     fn parse_statement(&mut self) -> Result<E::Value, ParseError> {
@@ -235,8 +221,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     fn parse_return_stmt(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Return, "return")?;
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("ReturnStatement".into()));
+        let mut expr_val = self.emit.null();
+        
         // `returnStmt: RETURN expression? SEMICOLON?` — the expression
         // is optional. cpp's ANTLR takes the `?` only when an
         // `expression` actually parses. Two filters mirror that:
@@ -283,10 +269,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.restore(cp)?;
                     if self.peek() == TokenKind::Asterisk {
                         self.bump()?;
-                        obj.insert(
-                            "expr".into(),
-                            self.emit.field(vec![Value::String("*".into())]),
-                        );
+                        expr_val = self.emit.field(vec![self.emit.string("*")]);
                     } else if matches!(
                         self.peek(),
                         TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
@@ -294,47 +277,32 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         self.peek_next(),
                         TokenKind::Dot | TokenKind::NullProperty
                     ) {
-                        // First single token as Field — cpp shortens to
-                        // a one-element chain regardless of what comes
-                        // after (call, infix, or another statement
-                        // keyword). The Dot / `?.` exclusion stops a
-                        // multi-token chain `a.b := c` from being
-                        // split (cpp's ANTLR backtracks past chained
-                        // shortening to the bare-return path in that
-                        // shape).
                         let t = self.bump()?;
                         let name = identifier_text(self.text(t), t.kind);
-                        obj.insert("expr".into(), self.emit.field(vec![Value::String(name)]));
-                    } else {
-                        obj.insert("expr".into(), Value::Null);
+                        expr_val = self.emit.field(vec![self.emit.string(&name)]);
                     }
                 }
                 Ok(expr) => {
-                    obj.insert("expr".into(), expr);
+                    expr_val = expr;
                 }
                 Err(_) => {
                     self.restore(cp)?;
-                    obj.insert("expr".into(), Value::Null);
                 }
             }
-        } else {
-            obj.insert("expr".into(), Value::Null);
         }
         let _ = self.eat(TokenKind::Semicolon)?;
-        Ok(Value::Object(obj))
+        Ok(self.emit.return_statement(expr_val))
     }
 
     fn parse_throw_stmt(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Throw, "throw")?;
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("ThrowStatement".into()));
         // `throwStmt: THROW expression SEMICOLON?` — the expression is
         // MANDATORY (unlike `returnStmt`'s `expression?`). A bare
         // `throw` / `throw;` is rejected. `parse_expr_bp` raises on a
         // missing expression, so no explicit empty-check is needed.
-        obj.insert("expr".into(), self.parse_stmt_rhs_expr()?);
+        let expr = self.parse_stmt_rhs_expr()?;
         let _ = self.eat(TokenKind::Semicolon)?;
-        Ok(Value::Object(obj))
+        Ok(self.emit.throw_statement(expr))
     }
 
     fn parse_if_stmt(&mut self) -> Result<E::Value, ParseError> {
@@ -582,9 +550,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let mut params: Vec<E::Value> = Vec::new();
         if self.peek() != TokenKind::RParen {
             loop {
-                params.push(Value::String(
-                    self.parse_nested_identifier_text("parameter name")?,
-                ));
+                let pname = self.parse_nested_identifier_text("parameter name")?;
+                params.push(self.emit.string(&pname));
                 if !self.eat(TokenKind::Comma)? {
                     break;
                 }
@@ -646,11 +613,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 (None, None)
             };
             let catch_block = self.parse_block()?;
-            catches.push(json!([
-                var.map(Value::String).unwrap_or(Value::Null),
-                ty.map(Value::String).unwrap_or(Value::Null),
-                catch_block,
-            ]));
+            let v = var.map(|s| self.emit.string(&s)).unwrap_or_else(|| self.emit.null());
+            let t = ty.map(|s| self.emit.string(&s)).unwrap_or_else(|| self.emit.null());
+            catches.push(self.emit.catch_clause(v, t, catch_block));
         }
         let finally_stmt = if self.eat_kw(Kw::Finally)? {
             Some(self.parse_block()?)
@@ -833,7 +798,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// trying `varAssignment` before `block` / `exprStmt`.
     fn parse_brace_lvalue_assignment(&mut self) -> Result<E::Value, ParseError> {
         let stmt = self.parse_expr_or_assignment_stmt()?;
-        if stmt.get("node").and_then(Value::as_str) == Some("VariableAssignment") {
+        if self.emit.node_kind(&stmt).as_deref() == Some("VariableAssignment") {
             Ok(stmt)
         } else {
             Err(self.err("`{…}`-led statement is not a varAssignment"))
