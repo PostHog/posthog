@@ -7326,6 +7326,8 @@ dependencies = [
  "envconfig",
  "lifecycle",
  "proptest",
+ "serde",
+ "serde_json",
  "serve-metrics",
  "siphasher 1.0.2",
  "tokio",
