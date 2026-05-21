@@ -152,3 +152,42 @@ class TestLLMGatewayPolicySignals(BaseTest):
         team.delete()
 
         mock_clear.assert_called_once()
+
+    @patch("posthog.tasks.team_llm_gateway_policy.transaction")
+    @patch("posthog.tasks.team_llm_gateway_policy.settings")
+    @patch("posthog.tasks.team_llm_gateway_policy.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
+    def test_api_token_rotation_clears_old_token_cache(self, mock_delay, mock_clear, mock_settings, mock_transaction):
+        """
+        Rotating api_token must invalidate the cache keyed by the OLD token.
+        Otherwise a holder of the rotated token keeps hitting the gateway via
+        the stale cached policy until the 7-day TTL expires.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        old_token = self.team.api_token
+        self.team.api_token = "phc_rotated_token_value"
+        self.team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_called_once_with(old_token, kinds=["redis"])
+
+    @patch("posthog.tasks.team_llm_gateway_policy.transaction")
+    @patch("posthog.tasks.team_llm_gateway_policy.settings")
+    @patch("posthog.tasks.team_llm_gateway_policy.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
+    def test_non_token_save_does_not_clear_old_token_cache(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """A save that does not touch api_token must not trigger the clear path."""
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        self.team.llm_gateway_tier = "pro"
+        self.team.save()
+
+        mock_delay.assert_called_with(self.team.id)
+        mock_clear.assert_not_called()

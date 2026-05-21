@@ -10,7 +10,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models.signals import post_save, pre_delete
+from django.db.models.signals import post_save, pre_delete, pre_save
 from django.dispatch import receiver
 
 import structlog
@@ -49,6 +49,32 @@ def update_team_llm_gateway_policy_cache_task(team_id: int) -> None:
     ).inc()
 
 
+@receiver(pre_save, sender=Team)
+def capture_old_api_token_for_llm_gateway_policy(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+    """
+    Stash the previous api_token on the instance so the post_save handler can
+    invalidate the cache entry keyed by the OLD token after an api_token
+    rotation. Without this, a holder of the rotated token would keep hitting
+    the gateway successfully until the stale cache entry's 7-day TTL expires.
+    """
+    if not instance.pk or instance._state.adding:
+        return
+
+    # Some other handler may have already captured this; don't double-fetch.
+    if "_old_api_token" in instance.__dict__:
+        return
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "api_token" not in update_fields:
+        return
+
+    try:
+        old_team = Team.objects.only("api_token").get(pk=instance.pk)
+        instance._old_api_token = old_team.api_token  # type: ignore[attr-defined]
+    except Team.DoesNotExist:
+        pass
+
+
 @receiver(post_save, sender=Team)
 def update_team_llm_gateway_policy_cache_on_save(
     sender: type[Team], instance: Team, created: bool, **kwargs: Any
@@ -56,9 +82,17 @@ def update_team_llm_gateway_policy_cache_on_save(
     if not settings.FLAGS_REDIS_URL:
         return
 
+    old_api_token = getattr(instance, "_old_api_token", None)
+    rotated = bool(old_api_token and old_api_token != instance.api_token)
+
     def enqueue_task() -> None:
         try:
             update_team_llm_gateway_policy_cache_task.delay(instance.id)
+            if rotated:
+                # Same on-commit flow as the refresh so the old cache entry
+                # disappears the moment the rotated token becomes live.
+                kinds = ["redis"] if settings.TEST else None
+                clear_team_llm_gateway_policy_cache(old_api_token, kinds=kinds)
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
                 namespace="team_metadata", operation="enqueue_llm_gateway", result="failure"
