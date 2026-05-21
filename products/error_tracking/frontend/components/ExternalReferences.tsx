@@ -8,7 +8,7 @@ import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationH
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
-import { ICONS } from 'lib/integrations/utils'
+import { getIntegrationNameFromKind, ICONS } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -98,7 +98,12 @@ export const ExternalReferences = (): JSX.Element | null => {
                     <DropdownMenuTrigger asChild>
                         <ButtonPrimitive fullWidth disabled={creatingIssue}>
                             <IconPlus />
-                            {creatingIssue ? 'Creating issue...' : 'Create issue'}
+                            {creatingIssue
+                                ? 'Creating issue...'
+                                : `Create issue in ${errorTrackingIntegrations
+                                      .map((integration) => getIntegrationNameFromKind(integration.kind))
+                                      .filter((name, index, all) => all.indexOf(name) === index)
+                                      .join(', ')}`}
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
 
@@ -108,7 +113,8 @@ export const ExternalReferences = (): JSX.Element | null => {
                                 <DropdownMenuItem key={integration.id} asChild>
                                     <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
                                         <IntegrationIcon kind={integration.kind} />
-                                        {integration.display_name}
+                                        Create {getIntegrationNameFromKind(integration.kind)} issue
+                                        {integration.display_name ? ` · ${integration.display_name}` : ''}
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ))}
@@ -122,7 +128,9 @@ export const ExternalReferences = (): JSX.Element | null => {
                     disabled={issueLoading}
                 >
                     <IntegrationIcon kind={errorTrackingIntegrations[0].kind} />
-                    {creatingIssue ? 'Creating issue...' : 'Create issue'}
+                    {creatingIssue
+                        ? 'Creating issue...'
+                        : `Create ${getIntegrationNameFromKind(errorTrackingIntegrations[0].kind)} issue`}
                 </ButtonPrimitive>
             )}
         </div>
