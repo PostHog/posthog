@@ -4250,10 +4250,8 @@ impl<'a> Parser<'a> {
                     // for the ternary hoist) and would not otherwise
                     // receive a span. cpp emits position info on
                     // BetweenExpr unconditionally — match that.
-                    let mut between = self.wrap_pos(
-                        emit::between(prev, low, high, true),
-                        lhs_start,
-                    );
+                    let mut between =
+                        self.wrap_pos(emit::between(prev, low, high, true), lhs_start);
                     for hoist in hoisted {
                         between = apply_between_hoist(between, hoist);
                     }
@@ -4308,10 +4306,7 @@ impl<'a> Parser<'a> {
                 // See the NOT BETWEEN arm above — wrap before hoist
                 // application so a buried BetweenExpr inside a Call(if,…),
                 // Or(…), Alias(…), or Arith(…) still carries its own span.
-                let mut between = self.wrap_pos(
-                    emit::between(prev, low, high, false),
-                    lhs_start,
-                );
+                let mut between = self.wrap_pos(emit::between(prev, low, high, false), lhs_start);
                 for hoist in hoisted {
                     between = apply_between_hoist(between, hoist);
                 }
