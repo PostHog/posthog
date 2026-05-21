@@ -118,8 +118,6 @@ export interface AlertFormLogicProps {
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
-    /** Must match the `alertLogic` instance keyed on the same alertId — read from `useFeatureFlag('ALERTS_HISTORY_CHART')` in the parent. */
-    historyChartEnabled: boolean
 }
 
 /**
@@ -131,8 +129,8 @@ export interface AlertFormLogicProps {
  * `logic.values` on an unmounted logic throws a `[KEA] Can not find path …` error. Check mount state
  * first and skip the merge (there's nothing to preserve for a brand-new alert).
  */
-function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType, historyChartEnabled: boolean): void {
-    const logic = alertLogic({ alertId: updatedAlert.id, historyChartEnabled })
+function hydrateAlertLogicFromSaveResponse(updatedAlert: AlertType): void {
+    const logic = alertLogic({ alertId: updatedAlert.id })
     const wasMounted = logic.isMounted()
     const previousAlert = wasMounted ? logic.values.alert : null
     const savedChecks = updatedAlert.checks ?? []
@@ -365,7 +363,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
                 try {
                     await flushPendingNotifications(updatedAlert.id)
-                    hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
                     upsertToParent(updatedAlert)
                     props.onEditSuccess(updatedAlert.id)
                 } catch (postSaveError) {
@@ -414,7 +412,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: snoozeUntil,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)
@@ -429,7 +427,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
                     snoozed_until: null,
                 })
-                hydrateAlertLogicFromSaveResponse(updatedAlert, props.historyChartEnabled)
+                hydrateAlertLogicFromSaveResponse(updatedAlert)
                 const parent = getParentLogic()
                 if (parent) {
                     parent.actions.upsertAlert(updatedAlert)

@@ -233,8 +233,23 @@ They can:
 - Read, write, and execute files in the cloned repository
 - Install dependencies (npm, pip, etc.)
 - Run tests, linters, and build tools
-- Create git branches, commits, and pull requests
+- Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
+
+### Git commit signing
+
+Direct `git commit` and `git push` commands are blocked in the sandbox to ensure all commits are properly signed by GitHub. A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) intercepts these subcommands while passing all other git operations through to the real binary.
+
+If an agent attempts to run `git commit` or `git push`, it will see:
+
+```text
+git commit is disabled in PostHog Code: commits must be signed.
+Stage changes with 'git add', then call the git_signed_commit tool.
+```
+
+Agents should stage changes with `git add`, then use the `git_signed_commit` tool to create signed commits.
+
+**Debugging escape hatch**: Set `POSTHOG_ALLOW_UNSIGNED_GIT=1` in the sandbox environment to bypass this restriction. This is intended for debugging only and should not be used in production.
 
 ### Sandbox isolation
 
