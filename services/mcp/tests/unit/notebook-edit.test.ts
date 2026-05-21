@@ -192,7 +192,7 @@ describe('editHandler', () => {
                 old_value: { type: 'text', text: 'duplicate' },
                 new_value: { type: 'text', text: 'unique' },
             })
-        ).rejects.toThrow(/matches 2 subtrees/)
+        ).rejects.toThrow(/matches 2 places/)
         expect(state.saveCalls).toHaveLength(0)
     })
 

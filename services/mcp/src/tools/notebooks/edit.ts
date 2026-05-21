@@ -33,23 +33,28 @@ export const NotebookEditSchema = z
         old_value: z
             .unknown()
             .describe(
-                'JSON value to find inside the notebook content. Match is by deep equality of the parsed ' +
-                    'subtree, so whitespace, key order, and indentation do not matter — pass any node ' +
-                    'literal, e.g. `{"type":"text","text":"Hello"}` or a nested `{"type":"paragraph",...}`. ' +
-                    'Must match exactly one subtree unless replace_all is true; widen by including the ' +
-                    'parent node (e.g. wrap a text node in its containing paragraph) to disambiguate. ' +
-                    'Call `notebooks-retrieve` first to see the current content.'
+                'The piece of content to find, as a JSON value matching the shape shown by ' +
+                    '`notebooks-retrieve`. Examples: `{"type":"text","text":"Hello"}` to target a text ' +
+                    'node, or `{"type":"paragraph","content":[...]}` to target a whole paragraph. ' +
+                    'Whitespace, key order, and indentation do not matter — only the content does. ' +
+                    'Must match exactly one place unless `replace_all` is true; if it appears in more ' +
+                    'than one place, include more surrounding structure (e.g. pass the parent paragraph ' +
+                    'instead of just a text node) to make it unique.'
             ),
         new_value: z
             .unknown()
             .describe(
-                'Replacement JSON value. Must differ from old_value. Pass the full replacement subtree, ' +
-                    'including any keys you want preserved (the entire matched subtree is replaced).'
+                'What to put in place of `old_value`, as a JSON value of the same shape. The whole ' +
+                    'matched piece is replaced, so include every key you want preserved. Must differ ' +
+                    'from `old_value`.'
             ),
         replace_all: z
             .boolean()
             .optional()
-            .describe('Replace every matching subtree. Default false (requires unique match).'),
+            .describe(
+                'Replace every place `old_value` matches. Default false — when false, the tool errors ' +
+                    'out if `old_value` is not unique, so you can decide whether to widen it or opt in.'
+            ),
     })
     .refine((v) => !isDeepStrictEqual(v.old_value, v.new_value), {
         message: 'old_value and new_value must differ',
@@ -155,20 +160,20 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
     if (matches === 0) {
         throw new Error(
             'old_value was not found in the notebook content. ' +
-                'Match is by deep equality — every key/value/index in old_value must be present in the ' +
-                'target subtree, with no extras. Common causes: missing or extra fields (e.g. an explicit ' +
-                '`attrs: null` vs. omitted attrs); content has changed since you last read it (call ' +
-                '`notebooks-retrieve` to refresh); or you passed a partial subtree where the full one is ' +
-                'stored.\n\nCurrent notebook content:\n' +
+                'Matching compares every key, value, and array index — extra or missing fields will ' +
+                'prevent a match. Common causes: an explicit `attrs: null` vs. omitted attrs; content ' +
+                'has changed since you last read it (call `notebooks-retrieve` to refresh); or you ' +
+                'passed only part of the value where the full one is stored.\n\nCurrent notebook ' +
+                'content:\n' +
                 JSON.stringify(notebook.content, null, 2)
         )
     }
 
     if (matches > 1 && params.replace_all !== true) {
         throw new Error(
-            `old_value matches ${matches} subtrees in the notebook content. ` +
-                'Either widen old_value with surrounding structural context (e.g. wrap a text node in its ' +
-                'containing paragraph so siblings disambiguate), or set `replace_all: true`.'
+            `old_value matches ${matches} places in the notebook content. ` +
+                'Either include more surrounding structure to make it unique (e.g. pass the parent ' +
+                'paragraph instead of just a text node), or set `replace_all: true` to replace every match.'
         )
     }
 
