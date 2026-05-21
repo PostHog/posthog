@@ -335,7 +335,12 @@ describe('trendsChartTransforms', () => {
                 tooltip: TOOLTIP,
             })
 
-            expect(config.xAxis).toEqual({ timezone: 'UTC', interval: 'day', allDays: ['2024-01-01', '2024-01-02'] })
+            expect(config.xAxis).toEqual({
+                label: undefined,
+                timezone: 'UTC',
+                interval: 'day',
+                allDays: ['2024-01-01', '2024-01-02'],
+            })
             expect(config.yAxis).not.toBeUndefined()
             expect(config.valueLabels).toBe(false)
             expect(config.goalLines).toHaveLength(1)

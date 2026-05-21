@@ -1,5 +1,6 @@
 import { FunnelLayout } from 'lib/constants'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     FunnelsQuery,
@@ -135,6 +136,20 @@ describe('queryNodeToFilter', () => {
             show_multiple_y_axes: false,
         }
         expect(result).toEqual(filters)
+    })
+
+    test('round-trips axis labels through legacy trends filters', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
+            },
+        }
+
+        expect(filtersToQueryNode(queryNodeToFilter(query))).toEqual(query)
     })
 
     test('converts a funnelsFilter into filter properties', () => {

@@ -49,9 +49,7 @@ export interface HogChart<Meta = unknown> {
     yRightTicks(): string[]
     /** Visible x-axis tick labels (post-collision-avoidance). */
     xTicks(): string[]
-    /** Optional x-axis title. */
     xAxisTitle(): string | null
-    /** Optional y-axis title. */
     yAxisTitle(): string | null
     /** Whether a right-y axis was rendered. */
     hasRightAxis: boolean

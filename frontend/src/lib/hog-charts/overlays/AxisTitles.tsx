@@ -1,14 +1,15 @@
 import React from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { measureLabelWidth } from '../utils/text-measure'
+import { normalizeAxisLabel } from '../utils/axis-labels'
+import { AXIS_LABEL_FONT, measureLabelWidth } from '../utils/text-measure'
 
 export interface AxisTitlesProps {
     xAxisLabel?: string
     yAxisLabel?: string
     hideXAxis?: boolean
     hideYAxis?: boolean
-    axisColor?: string
+    axisColor: string
 }
 
 const AXIS_TITLE_STYLE: React.CSSProperties = {
@@ -16,8 +17,7 @@ const AXIS_TITLE_STYLE: React.CSSProperties = {
     fontWeight: 500,
     pointerEvents: 'none',
 }
-const AXIS_TITLE_FONT =
-    '500 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
+const AXIS_TITLE_FONT = `500 ${AXIS_LABEL_FONT}`
 
 const SVG_STYLE: React.CSSProperties = {
     position: 'absolute',
@@ -34,15 +34,10 @@ const Y_AXIS_TITLE_X = 12
 const TITLE_EDGE_PADDING = 8
 const ELLIPSIS = '...'
 
-function cleanAxisTitle(label: string | undefined): string | undefined {
-    const trimmed = label?.trim()
-    return trimmed ? trimmed : undefined
-}
-
 function measureAxisTitleWidth(label: string): number {
     const measured = measureLabelWidth(label, AXIS_TITLE_FONT)
     const fallback = label.length * 7
-    return measured > label.length * 2.5 ? measured : fallback
+    return measured > 0 ? measured : fallback
 }
 
 function truncateAxisTitle(label: string, maxWidth: number): string {
@@ -75,11 +70,11 @@ export function AxisTitles({
     yAxisLabel,
     hideXAxis,
     hideYAxis,
-    axisColor = 'rgba(0, 0, 0, 0.5)',
+    axisColor,
 }: AxisTitlesProps): React.ReactElement | null {
     const { dimensions } = useChartLayout()
-    const fullXAxisLabel = cleanAxisTitle(xAxisLabel)
-    const fullYAxisLabel = cleanAxisTitle(yAxisLabel)
+    const fullXAxisLabel = normalizeAxisLabel(xAxisLabel)
+    const fullYAxisLabel = normalizeAxisLabel(yAxisLabel)
     const showXAxisTitle = !hideXAxis && !!fullXAxisLabel
     const showYAxisTitle = !hideYAxis && !!fullYAxisLabel
 

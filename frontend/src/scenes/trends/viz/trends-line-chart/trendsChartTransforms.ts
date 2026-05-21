@@ -7,6 +7,7 @@ import type {
     TooltipConfig,
     TrendLineConfig,
 } from 'lib/hog-charts'
+import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
 import { ciRanges } from 'lib/statistics'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
@@ -214,14 +215,14 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     })
     return {
         xAxis: {
-            ...(opts.xAxisLabel ? { label: opts.xAxisLabel } : {}),
+            label: normalizeAxisLabel(opts.xAxisLabel),
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
         },
         yAxis: {
             ...yAxis,
-            ...(opts.yAxisLabel ? { label: opts.yAxisLabel } : {}),
+            label: normalizeAxisLabel(opts.yAxisLabel),
         },
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,

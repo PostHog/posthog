@@ -150,6 +150,11 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         await screen.findByRole('img', { name: /chart with/i })
         expect(getHogChart().xAxisTitle()).toBe('Total events')
         expect(getHogChart().yAxisTitle()).toBe('Series')
+        expect(
+            getHogChart()
+                .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
+                ?.getAttribute('transform')
+        ).toContain('rotate(-90')
     })
 
     it('emits one series per breakdown so each bar gets its own color', async () => {

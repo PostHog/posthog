@@ -1,6 +1,7 @@
 import * as d3 from 'd3'
 import { useMemo } from 'react'
 
+import { normalizeAxisLabel } from '../../utils/axis-labels'
 import { measureLabelWidth } from '../../utils/text-measure'
 import { autoFormatterFor, seriesValueRange } from '../scales'
 import { DEFAULT_Y_AXIS_ID } from '../types'
@@ -74,6 +75,8 @@ export function useChartMargins({
     axisOrientation = 'vertical',
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
+    const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
+    const normalizedYAxisLabel = normalizeAxisLabel(yAxisLabel)
 
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
@@ -109,16 +112,24 @@ export function useChartMargins({
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis
             ? COLLAPSED_AXIS_MARGIN
-            : DEFAULT_MARGINS.bottom + (xAxisLabel ? X_AXIS_TITLE_MARGIN : 0)
+            : DEFAULT_MARGINS.bottom + (normalizedXAxisLabel ? X_AXIS_TITLE_MARGIN : 0)
         const left = hideYAxis
             ? COLLAPSED_AXIS_MARGIN
             : Math.max(
                   MIN_LEFT_MARGIN,
                   Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING,
                   xLabelHalfWidth + X_LABEL_EDGE_PADDING
-              ) + (yAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
+              ) + (normalizedYAxisLabel ? Y_AXIS_TITLE_MARGIN : 0)
         const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const right = Math.max(rightFloor, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
         return { top: DEFAULT_MARGINS.top, right, bottom, left }
-    }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth, xAxisLabel, yAxisLabel])
+    }, [
+        hideXAxis,
+        hideYAxis,
+        hasMultipleAxes,
+        yLabelWidth,
+        xLabelHalfWidth,
+        normalizedXAxisLabel,
+        normalizedYAxisLabel,
+    ])
 }

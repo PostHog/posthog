@@ -13,6 +13,7 @@ import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
@@ -48,6 +49,32 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+
+const LINE_DISPLAYS: ChartDisplayType[] = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+]
+const MOVING_STATISTIC_DISPLAYS: ChartDisplayType[] = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsAreaGraph,
+]
+const BAR_DISPLAYS: ChartDisplayType[] = [
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsBarValue,
+]
+
+function displayMatches(display: ChartDisplayType | null | undefined, displays: ChartDisplayType[]): boolean {
+    return !!display && displays.includes(display)
+}
+
+function isDefaultTrendsLineDisplay(
+    display: ChartDisplayType | null | undefined,
+    querySource: Parameters<typeof isTrendsQuery>[0]
+): boolean {
+    return !display && isTrendsQuery(querySource)
+}
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -103,28 +130,14 @@ export function InsightDisplayConfig(): JSX.Element {
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
-    const lineDisplays = [
-        ChartDisplayType.ActionsLineGraph,
-        ChartDisplayType.ActionsLineGraphCumulative,
-        ChartDisplayType.ActionsAreaGraph,
-    ]
-    const barDisplays = [
-        ChartDisplayType.ActionsBar,
-        ChartDisplayType.ActionsUnstackedBar,
-        ChartDisplayType.ActionsBarValue,
-    ]
-    const isLineDisplay = (!display && isTrendsQuery(querySource)) || lineDisplays.includes(display as ChartDisplayType)
-    const isBarDisplay = barDisplays.includes(display as ChartDisplayType)
+    const isLineDisplay = isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, LINE_DISPLAYS)
+    const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const showAxisLabelsConfig =
         isTrends &&
-        !isLifecycle &&
-        !isStickiness &&
         ((isLineDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) ||
             (isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]))
     const isLineGraph =
-        display === ChartDisplayType.ActionsLineGraph ||
-        display === ChartDisplayType.ActionsAreaGraph ||
-        (!display && isTrendsQuery(querySource))
+        isDefaultTrendsLineDisplay(display, querySource) || displayMatches(display, MOVING_STATISTIC_DISPLAYS)
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
     const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
@@ -364,8 +377,8 @@ export function InsightDisplayConfig(): JSX.Element {
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showAxisLabelsConfig && trendsFilter?.xAxisLabel ? 1 : 0) +
-        (showAxisLabelsConfig && trendsFilter?.yAxisLabel ? 1 : 0) +
+        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
+        (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
 

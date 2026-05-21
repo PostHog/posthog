@@ -126,9 +126,24 @@ describe('LineChart', () => {
             )
         })
 
+        it('ignores whitespace-only axis titles', () => {
+            const { chart, getByRole } = renderHogChart(
+                <LineChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xAxisLabel: '   ', yAxisLabel: '   ' }}
+                />
+            )
+
+            expect(chart.xAxisTitle()).toBeNull()
+            expect(chart.yAxisTitle()).toBeNull()
+            expect(getByRole('img').getAttribute('aria-label')).toBe('Chart with 2 data series')
+        })
+
         it('truncates long axis titles without losing the full label metadata', () => {
-            const xAxisLabel = 'Signup date for a very long customer lifecycle analysis '.repeat(8).trim()
-            const yAxisLabel = 'Unique users with a very long aggregation description '.repeat(8).trim()
+            const xAxisLabel = 'Signup date for a very long customer lifecycle analysis '.repeat(30).trim()
+            const yAxisLabel = 'Unique users with a very long aggregation description '.repeat(30).trim()
             const { chart } = renderHogChart(
                 <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ xAxisLabel, yAxisLabel }} />
             )
