@@ -156,12 +156,19 @@ export function Sparkline({
                 alignToPixels: true,
             }
 
+            // Make sure reference lines always fit on the chart — Chart.js would otherwise
+            // auto-scale to the data only and a threshold above the peak would be clipped.
+            const referenceLineMax =
+                referenceLines && referenceLines.length > 0 ? Math.max(...referenceLines.map((l) => l.value)) : 0
+
             const defaultYScale: AnyScaleOptions = {
                 // We use the Y axis for the maximum indicator
                 display: maximumIndicator,
                 bounds: 'data',
                 min: 0, // Always starting at 0
-                suggestedMax: 1,
+                // Add a small headroom (10%) above whichever is taller — data or a reference line — so
+                // a threshold sitting near the chart top still has room for its label.
+                suggestedMax: referenceLineMax > 0 ? referenceLineMax * 1.1 : 1,
                 stacked: true,
                 ticks: {
                     includeBounds: true,
@@ -255,7 +262,11 @@ export function Sparkline({
                                                                     position: line.labelPosition || 'end',
                                                                     font: { size: 9 },
                                                                     color: lineColor,
-                                                                    backgroundColor: 'transparent',
+                                                                    // Sit the label just above the line so it doesn't render on top of it.
+                                                                    yAdjust: -8,
+                                                                    // Opaque so the line doesn't show through the text glyphs.
+                                                                    backgroundColor: getColorVar('bg-light'),
+                                                                    padding: { top: 0, bottom: 0, left: 3, right: 3 },
                                                                 },
                                                             }
                                                           : {}),
