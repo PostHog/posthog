@@ -900,7 +900,7 @@ class TestSandboxSessionCompletionReset:
         monkeypatch.setattr(workflow, "_persist_pending_followups", AsyncMock())
 
         await workflow._on_sandbox_session_completed()
-
+        workflow = workflow  # Prevent mypy from narrowing the member values and marking the code below as unreachable.
         # Per-session state has been zeroed out so the next sandbox starts clean.
         assert workflow._child_completion is None
         assert workflow._sandbox_alive is False
