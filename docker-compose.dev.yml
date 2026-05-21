@@ -497,16 +497,6 @@ services:
             REDIS_COMPRESSION_ENABLED: 'true'
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
 
-    web:
-        extends:
-            file: docker-compose.base.yml
-            service: web
-        build:
-            context: .
-            dockerfile: Dockerfile
-        environment:
-            INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
-
     # Temporal containers
     elasticsearch:
         extends:
