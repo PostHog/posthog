@@ -85,4 +85,130 @@ For each command, decide MCP tool + SDK slash command, **frontend-only**, or ski
 
 ---
 
+## Web search tool placement
+
+**Dropped/deferred in:** `04_PROMPTS.md` § 8 (resolved-deferred #10).
+**Status:** open.
+**Owner:** _unassigned_.
+
+### What we lost
+
+Today's LangGraph stack gates `web_search` behind "no Bedrock primary" — `toolkit.py:147-151` omits the tool whenever the team's LLM gateway routes to AWS Bedrock (Bedrock's Anthropic models don't expose Anthropic's hosted web search). For sandbox runs we currently include `web_search` unconditionally via the Claude Code SDK's built-in. Bedrock-routed teams will see a tool the model can't actually invoke — same regression we fixed in the LangGraph path.
+
+### What needs to land
+
+At Run-create, the SSE relay inspects the LLM gateway routing for the user's team and:
+
+1. **Bedrock route** — explicitly disable `web_search` on the Claude Code SDK invocation (the SDK accepts a tools allowlist/denylist; pass the denial for `WebSearch`).
+2. **Anthropic route** — leave `web_search` enabled (the default).
+
+The decision lives in the same code path that builds the system prompt and `--mcpServers` list (`build_posthog_ai_system_prompt` callsite / Task-create body construction). It needs read access to whichever signal `toolkit.py:147-151` reads today — confirm the gateway-routing accessor is callable from `ee/hogai/sandbox/`.
+
+### Acceptance criteria
+
+- Bedrock-routed team: tool not advertised to the model; the system prompt does not mention `web_search`.
+- Anthropic-routed team: tool advertised + working end-to-end via the SDK built-in.
+- No fallback path that calls `web_search` when it's been gated off (eval to confirm).
+
+### Cross-references
+
+- `04_PROMPTS.md` § 8 (#10) — original open question.
+- `04_PROMPTS.md` § 5 (MCP tool surface) — web_search is not in the MCP catalog; it's a Claude built-in toggled at SDK init time.
+- `toolkit.py:147-151` — the existing gating logic to mirror.
+
+---
+
+## MultiQuestionForm answer channel
+
+**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#4) and § 4 (`posthog-data.create_form` row).
+**Status:** open.
+**Owner:** _unassigned_.
+
+### What we lost
+
+Today the `create_form` tool renders a multi-question form in the input area; user answers come back via `UIPayloadAnswer.ui_payload.create_form.answers`. The LangGraph executor knows how to reconcile the answers with the in-flight tool call. In the sandbox runtime the agent-server has no equivalent backchannel — once the agent calls a tool, the protocol expects a tool-result event, not a "wait for the user to fill in something."
+
+### What needs to land
+
+Investigate whether the Claude Code SDK ships a built-in structured-question / form-asking tool:
+
+1. **If yes** — map `create_form` onto it. Reuse the existing `MultiQuestionForm` UI for rendering and `MultiQuestionFormRecap` for the thread recap. Confirm the answer channel the SDK uses (likely a tool-result RPC the frontend posts via `POST /command/`) and wire `sandboxStreamLogic` to deliver answers as the in-flight tool's result.
+2. **If no** — deprecate `create_form` for v1 of the sandbox runtime. The agent asks clarifying questions in plain text; users answer as their next message. This is a real UX regression for multi-question flows but is acceptable for v1.
+
+### Acceptance criteria
+
+- For path (1): submitting the form completes the `create_form` tool call as if the agent returned the answers itself; the next assistant turn sees them; the recap renders correctly when scrolled back.
+- For path (2): the autocomplete suggestion for `create_form` is removed from the agent prompt; `MultiQuestionForm.tsx` and `MultiQuestionFormRecap.tsx` stay in the codebase (still used by LangGraph runtime) but are not mounted for sandbox conversations.
+
+### Cross-references
+
+- `03_RICH_UI.md` § 4 (`posthog-data.create_form` row) — table entry marked deferred.
+- `03_RICH_UI.md` § 10 (#4) — original open question.
+
+---
+
+## Notebook block streaming
+
+**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#5) and § 4 (`posthog-notebook.create_notebook` row).
+**Status:** open.
+**Owner:** _unassigned_.
+
+### What we lost
+
+`NotebookArtifactAnswer` is built to render block-by-block as the model streams them — keeping the user engaged on long notebooks. For v1 of the sandbox runtime the `create_notebook` MCP tool returns the whole document on completion; we render in one shot. UX regression for long notebooks (multi-second wait with only a spinner).
+
+### What needs to land
+
+Pick a streaming channel and wire it into `posthog-notebook.create_notebook`:
+
+1. **Preferred:** stream `DocumentBlock[]` partials as `tool_call_update.content` frames — standard ACP channel, no custom notification. `sandboxStreamLogic` accumulates frames as today; `NotebookArtifactAnswer` re-renders on each update.
+2. **Alternative:** custom `_posthog/notebook_block` notification. Adds wire surface; only justified if the standard channel doesn't fit.
+
+### Acceptance criteria
+
+- Block-by-block render in the UI for notebooks > 3 blocks.
+- No double-rendering when the final `rawOutput.blocks` arrives — content-dedup against accumulated partials.
+
+### Cross-references
+
+- `03_RICH_UI.md` § 4 (`posthog-notebook.create_notebook` row).
+- `03_RICH_UI.md` § 10 (#5).
+
+---
+
+## Insight editor → Max "fix this query" trigger
+
+**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#7) and § 4 (`posthog-data.fix_hogql_query` row, dropped).
+**Status:** open.
+**Owner:** _unassigned_.
+
+### What we lost
+
+LangGraph exposed `fix_hogql_query` as a dedicated tool so the agent could repair a broken HogQL query in-conversation. In the sandbox runtime that tool is **gone** — there's no MCP equivalent. The user-facing flow needs to migrate from "agent fixes query as a tool call" to "user clicks a button in the insight editor → opens a Max conversation pre-filled with the broken query + error message."
+
+### What needs to land
+
+In the insight editor (wherever a HogQL syntax error surfaces — `frontend/src/scenes/insights/` query editor + ad-hoc HogQL editor surfaces), add an **"Ask Max to fix"** button next to the error display. Clicking it:
+
+1. Captures the current query + error message.
+2. Opens the Max side panel.
+3. Starts a new conversation with a pre-filled user message:
+   > Fix this HogQL query. Error: `<error>`. Query: `<query>`
+4. Lets the agent respond using the standard `execute_sql` flow — agent corrects the query, runs it, returns results.
+
+The pre-fill flow already has a precedent in the existing Max integration; reuse whatever `useMaxTool` / `openMaxWithPrompt` pattern exists for similar entry points (or extract a small helper if not).
+
+### Acceptance criteria
+
+- "Ask Max to fix" surfaces wherever a HogQL syntax error renders today (insight editor, ad-hoc query editor, SQL cell in notebooks).
+- Clicking opens Max with a useful pre-filled prompt; the agent successfully corrects representative queries in evals.
+- The button is hidden when `agent_runtime === 'langgraph'` (LangGraph still has the `fix_hogql_query` tool inline), or shown for both runtimes if simpler — confirm with the team.
+
+### Cross-references
+
+- `03_RICH_UI.md` § 4 (`posthog-data.fix_hogql_query` row — marked dropped).
+- `03_RICH_UI.md` § 10 (#7).
+
+---
+
 <!-- Add new TODOs below, in the same format. -->
