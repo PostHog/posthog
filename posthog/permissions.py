@@ -7,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 
 import posthoganalytics
+from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
@@ -268,8 +269,6 @@ class IsStaffUserOrImpersonating(BasePermission):
     message = "You are not a staff user, contact your instance admin."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        from loginas.utils import is_impersonated_session
-
         return bool(
             request.user
             and request.user.is_authenticated
@@ -288,6 +287,11 @@ class PremiumFeaturePermission(BasePermission):
       Self-hosted instances are not gated.
 
     Exactly one of the two attributes must be set on the view.
+
+    Staff impersonating a customer (`is_impersonated_session`) bypass the feature check
+    so PostHog support can debug paid features for non-paying orgs. Plain staff sessions
+    are not bypassed — staff must actively start an impersonation session, which is
+    audit-logged via the `loginas` flow.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
@@ -304,6 +308,9 @@ class PremiumFeaturePermission(BasePermission):
             feature = cloud_only_feature
         else:
             feature = always_feature
+
+        if is_impersonated_session(request):
+            return True
 
         try:
             organization = get_organization_from_view(view)
@@ -488,12 +495,15 @@ class APIScopePermission(ScopeBasePermission):
         required_scopes = self._get_required_scopes(request, view)
 
         if not required_scopes:
-            self.message = f"This action does not support Personal API Key access"
+            self.message = "This action does not support personal API key access"
             return False
 
         self.check_team_and_org_permissions(request, view)
 
-        if "*" in key_scopes:
+        # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
+        # are programmatic-only and must not be reachable via user-consented tokens.
+        scope_object = self._get_scope_object(request, view)
+        if "*" in key_scopes and scope_object != "INTERNAL":
             return True
 
         for required_scope in required_scopes:
@@ -511,6 +521,16 @@ class APIScopePermission(ScopeBasePermission):
 
     def check_team_and_org_permissions(self, request, view) -> None:
         scope_object = self._get_scope_object(request, view)
+
+        # Guard runs above the `user` early return so the misconfig still trips
+        # if someone sets the flag on a `scope_object = "user"` viewset.
+        skip_team_and_org = getattr(view, "dangerously_skip_scoped_team_enforcement", False)
+        if skip_team_and_org and scope_object != "INTERNAL":
+            raise RuntimeError(
+                f"`dangerously_skip_scoped_team_enforcement = True` is only allowed on viewsets with "
+                f"`scope_object = 'INTERNAL'`; {type(view).__name__} declares `scope_object = {scope_object!r}`."
+            )
+
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
@@ -525,7 +545,12 @@ class APIScopePermission(ScopeBasePermission):
         else:
             raise ValueError("Unexpected authentication type")
 
-        if scoped_teams:
+        if scoped_teams and not skip_team_and_org:
+            # Views that aren't project-nested but still need to accept
+            # scoped_teams tokens can set `dangerously_skip_scoped_team_enforcement = True`
+            # and take on responsibility for their own per-team access. The
+            # flag is only honored on `scope_object = "INTERNAL"` views —
+            # anywhere else it's a config error and we fail loudly.
             try:
                 team = view.team
                 if team.id not in scoped_teams:
@@ -533,7 +558,9 @@ class APIScopePermission(ScopeBasePermission):
             except (KeyError, AttributeError):
                 raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
-        if scoped_organizations:
+        if scoped_organizations and not skip_team_and_org:
+            # The flag also opts out of org enforcement — INTERNAL views aren't
+            # org-nested today, but adding nesting later must revisit the flag.
             try:
                 organization = get_organization_from_view(view)
                 if str(organization.id) not in scoped_organizations:
@@ -728,17 +755,34 @@ class PostHogFeatureFlagPermission(BasePermission):
                     return True
 
                 org_id = str(organization.id)
+                groups: dict[str, str] = {"organization": org_id}
+                group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
+                # Match in-app flag evaluation: posthog-js often has project (team) context; server-only org
+                # groups miss per-environment rollouts (e.g. logs-settings-drop-rules for project 2 only).
+                try:
+                    team_for_flag = view.team
+                except (ValueError, KeyError, AttributeError):
+                    team_for_flag = None
+                if team_for_flag is not None:
+                    project_id = str(team_for_flag.id)
+                    groups["project"] = project_id
+                    group_properties["project"] = {"id": project_id}
 
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
                     str(user.distinct_id),
-                    groups={"organization": org_id},
-                    group_properties={"organization": {"id": org_id}},
+                    groups=groups,
+                    group_properties=group_properties,
                     only_evaluate_locally=False,
                     send_feature_flag_events=False,
                 )
 
-                return enabled or False
+                if enabled:
+                    return True
+                self.message = (
+                    f"This action requires feature flag {required_flag!r} to be enabled for your organization."
+                )
+                return False
 
         return True
 

@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.cdc.batcher import (
     deduplicate_table,
     enrich_delete_rows,
 )
+from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer import KafkaBatchProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
@@ -100,6 +101,8 @@ class CDCExtractActivity:
         self.cdc_schemas: list[ExternalDataSchema] = []
         self.schema_by_name: dict[str, ExternalDataSchema] = {}
         self.pk_columns_by_table: dict[str, list[str]] = {}
+        # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
+        self.enabled_columns_by_table: dict[str, set[str]] = {}
         self.write_trackers: dict[str, _WriteTracker] = {}
         self.created_jobs: list[ExternalDataJob] = []
         self.adapter: typing.Any = None
@@ -465,18 +468,41 @@ class CDCExtractActivity:
     # Setup phase
     # ------------------------------------------------------------------
     def _setup(self) -> bool:
-        """Load source + schemas + adapter. Returns False if there's nothing to do."""
-        self.source = ExternalDataSource.objects.get(pk=self.inputs.source_id)
-        self.cdc_schemas = self._get_cdc_schemas()
+        """Load source + schemas + adapter. Returns False if there's nothing to do.
 
+        Self-cleans the Temporal schedule if the source is deleted or has no
+        active CDC schemas — otherwise the workflow keeps firing forever.
+        """
+        try:
+            self.source = ExternalDataSource.objects.get(pk=self.inputs.source_id)
+        except ExternalDataSource.DoesNotExist:
+            self.log.info("source_not_found_deleting_schedule")
+            self._delete_own_schedule()
+            return False
+
+        if self.source.deleted:
+            self.log.info("source_soft_deleted_deleting_schedule")
+            self._delete_own_schedule()
+            return False
+
+        self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            self.log.info("no_cdc_schemas_found")
+            self.log.info("no_active_cdc_schemas_deleting_schedule")
+            self._delete_own_schedule()
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
         self.adapter = get_cdc_adapter(self.source)
         self.reader = self.adapter.create_reader(self.source)
         return True
+
+    def _delete_own_schedule(self) -> None:
+        try:
+            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+            delete_cdc_extraction_schedule(str(self.inputs.source_id))
+        except Exception:
+            self.log.exception("failed_to_delete_own_schedule")
 
     def _mark_schemas_running(self) -> None:
         """Mark CDC schemas as Running at the start."""
@@ -512,6 +538,35 @@ class CDCExtractActivity:
 
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
 
+        for schema in self.cdc_schemas:
+            enabled = schema.enabled_columns
+            # `None` = sync all; `[]` = retain PKs + incremental only. Match the
+            # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.
+            if isinstance(enabled, list):
+                retained: set[str] = {str(c) for c in enabled}
+                # PKs must stay even if the user dropped them from enabled_columns — merges break otherwise.
+                for pk in self.pk_columns_by_table.get(schema.name, []):
+                    retained.add(pk)
+                inc = schema.incremental_field
+                if isinstance(inc, str) and inc:
+                    retained.add(inc)
+                self.enabled_columns_by_table[schema.name] = retained
+
+    def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        retained = self.enabled_columns_by_table.get(event.table_name)
+        if retained is None:
+            return event
+        filtered = {name: value for name, value in event.columns.items() if name in retained}
+        if filtered.keys() == event.columns.keys():
+            return event
+        return ChangeEvent(
+            operation=event.operation,
+            table_name=event.table_name,
+            position_serialized=event.position_serialized,
+            timestamp=event.timestamp,
+            columns=filtered,
+        )
+
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
@@ -535,6 +590,7 @@ class CDCExtractActivity:
             if event.table_name not in cdc_table_names:
                 continue
 
+            event = self._project_event_columns(event)
             self.batcher.add(event)
             self.last_end_lsn = event.position_serialized
             self.event_count += 1
@@ -801,20 +857,26 @@ def cleanup_orphan_slots_activity() -> None:
             management_mode=cdc_config.management_mode,
         )
 
-        # 1. Deleted sources — clean up PostHog-managed slots
-        if source.deleted and cdc_config.management_mode == "posthog":
-            source_log.info("cleaning_up_deleted_source_slot")
+        # 1. Deleted sources — drop the Temporal schedule (always; PostHog-side)
+        #    and PostHog-managed slot/publication (only when we own them).
+        if source.deleted:
             try:
-                with adapter.management_connection(source, connect_timeout=10) as conn:
-                    adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+                delete_cdc_extraction_schedule(str(source.id))
             except Exception:
-                source_log.exception("failed_to_cleanup_deleted_source_slot")
+                source_log.exception("failed_to_delete_cdc_extraction_schedule")
+
+            if cdc_config.management_mode == "posthog":
+                source_log.info("cleaning_up_deleted_source_slot")
+                try:
+                    with adapter.management_connection(source, connect_timeout=10) as conn:
+                        adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                except Exception:
+                    source_log.exception("failed_to_cleanup_deleted_source_slot")
             continue
 
         # 2. Active sources — check WAL lag
-        if source.deleted:
-            continue
-
         try:
             with adapter.management_connection(source, connect_timeout=10) as conn:
                 lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)

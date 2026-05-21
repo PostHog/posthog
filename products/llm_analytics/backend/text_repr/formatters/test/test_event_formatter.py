@@ -6,8 +6,15 @@ dicts, nested structures, and plain text.
 """
 
 import json
+from datetime import datetime
 
-from ..event_formatter import _dict_to_yaml_lines, format_embedding_text_repr, format_generation_text_repr
+from ..event_formatter import (
+    _dict_to_yaml_lines,
+    format_embedding_text_repr,
+    format_evaluation_text_repr,
+    format_event_text_repr_from_ai_events_row,
+    format_generation_text_repr,
+)
 
 
 class TestDictToYamlLines:
@@ -189,3 +196,214 @@ class TestErrorFormattingEmbedding:
 
         assert "ERROR:" in result
         assert error_string in result
+
+
+class TestEvaluationFormatting:
+    def test_evaluation_pass_with_reasoning(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Factual accuracy",
+                "$ai_evaluation_result": True,
+                "$ai_evaluation_reasoning": "The response is factually correct.",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Factual accuracy | Result: PASS | Reasoning: The response is factually correct." in result
+
+    def test_evaluation_fail_with_reasoning(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Relevance check",
+                "$ai_evaluation_result": False,
+                "$ai_evaluation_reasoning": "The response does not address the query.",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert (
+            "EVALUATION: Relevance check | Result: FAIL | Reasoning: The response does not address the query." in result
+        )
+
+    def test_evaluation_na(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Code quality",
+                "$ai_evaluation_result": False,
+                "$ai_evaluation_applicable": False,
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Code quality | Result: N/A" in result
+
+    def test_evaluation_string_result(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Check",
+                "$ai_evaluation_result": "true",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Check | Result: PASS" in result
+
+    def test_evaluation_no_reasoning(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Quick check",
+                "$ai_evaluation_result": True,
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Quick check | Result: PASS" in result
+        assert "Reasoning:" not in result
+
+    def test_evaluation_missing_name(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_result": False,
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Unknown evaluation | Result: FAIL" in result
+
+    def test_evaluation_hog_runtime(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Length check",
+                "$ai_evaluation_result": True,
+                "$ai_evaluation_runtime": "hog",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "EVALUATION: Length check | Result: PASS (hog)" in result
+
+    def test_evaluation_llm_judge_runtime_with_model(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Factual accuracy",
+                "$ai_evaluation_result": False,
+                "$ai_evaluation_runtime": "llm_judge",
+                "$ai_evaluation_model": "gpt-4",
+                "$ai_evaluation_reasoning": "Claim contradicts source.",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "Result: FAIL (llm_judge/gpt-4)" in result
+        assert "Reasoning: Claim contradicts source." in result
+
+    def test_evaluation_llm_judge_runtime_without_model(self):
+        event = {
+            "properties": {
+                "$ai_evaluation_name": "Judge",
+                "$ai_evaluation_result": True,
+                "$ai_evaluation_runtime": "llm_judge",
+            }
+        }
+        result = format_evaluation_text_repr(event)
+        assert "Result: PASS (llm_judge)" in result
+
+
+class TestFormatEventTextReprFromAiEventsRow:
+    """Adapter for callers reading the ai_events dedicated-column shape.
+
+    Heavy columns (`input` / `output` / `output_choices` / `tools` / state)
+    are stored on `posthog.ai_events` as JSON-encoded strings. The shared
+    formatter wants parsed structures, so this adapter handles the decode and
+    builds the `properties` dict the existing formatters expect.
+    """
+
+    def test_decodes_json_input_and_output(self):
+        result = format_event_text_repr_from_ai_events_row(
+            {
+                "uuid": "u1",
+                "event": "$ai_generation",
+                "timestamp": datetime(2026, 4, 27),
+                "input": '[{"role":"user","content":"hi"}]',
+                "output": '"hello"',
+            }
+        )
+        assert "INPUT:" in result
+        assert "hi" in result
+        assert "OUTPUT:" in result
+        assert "hello" in result
+
+    def test_decodes_output_choices_dict_shape(self):
+        """`format_output_messages` requires `$ai_output_choices` as a parsed
+        list/dict — a raw JSON string would silently render nothing."""
+        result = format_event_text_repr_from_ai_events_row(
+            {
+                "uuid": "u1",
+                "event": "$ai_generation",
+                "timestamp": datetime(2026, 4, 27),
+                "input": '[{"role":"user","content":"hi"}]',
+                "output_choices": '[{"message":{"role":"assistant","content":"choice content"}}]',
+            }
+        )
+        assert "choice content" in result
+
+    def test_decodes_tools(self):
+        result = format_event_text_repr_from_ai_events_row(
+            {
+                "uuid": "u1",
+                "event": "$ai_generation",
+                "timestamp": datetime(2026, 4, 27),
+                "tools": '[{"type":"function","function":{"name":"lookup","description":"finds things"}}]',
+                "input": '[{"role":"user","content":"go"}]',
+            }
+        )
+        assert "lookup" in result
+
+    def test_passes_invalid_json_string_through(self):
+        """A non-JSON heavy value (e.g. plain text input) should still render —
+        the adapter falls back to the raw string."""
+        result = format_event_text_repr_from_ai_events_row(
+            {
+                "uuid": "u1",
+                "event": "$ai_generation",
+                "timestamp": datetime(2026, 4, 27),
+                "input": "plain text prompt",
+            }
+        )
+        assert "plain text prompt" in result
+
+    def test_renders_error_section_from_dedicated_columns(self):
+        """`is_error` / `error` come from native columns, not properties — the
+        adapter must surface them as `$ai_is_error` / `$ai_error` so the
+        existing error section fires."""
+        result = format_event_text_repr_from_ai_events_row(
+            {
+                "uuid": "u1",
+                "event": "$ai_generation",
+                "timestamp": datetime(2026, 4, 27),
+                "is_error": 1,
+                "error": "boom",
+            }
+        )
+        assert "ERROR:" in result
+        assert "boom" in result
+
+    def test_skips_missing_columns(self):
+        """A row that omits all heavy/error fields renders empty (no exception)."""
+        result = format_event_text_repr_from_ai_events_row(
+            {
+                "uuid": "u1",
+                "event": "$ai_generation",
+                "timestamp": datetime(2026, 4, 27),
+            }
+        )
+        assert "INPUT:" not in result
+        assert "OUTPUT:" not in result
+        assert "ERROR:" not in result
+
+    def test_dispatches_to_embedding_formatter_for_embedding_event(self):
+        """Adapter passes through to `format_event_text_repr` which routes by
+        event type — confirm `$ai_embedding` still ends up at the embedding
+        formatter (so its OUTPUT placeholder still appears)."""
+        result = format_event_text_repr_from_ai_events_row(
+            {
+                "uuid": "u1",
+                "event": "$ai_embedding",
+                "timestamp": datetime(2026, 4, 27),
+                "input": '"text to embed"',
+            }
+        )
+        assert "Embedding vector generated" in result
+        assert "text to embed" in result

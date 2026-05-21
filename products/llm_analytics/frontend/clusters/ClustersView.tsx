@@ -4,10 +4,14 @@ import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconQuestion, Ic
 import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { groupsModel } from '~/models/groupsModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ClusterCard } from './ClusterCard'
@@ -38,9 +42,14 @@ export function ClustersView(): JSX.Element {
         isScatterPlotExpanded,
         clusterMetrics,
         clusterMetricsLoading,
+        propertyFilters,
+        shouldFilterTestAccounts,
+        propertyFilteredItemIdsLoading,
     } = useValues(clustersLogic)
     const { setClusteringLevel, setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } =
         useActions(clustersLogic)
+    const { setPropertyFilters, setShouldFilterTestAccounts } = useActions(clustersLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
     const { jobs } = useValues(clusteringJobsLogic)
@@ -63,17 +72,11 @@ export function ClustersView(): JSX.Element {
         jobNameById[String(job.id)] = job.name
     }
 
-    if (clusteringRunsLoading) {
-        return (
-            <div className="flex items-center justify-center p-8">
-                <Spinner className="text-2xl" captureTime />
-            </div>
-        )
-    }
-
-    // Show empty state only after checking both trace and generation levels
-    // Always show the level toggle so users can switch between levels
-    const showEmptyState = clusteringRuns.length === 0
+    // Show empty state only after the runs query has resolved — otherwise the user
+    // sees a "no clusters found" flash whenever they switch levels or first land on
+    // the page, then it gets replaced by the actual data a moment later.
+    const showEmptyState = !clusteringRunsLoading && clusteringRuns.length === 0
+    const isLoadingData = clusteringRunsLoading || currentRunLoading
 
     if (showEmptyState) {
         return (
@@ -183,11 +186,16 @@ export function ClustersView(): JSX.Element {
                                         label: jobName ? `${run.label} (${jobName})` : run.label,
                                     }
                                 })}
-                                placeholder="Select a run"
+                                placeholder={clusteringRunsLoading ? 'Loading runs…' : 'Select a run'}
+                                disabled={clusteringRunsLoading}
+                                loading={clusteringRunsLoading}
                                 data-attr="clusters-run-select"
                             />
                         </span>
                     </Tooltip>
+                    {/* Inline indicator while a run is loading. Doesn't blank the rest of
+                        the page — cluster cards stay visible until the new run resolves. */}
+                    {isLoadingData && <Spinner className="text-base" captureTime />}
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -262,15 +270,11 @@ export function ClustersView(): JSX.Element {
                 </div>
             </div>
 
-            {/* Loading State */}
-            {currentRunLoading && (
-                <div className="flex items-center justify-center p-8">
-                    <Spinner className="text-2xl" captureTime />
-                </div>
-            )}
-
-            {/* Scatter Plot Visualization */}
-            {!currentRunLoading && !traceSummariesLoading && sortedClusters.length > 0 && (
+            {/* Scatter Plot Visualization. We deliberately don't gate on `traceSummariesLoading`
+                here — the plot is meaningful with raw points alone (UMAP coordinates ship in the
+                cluster event), so hiding it for the seconds it takes to fetch tooltip summaries
+                makes the whole page flash blank. Tooltips degrade to ID-only until summaries land. */}
+            {sortedClusters.length > 0 && (
                 <div className="border rounded-lg bg-surface-primary overflow-hidden transition-all">
                     <div
                         className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
@@ -334,18 +338,45 @@ export function ClustersView(): JSX.Element {
                 </div>
             )}
 
+            {/* Property filter bar — narrows clusters by cohort / person property / etc.
+                Hidden for evaluation-level runs because eval items key on $ai_evaluation
+                event UUIDs that don't carry the person/cohort fields these filters target;
+                the EvaluationFilterBar below handles that level instead. */}
+            {sortedClusters.length > 0 && clusteringLevel !== 'evaluation' && (
+                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                    <PropertyFilters
+                        propertyFilters={propertyFilters}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                        ]}
+                        onChange={setPropertyFilters}
+                        pageKey={`llm-analytics-clusters-${effectiveRunId || 'none'}`}
+                    />
+                    <div className="flex-1" />
+                    {propertyFilteredItemIdsLoading && <Spinner className="text-sm" captureTime />}
+                    <TestAccountFilterSwitch
+                        checked={shouldFilterTestAccounts}
+                        onChange={setShouldFilterTestAccounts}
+                    />
+                </div>
+            )}
+
             {/* Eval-only post-hoc filter (renders below the scatter, above the cards) */}
-            {!currentRunLoading && sortedClusters.length > 0 && <EvaluationFilterBar />}
+            {sortedClusters.length > 0 && <EvaluationFilterBar />}
 
             {/* Empty result after filtering */}
-            {!currentRunLoading && sortedClusters.length > 0 && filteredSortedClusters.length === 0 && (
+            {sortedClusters.length > 0 && filteredSortedClusters.length === 0 && (
                 <div className="border rounded-lg p-6 text-center text-muted">
-                    No clusters match the current evaluation filters.
+                    No clusters match the current filters.
                 </div>
             )}
 
             {/* Cluster Cards */}
-            {!currentRunLoading && filteredSortedClusters.length > 0 && (
+            {filteredSortedClusters.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {filteredSortedClusters.map((cluster: Cluster) => (
                         <ClusterCard
@@ -365,9 +396,21 @@ export function ClustersView(): JSX.Element {
                 </div>
             )}
 
-            {/* Empty State */}
-            {!currentRunLoading && sortedClusters.length === 0 && currentRun && (
+            {/* Empty State — only after the run has actually loaded. While `currentRunLoading`
+                is true and `currentRun` is null, we suppress this so the user doesn't see a
+                "no clusters" message when really we're still fetching the run. */}
+            {!isLoadingData && sortedClusters.length === 0 && currentRun && (
                 <div className="text-center p-8 text-muted">No clusters found in this run.</div>
+            )}
+
+            {/* Centered placeholder while the very first run is loading and we have nothing
+                to show yet. Avoids a totally blank data area between the chrome and the jobs
+                panel on cold starts and level switches. */}
+            {isLoadingData && !currentRun && (
+                <div className="flex items-center justify-center p-12 text-muted">
+                    <Spinner className="text-2xl mr-3" captureTime />
+                    <span>Loading clusters…</span>
+                </div>
             )}
 
             {/* Jobs Panel */}

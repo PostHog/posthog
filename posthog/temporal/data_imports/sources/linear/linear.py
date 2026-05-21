@@ -1,11 +1,11 @@
 import dataclasses
 from typing import Any
 
-import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.linear.queries import QUERIES, VIEWER_QUERY
 from posthog.temporal.data_imports.sources.linear.settings import (
@@ -41,9 +41,8 @@ def _make_paginated_request(
 
     graphql_query_name = endpoint_config.graphql_query_name or endpoint_name
 
-    sess = requests.Session()
-    sess.headers.update(
-        {
+    sess = make_tracked_session(
+        headers={
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
         }
@@ -162,12 +161,14 @@ def linear_source(
 
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     try:
-        response = requests.post(
-            LINEAR_API_URL,
+        sess = make_tracked_session(
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
-            },
+            }
+        )
+        response = sess.post(
+            LINEAR_API_URL,
             json={"query": VIEWER_QUERY},
             timeout=10,
         )

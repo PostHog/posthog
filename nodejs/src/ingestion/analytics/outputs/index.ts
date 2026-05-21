@@ -1,4 +1,4 @@
-export { EVENTS_OUTPUT, EventOutput } from '../../common/outputs'
+export { EVENTS_OUTPUT, type EventOutput } from '../../common/outputs'
 
 export const AI_EVENTS_OUTPUT = 'ai_events' as const
 export type AiEventOutput = typeof AI_EVENTS_OUTPUT

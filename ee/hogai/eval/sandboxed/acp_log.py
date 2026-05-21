@@ -45,6 +45,10 @@ class ParsedLog:
     spans: list[SpanDescriptor] = field(default_factory=list)
     first_timestamp: str = ""
     last_timestamp: str = ""
+    model: str = ""
+    """Agent model resolved from the ACP ``session/new`` exchange — either the
+    request's ``params.model`` or the response's ``result.models.currentModelId``.
+    Empty when the log predates this capture (callers should fall back)."""
 
     @property
     def messages(self) -> list[dict[str, Any]]:
@@ -136,6 +140,13 @@ class AcpLogParser:
         if method == "session/prompt" and ts and not self._gen_start_ts:
             self._gen_start_ts = ts
 
+        if method == "session/new" and not self._result.model:
+            params = notification.get("params")
+            if isinstance(params, dict):
+                model = params.get("model")
+                if isinstance(model, str) and model:
+                    self._result.model = model
+
         # Token usage + end_turn completion
         entry_result = notification.get("result")
         if isinstance(entry_result, dict):
@@ -158,6 +169,12 @@ class AcpLogParser:
 
     def _handle_result(self, entry_result: dict) -> bool:
         """Process token usage and end_turn. Returns True if end_turn was handled."""
+        if not self._result.model:
+            models_block = entry_result.get("models")
+            if isinstance(models_block, dict):
+                current = models_block.get("currentModelId")
+                if isinstance(current, str) and current:
+                    self._result.model = current
         usage = entry_result.get("usage")
         if isinstance(usage, dict):
             self._last_token_usage = {

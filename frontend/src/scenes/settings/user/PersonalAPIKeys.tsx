@@ -145,12 +145,13 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                         {({ error }) => (
                             <>
                                 <p className="mb-0">
-                                    API keys are scoped to limit what actions they are able to do. We highly recommend
-                                    you only give the key the permissions it needs to do its job. You can add or revoke
-                                    scopes later.
+                                    Personal API keys are scoped to limit what actions they are able to do. We highly
+                                    recommend you only give the key the permissions it needs to do its job. You can add
+                                    or revoke scopes later.
                                 </p>
                                 <p className="m-0">
-                                    Your API key can never take actions for which your account is missing permissions.
+                                    Your personal API key can never take actions for which your account is missing
+                                    permissions.
                                 </p>
 
                                 {error && (
@@ -167,8 +168,8 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                             onClick: () => resetScopes(),
                                         }}
                                     >
-                                        <b>This API key has full access to all supported endpoints!</b> We highly
-                                        recommend scoping this to only what it needs.
+                                        <b>This personal API key has full access to all supported endpoints!</b> We
+                                        highly recommend scoping this to only what it needs.
                                     </LemonBanner>
                                 ) : (
                                     <div>
@@ -290,7 +291,9 @@ export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
             ))}
             {tags.length > 4 && (
                 <Tooltip title={tags.slice(4).join(', ')}>
-                    <LemonTag onClick={onMoreClick}>+{tags.length - 4} more</LemonTag>
+                    <LemonTag onClick={onMoreClick} forceClickable>
+                        +{tags.length - 4} more
+                    </LemonTag>
                 </Tooltip>
             )}
         </span>
@@ -317,7 +320,9 @@ export function TagListWithRestrictions({ tags, onMoreClick }: TagListWithRestri
                         .map((tag) => tag.name)
                         .join(', ')}
                 >
-                    <LemonTag onClick={onMoreClick}>+{tags.length - 4} more</LemonTag>
+                    <LemonTag onClick={onMoreClick} forceClickable>
+                        +{tags.length - 4} more
+                    </LemonTag>
                 </Tooltip>
             )}
         </span>
@@ -342,7 +347,7 @@ function PersonalAPIKeysTable(): JSX.Element {
         <>
             {keys.some((key) => key.is_legacy_hashing) && (
                 <LemonBanner type="info" className="mt-2">
-                    Some of your API keys use legacy hashing. Consider rolling or deleting them to upgrade.
+                    Some of your personal API keys use legacy hashing. Consider rolling or deleting them to upgrade.
                 </LemonBanner>
             )}
             <LemonTable

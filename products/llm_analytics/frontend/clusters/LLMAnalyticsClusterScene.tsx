@@ -5,12 +5,16 @@ import { IconChevronDown, IconChevronLeft, IconChevronRight } from '@posthog/ico
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { groupsModel } from '~/models/groupsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
@@ -38,6 +42,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         clusteringLevel,
         isOutlierCluster,
         totalTraces,
+        unfilteredTotalTraces,
         totalPages,
         currentPage,
         paginatedTracesWithSummaries,
@@ -46,8 +51,13 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
         windowEnd,
         clusterMetrics,
         clusterMetricsLoading,
+        propertyFilters,
+        shouldFilterTestAccounts,
+        hasActiveFilters,
+        filteredItemIdsLoading,
     } = useValues(clusterDetailLogic)
-    const { setPage } = useActions(clusterDetailLogic)
+    const { setPage, setPropertyFilters, setShouldFilterTestAccounts } = useActions(clusterDetailLogic)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     if (clusterDataLoading) {
         return (
@@ -75,6 +85,7 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
 
     const itemLabel =
         clusteringLevel === 'generation' ? 'generations' : clusteringLevel === 'evaluation' ? 'evaluations' : 'traces'
+    const filtersSupported = clusteringLevel !== 'evaluation'
 
     return (
         <SceneContent>
@@ -98,7 +109,10 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
             >
                 <div className="flex flex-wrap items-center gap-3 mb-2">
                     <LemonTag type={isOutlierCluster ? 'caution' : 'primary'} size="medium">
-                        {totalTraces} {itemLabel}
+                        {hasActiveFilters && filtersSupported
+                            ? `${totalTraces} of ${unfilteredTotalTraces}`
+                            : totalTraces}{' '}
+                        {itemLabel}
                     </LemonTag>
                     {windowStart && windowEnd && (
                         <span className="text-muted text-sm">
@@ -114,6 +128,30 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                     clusteringLevel={clusteringLevel}
                 />
             </div>
+
+            {/* Filter bar — eval clusters key on $ai_evaluation event UUIDs which don't carry
+                the person/cohort fields the filters are built around, so the bar is hidden there. */}
+            {filtersSupported && (
+                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap mb-4">
+                    <PropertyFilters
+                        propertyFilters={propertyFilters}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                        ]}
+                        onChange={setPropertyFilters}
+                        pageKey={`llm-analytics-cluster-${cluster.cluster_id}`}
+                    />
+                    <div className="flex-1" />
+                    <TestAccountFilterSwitch
+                        checked={shouldFilterTestAccounts}
+                        onChange={setShouldFilterTestAccounts}
+                    />
+                </div>
+            )}
 
             {/* Cluster scatter plot */}
             <div className="border rounded-lg p-4 mb-4 bg-surface-primary">
@@ -157,10 +195,16 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
 
             {/* Trace list */}
             <div className="border rounded-lg overflow-hidden divide-y">
-                {traceSummariesLoading && paginatedTracesWithSummaries.length === 0 ? (
+                {(traceSummariesLoading || filteredItemIdsLoading) && paginatedTracesWithSummaries.length === 0 ? (
                     <div className="p-4 flex items-center justify-center">
                         <Spinner className="mr-2" captureTime />
                         <span className="text-muted">Loading {itemLabel}...</span>
+                    </div>
+                ) : paginatedTracesWithSummaries.length === 0 ? (
+                    <div className="p-6 text-center text-muted text-sm">
+                        {hasActiveFilters
+                            ? `No ${itemLabel} match the current filters in this cluster.`
+                            : `No ${itemLabel} in this cluster.`}
                     </div>
                 ) : (
                     paginatedTracesWithSummaries.map(

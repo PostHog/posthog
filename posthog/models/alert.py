@@ -118,13 +118,14 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
+        (AlertCalculationInterval.EVERY_15_MINUTES, AlertCalculationInterval.EVERY_15_MINUTES.value),
         (AlertCalculationInterval.HOURLY, AlertCalculationInterval.HOURLY.value),
         (AlertCalculationInterval.DAILY, AlertCalculationInterval.DAILY.value),
         (AlertCalculationInterval.WEEKLY, AlertCalculationInterval.WEEKLY.value),
         (AlertCalculationInterval.MONTHLY, AlertCalculationInterval.MONTHLY.value),
     ]
     calculation_interval = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=CALCULATION_INTERVAL_CHOICES,
         default=AlertCalculationInterval.DAILY,
         null=True,
@@ -140,7 +141,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)
-    is_calculating = models.BooleanField(default=False, null=True, blank=True)
 
     last_notified_at = models.DateTimeField(null=True, blank=True)
     last_checked_at = models.DateTimeField(null=True, blank=True)
@@ -155,14 +155,14 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # When enabled and the alert transitions to FIRING, an investigation agent runs
     # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/tasks/alerts/checks.py for the trigger logic.
+    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
     investigation_agent_enabled = models.BooleanField(default=False)
 
     # When enabled (and investigation_agent_enabled is on), notification dispatch is
     # held until the investigation agent produces a verdict — and suppressed if the
-    # verdict is false_positive. A safety-net celery task force-notifies after a
+    # verdict is false_positive. A safety-net Temporal workflow force-notifies after a
     # grace period if the investigation stalls, so users can never silently miss a
-    # real fire. See posthog/tasks/alerts/investigation_notifications.py.
+    # real fire. See posthog/temporal/alerts/workflows.py (RunInvestigationSafetyNetWorkflow).
     investigation_gates_notifications = models.BooleanField(default=False)
 
     # What to do with an "inconclusive" verdict when notifications are gated.
@@ -250,6 +250,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
+            "is_high_frequency_interval": self.calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES,
             "enabled": self.enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,
@@ -293,6 +294,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
                 return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
 
         return None
+
+    @classmethod
+    def supports_high_frequency_intervals(cls, organization: Organization) -> bool:
+        return organization.is_feature_available(AvailableFeature.HIGH_FREQUENCY_ALERTS)
 
 
 class AlertSubscription(ModelActivityMixin, CreatedMetaFields, UUIDTModel):

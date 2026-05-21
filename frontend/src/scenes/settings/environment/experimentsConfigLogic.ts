@@ -12,6 +12,7 @@ export interface ExperimentsConfig {
     default_experiment_confidence_level: number | null
     default_experiment_stats_method: string | null
     default_only_count_matured_users: boolean
+    default_cuped_enabled: boolean
 }
 
 export const experimentsConfigLogic = kea<experimentsConfigLogicType>([

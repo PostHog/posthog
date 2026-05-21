@@ -91,7 +91,6 @@ export function LegacySignificanceText({
 
 /**
  * @deprecated
- * Use the Overview component from the experimentLogic instead.
  */
 export function LegacyOverview({ metricUuid }: { metricUuid: string }): JSX.Element {
     const { legacyPrimaryMetricsResults, experiment } = useValues(legacyExperimentLogic)

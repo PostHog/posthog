@@ -154,6 +154,6 @@ class TestSharedPaymentToken(ProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
+            headers={"stripe-signature": f"t={ts},v1={sig}"},
         )
         return res.json()

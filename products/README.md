@@ -211,6 +211,20 @@ Locally (`DEBUG=1`), it auto-connects to `posthog_visual_review` on localhost. I
 1. Add a route in `products/db_routing.yaml` (this repo)
 2. Ask `#team-infrastructure` to provision the database — they'll handle the cluster, credentials, and connection plumbing
 
+### Team scoping (required)
+
+Every model that stores tenant data **must** have a `team_id` field. This is PostHog's primary tenant isolation boundary — without it, there's no way to enforce that one team can't see another's data.
+
+For product databases, use `ProductTeamModel` as your base class. It provides `team_id` plus a fail-closed manager that raises `TeamScopeError` when queries run without team context. See `posthog/models/scoping/README.md` for the full API.
+
+```python
+from posthog.models.scoping.product_mixin import ProductTeamModel
+
+class MyModel(ProductTeamModel):
+    name = models.CharField(max_length=255)
+    # team_id inherited — BigIntegerField, indexed, no FK
+```
+
 ### Cross-database constraints
 
 Postgres doesn't support foreign keys across databases. Models on a product database **must not** use `ForeignKey` to models in the main database (Team, User, etc.). Use plain integer fields instead:

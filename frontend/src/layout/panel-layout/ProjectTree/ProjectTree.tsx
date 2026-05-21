@@ -8,10 +8,8 @@ import {
     IconChevronRight,
     IconEllipsis,
     IconFolderPlus,
-    IconGear,
     IconPencil,
     IconPlusSmall,
-    IconShortcut,
     IconStar,
 } from '@posthog/icons'
 
@@ -130,7 +128,8 @@ export function ProjectTree({
     onItemCheckedOverride,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems } = useValues(projectTreeDataLogic)
+    const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
+    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -198,11 +197,10 @@ export function ProjectTree({
         `${currentTeamId ?? '*'}-${SEEN_CUSTOM_PRODUCTS_LOCAL_STORAGE_KEY}`,
         []
     )
-    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
-    const isAIFirst = useFeatureFlag('AI_FIRST')
+    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
@@ -221,32 +219,18 @@ export function ProjectTree({
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
-                name: isAIFirst ? 'Starred items' : 'Example shortcuts',
+                name: 'Starred items',
                 type: 'category',
                 displayName: (
-                    <div
-                        className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1', {
-                            'mt-2': fullFileSystemFiltered.length === 0 && !isAIFirst,
-                            'mb-2': !isAIFirst,
-                        })}
-                    >
-                        {isAIFirst ? (
-                            <>
-                                Starred items are added by pressing{' '}
-                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                                side-clicking a panel item, then "Add to starred", or inside an app's resources file
-                                menu click{' '}
-                                <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
-                            </>
-                        ) : (
-                            <>
-                                Shortcuts are added by pressing{' '}
-                                <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                                side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources
-                                file menu click{' '}
-                                <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />.
-                            </>
-                        )}{' '}
+                    <div className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1')}>
+                        Add a starred item by clicking{' '}
+                        <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> next to
+                        an item in the Files sidebar, then selecting "
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
+                        starred". You can also add a starred item by opening a resource, clicking its project name in
+                        the side panel, and selecting "
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
+                        starred".{' '}
                         {fullFileSystemFiltered.length > 0 && (
                             <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
                                 Dismiss.
@@ -269,20 +253,15 @@ export function ProjectTree({
                 !showOriginalBanner && originalDismissedOnMount && !cmdKHelperDismissed && !isMobile()
 
             if (showOriginalBanner) {
-                const CustomIcon = !isAIFirst && isCustomProductsExperiment ? IconGear : IconPencil
                 treeData.push({
                     id: 'products/custom-products-helper-category',
                     name: 'Example custom products',
                     type: 'category',
                     displayName: (
-                        <div
-                            className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                                'mt-6': fullFileSystemFiltered.length === 0 && !isAIFirst,
-                            })}
-                        >
+                        <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
                             You can display your preferred apps here. You can configure what items show up in here by
                             clicking on the{' '}
-                            <CustomIcon className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                            <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
                             above. We'll automatically suggest new apps to this list as you use them.{' '}
                             {fullFileSystemFiltered.length > 0 && (
                                 <span
@@ -405,8 +384,7 @@ export function ProjectTree({
                 if (item?.id.startsWith('shortcuts')) {
                     eventUsageLogic.actions.reportNavbarStarredItemClicked(
                         item?.record?.type || 'unknown',
-                        item?.name || 'unknown',
-                        !!isAIFirst
+                        item?.name || 'unknown'
                     )
                 }
 
@@ -445,6 +423,20 @@ export function ProjectTree({
                     return false
                 }
 
+                // Sibling reorder within the Starred (shortcuts://) list. All the index/position
+                // math lives in the kea logic so the component can stay focused on rendering.
+                if (
+                    isStarredReorderEnabled &&
+                    typeof oldId === 'string' &&
+                    typeof newId === 'string' &&
+                    shortcutEntryIdMap.has(oldId) &&
+                    shortcutEntryIdMap.has(newId)
+                ) {
+                    const position = dragEvent.position === 'after' ? 'after' : 'before'
+                    reorderShortcutByDrag(oldId, newId, position)
+                    return
+                }
+
                 const items = searchTerm && searchResults.results ? searchResults.results : viableItems
                 const oldItem = items.find((i) => itemToId(i) === oldId)
                 const newItem = items.find((i) => itemToId(i) === newId)
@@ -468,10 +460,19 @@ export function ProjectTree({
                 }
             }}
             isItemDraggable={(item) => {
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return isStarredReorderEnabled
+                }
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
+            getItemDropMode={(item) => (shortcutEntryIdMap.has(item.id) ? 'reorder' : 'onto')}
             isItemDroppable={(item) => {
                 const path = item.record?.path || ''
+
+                // Allow dropping onto other top-level starred items to reorder them.
+                if (shortcutEntryIdMap.has(item.id)) {
+                    return isStarredReorderEnabled
+                }
 
                 // disable dropping for these IDS
                 if (!item.id.startsWith('project://')) {
@@ -806,7 +807,7 @@ export function ProjectTree({
                                             'text-primary': selectMode === 'multi',
                                         })}
                                     />
-                                    {isAIFirst ? 'Add to starred' : 'Add shortcut'}
+                                    Add to starred
                                 </>
                             ),
                         }),

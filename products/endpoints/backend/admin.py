@@ -17,7 +17,7 @@ class EndpointVersionInline(admin.TabularInline):
         "version",
         "is_active",
         "query_kind",
-        "cache_age_seconds",
+        "data_freshness_seconds",
         "is_materialized_display",
         "saved_query_name",
         "saved_query_status",
@@ -69,6 +69,7 @@ class EndpointVersionInline(admin.TabularInline):
         return "—"
 
 
+@admin.register(Endpoint)
 class EndpointAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -149,6 +150,7 @@ class EndpointAdmin(admin.ModelAdmin):
         return obj.endpoint_path
 
 
+@admin.register(EndpointVersion)
 class EndpointVersionAdmin(admin.ModelAdmin):
     list_display = (
         "id",
@@ -160,7 +162,7 @@ class EndpointVersionAdmin(admin.ModelAdmin):
         "saved_query_name",
         "saved_query_status",
         "saved_query_error_preview",
-        "cache_age_seconds",
+        "data_freshness_seconds",
         "created_at",
     )
     list_display_links = ("id",)
@@ -180,7 +182,7 @@ class EndpointVersionAdmin(admin.ModelAdmin):
         "id",
         "endpoint",
         "version",
-        "cache_age_seconds",
+        "data_freshness_seconds",
         "created_at",
         "created_by",
         "query_pretty",
@@ -200,7 +202,7 @@ class EndpointVersionAdmin(admin.ModelAdmin):
                     "endpoint",
                     "version",
                     "is_active",
-                    "cache_age_seconds",
+                    "data_freshness_seconds",
                     "query_pretty",
                     "columns_pretty",
                     "created_at",

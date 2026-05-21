@@ -144,6 +144,7 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                     throw new Error('Team ID not available')
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, payload)
 
                 return {

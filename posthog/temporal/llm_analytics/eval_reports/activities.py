@@ -11,7 +11,6 @@ from posthog.hogql import ast
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.llm_analytics.eval_reports.constants import DOGFOOD_TEAM_IDS
 from posthog.temporal.llm_analytics.eval_reports.types import (
     CheckCountTriggeredReportsWorkflowInputs,
     DeliverReportInput,
@@ -46,7 +45,6 @@ async def fetch_due_eval_reports_activity(
                 next_delivery_date__lte=now_with_buffer,
                 enabled=True,
                 deleted=False,
-                team_id__in=DOGFOOD_TEAM_IDS,
             )
             .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
             .values_list("id", flat=True)
@@ -89,7 +87,6 @@ async def fetch_count_triggered_eval_reports_activity(
                 enabled=True,
                 deleted=False,
                 trigger_threshold__isnull=False,
-                team_id__in=DOGFOOD_TEAM_IDS,
             ).select_related("evaluation")
         )
         total_checked = len(reports)

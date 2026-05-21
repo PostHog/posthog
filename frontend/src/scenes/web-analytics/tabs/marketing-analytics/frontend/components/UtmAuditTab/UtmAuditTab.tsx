@@ -253,6 +253,13 @@ function CampaignTabContent(): JSX.Element {
                                     ),
                                 },
                                 {
+                                    title: 'utm_source',
+                                    dataIndex: 'utm_source',
+                                    render: (_, record: UtmEvent) => (
+                                        <span className="font-mono text-sm text-secondary">{record.utm_source}</span>
+                                    ),
+                                },
+                                {
                                     title: 'Pageviews',
                                     dataIndex: 'event_count',
                                     width: 80,

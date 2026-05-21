@@ -92,8 +92,7 @@ class TestRepoPickerOptions(TestCase):
             "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts},
         )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")

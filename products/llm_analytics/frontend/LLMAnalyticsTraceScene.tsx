@@ -1,3 +1,5 @@
+import './LLMAnalyticsTraceScene.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -6,14 +8,17 @@ import { useDebouncedCallback } from 'use-debounce'
 
 import {
     IconAIText,
+    IconChevronDown,
     IconChevronLeft,
     IconChevronRight,
     IconComment,
     IconCopy,
+    IconDownload,
     IconMessage,
     IconPlay,
     IconReceipt,
     IconSearch,
+    IconShare,
 } from '@posthog/icons'
 import {
     LemonButton,
@@ -22,6 +27,7 @@ import {
     LemonDivider,
     LemonDialog,
     LemonInput,
+    LemonMenu,
     LemonSelect,
     LemonTable,
     LemonTabs,
@@ -73,7 +79,7 @@ import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { FeedbackViewDisplay } from './feedback-view/FeedbackViewDisplay'
 import { useAIData } from './hooks/useAIData'
-import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
+import { EnrichedTraceTreeNode, findNodeForEvent, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from './LLMInputOutput'
@@ -86,7 +92,7 @@ import { SearchHighlight } from './SearchHighlight'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
-import { exportTraceToClipboard } from './traceExportUtils'
+import { exportTraceToClipboard, exportTraceToFile } from './traceExportUtils'
 import { TraceReviewButton } from './traceReviews/TraceReviewButton'
 import { traceReviewModalLogic } from './traceReviews/traceReviewModalLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -490,7 +496,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative flex flex-col gap-3">
+                <div className="LLMAnalyticsTraceScene__wrapper relative flex flex-col gap-3">
                     <div className="flex flex-col gap-4">
                         <SceneTitleSection
                             name={trace.id}
@@ -528,7 +534,7 @@ function TraceSceneWrapper(): JSX.Element {
                                         Discussion
                                     </LemonButton>
                                 )}
-                                <CopyTraceButton trace={trace} tree={enrichedTree} />
+                                <ShareTraceButton trace={trace} tree={enrichedTree} />
                             </div>
                         </div>
                     </div>
@@ -850,7 +856,7 @@ function TraceWorkflowPanel({ traceId }: { traceId: string }): JSX.Element {
     }
 
     return (
-        <div className="border border-primary bg-surface-primary rounded overflow-hidden">
+        <div className="border border-primary bg-surface-primary rounded overflow-hidden shrink-0">
             <LemonCollapse
                 embedded
                 size="small"
@@ -1092,11 +1098,11 @@ function TraceSidebar({
 
     return (
         <aside
-            className="sticky bottom-[var(--scene-padding)] max-h-fit flex flex-col gap-3 w-full md:w-80"
+            className="flex flex-col gap-3 w-full md:w-80 md:min-h-0 md:self-start md:max-h-full"
             id="trace-events-sidebar"
         >
             {showTraceWorkflow ? <TraceWorkflowPanel traceId={trace.id} /> : null}
-            <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col">
+            <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col flex-1 min-h-0">
                 <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
                 <LemonDivider className="m-0" />
                 <div className="p-2">
@@ -1124,7 +1130,7 @@ function TraceSidebar({
                         <EventTypeFilters />
                     </div>
                 </div>
-                <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
+                <ul className="flex-1 min-h-0 overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                     <TreeNode
                         topLevelTrace={trace}
                         node={{
@@ -1442,6 +1448,7 @@ const EventContent = React.memo(
         const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
+        const { effectiveEventId } = useValues(traceDataLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
         const { sessionId, selectedNode } = useValues(traceDataLogic)
 
@@ -1451,6 +1458,19 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
+        // Check if the originally selected event (effectiveEventId) is a generation event
+        // This ensures the Evaluations tab stays visible even when viewing Summary at trace level.
+        // When effectiveEventId is null (e.g. tab=summary suppresses auto-selection), fall back to
+        // the first generation in the tree so the Evals tab remains visible.
+        const firstGenerationNode = tree.find((node) => node.event.event === '$ai_generation') ?? null
+        const effectiveEventNode = effectiveEventId ? findNodeForEvent(tree, effectiveEventId) : firstGenerationNode
+        const isEffectiveEventGeneration = effectiveEventNode?.event.event === '$ai_generation'
+        const effectiveGenerationEvent = isGenerationEvent
+            ? event
+            : isEffectiveEventGeneration
+              ? effectiveEventNode.event
+              : undefined
+
         const promptName = event && isLLMEvent(event) ? event.properties['$ai_prompt_name'] : null
         const promptVersion = event && isLLMEvent(event) ? event.properties['$ai_prompt_version'] : null
         const showPromptButton = !!promptName
@@ -1459,7 +1479,7 @@ const EventContent = React.memo(
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
-        const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+        const showEvalsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
@@ -1494,7 +1514,7 @@ const EventContent = React.memo(
         }
 
         return (
-            <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="flex-1 min-h-0 md:min-w-0 md:self-start md:max-h-full bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (
@@ -1560,7 +1580,9 @@ const EventContent = React.memo(
                                             )}
                                         </div>
                                     )}
-                                    {showEvalsTab && <EvalResultBadges generationEventId={event.id} />}
+                                    {showEvalsTab && (
+                                        <EvalResultBadges generationEventId={effectiveGenerationEvent.id} />
+                                    )}
                                 </div>
                             )}
                             {(showPromptButton ||
@@ -1757,9 +1779,9 @@ const EventContent = React.memo(
                                               'data-attr': 'llma-trace-evals-tab',
                                               content: (
                                                   <EvalsTabContent
-                                                      generationEventId={event.id}
-                                                      timestamp={event.createdAt}
-                                                      event={event.event}
+                                                      generationEventId={effectiveGenerationEvent.id}
+                                                      timestamp={effectiveGenerationEvent.createdAt}
+                                                      event={effectiveGenerationEvent.event}
                                                       distinctId={trace.distinctId}
                                                   />
                                               ),
@@ -1852,22 +1874,36 @@ function EventTypeFilters(): JSX.Element {
     )
 }
 
-function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
-    const handleCopyTrace = async (): Promise<void> => {
-        await exportTraceToClipboard(trace, tree)
-    }
-
+function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTraceTreeNode[] }): JSX.Element {
     return (
-        <LemonButton
-            type="secondary"
-            size="xsmall"
-            icon={<IconCopy />}
-            onClick={handleCopyTrace}
-            tooltip="Copy trace to clipboard"
-            data-attr="copy-trace-json"
+        <LemonMenu
+            items={[
+                {
+                    label: 'Copy to clipboard',
+                    icon: <IconCopy />,
+                    onClick: () => void exportTraceToClipboard(trace, tree),
+                    'data-attr': 'llma-trace-share-copy',
+                },
+                {
+                    label: 'Download file',
+                    icon: <IconDownload />,
+                    onClick: () => exportTraceToFile(trace, tree),
+                    'data-attr': 'llma-trace-share-download',
+                },
+            ]}
+            placement="bottom-end"
         >
-            Copy trace JSON
-        </LemonButton>
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                icon={<IconShare />}
+                sideIcon={<IconChevronDown />}
+                tooltip="Share trace JSON"
+                data-attr="llma-trace-share-button"
+            >
+                Share
+            </LemonButton>
+        </LemonMenu>
     )
 }
 

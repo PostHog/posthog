@@ -98,7 +98,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         related_name="surveys_internal_response_sampling_flag",
         related_query_name="surveys_internal_response_sampling_flag",
     )
-    type = models.CharField(max_length=40, choices=SurveyType.choices)
+    type = models.CharField(max_length=40, choices=SurveyType)
     conditions = models.JSONField(blank=True, null=True)
     questions = models.JSONField(
         blank=True,
@@ -237,7 +237,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         null=True,
         blank=True,
         max_length=6,
-        choices=SurveySamplingIntervalType.choices,
+        choices=SurveySamplingIntervalType,
         default=SurveySamplingIntervalType.WEEK,
     )
     response_sampling_interval = models.PositiveIntegerField(null=True, blank=True)
@@ -259,7 +259,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     current_iteration_start_date = models.DateTimeField(null=True)
     schedule = models.CharField(
         max_length=40,
-        choices=Schedule.choices,
+        choices=Schedule,
         default=Schedule.ONCE,
         null=True,
         blank=True,

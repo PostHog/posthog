@@ -274,7 +274,15 @@ pub trait Client: Send + Sync {
         items: Vec<(String, String, usize)>, // (key, value, ttl_seconds)
     ) -> Result<Vec<bool>, CustomRedisError>;
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
-    /// Execute a batch of pipeline commands in a single round-trip.
+    /// Execute a batch of pipeline commands atomically in a single round-trip.
+    ///
+    /// Commands are wrapped in `MULTI`/`EXEC`, so either every command commits
+    /// or none do. A connection drop, server hangup, or read timeout after the
+    /// pipeline is sent leaves Redis in its prior state — there is no
+    /// partial-commit window that would surface as `Err` here while some
+    /// commands had already taken effect server-side. This matters for
+    /// non-idempotent operations (e.g. `HINCRBY`) where a retry on `Err`
+    /// would otherwise risk double-counting.
     ///
     /// Returns a vector of results, one for each command in the same order.
     /// The outer Result is for connection-level errors, inner Results are per-command.

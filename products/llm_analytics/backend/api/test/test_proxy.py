@@ -63,6 +63,15 @@ class TestLLMProxyThrottles(APIBaseTest):
                 BYOK_THROTTLES,
             ),
             (
+                "valid_together_byok_key",
+                "generated",
+                "together_ai",
+                {"api_key": "together-key"},
+                "together_ai",
+                True,
+                BYOK_THROTTLES,
+            ),
+            (
                 "valid_openrouter_byok_key",
                 "generated",
                 "openrouter",
