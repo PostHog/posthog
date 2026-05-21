@@ -212,14 +212,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     return (
         <div
-            // The non-sticky branch used to include w-[min(40rem,100%)] alongside the
-            // caller's w-full. Both ended up in the rendered className and the cascade
-            // picked w-full, so the constraint was effectively dead code. Dropping it
-            // here keeps the same visual result and lets cn()'s twMerge run without
-            // stripping the conflicting w-full utility.
             className={cn(
-                containerClassName,
-                !isSticky && !isThreadVisible ? 'px-3' : 'sticky bottom-0 z-10 w-full max-w-180 self-center'
+                'w-full px-3',
+                (isSticky || isThreadVisible) && 'sticky bottom-0 z-10 max-w-180 self-center',
+                // containerClassName last so callers can override (e.g. sidePanel's px-0).
+                containerClassName
             )}
             ref={ref}
         >
