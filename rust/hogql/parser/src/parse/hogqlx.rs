@@ -98,15 +98,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.expect(TokenKind::Gt, ">")?;
                     if !children.is_empty() {
                         if attributes.iter().any(|a| {
-                            a.as_object()
-                                .and_then(|o| o.get("name").and_then(Value::as_str))
+                            self.emit
+                                .get_field(a, "name")
+                                .and_then(|v| self.emit.as_str(&v).map(|s| s.into_owned()))
+                                .as_deref()
                                 == Some("children")
                         }) {
                             return Err(self.err(
                                 "Can't have a HogQLX tag with both children and a 'children' attribute",
                             ));
                         }
-                        attributes.push(self.emit.hogqlx_attribute("children", children));
+                        let kids = self.emit.list_value(children);
+                        attributes.push(self.emit.hogqlx_attribute("children", kids));
                     }
                     return Ok(self.wrap_pos(
                         self.emit.hogqlx_tag(&kind, attributes),
@@ -144,7 +147,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             TokenKind::String => {
                 let t = self.bump()?;
                 self.emit
-                    .constant(Value::String(unquote_single_string(self.text(t))))
+                    .constant(self.emit.string(&unquote_single_string(self.text(t))))
             }
             TokenKind::LBrace => {
                 self.bump()?;
@@ -184,7 +187,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 && text.bytes().all(|b| b.is_ascii_whitespace())
                 && text.bytes().any(|b| b == b'\n' || b == b'\r');
             if !text.is_empty() && !drop_for_newline_ws {
-                children.push(self.emit.constant(Value::String(text)));
+                children.push(self.emit.constant(self.emit.string(&text)));
             }
             match self.peek() {
                 TokenKind::LtSlash => return Ok(children),

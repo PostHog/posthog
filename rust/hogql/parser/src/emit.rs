@@ -43,6 +43,10 @@ pub trait Emitter {
     /// via `u64` (preserving the full magnitude); Py emits as a
     /// Python int.
     fn uint(&self, v: u64) -> Self::Value;
+    /// Raw list value (JSON array / Python list). Distinct from the
+    /// `Array(...)` AST node: this is used for fields whose value is
+    /// a plain list, e.g. HogQLXAttribute.children.
+    fn list_value(&self, items: Vec<Self::Value>) -> Self::Value;
 
     // ===== AST node builders =====
     fn constant(&self, value: Self::Value) -> Self::Value;
@@ -199,8 +203,8 @@ pub trait Emitter {
     /// `UnpivotColumn(value_columns, name_columns, unpivot_values)`.
     fn unpivot_column(
         &self,
-        value_columns: Vec<Self::Value>,
-        name_columns: Vec<Self::Value>,
+        value_columns: Self::Value,
+        name_columns: Self::Value,
         unpivot_values: Vec<Self::Value>,
     ) -> Self::Value;
     /// `GroupingSet(exprs)`.
@@ -222,6 +226,21 @@ pub trait Emitter {
     /// `SelectSetNode(select_query, set_operator)`. Used inside the
     /// SelectSetQuery `subsequent_select_queries` list.
     fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>) -> Self::Value;
+    /// `JoinExpr(table, alias?, table_args?, column_aliases?, table_final?, sample?)`.
+    #[allow(clippy::too_many_arguments)]
+    /// `SampleExpr(sample_value, offset_value?)`.
+    fn sample_expr(&self, sample_value: Self::Value, offset_value: Option<Self::Value>) -> Self::Value;
+    /// `RatioExpr(left, right?)`.
+    fn ratio_expr(&self, left: Self::Value, right: Option<Self::Value>) -> Self::Value;
+    fn join_expr(
+        &self,
+        table: Self::Value,
+        alias: Option<String>,
+        table_args: Option<Self::Value>,
+        column_aliases: Option<Vec<String>>,
+        table_final: bool,
+        sample: Option<Self::Value>,
+    ) -> Self::Value;
     /// `WindowFunction(name, exprs, args, over_expr, over_identifier)`.
     /// `over_expr` and `over_identifier` are alternatives — only one
     /// is set per node. `args` defaults to empty list (NOT None) so
@@ -346,6 +365,9 @@ impl Emitter for JsonEmitter {
     }
     fn uint(&self, v: u64) -> Value {
         Value::Number(v.into())
+    }
+    fn list_value(&self, items: Vec<Value>) -> Value {
+        Value::Array(items)
     }
 
     fn constant(&self, value: Value) -> Value {
@@ -636,8 +658,8 @@ impl Emitter for JsonEmitter {
     }
     fn unpivot_column(
         &self,
-        value_columns: Vec<Value>,
-        name_columns: Vec<Value>,
+        value_columns: Value,
+        name_columns: Value,
         unpivot_values: Vec<Value>,
     ) -> Value {
         json!({
@@ -743,6 +765,86 @@ impl Emitter for JsonEmitter {
         }
         if let Some(fe) = frame_end {
             obj.insert("frame_end".into(), fe);
+        }
+        Value::Object(obj)
+    }
+    fn sample_expr(&self, sample_value: Value, offset_value: Option<Value>) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("SampleExpr".into()));
+        obj.insert("sample_value".into(), sample_value);
+        if let Some(o) = offset_value {
+            obj.insert("offset_value".into(), o);
+        }
+        Value::Object(obj)
+    }
+    fn ratio_expr(&self, left: Value, right: Option<Value>) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("RatioExpr".into()));
+        obj.insert("left".into(), left);
+        if let Some(r) = right {
+            obj.insert("right".into(), r);
+        }
+        Value::Object(obj)
+    }
+    fn pivot_expr(
+        &self,
+        table: Value,
+        aggregates: Vec<Value>,
+        columns: Vec<Value>,
+        group_by: Option<Vec<Value>>,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("PivotExpr".into()));
+        obj.insert("table".into(), table);
+        obj.insert("aggregates".into(), Value::Array(aggregates));
+        obj.insert("columns".into(), Value::Array(columns));
+        if let Some(g) = group_by {
+            obj.insert("group_by".into(), Value::Array(g));
+        }
+        Value::Object(obj)
+    }
+    fn unpivot_expr(
+        &self,
+        table: Value,
+        columns: Vec<Value>,
+        include_nulls: bool,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("UnpivotExpr".into()));
+        obj.insert("table".into(), table);
+        obj.insert("columns".into(), Value::Array(columns));
+        obj.insert("include_nulls".into(), Value::Bool(include_nulls));
+        Value::Object(obj)
+    }
+    fn join_expr(
+        &self,
+        table: Value,
+        alias: Option<String>,
+        table_args: Option<Value>,
+        column_aliases: Option<Vec<String>>,
+        table_final: bool,
+        sample: Option<Value>,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("JoinExpr".into()));
+        obj.insert("table".into(), table);
+        if let Some(ta) = table_args {
+            obj.insert("table_args".into(), ta);
+        }
+        if let Some(a) = alias {
+            obj.insert("alias".into(), Value::String(a));
+        }
+        if table_final {
+            obj.insert("table_final".into(), Value::Bool(true));
+        }
+        if let Some(s) = sample {
+            obj.insert("sample".into(), s);
+        }
+        if let Some(ca) = column_aliases {
+            obj.insert(
+                "column_aliases".into(),
+                Value::Array(ca.into_iter().map(Value::String).collect()),
+            );
         }
         Value::Object(obj)
     }

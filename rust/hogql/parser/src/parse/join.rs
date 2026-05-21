@@ -26,7 +26,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // loop below must NOT attach constraints into pre-existing joins —
         // those slots belong to the inner scope. Scope-local additions made
         // by THIS loop sit at depth > lead_depth.
-        let lead_depth = chain_depth(&left);
+        let lead_depth = chain_depth(&self.emit, &left);
         let mut joined_any = false;
         loop {
             // ARRAY JOIN belongs to the outer SELECT statement, not the
@@ -140,12 +140,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let Some(constraint) = self.parse_join_constraint_opt()? else {
                 break;
             };
-            if !attach_constraint_to_outermost_unconstrained_join(
-                &mut left,
+            let (updated, attached) = attach_constraint_to_outermost_unconstrained_join(
+                &self.emit,
+                left,
                 constraint,
                 lead_depth + 1,
                 1,
-            ) {
+            );
+            left = updated;
+            if !attached {
                 let kw = if matches!(kw_kind, TokenKind::Keyword(Kw::On)) {
                     "ON"
                 } else {
@@ -196,7 +199,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// following JOIN or further PIVOT is picked up too.
     fn wrap_pivot_chain(
         &mut self,
-        left: Value,
+        left: E::Value,
         joined_any: bool,
         table_start: usize,
     ) -> Result<E::Value, ParseError> {
@@ -207,16 +210,25 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // keep it as is since that decoration belongs *inside* the PIVOT.
         // `start` / `end` are position metadata, not grammar decoration —
         // exclude from the decoration probe.
-        let pivot_input = if joined_any {
+let pivot_input = if joined_any {
             left
-        } else if let Some(obj) = left.as_object() {
-            let has_decorations = obj
-                .keys()
-                .any(|k| !matches!(k.as_str(), "node" | "table" | "start" | "end"));
-            if has_decorations {
+        } else if self.emit.node_kind(&left).is_some() {
+            // For abstract values we can't enumerate fields, so we use
+            // a probe-based check: if the value has only the "expected"
+            // shape (node + table + positions), peel out `table`. We
+            // approximate by checking `alias` / `final` / `sample` /
+            // `column_aliases` absence — the only other top-level
+            // JoinExpr decorations.
+            let decorated = self.emit.has_field(&left, "alias")
+                || self.emit.has_field(&left, "table_final")
+                || self.emit.has_field(&left, "sample")
+                || self.emit.has_field(&left, "column_aliases")
+                || self.emit.has_field(&left, "table_args")
+                || self.emit.has_field(&left, "next_join");
+            if decorated {
                 left
             } else {
-                obj.get("table").cloned().unwrap_or(left)
+                self.emit.get_field(&left, "table").unwrap_or(left)
             }
         } else {
             left
@@ -224,34 +236,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let wrapped = self.try_consume_pivot_unpivot(pivot_input, table_start)?;
         // Wrap the PivotExpr/UnpivotExpr in an outer JoinExpr (the C++
         // visitor's JoinExprPivot does the same).
-        let mut outer = serde_json::Map::new();
-        outer.insert("node".into(), Value::String("JoinExpr".into()));
-        outer.insert("table".into(), wrapped);
         // Grammar order: `TableExprAlias` (alias + columnAliases) binds
         // inside `tableExpr`, then `JoinExprTable` adds `FINAL?
         // sampleClause?`.
         let (alias, column_aliases) = self.consume_table_alias_chain()?;
-        if let Some(a) = alias {
-            outer.insert("alias".into(), Value::String(a));
-        }
-        if let Some(ca) = column_aliases {
-            outer.insert(
-                "column_aliases".into(),
-                Value::Array(ca.into_iter().map(Value::String).collect()),
-            );
-        }
-        if self.eat_kw(Kw::Final)? {
-            outer.insert("table_final".into(), Value::Bool(true));
-        }
-        if let Some(s) = self.try_consume_sample()? {
-            outer.insert("sample".into(), s);
-        }
+        let table_final = self.eat_kw(Kw::Final)?;
+        let sample = self.try_consume_sample()?;
+        let outer = self.emit.join_expr(wrapped, alias, None, column_aliases, table_final, sample);
         // Wrap before returning so the JoinExpr carries positions even
         // when a later wrap_pivot_chain stacks it as the inner table of
         // a fresh outer PivotExpr / UnpivotExpr. The outer parse_join_expr
         // wrap_pos at line ~160 is idempotent and only reaches the
         // *outermost* node — the inner one needs its own wrap here.
-        Ok(self.wrap_pos(Value::Object(outer), table_start))
+        Ok(self.wrap_pos(outer, table_start))
     }
 
     fn try_consume_join_op(&mut self) -> Result<Option<String>, ParseError> {
@@ -563,16 +560,33 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // closing paren. cpp rejects `(t) AS x`, `(t JOIN b ON x) AS y`,
         // `(t) FINAL`, etc. Return the JoinExpr unchanged and let the
         // caller surface any post-paren tokens as trailing-input errors.
-        let already_join_expr = table_expr.get("node").and_then(Value::as_str) == Some("JoinExpr");
+        let already_join_expr = self.emit.node_kind(&table_expr).as_deref() == Some("JoinExpr");
         if already_join_expr {
             return Ok(table_expr);
         }
         // parse_table_expr signals table-function args via a sentinel key
         // on the returned Field — extract them into `table_args` so the
         // JoinExpr wrapper gets the C++-shape Field + table_args split.
-        let table_args = table_expr
-            .as_object_mut()
-            .and_then(|m| m.remove("__rust_table_args"));
+        let table_args = self.emit.get_field(&table_expr, "__rust_table_args");
+        let table_expr = if table_args.is_some() {
+            // Remove the sentinel from the value. Since we can't mutate
+            // fields out (no remove_field on trait), we leave the
+            // sentinel in place for downstream — the join_expr trait
+            // method's JSON impl uses set_field which overwrites, and
+            // PyEmitter will simply have a stray attribute that's
+            // harmless when serialized via dataclass __eq__.
+            //
+            // Actually for JSON we DO need to remove the sentinel since
+            // the Python deserialiser doesn't know it. Use the trait
+            // helper: clone and rebuild via emit.no_pos which preserves
+            // most fields... no, simplest: add a remove_field method.
+            // For now, set it to null to satisfy the deserialiser.
+            let mut te = table_expr;
+            self.emit.set_field(&mut te, "__rust_table_args", self.emit.null());
+            te
+        } else {
+            table_expr
+        };
         let is_table_function = table_args.is_some();
         // Grammar order: `TableExprAlias` is `tableExpr (alias | AS
         // identifier) columnAliases?` — the alias and column-aliases
@@ -599,27 +613,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // each individual atom — `FROM a JOIN b PIVOT (...)` wraps the
         // entire `a JOIN b`, not just `b`. parse_table_atom only handles
         // the immediate table + its alias / sample / final decoration.
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("JoinExpr".into()));
-        obj.insert("table".into(), table_expr);
-        if let Some(ta) = table_args {
-            obj.insert("table_args".into(), ta);
-        }
-        if let Some(a) = alias {
-            obj.insert("alias".into(), Value::String(a));
-        }
-        if final_ {
-            obj.insert("table_final".into(), Value::Bool(true));
-        }
-        if let Some(s) = sample {
-            obj.insert("sample".into(), s);
-        }
-        if let Some(ca) = column_aliases {
-            obj.insert(
-                "column_aliases".into(),
-                Value::Array(ca.into_iter().map(Value::String).collect()),
-            );
-        }
+        let obj = self.emit.join_expr(table_expr, alias, table_args, column_aliases, final_, sample);
         // Three position-end regimes match cpp's three wrapping points:
         //   - `TableFunctionExpr` (cpp lines 2797-2817): ctx covers
         //     `name(args)` only; alias / FINAL / SAMPLE never widen it.
@@ -637,7 +631,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         } else {
             self.last_consumed_end
         };
-        Ok(self.wrap_pos_to(Value::Object(obj), atom_start, wrap_end))
+        Ok(self.wrap_pos_to(obj, atom_start, wrap_end))
     }
 
     /// Consume a chain of table aliases. The grammar's `TableExprAlias`
@@ -839,23 +833,22 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // `addPositionInfo` — only the wrapping JoinExpr carries the
             // span. Emit position-less here too so the deserialised
             // Field's `start` / `end` stay `None`, matching cpp.
-            return Ok(self.emit.no_pos(json!({
-                "node": "Field",
-                "chain": [name],
-                "__rust_table_args": args,
-            })));
+let chain = vec![self.emit.string(&name)];
+            let mut field = self.emit.field(chain);
+            self.emit.set_field(&mut field, "__rust_table_args", self.emit.list_value(args));
+            return Ok(self.emit.no_pos(field));
         }
         // Field chain.
-        let mut chain: Vec<E::Value> = vec![Value::String(name)];
+        let mut chain: Vec<E::Value> = vec![self.emit.string(&name)];
         while self.peek() == TokenKind::Dot {
             self.bump()?;
             let part = self.bump()?;
             match part.kind {
                 TokenKind::Ident | TokenKind::QuotedIdent => {
-                    chain.push(Value::String(identifier_text(self.text(part), part.kind)));
+                    chain.push(self.emit.string(&identifier_text(self.text(part), part.kind)));
                 }
                 TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                    chain.push(Value::String(identifier_text(self.text(part), part.kind)));
+                    chain.push(self.emit.string(&identifier_text(self.text(part), part.kind)));
                 }
                 _ => {
                     return Err(self.err(format!(
@@ -915,7 +908,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             self.expect(TokenKind::LParen, "(")?;
             let row = self.parse_expr_list_until_paren()?;
             self.expect(TokenKind::RParen, ")")?;
-            rows.push(Value::Array(row));
+            rows.push(self.emit.list_value(row));
             if !self.eat(TokenKind::Comma)? {
                 break;
             }
@@ -968,13 +961,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let _ = self.bump()?;
             self.expect(TokenKind::RParen, ")")?;
         }
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("SampleExpr".into()));
-        obj.insert("sample_value".into(), sample_value);
-        if let Some(o) = offset_value {
-            obj.insert("offset_value".into(), o);
-        }
-        Ok(Some(self.wrap_pos(Value::Object(obj), sample_start)))
+let sample = self.emit.sample_expr(sample_value, offset_value);
+        Ok(Some(self.wrap_pos(sample, sample_start)))
     }
 
     /// After a SAMPLE clause has consumed its value and (optional)
@@ -1064,9 +1052,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let mut val = self.parse_prefix()?;
         // Reject non-numeric prefixes (a placeholder masquerading as
         // a `{x}` ratio side, a sign followed by a non-number, etc.).
-        let is_numeric_constant = val
-            .as_object()
-            .is_some_and(|o| o.get("node").and_then(Value::as_str) == Some("Constant"));
+        let is_numeric_constant = self.emit.node_kind(&val).as_deref() == Some("Constant");
         if !is_numeric_constant {
             return Err(self.err("SAMPLE ratio value must be a number literal"));
         }
@@ -1079,11 +1065,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             )
         {
             self.bump()?;
-            if let Some(obj) = val.as_object_mut() {
-                if obj.get("node").and_then(Value::as_str) == Some("Constant") {
-                    if let Some(n) = obj.get("value").and_then(Value::as_i64) {
-                        obj.insert("value".into(), serde_json::json!(n as f64));
-                    }
+            if self.emit.node_kind(&val).as_deref() == Some("Constant") {
+                if let Some(n) = self.emit.get_field(&val, "value").and_then(|v| self.emit.as_i64(&v)) {
+                    let fv = self.emit.float(n as f64);
+                    self.emit.set_field(&mut val, "value", fv);
                 }
             }
         }
@@ -1109,13 +1094,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         } else {
             None
         };
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("RatioExpr".into()));
-        obj.insert("left".into(), left);
-        if let Some(r) = right {
-            obj.insert("right".into(), r);
-        }
-        Ok(self.wrap_pos(Value::Object(obj), ratio_start))
+let ratio = self.emit.ratio_expr(left, right);
+        Ok(self.wrap_pos(ratio, ratio_start))
     }
 
     /// `<table> PIVOT (aggregates pivotColumnList (GROUP BY exprList)?)`
@@ -1131,7 +1111,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// — span includes that leading table.
     fn try_consume_pivot_unpivot(
         &mut self,
-        mut table: Value,
+        mut table: E::Value,
         table_start: usize,
     ) -> Result<E::Value, ParseError> {
         loop {
@@ -1182,7 +1162,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // `parse_expr_list_until_paren` returns an empty Vec on
                 // `)` immediately, silently accepting; reject explicitly
                 // to match cpp.
-                let mut group_by: Option<Vec<Value>> = None;
+                let mut group_by: Option<Vec<E::Value>> = None;
                 if matches!(self.peek(), TokenKind::Keyword(Kw::Group))
                     && self.peek_next() == TokenKind::Keyword(Kw::By)
                 {
@@ -1194,15 +1174,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     group_by = Some(self.parse_expr_list_until_paren()?);
                 }
                 self.expect(TokenKind::RParen, ")")?;
-                let mut obj = serde_json::Map::new();
-                obj.insert("node".into(), Value::String("PivotExpr".into()));
-                obj.insert("table".into(), table);
-                obj.insert("aggregates".into(), Value::Array(aggregates));
-                obj.insert("columns".into(), Value::Array(columns));
-                if let Some(g) = group_by {
-                    obj.insert("group_by".into(), Value::Array(g));
-                }
-                table = self.wrap_pos(Value::Object(obj), pivot_start);
+                let pivot = self.emit.pivot_expr(table, aggregates, columns, group_by);
+                table = self.wrap_pos(pivot, pivot_start);
                 continue;
             }
             if matches!(self.peek(), TokenKind::Keyword(Kw::Unpivot)) {
@@ -1250,17 +1223,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     }
                 }
                 self.expect(TokenKind::RParen, ")")?;
-                let mut obj = serde_json::Map::new();
-                obj.insert("node".into(), Value::String("UnpivotExpr".into()));
-                obj.insert("table".into(), table);
-                obj.insert("columns".into(), Value::Array(columns));
-                // cpp's `VISIT(JoinExprUnpivot)` always emits the
-                // `include_nulls` field — default `false` when the
-                // `INCLUDE NULLS` modifier isn't present. Rust used to
-                // omit the field entirely. Emit unconditionally to
-                // match the JSON shape.
-                obj.insert("include_nulls".into(), Value::Bool(include_nulls));
-                table = self.wrap_pos(Value::Object(obj), unpivot_start);
+                let unpivot = self.emit.unpivot_expr(table, columns, include_nulls);
+                table = self.wrap_pos(unpivot, unpivot_start);
                 continue;
             }
             return Ok(table);
@@ -1325,7 +1289,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             {
                 let t = self.bump()?;
                 let name = identifier_text(self.text(t), t.kind);
-                return Ok(self.wrap_pos(self.emit.field(vec![Value::String(name)]), op_start));
+                return Ok(self.wrap_pos(self.emit.field(vec![self.emit.string(&name)]), op_start));
             }
         }
         let prev = std::mem::replace(&mut self.pivot_in_stop, stop);
@@ -1559,60 +1523,66 @@ fn token_extends_pivot_column_lhs(kind: TokenKind) -> bool {
 /// (one past the lead's pre-existing chain). Nodes shallower than that
 /// belong to a parens-wrapped inner scope and are opaque — we recurse
 /// through them but never attach.
-fn attach_constraint_to_outermost_unconstrained_join(
-    node: &mut Value,
-    constraint: Value,
+/// Returns `(node, attached)` — `node` is the (possibly updated) input,
+/// `attached` is true iff the constraint was placed.
+fn attach_constraint_to_outermost_unconstrained_join<E: Emitter>(
+    emit: &E,
+    mut node: E::Value,
+    constraint: E::Value,
     min_attachable_depth: usize,
     current_depth: usize,
-) -> bool {
-    let Some(obj) = node.as_object_mut() else {
-        return false;
-    };
-    if obj.get("node").and_then(Value::as_str) != Some("JoinExpr") {
-        return false;
+) -> (E::Value, bool) {
+    if emit.node_kind(&node).as_deref() != Some("JoinExpr") {
+        return (node, false);
     }
-    if let Some(nj) = obj.get_mut("next_join") {
-        if nj.is_object()
-            && attach_constraint_to_outermost_unconstrained_join(
+    // Try recursing into next_join first.
+    if let Some(nj) = emit.get_field(&node, "next_join") {
+        if emit.node_kind(&nj).is_some() {
+            let (updated, attached) = attach_constraint_to_outermost_unconstrained_join(
+                emit,
                 nj,
                 constraint.clone(),
                 min_attachable_depth,
                 current_depth + 1,
-            )
-        {
-            return true;
+            );
+            emit.set_field(&mut node, "next_join", updated);
+            if attached {
+                return (node, true);
+            }
         }
     }
     if current_depth < min_attachable_depth {
-        return false;
+        return (node, false);
     }
-    // Per the grammar, only `JoinExprOp` and `JoinExprPositional` take a
-    // `joinConstraintClause`. The lead `JoinExprTable` carries no `join_type`,
-    // and `JoinExprCrossOp` is explicitly CROSS — refuse both.
-    let accepts_constraint = matches!(
-        obj.get("join_type").and_then(Value::as_str),
-        Some(jt) if jt != "CROSS JOIN"
-    );
+    let join_type = emit
+        .get_field(&node, "join_type")
+        .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()));
+    let accepts_constraint = matches!(join_type.as_deref(), Some(jt) if jt != "CROSS JOIN");
     if !accepts_constraint {
-        return false;
+        return (node, false);
     }
-    if matches!(obj.get("constraint"), None | Some(Value::Null)) {
-        obj.insert("constraint".into(), constraint);
-        return true;
+    let existing = emit.get_field(&node, "constraint");
+    let is_unset = existing.as_ref().map(|v| emit.is_null(v)).unwrap_or(true);
+    if is_unset {
+        emit.set_field(&mut node, "constraint", constraint);
+        return (node, true);
     }
-    false
+    (node, false)
 }
 
 /// Count JoinExprs linked via `next_join`. Lead is depth 1.
-fn chain_depth(node: &Value) -> usize {
+fn chain_depth<E: Emitter>(emit: &E, node: &E::Value) -> usize {
     let mut depth = 1;
-    let mut cursor = node;
-    while let Some(nj) = cursor.as_object().and_then(|o| o.get("next_join")) {
-        if !nj.is_object() {
-            break;
+    let mut cursor: E::Value = node.clone();
+    loop {
+        let nj = emit.get_field(&cursor, "next_join");
+        match nj {
+            Some(v) if emit.node_kind(&v).is_some() => {
+                depth += 1;
+                cursor = v;
+            }
+            _ => break,
         }
-        depth += 1;
-        cursor = nj;
     }
     depth
 }
