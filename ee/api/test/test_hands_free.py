@@ -77,7 +77,7 @@ class TestMaxHandsFreeAPI(APIBaseTest):
         assert response.status_code == 200
         assert response["Content-Type"] == "audio/mpeg"
         assert response["Cache-Control"] == "no-store"
-        assert b"".join(response.streaming_content) == b"mp3-chunk-1mp3-chunk-2"
+        assert b"".join(response.streaming_content) == b"mp3-chunk-1mp3-chunk-2"  # type: ignore[attr-defined]
         mock_post.return_value.close.assert_called_once()
 
     def test_synthesize_rejects_text_over_limit(self) -> None:
