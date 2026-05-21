@@ -981,12 +981,9 @@ async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(t
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_update_delivery_record_patches_status_and_results_without_touching_content(team, user):
-    # When the new workflow calls update_delivery_record without content_snapshot
-    # — which is the production path, since create_export_assets owns the
-    # snapshot write — the delivery row's existing content_snapshot is preserved.
-    # The field still exists on the dataclass for rolling-deploy replay compat
-    # (old in-flight workflows may populate it), but it's no longer part of the
-    # steady-state call path.
+    # update_delivery_record is the observability finalizer; create_export_assets
+    # owns the content_snapshot write. This pins that update_delivery_record does
+    # not touch the snapshot column — it only patches status/asset_ids/recipient_results.
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="upd01", name="Update delivery")
     subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
@@ -1025,46 +1022,6 @@ async def test_update_delivery_record_patches_status_and_results_without_touchin
     assert row.recipient_results == [{"recipient": "r@example.com", "status": "success"}]
     assert row.content_snapshot == initial_content_snapshot
     assert row.finished_at is not None
-
-    # Rolling-deploy compat: the shallow-merge branch in update_delivery_record
-    # is still live for any pre-rollout workflow whose replay re-issues the old
-    # Phase 2.5 update_delivery_record command with a populated content_snapshot.
-    # Pin the merge semantics here (partial input preserves pre-existing keys,
-    # overwrites overlapping keys) until the content_snapshot field is removed
-    # in the subscriptions-patched-cleanup step-2 PR.
-    await sync_to_async(
-        SubscriptionDelivery.objects.filter(pk=delivery_id).update,
-    )(content_snapshot={"id": 1, "short_id": "abc", "insights": [{"id": 99, "name": "inline-write"}]})
-
-    await env.run(
-        update_delivery_record,
-        UpdateDeliveryRecordInputs(
-            delivery_id=delivery_id,
-            status=DeliveryStatus.STARTING,
-            content_snapshot={"total_insight_count": 1, "insights": [{"id": 99, "name": "replayed"}]},
-        ),
-    )
-
-    merged = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
-    assert merged.content_snapshot["id"] == 1  # preserved
-    assert merged.content_snapshot["short_id"] == "abc"  # preserved
-    assert merged.content_snapshot["total_insight_count"] == 1  # added
-    assert merged.content_snapshot["insights"] == [{"id": 99, "name": "replayed"}]  # overwritten
-
-    # Second replay whose payload omits `insights` must NOT wipe the key — a
-    # plain-assignment regression would clobber it, which is the failure mode
-    # the DO-NOT-change comment warns against.
-    await env.run(
-        update_delivery_record,
-        UpdateDeliveryRecordInputs(
-            delivery_id=delivery_id,
-            status=DeliveryStatus.STARTING,
-            content_snapshot={"total_insight_count": 2},  # no insights key
-        ),
-    )
-    merged2 = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
-    assert merged2.content_snapshot["insights"] == [{"id": 99, "name": "replayed"}]  # preserved
-    assert merged2.content_snapshot["total_insight_count"] == 2  # updated
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")

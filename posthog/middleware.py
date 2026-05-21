@@ -26,6 +26,7 @@ from django.utils.deprecation import MiddlewareMixin
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from opentelemetry import trace
 from prometheus_client import Histogram
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
@@ -35,7 +36,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.event_usage import get_event_source, get_mcp_properties
+from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
@@ -570,6 +571,38 @@ def per_request_logging_context_middleware(
             container_hostname=settings.CONTAINER_HOSTNAME,
             x_forwarded_for=request.headers.get("x-forwarded-for", ""),
         )
+
+        # Forwarded by the PostHog MCP server (services/mcp) on every API call.
+        # Binding here lets backend log lines and OTLP spans correlate with the
+        # same MCP context that's stamped on events.
+        #
+        # These headers are caller-asserted on a public API surface — anyone can
+        # set them on a request, so treat the resulting fields in logs/traces
+        # as correlation hints, not authoritative identifiers.
+        #
+        # The OTLP span tagging below depends on `DjangoInstrumentor` having
+        # already pushed a request span into the OTel context. The
+        # instrumentation library installs itself at MIDDLEWARE position 0 by
+        # default (see `posthog/otel_instrumentation.py`), so the span is in
+        # scope here. If that invariant ever changes, `set_attribute` becomes a
+        # silent no-op on the non-recording span.
+        mcp_session_id = sanitize_header_value(request.headers.get("X-Posthog-Mcp-Session-Id"))
+        mcp_conversation_id = sanitize_header_value(request.headers.get("X-Posthog-Mcp-Conversation-Id"))
+        mcp_context_bindings = {
+            k: v
+            for k, v in (
+                ("mcp_session_id", mcp_session_id),
+                ("mcp_conversation_id", mcp_conversation_id),
+            )
+            if v
+        }
+        if mcp_context_bindings:
+            structlog.contextvars.bind_contextvars(**mcp_context_bindings)
+            span = trace.get_current_span()
+            if mcp_session_id:
+                span.set_attribute("mcp.session_id", mcp_session_id)
+            if mcp_conversation_id:
+                span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
         return get_response(request)
 
@@ -1152,6 +1185,13 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
     # while Django's URL config accepts both via opt_slash_path — match both forms.
     re.compile(r"^/logout/?$"),
+    # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
+    # Scopes minted while read-only impersonation is active are filtered through
+    # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
+    # resulting tokens can't grant write access. Tokens minted here are also tagged with
+    # the impersonator and revoked when impersonation ends.
+    re.compile(r"^/oauth/authorize/?$"),
+    re.compile(r"^/oauth/token/?$"),
 ]
 
 
