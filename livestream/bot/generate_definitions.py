@@ -17,7 +17,7 @@ from pathlib import Path
 repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
 
-from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS  # noqa: E402
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS  # noqa: E402
 
 entries = [
     {

@@ -125,11 +125,17 @@ from products.visual_review.backend.presentation.views import (
     RunViewSet as VisualReviewRunViewSet,
     SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
+from products.web_analytics.backend.api.heatmaps_api import (
+    HeatmapScreenshotViewSet,
+    HeatmapViewSet,
+    LegacyHeatmapViewSet,
+    SavedHeatmapViewSet,
+)
+from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
-from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
@@ -197,7 +203,6 @@ from .file_system import file_system, file_system_shortcut, persisted_folder, us
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
-from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])

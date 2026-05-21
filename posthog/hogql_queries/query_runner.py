@@ -527,7 +527,7 @@ def get_query_runner(
             limit_context=limit_context,
         )
     if kind == "WebOverviewQuery":
-        from .web_analytics.web_overview import WebOverviewQueryRunner
+        from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
         return WebOverviewQueryRunner(
             query=query,
@@ -538,7 +538,7 @@ def get_query_runner(
         )
 
     if kind == "WebStatsTableQuery":
-        from .web_analytics.stats_table import WebStatsTableQueryRunner
+        from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 
         return WebStatsTableQueryRunner(
             query=query,
@@ -549,7 +549,7 @@ def get_query_runner(
         )
 
     if kind == "WebGoalsQuery":
-        from .web_analytics.web_goals import WebGoalsQueryRunner
+        from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
         return WebGoalsQueryRunner(
             query=query,
@@ -560,7 +560,7 @@ def get_query_runner(
         )
 
     if kind == "WebNotableChangesQuery":
-        from .web_analytics.notable_changes import WebNotableChangesQueryRunner
+        from products.web_analytics.backend.hogql_queries.notable_changes import WebNotableChangesQueryRunner
 
         return WebNotableChangesQueryRunner(
             query=query,
@@ -571,7 +571,7 @@ def get_query_runner(
         )
 
     if kind == "WebTrendsQuery":
-        from .web_analytics.web_trends_query_runner import WebTrendsQueryRunner
+        from products.web_analytics.backend.hogql_queries.web_trends_query_runner import WebTrendsQueryRunner
 
         return WebTrendsQueryRunner(
             query=query,
@@ -582,7 +582,7 @@ def get_query_runner(
         )
 
     if kind == "WebExternalClicksTableQuery":
-        from .web_analytics.external_clicks import WebExternalClicksTableQueryRunner
+        from products.web_analytics.backend.hogql_queries.external_clicks import WebExternalClicksTableQueryRunner
 
         return WebExternalClicksTableQueryRunner(
             query=query,
@@ -593,7 +593,9 @@ def get_query_runner(
         )
 
     if kind == "WebVitalsPathBreakdownQuery":
-        from .web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+        from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import (
+            WebVitalsPathBreakdownQueryRunner,
+        )
 
         return WebVitalsPathBreakdownQueryRunner(
             query=query,
@@ -601,7 +603,7 @@ def get_query_runner(
         )
 
     if kind == "WebPageURLSearchQuery":
-        from .web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+        from products.web_analytics.backend.hogql_queries.page_url_search_query_runner import PageUrlSearchQueryRunner
 
         return PageUrlSearchQueryRunner(
             query=query,
@@ -612,7 +614,9 @@ def get_query_runner(
         )
 
     if kind == "SessionAttributionExplorerQuery":
-        from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
+        from products.web_analytics.backend.hogql_queries.session_attribution_explorer_query_runner import (
+            SessionAttributionExplorerQueryRunner,
+        )
 
         return SessionAttributionExplorerQueryRunner(
             query=query,
