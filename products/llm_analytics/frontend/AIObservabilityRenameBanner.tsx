@@ -9,7 +9,7 @@ export function AIObservabilityRenameBanner(): JSX.Element {
 
     return (
         <LemonBanner type="info" dismissKey="ai-observability-renamed-from-llm-analytics">
-            AI observability was previously called LLM analytics. If anything looks off after the rename,{' '}
+            We've renamed LLM analytics to AI observability. If anything looks off after the rename,{' '}
             <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'llm-analytics' })}>contact us</Link>.
         </LemonBanner>
     )
