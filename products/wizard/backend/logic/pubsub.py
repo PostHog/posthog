@@ -17,16 +17,24 @@ from typing import Any
 from django.db import transaction
 
 import orjson
+import structlog
 
 from posthog.redis import get_client
 
 from products.wizard.backend.facade.contracts import WizardSessionDTO
+
+logger = structlog.get_logger(__name__)
 
 CHANNEL_PREFIX = "wizard_sessions"
 
 
 def channel_name(team_id: int, workflow_id: str, skill_id: str) -> str:
     return f"{CHANNEL_PREFIX}:team:{team_id}:workflow:{workflow_id}:skill:{skill_id}"
+
+
+def channel_pattern(team_id: int, workflow_id: str) -> str:
+    """Pattern for subscribing to all skills under a (team, workflow_id)."""
+    return f"{CHANNEL_PREFIX}:team:{team_id}:workflow:{workflow_id}:skill:*"
 
 
 def publish_session_update(dto: WizardSessionDTO) -> None:
@@ -38,28 +46,47 @@ def publish_session_update(dto: WizardSessionDTO) -> None:
     channel = channel_name(dto.team_id, dto.workflow_id, dto.skill_id)
 
     def _publish() -> None:
-        get_client().publish(channel, payload)
+        receivers = get_client().publish(channel, payload)
+        logger.info(
+            "wizard_sessions publish",
+            channel=channel,
+            session_id=dto.session_id,
+            run_phase=dto.run_phase.value if hasattr(dto.run_phase, "value") else str(dto.run_phase),
+            payload_bytes=len(payload),
+            receivers=receivers,
+        )
 
     transaction.on_commit(_publish)
 
 
 @contextmanager
-def subscribe(team_id: int, workflow_id: str, skill_id: str) -> Iterator[Any]:
-    """Subscribe to a wizard-session channel. Yields a pubsub object whose
-    `listen()` produces dicts with `{type, data, ...}`.
+def subscribe(team_id: int, workflow_id: str, skill_id: str | None = None) -> Iterator[Any]:
+    """Subscribe to wizard-session events.
 
-    The caller is responsible for iterating; this context manager only owns
-    the connection lifecycle.
+    If `skill_id` is provided, subscribes to the exact channel for that
+    (team, workflow, skill). If omitted, pattern-subscribes to every skill
+    under that (team, workflow). Pattern messages arrive as `{type: 'pmessage', ...}`;
+    direct messages as `{type: 'message', ...}`. Callers should accept both.
     """
     redis = get_client()
     pubsub = redis.pubsub(ignore_subscribe_messages=True)
-    channel = channel_name(team_id, workflow_id, skill_id)
-    pubsub.subscribe(channel)
+    if skill_id:
+        target = channel_name(team_id, workflow_id, skill_id)
+        pubsub.subscribe(target)
+        logger.info("wizard_sessions subscribe", channel=target)
+    else:
+        target = channel_pattern(team_id, workflow_id)
+        pubsub.psubscribe(target)
+        logger.info("wizard_sessions subscribe", pattern=target)
     try:
         yield pubsub
     finally:
+        logger.info("wizard_sessions unsubscribe", target=target)
         try:
-            pubsub.unsubscribe(channel)
+            if skill_id:
+                pubsub.unsubscribe(target)
+            else:
+                pubsub.punsubscribe(target)
         finally:
             pubsub.close()
 

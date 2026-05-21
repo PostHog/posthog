@@ -240,9 +240,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"], url_path="stream", renderer_classes=[EventStreamRenderer])
     def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
         workflow_id = request.query_params.get("workflow_id")
-        skill_id = request.query_params.get("skill_id")
-        if not workflow_id or not skill_id:
-            raise ValidationError({"detail": "workflow_id and skill_id are required."})
+        skill_id = request.query_params.get("skill_id") or None
+        if not workflow_id:
+            raise ValidationError({"detail": "workflow_id is required."})
 
         generator = _wizard_session_event_stream(
             team_id=self.team_id,
@@ -260,8 +260,11 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
 
-def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str) -> Iterator[bytes]:
-    """Yield SSE-formatted bytes for a (workflow_id, skill_id) subscription.
+def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str | None = None) -> Iterator[bytes]:
+    """Yield SSE-formatted bytes for a wizard session subscription.
+
+    If `skill_id` is provided, scope to that exact pair. Otherwise pattern-
+    subscribe to all skills under (team, workflow_id).
 
     Emits the current latest session (if any) first, then forwards Redis
     pub/sub messages. Yields heartbeat comments roughly every
@@ -283,7 +286,8 @@ def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str) 
             message = pubsub.get_message(timeout=SSE_POLL_TIMEOUT_SECONDS)
             now = time.monotonic()
 
-            if message and message.get("type") == "message":
+            # `message` type is direct-channel; `pmessage` is pattern subscribe.
+            if message and message.get("type") in ("message", "pmessage"):
                 yield b"data: " + message["data"] + b"\n\n"
                 last_heartbeat = now
                 continue

@@ -26,7 +26,7 @@ def get(team_id: int, session_id: str) -> WizardSessionDTO | None:
     return sessions.get_session(team_id, session_id)
 
 
-def get_latest(team_id: int, workflow_id: str, skill_id: str) -> WizardSessionDTO | None:
+def get_latest(team_id: int, workflow_id: str, skill_id: str | None = None) -> WizardSessionDTO | None:
     return sessions.get_latest_session(team_id, workflow_id, skill_id)
 
 

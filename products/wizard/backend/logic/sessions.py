@@ -48,12 +48,11 @@ def get_session(team_id: int, session_id: str) -> WizardSessionDTO | None:
     return _to_dto(instance) if instance else None
 
 
-def get_latest_session(team_id: int, workflow_id: str, skill_id: str) -> WizardSessionDTO | None:
-    instance = (
-        WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id, skill_id=skill_id)
-        .order_by("-started_at")
-        .first()
-    )
+def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = None) -> WizardSessionDTO | None:
+    qs = WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id)
+    if skill_id:
+        qs = qs.filter(skill_id=skill_id)
+    instance = qs.order_by("-started_at").first()
     return _to_dto(instance) if instance else None
 
 
