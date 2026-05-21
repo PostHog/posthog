@@ -5,6 +5,7 @@ on:
         paths:
             - .github/workflows/**
             - .github/actions/**
+            - .github/actionlint.yaml
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -38,7 +39,10 @@ jobs:
 
             - name: Run actionlint
               # actionlint exits non-zero when findings exist; capture JSON and keep the step green
-              # so the summarize step still runs.
+              # so the summarize step still runs. SHELLCHECK_OPTS scopes shellcheck integration to
+              # actual errors — info/warning/style findings on workflow run-blocks are too noisy.
+              env:
+                  SHELLCHECK_OPTS: --severity=error
               run: |
                   set -euo pipefail
                   ./.bin/actionlint -format '{{json .}}' > actionlint.json || true
