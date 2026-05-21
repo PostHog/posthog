@@ -32,13 +32,83 @@ fn remove_env_vars(names: &[&str]) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
-fn restore_env_vars(vars: Vec<(String, Option<String>)>) {
-    for (name, value) in vars {
-        match value {
-            Some(value) => std::env::set_var(name, value),
-            None => std::env::remove_var(name),
+struct EnvVarGuard(Vec<(String, Option<String>)>);
+
+impl EnvVarGuard {
+    fn clear(names: &[&str]) -> Self {
+        Self(remove_env_vars(names))
+    }
+
+    fn set(vars: &[(&str, &str)]) -> Self {
+        let saved = vars
+            .iter()
+            .map(|(name, value)| {
+                let previous = std::env::var(name).ok();
+                std::env::set_var(name, value);
+                ((*name).to_string(), previous)
+            })
+            .collect();
+
+        Self(saved)
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        for (name, value) in self.0.drain(..) {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
         }
     }
+}
+
+fn write_repo_config(git_dir: &std::path::Path) {
+    fs::write(
+        git_dir.join("config"),
+        r#"
+[core]
+    repositoryformatversion = 0
+[remote "origin"]
+    url = https://github.com/PostHog/posthog.git
+    fetch = +refs/heads/*:refs/remotes/origin/*
+"#,
+    )
+    .expect("failed to write config");
+}
+
+fn write_head(git_dir: &std::path::Path, branch: &str) {
+    fs::write(git_dir.join("HEAD"), format!("ref: refs/heads/{branch}\n"))
+        .expect("failed to write HEAD");
+}
+
+fn write_loose_ref(git_dir: &std::path::Path, branch: &str, commit_id: &str) {
+    let branch_ref = git_dir.join("refs/heads").join(branch);
+    fs::create_dir_all(branch_ref.parent().unwrap()).expect("failed to create refs directory");
+    fs::write(branch_ref, format!("{commit_id}\n")).expect("failed to write branch ref");
+}
+
+fn write_packed_ref(git_dir: &std::path::Path, branch: &str, commit_id: &str) {
+    fs::write(
+        git_dir.join("packed-refs"),
+        format!("# pack-refs with: peeled fully-peeled sorted\n{commit_id} refs/heads/{branch}\n"),
+    )
+    .expect("failed to write packed-refs");
+}
+
+fn assert_posthog_git_info(worktree_dir: PathBuf, branch: &str, commit_id: &str) {
+    let info = get_git_info(Some(worktree_dir))
+        .expect("should not error")
+        .expect("should return info");
+
+    assert_eq!(info.branch, branch);
+    assert_eq!(info.commit_id, commit_id);
+    assert_eq!(
+        info.remote_url.as_deref(),
+        Some("https://github.com/PostHog/posthog.git")
+    );
+    assert_eq!(info.repo_name.as_deref(), Some("posthog"));
 }
 
 #[test]
@@ -114,9 +184,9 @@ fn test_get_repo_infos_ssh_without_dot_git() {
 }
 
 #[test]
-fn test_get_git_info_from_worktree_git_file() {
+fn test_get_git_info_from_regular_repo_packed_refs() {
     let _env_lock = lock_env();
-    let env = remove_env_vars(&[
+    let _env_guard = EnvVarGuard::clear(&[
         "GITHUB_ACTIONS",
         "GITHUB_SHA",
         "GITHUB_REF_NAME",
@@ -131,65 +201,121 @@ fn test_get_git_info_from_worktree_git_file() {
     ]);
 
     let temp_root =
-        std::env::temp_dir().join(format!("posthog_cli_worktree_test_{}", Uuid::now_v7()));
-    let worktree_dir = temp_root.join("worktree");
-    let common_git_dir = temp_root.join("repo.git");
-    let worktree_git_dir = common_git_dir.join("worktrees/worktree");
-    let branch_ref = common_git_dir.join("refs/heads/feature/worktree");
+        std::env::temp_dir().join(format!("posthog_cli_regular_repo_test_{}", Uuid::now_v7()));
+    let git_dir = temp_root.join(".git");
+    let branch = "feature/packed";
     let commit_id = "0123456789abcdef0123456789abcdef01234567";
 
-    fs::create_dir_all(&worktree_dir).expect("failed to create worktree directory");
-    fs::create_dir_all(&worktree_git_dir).expect("failed to create worktree git directory");
-    fs::create_dir_all(branch_ref.parent().unwrap()).expect("failed to create refs directory");
-    fs::write(
-        worktree_dir.join(".git"),
-        format!("gitdir: {}\n", worktree_git_dir.display()),
-    )
-    .expect("failed to write worktree .git file");
-    fs::write(worktree_git_dir.join("commondir"), "../..\n").expect("failed to write commondir");
-    fs::write(
-        worktree_git_dir.join("HEAD"),
-        "ref: refs/heads/feature/worktree\n",
-    )
-    .expect("failed to write HEAD");
-    fs::write(&branch_ref, format!("{commit_id}\n")).expect("failed to write branch ref");
-    fs::write(
-        common_git_dir.join("config"),
-        r#"
-[core]
-    repositoryformatversion = 0
-[remote "origin"]
-    url = https://github.com/PostHog/posthog.git
-    fetch = +refs/heads/*:refs/remotes/origin/*
-"#,
-    )
-    .expect("failed to write config");
+    fs::create_dir_all(&git_dir).expect("failed to create .git directory");
+    write_head(&git_dir, branch);
+    write_packed_ref(&git_dir, branch, commit_id);
+    write_repo_config(&git_dir);
 
-    let info = get_git_info(Some(worktree_dir))
-        .expect("should not error")
-        .expect("should return info");
-
-    assert_eq!(info.branch, "feature/worktree");
-    assert_eq!(info.commit_id, commit_id);
-    assert_eq!(
-        info.remote_url.as_deref(),
-        Some("https://github.com/PostHog/posthog.git")
-    );
-    assert_eq!(info.repo_name.as_deref(), Some("posthog"));
+    assert_posthog_git_info(temp_root.clone(), branch, commit_id);
 
     let _ = fs::remove_dir_all(temp_root);
-    restore_env_vars(env);
+}
+
+#[test]
+fn test_get_git_info_from_worktree_git_file_cases() {
+    let _env_lock = lock_env();
+    let _env_guard = EnvVarGuard::clear(&[
+        "GITHUB_ACTIONS",
+        "GITHUB_SHA",
+        "GITHUB_REF_NAME",
+        "GITHUB_REPOSITORY",
+        "GITHUB_SERVER_URL",
+        "VERCEL",
+        "VERCEL_GIT_PROVIDER",
+        "VERCEL_GIT_REPO_OWNER",
+        "VERCEL_GIT_REPO_SLUG",
+        "VERCEL_GIT_COMMIT_REF",
+        "VERCEL_GIT_COMMIT_SHA",
+    ]);
+
+    for (case_name, absolute_gitdir, commondir, use_packed_ref) in [
+        (
+            "relative loose ref in common dir",
+            false,
+            Some("../.."),
+            false,
+        ),
+        (
+            "absolute gitdir with packed ref in common dir",
+            true,
+            Some("../.."),
+            true,
+        ),
+        (
+            "no commondir uses worktree git dir packed ref",
+            true,
+            None,
+            true,
+        ),
+    ] {
+        let case_slug = case_name.replace(' ', "-");
+        let temp_root = std::env::temp_dir().join(format!(
+            "posthog_cli_worktree_test_{}_{}",
+            case_slug,
+            Uuid::now_v7()
+        ));
+        let worktree_dir = temp_root.join("worktree");
+        let common_git_dir = temp_root.join("repo.git");
+        let worktree_git_dir = common_git_dir.join("worktrees/worktree");
+        let git_dir = if commondir.is_some() {
+            worktree_git_dir.clone()
+        } else {
+            temp_root.join("single-worktree.git")
+        };
+        let branch = format!("feature/{case_slug}");
+        let commit_id = "0123456789abcdef0123456789abcdef01234567";
+
+        fs::create_dir_all(&worktree_dir).expect("failed to create worktree directory");
+        fs::create_dir_all(&git_dir).expect("failed to create worktree git directory");
+        fs::create_dir_all(&common_git_dir).expect("failed to create common git directory");
+
+        let gitdir = if absolute_gitdir {
+            git_dir.display().to_string()
+        } else {
+            "../repo.git/worktrees/worktree".to_string()
+        };
+        fs::write(worktree_dir.join(".git"), format!("gitdir: {gitdir}\n"))
+            .expect("failed to write worktree .git file");
+        if let Some(commondir) = commondir {
+            fs::write(git_dir.join("commondir"), format!("{commondir}\n"))
+                .expect("failed to write commondir");
+        }
+        write_head(&git_dir, &branch);
+
+        let ref_git_dir = if commondir.is_some() {
+            &common_git_dir
+        } else {
+            &git_dir
+        };
+        if use_packed_ref {
+            write_packed_ref(ref_git_dir, &branch, commit_id);
+        } else {
+            write_loose_ref(ref_git_dir, &branch, commit_id);
+        }
+        write_repo_config(ref_git_dir);
+
+        assert_posthog_git_info(worktree_dir, &branch, commit_id);
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
 }
 
 #[test]
 fn test_get_git_info_from_vercel_env() {
     let _env_lock = lock_env();
-    std::env::set_var("VERCEL", "1");
-    std::env::set_var("VERCEL_GIT_PROVIDER", "github");
-    std::env::set_var("VERCEL_GIT_REPO_OWNER", "PostHog");
-    std::env::set_var("VERCEL_GIT_REPO_SLUG", "posthog");
-    std::env::set_var("VERCEL_GIT_COMMIT_REF", "main");
-    std::env::set_var("VERCEL_GIT_COMMIT_SHA", "abc123def456");
+    let _env_guard = EnvVarGuard::set(&[
+        ("VERCEL", "1"),
+        ("VERCEL_GIT_PROVIDER", "github"),
+        ("VERCEL_GIT_REPO_OWNER", "PostHog"),
+        ("VERCEL_GIT_REPO_SLUG", "posthog"),
+        ("VERCEL_GIT_COMMIT_REF", "main"),
+        ("VERCEL_GIT_COMMIT_SHA", "abc123def456"),
+    ]);
 
     let info = get_git_info(None)
         .expect("should not error")
@@ -202,23 +328,18 @@ fn test_get_git_info_from_vercel_env() {
         info.remote_url.as_deref(),
         Some("https://github.com/PostHog/posthog.git")
     );
-
-    std::env::remove_var("VERCEL");
-    std::env::remove_var("VERCEL_GIT_PROVIDER");
-    std::env::remove_var("VERCEL_GIT_REPO_OWNER");
-    std::env::remove_var("VERCEL_GIT_REPO_SLUG");
-    std::env::remove_var("VERCEL_GIT_COMMIT_REF");
-    std::env::remove_var("VERCEL_GIT_COMMIT_SHA");
 }
 
 #[test]
 fn test_get_git_info_from_github_env() {
     let _env_lock = lock_env();
-    std::env::set_var("GITHUB_ACTIONS", "true");
-    std::env::set_var("GITHUB_SHA", "abc123def456");
-    std::env::set_var("GITHUB_REF_NAME", "main");
-    std::env::set_var("GITHUB_REPOSITORY", "PostHog/posthog");
-    std::env::set_var("GITHUB_SERVER_URL", "https://github.com");
+    let _env_guard = EnvVarGuard::set(&[
+        ("GITHUB_ACTIONS", "true"),
+        ("GITHUB_SHA", "abc123def456"),
+        ("GITHUB_REF_NAME", "main"),
+        ("GITHUB_REPOSITORY", "PostHog/posthog"),
+        ("GITHUB_SERVER_URL", "https://github.com"),
+    ]);
 
     let info = get_git_info(None)
         .expect("should not error")
@@ -231,10 +352,4 @@ fn test_get_git_info_from_github_env() {
         info.remote_url.as_deref(),
         Some("https://github.com/PostHog/posthog.git")
     );
-
-    std::env::remove_var("GITHUB_ACTIONS");
-    std::env::remove_var("GITHUB_SHA");
-    std::env::remove_var("GITHUB_REF_NAME");
-    std::env::remove_var("GITHUB_REPOSITORY");
-    std::env::remove_var("GITHUB_SERVER_URL");
 }
