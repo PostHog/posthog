@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "1162_drop_hourly_from_subscription_frequency_choices"),
+        ("posthog", "1166_oauth_impersonated_by"),
     ]
 
     operations = [
