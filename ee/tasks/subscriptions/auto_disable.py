@@ -92,9 +92,7 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
 
     if subscription.created_by and subscription.created_by.email:
         try:
-            send_notifications_for_disabled_subscription(
-                subscription, reason.description, [subscription.created_by.email]
-            )
+            send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
         except Exception as e:
             # Disabling is the durable side effect; email is best-effort. If the email
             # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)
@@ -109,7 +107,9 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
             )
 
 
-def send_notifications_for_disabled_subscription(subscription: Subscription, reason: str, targets: list[str]) -> None:
+def send_notifications_for_disabled_subscription(
+    subscription: Subscription, reason: DisableReason, targets: list[str]
+) -> None:
     logger.info(
         "subscription.send_disabled_notification",
         subscription_id=subscription.id,
@@ -131,7 +131,10 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         template_context={
             "subscription_url": subscription.url,
             "subscription_title": display_name,
-            "reason": reason,
+            "reason": reason.description,
+            # The re-enable guidance doubles as the "what to do next" line in the email —
+            # `{target_type}` is interpolated for the channel-specific reasons.
+            "action_message": reason.user_message.format(target_type=subscription.target_type),
         },
     )
     for target in targets:
