@@ -9,31 +9,37 @@ export type WizardConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' |
 
 export interface WizardSessionStreamLogicProps {
     workflowId: string
-    skillId: string
+    /**
+     * Optional. When omitted, the backend pattern-subscribes to all skills under
+     * the workflow. Useful when the framework / skill the wizard will run isn't
+     * known up front (the common onboarding case).
+     */
+    skillId?: string
 }
 
 /**
- * Subscribes to the SSE stream for a (workflow_id, skill_id) pair and exposes the
- * latest WizardSession state plus connection status to consumers.
+ * Subscribes to the SSE stream for a wizard workflow (optionally a specific skill)
+ * and exposes the latest WizardSession state plus connection status.
  *
- * Each (workflowId, skillId) gets its own logic instance (keyed by props), so
- * multiple subscriptions for different streams can coexist in the app.
+ * Each (workflowId, skillId) pair gets its own logic instance keyed by props, so
+ * multiple subscriptions coexist in the app. Omitting skillId pattern-subscribes
+ * to every skill under the workflow.
  *
  * Usage:
  *
- *   const { latestSession, connectionStatus } = useValues(
- *       wizardSessionStreamLogic({ workflowId: 'onboarding', skillId: 'nextjs' })
- *   )
- *   const { connect, disconnect } = useActions(
- *       wizardSessionStreamLogic({ workflowId: 'onboarding', skillId: 'nextjs' })
+ *   // Listen to any skill under the posthog-integration workflow:
+ *   const { latestSession } = useValues(
+ *       wizardSessionStreamLogic({ workflowId: 'posthog-integration' })
  *   )
  *
- * Nothing in the app calls this yet — it's the plumbing for downstream features
- * (e.g. wizard-aware onboarding scene).
+ *   // Or pin to one skill:
+ *   const { latestSession } = useValues(
+ *       wizardSessionStreamLogic({ workflowId: 'posthog-integration', skillId: 'nextjs' })
+ *   )
  */
 export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
     props({} as WizardSessionStreamLogicProps),
-    key((props) => `${props.workflowId}::${props.skillId}`),
+    key((props) => `${props.workflowId}::${props.skillId ?? '*'}`),
     path((key) => ['products', 'wizard', 'streams', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
@@ -79,10 +85,10 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
             }
 
             cache.disposables.add((): (() => void) => {
-                const params = new URLSearchParams({
-                    workflow_id: props.workflowId,
-                    skill_id: props.skillId,
-                })
+                const params = new URLSearchParams({ workflow_id: props.workflowId })
+                if (props.skillId) {
+                    params.set('skill_id', props.skillId)
+                }
                 const url = `/api/projects/${projectId}/wizard_sessions/stream/?${params.toString()}`
                 const eventSource = new EventSource(url, { withCredentials: true })
 
