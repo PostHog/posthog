@@ -673,6 +673,9 @@ _PROJECTS_PREFIX_RE = re.compile(r"^/api/projects/\{parent_lookup_\w+\}/")
 _ENVIRONMENTS_PREFIX_RE = re.compile(r"^/api/environments/\{parent_lookup_\w+\}/")
 _ORG_PREFIX_RE = re.compile(r"^/api/organizations/\{parent_lookup_\w+\}/")
 
+_OPERATION_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch", "trace"})
+
 # Match finalized paths (after {parent_lookup_*} substitution) for postprocessing.
 _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
 _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
@@ -1041,20 +1044,18 @@ def lint_spec_consistency_hook(result, generator, request, public):
     # OpenAPI-typed-client codegen that maps it to a function name. The fix is to set
     # `operation_id="..."` explicitly on `@extend_schema` — surface it here so CI catches
     # it the same day it lands instead of breaking the MCP build downstream.
-    operation_id_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
     paths = result.get("paths") or {}
-    http_methods = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
     for url_path, methods in paths.items():
         if not isinstance(methods, dict):
             continue
         for method, op in methods.items():
-            if method not in http_methods or not isinstance(op, dict):
+            if method not in _HTTP_METHODS or not isinstance(op, dict):
                 continue
             op_id = op.get("operationId")
-            if isinstance(op_id, str) and not operation_id_pattern.match(op_id):
+            if isinstance(op_id, str) and not _OPERATION_ID_RE.match(op_id):
                 spectacular_warn(
                     f"spec consistency: operationId {op_id!r} contains non-identifier "
-                    f"characters (must match {operation_id_pattern.pattern}) at "
+                    f"characters (must match {_OPERATION_ID_RE.pattern}) at "
                     f"{method.upper()} {url_path}. Set `operation_id=` explicitly on "
                     f"`@extend_schema(...)` to override the URL-derived default."
                 )
