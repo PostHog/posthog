@@ -221,7 +221,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             "403 Client Error": "The upstream API rejected the request with HTTP 403. The configured credentials may lack the required permissions.",
         }
 
-    def _assemble_manifest(self, config: CustomSourceConfig) -> RESTAPIConfig:
+    def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
         """Parse the stored manifest and rejoin it with the auth credentials.
 
         ``manifest_json`` holds the RESTAPIConfig structure with no credential
@@ -235,7 +235,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             raise ManifestValidationError(f"Manifest is not valid JSON: {exc.msg} (line {exc.lineno}, col {exc.colno})")
         validate_manifest(manifest)
         _inject_auth_secrets(manifest, config)
-        return cast(RESTAPIConfig, manifest)
+        return manifest
 
     def validate_credentials(
         self, config: CustomSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -245,7 +245,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except ManifestValidationError as exc:
             return False, str(exc)
 
-        ok, err = validate_manifest_urls(dict(manifest), team_id)
+        ok, err = validate_manifest_urls(manifest, team_id)
         if not ok:
             return False, err
 
@@ -294,7 +294,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     ) -> list[SourceSchema]:
         manifest = self._assemble_manifest(config)
 
-        ok, err = validate_manifest_urls(dict(manifest), team_id)
+        ok, err = validate_manifest_urls(manifest, team_id)
         if not ok:
             raise ManifestValidationError(err or "Manifest URL validation failed")
 
@@ -310,7 +310,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
 
     def source_for_pipeline(self, config: CustomSourceConfig, inputs: SourceInputs) -> SourceResponse:
         manifest = self._assemble_manifest(config)
-        ok, err = validate_manifest_urls(dict(manifest), inputs.team_id)
+        ok, err = validate_manifest_urls(manifest, inputs.team_id)
         if not ok:
             raise ManifestValidationError(err or "Manifest URL validation failed")
 
