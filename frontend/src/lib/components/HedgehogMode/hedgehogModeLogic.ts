@@ -51,16 +51,25 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             null as Partial<HedgehogConfig> | null,
             {
                 loadRemoteConfig: async () => {
-                    const endpoint = '/api/users/@me/hedgehog_config'
-                    const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
-                    if (mountedToolbarConfigLogic) {
-                        // If toolbarConfigLogic is mounted, we're inside the Toolbar
-                        if (!mountedToolbarConfigLogic.values.isAuthenticated) {
-                            return null
+                    try {
+                        const endpoint = '/api/users/@me/hedgehog_config'
+                        const mountedToolbarConfigLogic = toolbarConfigLogic.findMounted()
+                        if (mountedToolbarConfigLogic) {
+                            // If toolbarConfigLogic is mounted, we're inside the Toolbar
+                            if (!mountedToolbarConfigLogic.values.isAuthenticated) {
+                                return null
+                            }
+                            return await (await toolbarFetch(endpoint, 'GET')).json()
                         }
-                        return await (await toolbarFetch(endpoint, 'GET')).json()
+                        return await api.get<Partial<HedgehogConfig>>(endpoint)
+                    } catch (e) {
+                        // Third-party scripts can wrap window.fetch and cause it to reject
+                        // (network blip, CORS, blocked request). Swallow the failure so it
+                        // does not bubble up through Kea's afterMount and crash the toolbar.
+                        console.error('Failed to load hedgehog remote config', e)
+                        actions.setRemoteConfigUpdateDisabled(true)
+                        return values.remoteConfig
                     }
-                    return await api.get<Partial<HedgehogConfig>>(endpoint)
                 },
 
                 updateRemoteConfig: async ({ config }) => {
