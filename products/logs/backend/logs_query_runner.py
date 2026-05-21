@@ -535,7 +535,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
-            enable_analyzer=True,
             max_bytes_to_read=None,
             read_overflow_mode=None,
         )
