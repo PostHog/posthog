@@ -13,7 +13,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
@@ -110,8 +113,9 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
+    operator = incremental_type_to_operator(incremental_field_type)
     query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
-    query = f"{query} WHERE [{incremental_field}] > %(incremental_value)s"
+    query = f"{query} WHERE [{incremental_field}] {operator} %(incremental_value)s"
     # it is only safe to have this order by nested in a CTE if TOP is also specified
     # ordering for incremental sync purposes where TOP is not specified is handled in get_rows()
     if add_limit:

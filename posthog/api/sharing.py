@@ -52,7 +52,7 @@ from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.util import extract_inline_query_nodes
+from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
 
 logger = structlog.get_logger(__name__)
 
@@ -1048,13 +1048,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             except Exception:
                 raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.api import _parse_identifier
+            from products.user_interviews.backend.facade.api import parse_interviewee_identifier
 
             ic = resource.interviewee_context
             topic = ic.topic
             asset_title = topic.topic or "User interview"
             asset_description = "PostHog AI user interview"
-            user_name, _ = _parse_identifier(ic.interviewee_identifier)
+            user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
             # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
             # the recipient would otherwise see their own internal-notes context in view-source.
             # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
@@ -1077,6 +1077,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_title = resource.notebook.title or "Notebook"
             asset_description = ""
             notebook_data = NotebookSerializer(resource.notebook, context=context).data
+            # Strip unsupported `ph-*` widget attrs before the document leaves the server — the
+            # frontend `UnsupportedNodePlaceholder` is UI-only and the raw attrs would otherwise
+            # ship to anonymous viewers.
+            if isinstance(notebook_data.get("content"), dict):
+                notebook_data["content"] = filter_notebook_content_for_sharing(notebook_data["content"])
+            # `text_content` is a search-only plain-text projection that may include fragments of
+            # the now-stripped nodes.
+            notebook_data["text_content"] = None
             exported_data.update({"notebook": notebook_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
 

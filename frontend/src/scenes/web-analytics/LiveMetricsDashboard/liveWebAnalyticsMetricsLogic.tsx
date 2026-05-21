@@ -493,7 +493,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const cityColumns = values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
                 ? ',$geoip_city_name,$geoip_country_code'
                 : ''
-            url.searchParams.append('columns', `${baseColumns}${cityColumns}`)
+            const recordingColumn = values.currentTeam?.session_recording_opt_in ? ',$session_id' : ''
+            url.searchParams.append('columns', `${baseColumns}${cityColumns}${recordingColumn}`)
             appendFilterParams(url, values.liveFilters)
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
