@@ -3639,7 +3639,7 @@ snapshots:
     replay-overview-tab-other-watchers--with-multiple-viewers--light:
         hash: v1.k794b7964.d22f44e2d1941831f0698d29070517a7fa85cae0b3ffa10476509ce250050336.QJ6jRfOXmXeuYSA8-eNNZarZ9j2Sq9L8UZFT7spV2KU
     replay-player-controller--default--dark:
-        hash: v1.k794b7964.f9f275cbe293a453074a159e0b51856ece99ae281e791ffb67ab5c26330bf94d.M8RFmCHwm2YpbrHTHaJbTKJQvBvwe5-nl5fdF_7BITc
+        hash: v1.k794b7964.d16b928e8a845476fab0f3ebf713e8eb1c6f5888a12ecd5ee1e6fa61c8025e38.SlH6ZmNtP4Yl8TC7S6qnUqvqIi5i73E-NIQodSPfuZM
     replay-player-controller--default--light:
         hash: v1.k794b7964.9671cba9155a320fed566c2af1c303352509d9577bcd45608a3b280840aafe47.f9uZQir37Iop3BwxpCBxCU-l-rdkww4mcYVPdEcuNOo
     replay-player-controller--narrow--dark:
@@ -5383,7 +5383,7 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
         hash: v1.k794b7964.3156cef4b8331f55f0e262c34c7abcc0fdbd70e4d895faf8b42df8b8692ce079.3en5Bo0L_t6TY20C9kj-1fwFJOul1eOj2mlEMAkbBFM
     scenes-app-settings-environment--settings-environment-access-control--dark:
-        hash: v1.k794b7964.9424fdfc9fb46ba6562b1cca68c98c7cdbed2f502a443a4e63abc40f8e4af1e8.xY0-tCI8RMC6HXSOgsNYmgJp-AljDjFUS6foq767JUY
+        hash: v1.k794b7964.3242f991a99d87bbcda36ae09a7bd2ba763aa1370620593258fa7341c95dda4c.S0Gxznh27e9VI0-vEZYuxJv6g8irNszp1nDj45eQY84
     scenes-app-settings-environment--settings-environment-access-control--light:
         hash: v1.k794b7964.32e343780c70475add5da03050b7bf86465b3a18c878cf00deb22c353eb78ac3.vrTVZekXAIXqrHMocEDLL_rJXiE8XKnB-a9u_OtoufI
     scenes-app-settings-environment--settings-environment-autocapture--dark:
@@ -5443,9 +5443,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-product-analytics--light:
         hash: v1.k794b7964.7299dc70dfab9e93239bce889d90495cebd6ecdcc045814b7cff2375f57f972d.upru7nudh5tg1JVeRYj6TAUZofzVM5m3FxrZep-xoNY
     scenes-app-settings-environment--settings-environment-replay--dark:
-        hash: v1.k794b7964.870424e898f475f4f98a3c60a00f161eb6bf24c3da236e71b4ee2ae764f28e78.FPmi344zJpmrqwg0ehaR2jXMn49MMICcOcUeLxHuxZA
+        hash: v1.k794b7964.acda0541cb1d497f3cf33ed24f39060d156631256089fcb028f71215f343134d.7xPYS-C4eCsQJywfGfp4hr1RVf34uE5nQGqkg3YOuu4
     scenes-app-settings-environment--settings-environment-replay--light:
-        hash: v1.k794b7964.1c3589492ac84da2447272b1c3cfa84a8bfbf4cdfe4def640a6e2738d6f9e91f.11nPyikqMkSpK4mTF7tTPOX9ntNvntNmAcs0g2rBTi0
+        hash: v1.k794b7964.0dad9aae0e79129b50bf77116625b6d16a8c350225dbfcad3dd651fe938a24ce.SaCu2WGvkfcYcImQJbYjngx_Qm8URL_FE4loNe0lqzk
     scenes-app-settings-environment--settings-environment-revenue-analytics--dark:
         hash: v1.k794b7964.4786018911b5ae94d1643004e9608048758e89e592a5176b95ef91c66e750f39.KwaOJuQc1lT-ZBIf4nd3AFjGeC9nCsWAitE-oi86ovY
     scenes-app-settings-environment--settings-environment-revenue-analytics--light:
@@ -5515,9 +5515,9 @@ snapshots:
     scenes-app-settings-project--settings-project-product-analytics--light:
         hash: v1.k794b7964.c445a2d394192ddee09d2453b2b2a21ed43e4f88920e27f0d8feaf64d7ff3949.NYIHPfNv1XSLLJ2B9CwENxp6OqAYWidqKEE8zfcT3lg
     scenes-app-settings-project--settings-project-replay--dark:
-        hash: v1.k794b7964.870424e898f475f4f98a3c60a00f161eb6bf24c3da236e71b4ee2ae764f28e78.G_BClhn0t74qT8cM5dvhsWXEJLOzseOQxUR53Mt4tL4
+        hash: v1.k794b7964.acda0541cb1d497f3cf33ed24f39060d156631256089fcb028f71215f343134d.V0CxqhSbCKte3RS8tBAX_cFfHvWuDrGUQ4tzda4vmgs
     scenes-app-settings-project--settings-project-replay--light:
-        hash: v1.k794b7964.1c3589492ac84da2447272b1c3cfa84a8bfbf4cdfe4def640a6e2738d6f9e91f.jYgOEiyp8n7aD0ZgH6WcM9aSLMyXQPUX_V4mGZV0KiA
+        hash: v1.k794b7964.0dad9aae0e79129b50bf77116625b6d16a8c350225dbfcad3dd651fe938a24ce.syQ726bijJQbAi9egXe4zUQUbA57sA7Bfy2P0JPXrCo
     scenes-app-settings-project--settings-project-surveys--dark:
         hash: v1.k794b7964.9ce6f9eadb8093fd84e3045f240a7a3c73d065e338bba5f6057bd2f7bc8b9478.XfXbsprKBSnqem46VIhcFuWwrrYQYyZEQC9sa3oNkL4
     scenes-app-settings-project--settings-project-surveys--light:
