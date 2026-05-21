@@ -80,6 +80,11 @@ pub trait Emitter {
         within_group: Option<Vec<Self::Value>>,
     ) -> Self::Value;
     fn lambda(&self, args: Vec<String>, expr: Self::Value) -> Self::Value;
+    /// `ExprCall(expr, args)` — a call where the head is an arbitrary
+    /// expression rather than a function name. Emitted by `ColumnExprCall`
+    /// (always) and by `ColumnExprCallSelect` (when the LHS isn't a
+    /// single-element Field chain).
+    fn expr_call(&self, expr: Self::Value, args: Vec<Self::Value>) -> Self::Value;
     fn type_cast(&self, expr: Self::Value, type_name: &str) -> Self::Value;
     fn try_cast(&self, expr: Self::Value, type_name: &str) -> Self::Value;
     fn array_slice(
@@ -280,6 +285,9 @@ impl Emitter for JsonEmitter {
     fn lambda(&self, args: Vec<String>, expr: Value) -> Value {
         let args_json: Vec<Value> = args.into_iter().map(Value::String).collect();
         json!({"node": "Lambda", "args": args_json, "expr": expr})
+    }
+    fn expr_call(&self, expr: Value, args: Vec<Value>) -> Value {
+        json!({"node": "ExprCall", "expr": expr, "args": args})
     }
     fn type_cast(&self, expr: Value, type_name: &str) -> Value {
         json!({"node": "TypeCast", "expr": expr, "type_name": type_name})
@@ -521,6 +529,10 @@ mod compat {
     #[inline]
     pub fn lambda(args: Vec<String>, expr: Value) -> Value {
         JsonEmitter.lambda(args, expr)
+    }
+    #[inline]
+    pub fn expr_call(expr: Value, args: Vec<Value>) -> Value {
+        JsonEmitter.expr_call(expr, args)
     }
     #[inline]
     pub fn type_cast(expr: Value, type_name: &str) -> Value {

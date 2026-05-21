@@ -6,6 +6,8 @@
 | --- | --- |
 | `39f3af6a` | **Phase 1** — `rust-py` backend via post-parse `Value`→`PyObject` converter. ~10% perf win. All 378 factory tests pass. Branch `claude/hogql-rust-parser-phase2`. |
 | `ca6f0d4a` | **Phase 2 foundation** — `Emitter` trait + `JsonEmitter` impl + compat free fns. Parser methods routed via `self.emit.xxx()`. All 1,513 tests pass across cpp-json + python + rust-json + rust-py. |
+| `772eb274` | **This plan doc** — committed handoff. |
+| _next_     | **`expr_call` trait method** — small isolated addition prepping for the BetweenHoist `json!` macro migrations. Still green. |
 
 ## What's left (Phase 2 main course)
 
@@ -64,6 +66,30 @@ The current trait has 33 constructors + 8 inspection methods. The grind will lik
 - `type_cast_with(...)` — already exists as `type_cast`. ✓
 - `set_field(&self, v: &mut Self::Value, name: &str, value: Self::Value)` — for `select.rs:623` and the `merge_select_decorators` mutation pattern in `parse.rs`. JSON impl mutates the `Map`; Py impl calls `obj.setattr(name, value)`. **Add this.**
 - `clear_positions(&self, v: &mut Self::Value)` — for the `merge_and_or` position clearing. Alternative: rebuild via fresh `emit.and_/or_` (already in the trait, no positions by default). **Use the rebuild path; no new method needed.**
+
+### Verified cascade dynamics (from a Step 1 spike that was reverted)
+
+Made the spike change `pub(crate) struct Parser<'a, E: Emitter = JsonEmitter>` + corresponding `impl<'a, E: Emitter + Clone> Parser<'a, E>` on all 7 impl blocks. Without touching any method bodies, that produced **196 compile errors** (cargo check). Then changed 4 helper method signatures (`pos_obj`, `wrap_pos`, `wrap_pos_to`, `replace_pos_to`) from `value: Value -> Value` to `value: E::Value -> E::Value`. Errors jumped to **269** — fixing the helpers surfaced cascading failures at every caller that still passes/receives `Value`.
+
+Distribution at 269 errors:
+
+- `expr.rs`: 259 error lines
+- `parse.rs`: 30
+- `join.rs`: 12
+- `select.rs`: 10
+- `hogqlx.rs`: 6
+- `program.rs`: 6
+
+**The dynamic:** each per-method signature fix surfaces N more callers that mismatch. This is exactly what stalled past attempts at 200–373 errors. **Piecemeal in-session grind doesn't converge.** The migration is fundamentally atomic — `Parser<E>` generic + every method body's `Value`/`Value::xxx`/`serde_json::json!`/`.get("…")` migration must land in one coherent change, or it doesn't compile.
+
+### What actually works
+
+Either:
+
+1. **Dedicated single-session agent task** with isolated worktree, scoped to "drive `cargo check` from N errors to 0, build green, run tests". Pre-stage all the trait additions (`expr_call`, `set_field` if needed) so the agent doesn't have to make trait-design decisions mid-grind. Give it the verified gotchas list explicitly.
+2. **Per-file atomic-rewrite passes** — generate a fresh `parse/expr_v2.rs` written against the trait from scratch, alongside the existing concrete version. Swap when ready. Higher cost (duplicate code during transition) but each `_v2` lands green.
+
+Don't attempt mixed `impl<'a> Parser<'a, JsonEmitter>` (legacy) + `impl<'a, E: Emitter + Clone> Parser<'a, E>` (migrated) interleaving — generic methods can't call concrete-only methods, so the dependency graph forces all-or-nothing.
 
 ### Things NOT to do
 
