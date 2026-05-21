@@ -900,6 +900,51 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
+    describe('toolbarFetch network-error containment', () => {
+        // Simulates `TypeError: Failed to fetch` — the rejection shape we see when
+        // third-party `window.fetch` wrappers (Shopify storefront extensions,
+        // ad-blocking proxies) throw before a Response is produced. Without the
+        // guard in safeToolbarFetch, this rejection propagates through callers'
+        // kea-loaders `afterMount` and crashes the toolbar React tree.
+        it('returns a synthetic non-ok Response when fetch rejects', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            expect(response.ok).toBe(false)
+            expect(response.status).toBe(503)
+            const body = await response.json()
+            expect(body.detail).toBe('network_error')
+            expect(body.results).toEqual([])
+        })
+
+        it('does not call tokenExpired when fetch rejects (no spurious re-auth)', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            await toolbarFetch('/api/projects/@current/actions/')
+
+            // 503 stub must not trip 403 / 401 branches — tokens stay intact.
+            expect(logic.values.accessToken).toBe('access-token')
+            expect(logic.values.isAuthenticated).toBe(true)
+        })
+    })
+
     describe('authorization code extraction and hash cleanup', () => {
         let replaceStateSpy: jest.SpyInstance
 

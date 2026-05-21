@@ -782,6 +782,31 @@ async function exchangeCodeForTokens(
     }
 }
 
+/**
+ * `fetch` wrapper that returns a synthetic non-ok Response instead of letting
+ * a network-layer rejection bubble out. Native `fetch` rejects with
+ * `TypeError: Failed to fetch` on offline / DNS / CORS / adblocker / proxy
+ * failures, and — critically — on third-party `window.fetch` wrappers that
+ * throw (we have hit this in the wild with Shopify storefront extensions and
+ * generic adblockers). Without this guard, the rejection propagates through
+ * `kea-loaders` `afterMount` and crashes the toolbar React tree on customer
+ * pages. Callers already branch on `!response.ok`, so a 503 stub falls through
+ * their existing error path.
+ */
+async function safeToolbarFetch(url: string, init: RequestInit): Promise<Response> {
+    try {
+        return await fetch(url, init)
+    } catch (error) {
+        captureToolbarException(error, 'toolbar_fetch_network_error', {
+            error_type: classifyFetchError(error),
+        })
+        toolbarLogger.warn('fetch', 'fetch rejected before response (network/CORS/extension)', {
+            error_type: classifyFetchError(error),
+        })
+        return new Response(JSON.stringify({ results: [], detail: 'network_error' }), { status: 503 })
+    }
+}
+
 export async function toolbarFetch(
     url: string,
     method: string = 'GET',
@@ -860,7 +885,7 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
+    let response = await safeToolbarFetch(fullUrl, {
         method,
         headers: buildHeaders(accessToken),
         ...(body !== undefined ? { body } : {}),
@@ -868,7 +893,7 @@ export async function toolbarFetch(
 
     response = await withTokenRefresh(response, async (newAccessToken) => {
         didRetry = true
-        return await fetch(fullUrl, {
+        return await safeToolbarFetch(fullUrl, {
             method,
             headers: buildHeaders(newAccessToken),
             ...(body !== undefined ? { body } : {}),
