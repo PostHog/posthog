@@ -8,6 +8,8 @@
 # Buckets are UTC hourly so reads stay correct for any whole-hour-offset team
 # timezone without storing per-team-tz data.
 
+from django.conf import settings
+
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 
 TABLE_BASE_NAME = "web_overview_preaggregated"
@@ -74,11 +76,16 @@ SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
 
 
 def DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE_SQL():
+    # The sharded table lives on the AUX cluster (kept off the main events
+    # data nodes — the precompute table is small and read by a narrow set of
+    # queries that never JOIN against events). Distributed read table lives
+    # on DATA so queries fan out from there and resolve to AUX shards.
     return WEB_OVERVIEW_PREAGGREGATED_TABLE_BASE_SQL.format(
         table_name=DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE(),
         engine=Distributed(
             data_table=SHARDED_WEB_OVERVIEW_PREAGGREGATED_TABLE(),
             sharding_key="sipHash64(job_id)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
         ),
     )
 
