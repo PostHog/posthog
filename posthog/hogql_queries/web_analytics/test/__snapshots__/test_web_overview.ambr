@@ -2,15 +2,64 @@
 # name: TestWebOverviewQueryRunner.test_all_time
   '''
   
-  SELECT timestamp
-  from events
+  SELECT min(timestamp)
+  FROM events
   WHERE team_id = 99999
     AND timestamp > '2015-01-01'
-  order by timestamp
-  limit 1
+    AND timestamp < '2015-02-01 00:00:00'
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_all_time.1
+  '''
+  
+  SELECT min(timestamp)
+  FROM events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+    AND timestamp < '2015-04-01 00:00:00'
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_all_time.2
+  '''
+  
+  SELECT min(timestamp)
+  FROM events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+    AND timestamp < '2019-09-29 00:00:00'
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_all_time.3
+  '''
+  
+  SELECT min(timestamp)
+  FROM events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+    AND timestamp < '2022-05-29 00:00:00'
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_all_time.4
+  '''
+  
+  SELECT min(timestamp)
+  FROM events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+    AND timestamp < '2023-09-29 00:00:00'
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_all_time.5
+  '''
+  
+  SELECT min(timestamp)
+  FROM events
+  WHERE team_id = 99999
+    AND timestamp > '2015-01-01'
+    AND timestamp < '2024-05-29 00:00:00'
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_all_time.6
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
