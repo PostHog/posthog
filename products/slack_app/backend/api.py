@@ -48,7 +48,6 @@ logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
-SLACK_INTEGRATION_KIND = "slack"
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
@@ -782,9 +781,7 @@ def _replace_repo_picker_message_with_selection(
 ) -> None:
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-        )
+        integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
         slack = SlackIntegration(integration)
         text = f"Repository selected: `{selected_repo}`"
         slack.client.chat_update(
@@ -816,9 +813,7 @@ def _replace_repo_picker_message_with_no_repo(
 ) -> None:
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-        )
+        integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
         slack = SlackIntegration(integration)
         text = "Continuing without a repository."
         slack.client.chat_update(
@@ -1154,7 +1149,7 @@ def route_posthog_code_event_to_relevant_region(
     # by the posthog-code-slack-availability feature flag rather than a separate kind.
     local_match = (
         Integration.objects.filter(
-            kind=SLACK_INTEGRATION_KIND,
+            kind="slack",
             integration_id=slack_team_id,
         )
         .select_related("team", "team__organization", "created_by")
@@ -1378,7 +1373,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         team_id = payload.get("team", {}).get("id")
         if team_id:
             fallback_integration = (
-                Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=team_id).order_by("id").first()
+                Integration.objects.filter(kind="slack", integration_id=team_id).order_by("id").first()
             )
             if fallback_integration:
                 hinted_integration_id = fallback_integration.id
@@ -1412,9 +1407,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         if not integration_id:
             raise Integration.DoesNotExist
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-        integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-        )
+        integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
     except Integration.DoesNotExist:
         logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
@@ -1491,9 +1484,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
 
         try:
             # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-            integration = Integration.objects.get(
-                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-            )
+            integration = Integration.objects.get(id=integration_id, kind="slack", integration_id=slack_team_id)
             SlackIntegration(integration).client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
@@ -1664,19 +1655,19 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if slack_team_id and ctx_integration_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=ctx_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
+            kind="slack",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=hinted_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
+            kind="slack",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
+            kind="slack",
             integration_id=slack_team_id,
         ).exists()
 
