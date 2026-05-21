@@ -881,6 +881,32 @@ def test_log_messages_renderer_appends_resource_to_message():
     assert payload5["message"] == "batch_failed_will_retry #0"
 
 
+def test_log_messages_renderer_does_not_append_for_non_data_warehouse_log_sources():
+    """Other Temporal workflows (batch exports, data modeling, etc.) must not see their
+    message text reshaped by the CDC-targeted resource/batch_index appender."""
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "batch_export_started",
+        "level": "info",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "s3-batch-export",
+        "workflow_id": "019bdc25-3569-0000-9f32-e7d02775304b-2024-01-01T00:00:00",
+        "workflow_run_id": "run-id",
+        # Even if a batch_export happens to log these fields, message must be unchanged.
+        "resource_name": "should_not_appear",
+        "batch_index": 42,
+    }
+
+    rendered = renderer(logger=cast(Logger, None), name="info", event_dict=event_dict)
+    produced = rendered["produce_message"]
+    assert produced is not None
+    payload = json.loads(produced.decode("utf-8"))
+    assert payload["message"] == "batch_export_started"
+
+
 def test_resolve_log_source_cdc_extraction():
     # CDC schedule fires workflows with id `cdc-extraction-{source_uuid}-{iso_ts}`. The renderer
     # uses the source uuid as the default log_source_id; per-schema log lines override it at emit time.

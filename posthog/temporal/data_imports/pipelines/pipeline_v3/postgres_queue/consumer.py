@@ -193,6 +193,20 @@ class BatchConsumer:
         workflow_type = "cdc-extraction" if workflow_id.startswith("cdc-extraction-") else "external-data-job"
 
         # LogMessagesRenderer needs workflow_type/id/run_id + team_id; log_source_id routes the line.
+        bound_keys = (
+            "team_id",
+            "schema_id",
+            "source_id",
+            "job_id",
+            "run_uuid",
+            "batch_id",
+            "resource_name",
+            "workflow_type",
+            "workflow_id",
+            "workflow_run_id",
+            "log_source_id",
+            "attempt",
+        )
         structlog.contextvars.bind_contextvars(
             team_id=batch.team_id,
             schema_id=batch.schema_id,
@@ -210,7 +224,8 @@ class BatchConsumer:
         try:
             await self._process_single_inner(batch, attempt, team_id, schema_id)
         finally:
-            structlog.contextvars.clear_contextvars()
+            # Unbind only the keys we set so any ambient context (parent logger, test setup) survives.
+            structlog.contextvars.unbind_contextvars(*bound_keys)
 
     async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
         assert self._conn is not None

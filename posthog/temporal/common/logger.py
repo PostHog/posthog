@@ -165,14 +165,17 @@ class LogMessagesRenderer:
                 log_source = event_dict.pop("log_source", log_source)
                 log_source_id = event_dict.pop("log_source_id", log_source_id)
 
-                # Append resource + batch_index so the Syncs UI distinguishes parallel batches.
+                # Append resource + batch_index so the Syncs UI distinguishes parallel batches
+                # of the same CDC sync. Scoped to `external_data_jobs` so we don't reshape
+                # message text for batch exports / data modeling / other temporal workflows.
                 message_text = event_dict[self.event_key]
-                resource_marker = event_dict.get("resource_name") or event_dict.get("resource")
-                if resource_marker:
-                    message_text = f"{message_text} [{resource_marker}]"
-                batch_index = event_dict.get("batch_index")
-                if batch_index is not None:
-                    message_text = f"{message_text} #{batch_index}"
+                if log_source == "external_data_jobs":
+                    resource_marker = event_dict.get("resource_name") or event_dict.get("resource")
+                    if resource_marker:
+                        message_text = f"{message_text} [{resource_marker}]"
+                    batch_index = event_dict.get("batch_index")
+                    if batch_index is not None:
+                        message_text = f"{message_text} #{batch_index}"
 
                 message_dict = {
                     "instance_id": event_dict["workflow_run_id"],
