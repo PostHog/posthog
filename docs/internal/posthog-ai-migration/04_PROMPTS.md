@@ -251,7 +251,7 @@ The "target" column names the slot in the new prompt (see § 6.2 for ordering) o
 | `TONE_AND_STYLE_PROMPT` | Keep | New prompt § 2 (Voice). | Keep "Pondering…/Hobsnobbing…" line — frontend still shows those loading copies (`02_CORE.md` ports `thinkingMessages.ts`). |
 | `WRITING_STYLE_PROMPT` | Keep | New prompt § 3 (Writing style). | Style guide is stable. |
 | `PROACTIVENESS_PROMPT` | Keep | New prompt § 4 (Proactiveness). | Behavior guidance, transport-agnostic. |
-| `BASIC_FUNCTIONALITY_PROMPT` | Edit | New prompt § 5 (Capabilities and data model). | Remove the line "Do not generate any code like Python scripts. Users don't have the ability to run code." — in the sandbox the agent *can* run code locally via the Bash tool (if surfaced via `posthog-code` MCP). Replace with "You may compute small things inline; do not produce code for the user unless asked." Otherwise verbatim. `{{{groups_prompt}}}` interpolated server-side (§ 6.3). |
+| `BASIC_FUNCTIONALITY_PROMPT` | Edit | New prompt § 5 (Capabilities and data model). | Remove the line "Do not generate any code like Python scripts. Users don't have the ability to run code." — in the sandbox the agent *can* run code locally via the Bash tool. Replace with "You may compute small things inline; do not produce code for the user unless asked." Otherwise verbatim. `{{{groups_prompt}}}` interpolated server-side (§ 6.3). |
 | `SLASH_COMMANDS_PROMPT` | Edit | New prompt § 6 (Slash commands). | Drop `/usage` if `02_CORE.md` § 8 routes it differently (cloud-agent usage is computed from `_posthog/usage_update` notifications, not a slash command). Otherwise verbatim. Confirm with `02_CORE.md` owner. |
 | `SWITCHING_MODES_PROMPT` | Drop | — | The "modes" concept is deprecated for the sandbox runtime (see § 4 — it's reduced to a one-line hint inside `<posthog_context>`). The 2.5 KB of "when/how to switch modes" copy goes away. |
 | `TASK_MANAGEMENT_PROMPT` | Move-to-tool | `todo_write` MCP tool description. | The two narrative examples belong on the tool's `description` field — that's where Claude Code reads them from. The system prompt then just has one line "Use `todo_write` to plan multi-step work; mark items done as you finish." |
@@ -343,20 +343,19 @@ Every tool in [`ee/hogai/chat_agent/toolkit.py`](../../posthog/ee/hogai/chat_age
 | `TodoWriteTool` | [`tools/todo_write.py`](../../posthog/ee/hogai/tools/todo_write.py) | **Claude Code SDK built-in** (not exposed via `exec`) | `TodoWrite` | `@posthog/agent` runs the Claude Code SDK internally — the SDK's built-in `TodoWrite` has matching semantics (same status enum, same description shape). Skip building our own; the model sees this as `mcp__claude_code__TodoWrite` (or equivalent). |
 | `ManageMemoriesTool` | [`tools/manage_memories.py`](../../posthog/ee/hogai/tools/manage_memories.py) | **DROP** | — | Core memory is dropped entirely for the sandbox runtime (per `00_OVERVIEW.md` § 3). `/remember` becomes a no-op for the new runtime — see `02_CORE.md` § 7 and `TODO.md` for the backfill question. |
 | `CallMCPServerTool` | [`tools/call_mcp_server/`](../../posthog/ee/hogai/tools/call_mcp_server/) | n/a — **user-installed MCPs pass through directly** | — | Today this tool was a meta-tool that proxied calls to the user's MCP installations. In the sandbox model, those installations are just MCP servers in `--mcpServers` — no proxy needed. |
-| `TaskTool` (PostHog Code integration) | [`tools/task.py`](../../posthog/ee/hogai/tools/task.py) | **`posthog-code` server (NOT single-exec)** | varies — discrete `mcp__posthog-code__<tool>` names | PostHog Code ships its own MCP server with discrete tool names — not under `exec`. The team-flag `task_tool` already gates today; carry forward. |
-| `CreateTaskTool`, `RunTaskTool`, `GetTaskRunTool`, `GetTaskRunLogsTool`, `ListTasksTool`, `ListTaskRunsTool`, `ListRepositoriesTool` | `products/tasks/backend/max_tools.py` | `posthog-code` (same server as `TaskTool`) | discrete `mcp__posthog-code__*` names | All seven — grouped under `posthog-code`. Behind the `has_phai_tasks` flag today. |
+| `TaskTool` (PostHog Code integration) | [`tools/task.py`](../../posthog/ee/hogai/tools/task.py) | **No MCP equivalent yet — see [`TODO.md`](./TODO.md)** | — | Routes PostHog AI → PostHog Code (`products/tasks/`). If migrated, the operations become **new inner tools on the existing `posthog` single-exec server** (e.g. `tasks-create`, `tasks-run`, `tasks-get-run-logs`) — not a separate server. PostHog Code itself is a *consumer* of the same MCP server (`x-posthog-mcp-consumer: posthog-code`), not a producer. Until those inner tools land, this feature has no sandbox equivalent. The team-flag `task_tool` gating carries forward via the per-yaml `enabled: true` + `posthog-ai-sandbox-tool-{slug}` rollout. |
+| `CreateTaskTool`, `RunTaskTool`, `GetTaskRunTool`, `GetTaskRunLogsTool`, `ListTasksTool`, `ListTaskRunsTool`, `ListRepositoriesTool` | `products/tasks/backend/max_tools.py` | Same as `TaskTool` — see [`TODO.md`](./TODO.md) | — | All seven — same disposition as `TaskTool`. Currently no inner-tool equivalents in `services/mcp/definitions/*.yaml`. |
 | `CreateFormTool` | [`tools/create_form.py`](../../posthog/ee/hogai/tools/create_form.py) | **Client-side tool — see `03_RICH_UI.md` § 4** | (renders UI; not a backend MCP) | We mention it here only as boundary. The form-submit answers come back as user-message follow-ups. Owned by `03_RICH_UI.md`. |
 | `FinalizePlanTool` | [`tools/finalize_plan/`](../../posthog/ee/hogai/tools/finalize_plan/) | Built-in: `ExitPlanMode` (Claude Code) | — | Per § 4, Claude Code's built-in `ExitPlanMode` handles plan-mode transitions. Drop our custom tool. |
 | `SwitchModeTool` | [`tools/switch_mode.py`](../../posthog/ee/hogai/tools/switch_mode.py) | n/a (drop) | — | Per § 4 (deprecated mode concept), drop entirely. |
 | Contextual tools (`useMaxTool`-registered) | various (e.g. `UpsertFlagFilterTool` lives next to the scene logic) | Frontend dispatched, see `03_RICH_UI.md` § 4 | — | Owned by `03_RICH_UI.md`. They're not backend MCP tools; they're browser-rendered actions the model calls. |
 So the MCP servers we configure on `--mcpServers`:
 
-1. **`posthog`** — the existing single-exec server under `services/mcp/`. Registers one tool (`exec`) with the model; ~25 inner tools enabled today across `core.yaml`, `query-wrappers.yaml`, `proxy-records.yaml`, `docs.yaml`, `sdk_doctor.yaml`; many more available to enable via `enabled: true`. The PostHog AI inner-tool surface gets enabled per-tool in the yaml definitions over the course of the migration.
-2. **`posthog-code`** — gated by `has_phai_tasks` flag; ships discrete tool names (not single-exec). Surfaces the PostHog Code integration.
+1. **`posthog`** — the existing single-exec server under `services/mcp/`. Registers one tool (`exec`) with the model; ~25 inner tools enabled today across `core.yaml`, `query-wrappers.yaml`, `proxy-records.yaml`, `docs.yaml`, `sdk_doctor.yaml`; many more available to enable via `enabled: true`. The PostHog AI inner-tool surface gets enabled per-tool in the yaml definitions over the course of the migration. PostHog Code is also a consumer of this same server (via `x-posthog-mcp-consumer: posthog-code`) — not a separate server.
 
 Todo tracking uses the Claude Code SDK's built-in `TodoWrite` — `@posthog/agent` runs Claude Code SDK internally, so the tool is available without spinning up our own server.
 
-`posthog-memory` (was: dedicated memory MCP), `posthog-context` (was: on-demand entity-detail MCP), `posthog-data`, `posthog-notebook`, `posthog-tasks` as separate servers — **none of these become real MCP servers**. Core memory is dropped (per `00_OVERVIEW.md`); entity-detail fetch happens via existing inner tools (`dashboard-get`, `insight-get`, etc.) the agent invokes via `exec call <name>` after seeing the entity ID in the `<posthog_context>` wrapper (per `01_CONTEXT.md`); notebooks and tasks-as-todos run through the same single-exec server or the Claude Code SDK built-in.
+`posthog-memory` (was: dedicated memory MCP), `posthog-context` (was: on-demand entity-detail MCP), `posthog-data`, `posthog-notebook`, `posthog-tasks`, **`posthog-code`** as separate servers — **none of these become real MCP servers**. Core memory is dropped (per `00_OVERVIEW.md`); entity-detail fetch happens via existing inner tools (`dashboard-get`, `insight-get`, etc.) the agent invokes via `exec call <name>` after seeing the entity ID in the `<posthog_context>` wrapper (per `01_CONTEXT.md`); notebooks and todos run through the same single-exec server or the Claude Code SDK built-in. PostHog Code integration (legacy `TaskTool` family), if migrated, becomes additional inner tools on the same single-exec `posthog` server — tracked in [`TODO.md`](./TODO.md).
 
 Plus zero-to-many **user-installed MCP servers** — those go straight into `--mcpServers` without a proxy.
 
@@ -374,8 +373,7 @@ Three deployment choices for each MCP server:
 
 | Server | Where | Rationale |
 |---|---|---|
-| `posthog` (single-exec) | **Remote HTTP MCP at `https://{region}.posthog.com/mcp/`** | Existing PostHog MCP server in `services/mcp/`. Wraps DRF viewsets — code already lives in Django. Centralized rate limiting matters (some inner tools issue ClickHouse queries). Enabling a new inner tool is a per-yaml `enabled: true` toggle; no new server needed. |
-| `posthog-code` | **Remote HTTP MCP** at the PostHog Code service. | Routes through the existing PostHog Code backend. Discrete tool names (not single-exec). |
+| `posthog` (single-exec) | **Remote HTTP MCP at `https://{region}.posthog.com/mcp/`** | Existing PostHog MCP server in `services/mcp/`. Wraps DRF viewsets — code already lives in Django. Centralized rate limiting matters (some inner tools issue ClickHouse queries). Enabling a new inner tool is a per-yaml `enabled: true` toggle; no new server needed. The sandbox calls this with `x-posthog-mcp-consumer: <something-new>` (TBD — pick a new consumer value for the sandbox runtime, distinct from `posthog-code`, `plugin`, `slack`). |
 | `TodoWrite` (Claude SDK built-in) | **In-sandbox** | Bundled with the Claude Code SDK; no infrastructure to host. |
 | User-installed MCPs | Whatever URL the user supplied. | Pass through directly. |
 
@@ -392,7 +390,7 @@ Today, tool descriptions are short. Going forward they need to absorb a lot of p
 - **`posthog_data_read_data`** — description includes: every `kind=…` variant with one example use. Target length: 1-1.5 KB.
 - **`posthog_notebook_create`** — description includes: the notebook template (from `PLANNING_TASK_PROMPT`). Target length: 500 chars.
 - **`posthog_memory_manage`** — description includes: when to save (proactively, after `/remember`, when user asserts a fact about their business). Target length: 300-500 chars.
-- **`posthog_code_create_task`** — description includes: when to offer a code task vs an inline answer. Target length: 500 chars.
+- (If migrated per [`TODO.md`](./TODO.md)) **`tasks-create`** — description includes: when to offer a code task vs an inline answer. Target length: 500 chars.
 - **`TodoWrite`** (built-in Claude Code) — we can't author its description, but we can include the example workflows in the system prompt instead. Two example narratives (~1 KB each).
 
 The combined target is "system prompt drops by ~5 KB, tool descriptions absorb ~5 KB". Net: per-call prompt size is roughly unchanged, but the costs amortize better because tool descriptions cache at a different cache key (Claude's tool-result prompt-cache boundary is per-tool).
@@ -420,7 +418,7 @@ POST /command/
   params: {
     mcpServers: [
       { type: "http", name: "github-issues", url: "https://...", headers: [...] },
-      // ...the existing posthog (single-exec) + posthog-code entries...
+      // ...the existing posthog (single-exec) entry...
     ],
   },
 }
@@ -632,7 +630,7 @@ Reuse the `posthog-ai-sandbox` flag from `00_OVERVIEW.md` § 9 — boolean, per-
 1. Conversation create stamps `agent_runtime = 'sandbox'` on the row (`02_CORE.md` § 2).
 2. Frontend POSTs to `/conversations/{id}/sandbox/` (sandbox-only routing endpoint per `02_CORE.md` § 3) which creates Task + Run.
 3. The handler calls `build_posthog_ai_system_prompt(...)` to build `systemPrompt` for the `POST /tasks/{id}/run/` body.
-4. `--mcpServers` includes the single-exec `posthog` server (+ optional `posthog-code` if `has_phai_tasks` is on). Inner tool surface is controlled by `enabled: true` toggles in `services/mcp/definitions/*.yaml`. `TodoWrite` comes from the Claude Code SDK built-in — no MCP server needed.
+4. `--mcpServers` includes the single-exec `posthog` server. Inner tool surface is controlled by `enabled: true` toggles in `services/mcp/definitions/*.yaml` (gated per inner tool via `posthog-ai-sandbox-tool-{slug}` flags during rollout). `TodoWrite` comes from the Claude Code SDK built-in — no MCP server needed.
 5. **The frontend** picks `/conversations/{id}/sandbox/` (sandbox) vs `/conversations/{id}/stream/` (LangGraph) based on `agent_runtime`; `scenes/max/` renders both runtimes; the routing difference is one `if` in `maxThreadLogic.sendMessage`.
 
 When the user doesn't have the flag: today's LangGraph stack is unchanged.

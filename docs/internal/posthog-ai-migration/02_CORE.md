@@ -755,7 +755,7 @@ PRs are bundled by coherent slice — each ships a useful surface together rathe
 
 ### Parallel streams (don't serialize behind this checklist)
 
-- **MCP servers** — ship **one PR per server** behind `posthog-ai-sandbox-server-{name}` flags. Each server ships all its tools at once, not one PR per tool: `posthog-data` (the big one) · `posthog-notebook` · `posthog-code`. Drives [`04_PROMPTS.md`](./04_PROMPTS.md) § 5. See [`MCP_TOOLS.md`](./MCP_TOOLS.md) for per-tool shapes.
+- **MCP inner tools** — enable per-yaml on the existing single-exec `posthog` server (`services/mcp/definitions/*.yaml`), gated by `posthog-ai-sandbox-tool-{slug}` flags. Ship slices: first inner tool unblocks I1 E2E, the rest land progressively. Drives [`04_PROMPTS.md`](./04_PROMPTS.md) § 5. See [`MCP_TOOLS.md`](./MCP_TOOLS.md) for per-tool shapes and [`TODO.md`](./TODO.md) for the deferred PostHog Code (`tasks-*`) family.
 - **Renderer adapters** in [`03_RICH_UI.md`](./03_RICH_UI.md) — grouped into ~3 thematic PRs (data-tool adapters; notebook + tasks; approval card + special UI), not one-per-tool. Per-tool feature flags (`posthog-ai-sandbox-tool-{slug}`) still apply at runtime but the adapter code ships in bundles.
 
 Total: ~9 core PRs + ~3 MCP-server PRs + ~3 renderer-adapter PRs = **~15 PRs** to default-on, vs ~25 if every file were its own PR.
