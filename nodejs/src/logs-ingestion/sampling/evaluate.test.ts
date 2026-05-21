@@ -207,6 +207,87 @@ describe('evaluateLogRecord', () => {
         expect(classifySamplingRecord(rules, rec).kind).toBe('resolved')
     })
 
+    describe('rate_limit with config.filter_group', () => {
+        // Same outer envelope shape the drop-rules UI emits, matching the path_drop tests below.
+        const wrap = (inner: object): object => ({ type: 'AND', values: [inner] })
+
+        it('classifySamplingRecord returns rate_limit when filter_group matches', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-fg',
+                    rule_type: 'rate_limit',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        logs_per_second: 10,
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'service.name', operator: 'exact', value: 'api' }],
+                        }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({ kind: 'rate_limit', ruleId: 'rl-fg' })
+        })
+
+        it('classifySamplingRecord skips rate_limit when filter_group does not match', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-fg',
+                    rule_type: 'rate_limit',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        logs_per_second: 10,
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'service.name', operator: 'exact', value: 'api' }],
+                        }),
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'other'
+            // Rule has no other scoping, so without filter_group honor, this would return rate_limit
+            // and rate-limit every log on the team. With the fix, it falls through to keep.
+            expect(classifySamplingRecord(rules, rec).kind).toBe('resolved')
+        })
+
+        it('classifySamplingRecord still requires scope_service AND filter_group when both set', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-both',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        logs_per_second: 10,
+                        filter_group: wrap({
+                            type: 'AND',
+                            values: [{ key: 'severity_text', operator: 'exact', value: 'error' }],
+                        }),
+                    },
+                },
+            ])
+            const apiInfo = baseRecord()
+            apiInfo.service_name = 'api'
+            apiInfo.severity_text = 'info'
+            // scope_service matches but filter_group doesn't → skip.
+            expect(classifySamplingRecord(rules, apiInfo).kind).toBe('resolved')
+
+            const apiError = baseRecord()
+            apiError.service_name = 'api'
+            apiError.severity_text = 'error'
+            // Both match → rate_limit.
+            expect(classifySamplingRecord(rules, apiError)).toEqual({ kind: 'rate_limit', ruleId: 'rl-both' })
+        })
+    })
+
     it('path_drop match runs before rate_limit in rule order', () => {
         const rules = compileRuleSet([
             {

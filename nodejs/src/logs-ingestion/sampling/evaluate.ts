@@ -231,10 +231,16 @@ export function classifySamplingRecord(teamRuleSet: CompiledRuleSet | null, reco
             return { kind: 'resolved', decision: SAMPLING_DECISION_SAMPLE_DROPPED, ruleId: rule.id }
         }
         if (rule.ruleType === 'rate_limit') {
-            if (rule.rateLimit) {
-                return { kind: 'rate_limit', ruleId: rule.id }
+            if (!rule.rateLimit) {
+                continue
             }
-            continue
+            // Mirror path_drop: filter_group must match if set. scope_service was
+            // already checked by matchesScope; this adds the modern scoping that
+            // the drop-rule UI now writes for rate_limit rules.
+            if (rule.filterGroup && !matchFilterGroup(rule.filterGroup, record)) {
+                continue
+            }
+            return { kind: 'rate_limit', ruleId: rule.id }
         }
     }
     return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: null }
