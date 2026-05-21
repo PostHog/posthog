@@ -23,10 +23,12 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Action, Element, Organization, Person, PropertyDefinition, User
+from posthog.models import Element, Organization, Person, PropertyDefinition, User
 from posthog.models.cohort import Cohort
 from posthog.models.event.query_event_list import insight_query_with_columns
 from posthog.test.test_journeys import journeys_for
+
+from products.actions.backend.models.action import Action
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):

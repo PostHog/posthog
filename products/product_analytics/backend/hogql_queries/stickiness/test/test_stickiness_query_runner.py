@@ -49,11 +49,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner

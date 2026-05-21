@@ -27,12 +27,13 @@ from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
-from posthog.models import Action, Person, PropertyDefinition
-from posthog.models.action.action import ActionStepJSON
+from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids
 from posthog.utils import relative_date_parse
+
+from products.actions.backend.models.action import Action, ActionStepJSON
 
 logger = structlog.get_logger(__name__)
 
