@@ -316,6 +316,7 @@ export interface AssistantTrendsEventsNode extends Omit<
     | 'fixedProperties'
     | 'properties'
     | 'math_hogql'
+    | 'math_property_type'
     | 'limit'
     | 'groupBy'
     | 'orderBy'
@@ -346,6 +347,7 @@ export interface AssistantTrendsActionsNode extends Omit<
     | 'fixedProperties'
     | 'properties'
     | 'math_hogql'
+    | 'math_property_type'
     | 'limit'
     | 'groupBy'
     | 'orderBy'
@@ -395,7 +397,6 @@ export interface AssistantTrendsGroupNode {
     /** Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes. */
     math?: AssistantTrendsEventsNode['math']
     math_property?: AssistantTrendsEventsNode['math_property']
-    math_property_type?: AssistantTrendsEventsNode['math_property_type']
     math_multiplier?: AssistantTrendsEventsNode['math_multiplier']
     math_group_type_index?: AssistantTrendsEventsNode['math_group_type_index']
     /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
@@ -910,15 +911,7 @@ export type AssistantStickinessDisplayType =
  */
 export interface AssistantStickinessEventsNode extends Pick<
     EventsNode,
-    | 'kind'
-    | 'event'
-    | 'name'
-    | 'custom_name'
-    | 'math'
-    | 'math_multiplier'
-    | 'math_property'
-    | 'math_property_type'
-    | 'math_group_type_index'
+    'kind' | 'event' | 'name' | 'custom_name' | 'math' | 'math_multiplier' | 'math_property' | 'math_group_type_index'
 > {
     properties?: AssistantPropertyFilter[]
 
@@ -942,14 +935,7 @@ export interface AssistantStickinessEventsNode extends Pick<
  */
 export interface AssistantStickinessActionsNode extends Pick<
     ActionsNode,
-    | 'kind'
-    | 'id'
-    | 'custom_name'
-    | 'math'
-    | 'math_multiplier'
-    | 'math_property'
-    | 'math_property_type'
-    | 'math_group_type_index'
+    'kind' | 'id' | 'custom_name' | 'math' | 'math_multiplier' | 'math_property' | 'math_group_type_index'
 > {
     properties?: AssistantPropertyFilter[]
     /**

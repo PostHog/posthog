@@ -359,6 +359,42 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
     return messages
 
 
+# Session math properties that require math_property_type="session_properties" for the runner to
+# perform session-level aggregation. Kept here (rather than imported from aggregation_operations) so
+# the assistant remains decoupled from runner internals. Must stay in sync with
+# posthog.hogql_queries.insights.trends.aggregation_operations.ALLOWED_SESSION_MATH_PROPERTIES.
+_SESSION_MATH_PROPERTIES = frozenset(
+    [
+        "$session_duration",
+        "$pageview_count",
+        "$screen_count",
+        "$autocapture_count",
+        "$num_uniq_urls",
+        "$is_bounce",
+    ]
+)
+
+
+def _fill_session_math_property_type(series: list[dict[str, Any]]) -> None:
+    """
+    Inject ``math_property_type="session_properties"`` into each series node whose ``math_property``
+    is a session-level property. ``AssistantTrendsEventsNode`` / ``AssistantTrendsActionsNode`` omit
+    this field from the LLM-facing schema so the model doesn't have to learn when to set it; the
+    runner still needs it to trigger session-level aggregation (see ``aggregating_on_session_property``).
+    Mutates ``series`` in place.
+    """
+    for node in series:
+        if not isinstance(node, dict):
+            continue
+        if node.get("kind") == "GroupNode":
+            _fill_session_math_property_type(node.get("nodes") or [])
+            if node.get("math_property") in _SESSION_MATH_PROPERTIES:
+                node["math_property_type"] = "session_properties"
+            continue
+        if node.get("math_property") in _SESSION_MATH_PROPERTIES:
+            node["math_property_type"] = "session_properties"
+
+
 def cast_assistant_query(
     query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery,
 ) -> TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery:
@@ -366,7 +402,9 @@ def cast_assistant_query(
     Convert AssistantQuery types to regular Query types that the frontend expects.
     """
     if query.kind == "TrendsQuery":
-        return TrendsQuery(**query.model_dump())
+        dumped = query.model_dump()
+        _fill_session_math_property_type(dumped.get("series") or [])
+        return TrendsQuery(**dumped)
     elif query.kind == "FunnelsQuery":
         return FunnelsQuery(**query.model_dump())
     elif query.kind == "RetentionQuery":

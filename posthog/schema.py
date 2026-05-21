@@ -10223,7 +10223,6 @@ class AssistantStickinessActionsNode(BaseModel):
     )
     math_multiplier: float | None = None
     math_property: str | None = None
-    math_property_type: str | None = None
     name: str = Field(..., description="Action name from the plan.")
     properties: (
         list[
@@ -10284,7 +10283,6 @@ class AssistantStickinessEventsNode(BaseModel):
     )
     math_multiplier: float | None = None
     math_property: str | None = None
-    math_property_type: str | None = None
     name: str | None = None
     properties: (
         list[
@@ -10453,7 +10451,6 @@ class AssistantTrendsActionsNode(BaseModel):
     )
     math_multiplier: float | None = None
     math_property: str | None = None
-    math_property_type: str | None = None
     name: str = Field(..., description="Action name from the plan.")
     optionalInFunnel: bool | None = None
     properties: (
@@ -10516,7 +10513,6 @@ class AssistantTrendsEventsNode(BaseModel):
     )
     math_multiplier: float | None = None
     math_property: str | None = None
-    math_property_type: str | None = None
     name: str | None = None
     optionalInFunnel: bool | None = None
     properties: (
@@ -10574,7 +10570,6 @@ class AssistantTrendsGroupNode(BaseModel):
     )
     math_multiplier: float | None = None
     math_property: str | None = None
-    math_property_type: str | None = None
     name: str | None = Field(default=None, description="Display name for the combined series.")
     nodes: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode] = Field(
         ...,
