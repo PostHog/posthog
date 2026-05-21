@@ -1,3 +1,5 @@
+import threading
+
 from django.contrib import admin
 from django.urls import NoReverseMatch, reverse
 from django.utils.html import format_html
@@ -36,6 +38,10 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         "detail_dashboard_link",
     )
 
+    # ModelAdmin is a per-site singleton; under threaded WSGI we can't stash request-scoped
+    # state on `self` without one thread's cache leaking into another's row rendering.
+    _request_local = threading.local()
+
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         if obj.project_id:
@@ -47,7 +53,7 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         # live in the main DB, so Django can't JOIN across them. Prefetch the Team rows
         # for the current page from the main DB to avoid N+1 in team_link's list-view use.
         team_ids = list(qs.values_list("team_id", flat=True).distinct()[:1000])
-        self._team_cache = Team.objects.in_bulk(team_ids) if team_ids else {}
+        self._request_local.team_cache = Team.objects.in_bulk(team_ids) if team_ids else {}
         return qs
 
     @admin.display(description="Team")
@@ -55,7 +61,7 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         team_id = group_type_mapping.team_id
         if not team_id:
             return "-"
-        team = getattr(self, "_team_cache", {}).get(team_id)
+        team = getattr(self._request_local, "team_cache", {}).get(team_id)
         if team is None:
             team = Team.objects.filter(pk=team_id).only("id", "name").first()
         if team is None:
