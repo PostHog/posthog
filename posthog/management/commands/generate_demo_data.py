@@ -196,7 +196,7 @@ class Command(BaseCommand):
             if not options.get("skip_flag_sync"):
                 print("Syncing feature flags from API...")
                 try:
-                    sync_feature_flags_from_api(distinct_id="generate_demo_data", output_fn=self.stdout.write)
+                    sync_feature_flags_from_api(output_fn=self.stdout.write)
                 except Exception as e:
                     print(f"Feature flag sync failed: {e}")
                     print("Continuing anyway...")
