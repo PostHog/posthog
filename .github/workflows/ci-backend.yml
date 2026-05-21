@@ -1055,7 +1055,11 @@ jobs:
                   for idx in "${!DEPLOYMENTS[@]}"; do
                       file="ch_sql_env/${idx}.md"
                       # Render once per environment; the same output feeds both the log group and the comment.
-                      CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} > "$file" || true
+                      # On failure (e.g. an import error in the migration) write a visible marker rather than
+                      # silently dropping the environment — stderr still shows in the step log for debugging.
+                      if ! CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} > "$file"; then
+                          echo '- _⚠️ failed to render SQL for this environment — see the workflow logs_' > "$file"
+                      fi
                       echo "::group::CLOUD_DEPLOYMENT=${LABELS[$idx]}"
                       cat "$file"
                       echo "::endgroup::"

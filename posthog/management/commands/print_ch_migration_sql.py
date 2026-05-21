@@ -13,7 +13,6 @@ With ``--format markdown`` it instead emits a nested markdown list
 """
 
 import importlib
-from collections import OrderedDict
 from textwrap import indent
 
 from django.conf import settings
@@ -81,9 +80,10 @@ class Command(BaseCommand):
     def _handle_markdown(self, names: list[str]) -> None:
         # Emit only the node type(s) -> SQL list, without an environment header. The
         # CI step renders this once per CLOUD_DEPLOYMENT and adds the environment level
-        # itself, collapsing it when environments render identically. PR checks allow
-        # only one migration file per PR, so we don't nest by migration either.
-        groups: OrderedDict[str, list[str]] = OrderedDict()
+        # itself, collapsing it when environments render identically. We don't nest by
+        # migration: CI enforces one migration file per PR, and if several are passed
+        # their operations are merged by node role (first-seen order preserved).
+        groups: dict[str, list[str]] = {}
         notes: list[str] = []
         for name in names:
             module = importlib.import_module(f"{MIGRATIONS_PACKAGE_NAME}.{name}")
