@@ -2,6 +2,7 @@ import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '../logger'
+import { createAgentPgPool } from '../postgres'
 import { CleanupResult, JanitorConfig } from './types'
 
 const janitorStalledCounter = new Counter({
@@ -36,11 +37,7 @@ export class SessionQueueJanitor {
     private readonly cleanupGraceMs: number
 
     constructor(config: JanitorConfig) {
-        this.pool = new Pool({
-            connectionString: config.pool.dbUrl,
-            max: config.pool.maxConnections ?? 5,
-            idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30_000,
-        })
+        this.pool = createAgentPgPool(config.pool, 5)
         this.cleanupBatchSize = config.cleanupBatchSize ?? 10_000
         this.cleanupIntervalMs = config.cleanupIntervalMs ?? 10_000
         this.stallTimeoutMs = config.stallTimeoutMs ?? 30_000

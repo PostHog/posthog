@@ -3,6 +3,7 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../logger'
+import { createAgentPgPool } from '../postgres'
 import { DequeuedSessionJob, RescheduleOptions, RescheduleOptionsSchema, WorkerConfig } from './types'
 
 interface RawSessionRow {
@@ -52,11 +53,7 @@ export class SessionQueueWorker {
     private activeJobs = new Set<Promise<void>>()
 
     constructor(private config: WorkerConfig) {
-        this.pool = new Pool({
-            connectionString: config.pool.dbUrl,
-            max: config.pool.maxConnections ?? 10,
-            idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30_000,
-        })
+        this.pool = createAgentPgPool(config.pool, 10)
         this.concurrency = Math.max(1, config.concurrency ?? 8)
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30_000

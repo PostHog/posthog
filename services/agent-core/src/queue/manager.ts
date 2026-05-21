@@ -2,6 +2,7 @@ import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../logger'
+import { createAgentPgPool } from '../postgres'
 import { ManagerConfig, SessionJobInit, SessionJobInitSchema } from './types'
 
 const DEFAULT_DEPTH_LIMIT = 1_000_000
@@ -17,11 +18,7 @@ export class SessionQueueManager {
     private depthCheckExpiresAt = 0
 
     constructor(config: ManagerConfig) {
-        this.pool = new Pool({
-            connectionString: config.pool.dbUrl,
-            max: config.pool.maxConnections ?? 10,
-            idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30_000,
-        })
+        this.pool = createAgentPgPool(config.pool, 10)
         this.depthLimit = config.depthLimit ?? DEFAULT_DEPTH_LIMIT
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? DEFAULT_DEPTH_CHECK_INTERVAL_MS
         this.maxStateByteSize = config.maxStateByteSize ?? DEFAULT_MAX_STATE_BYTES

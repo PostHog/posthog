@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import { createAgentPgPool } from '../postgres'
 import { PoolConfig, SessionStatus } from './types'
 
 export interface SessionView {
@@ -63,11 +64,7 @@ export class SessionQuery {
     private readonly pool: Pool
 
     constructor(config: { pool: PoolConfig }) {
-        this.pool = new Pool({
-            connectionString: config.pool.dbUrl,
-            max: config.pool.maxConnections ?? 5,
-            idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30_000,
-        })
+        this.pool = createAgentPgPool(config.pool, 5)
     }
 
     async connect(): Promise<void> {
