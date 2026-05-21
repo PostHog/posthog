@@ -14,6 +14,7 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         "name_singular",
         "name_plural",
         "team_link",
+        "created_at",
     )
     search_fields = ("group_type", "name_singular", "name_plural")
     fields = (
