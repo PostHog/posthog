@@ -5392,9 +5392,10 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
     def test_saved_metric_add_remove_does_not_log_ordering_changes(self):
         """Adding/removing saved metrics should not create redundant ordering activity logs.
 
-        When a saved metric is added or removed, the ordering arrays are auto-synced.
-        These ordering changes are saved via QuerySet.update() to bypass activity logging,
-        since the add/remove itself is already logged.
+        When a saved metric is added or removed and the user did not supply an explicit
+        ordering, the auto-synced ordering write is persisted via a muted
+        ``experiment.save(update_fields=...)`` so the only log entry is the
+        ``saved_metric_config`` add/remove.
         """
         # Create a saved metric
         saved_metric_response = self.client.post(
@@ -5493,6 +5494,147 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             detail__type="saved_metric_config",
         )
         self.assertEqual(delete_logs.count(), 1)
+
+    def test_user_initiated_metric_reorder_is_logged(self):
+        """A standalone reorder (no add/remove) must produce an activity log entry."""
+        # Seed the experiment with two inline metrics so there is something to reorder
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Reorder Activity Test",
+                "feature_flag_key": "reorder-activity-test",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "reorder-uuid-a",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "reorder-uuid-b",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                "primary_metrics_ordered_uuids": ["reorder-uuid-a", "reorder-uuid-b"],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        logs_before_reorder = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        reorder_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"primary_metrics_ordered_uuids": ["reorder-uuid-b", "reorder-uuid-a"]},
+            format="json",
+        )
+        self.assertEqual(reorder_response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(experiment.primary_metrics_ordered_uuids, ["reorder-uuid-b", "reorder-uuid-a"])
+
+        logs_after_reorder = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+        self.assertEqual(logs_after_reorder - logs_before_reorder, 1)
+
+        reorder_log = (
+            ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment", activity="updated")
+            .order_by("-created_at")
+            .first()
+        )
+        assert reorder_log is not None and reorder_log.detail is not None
+        changes = reorder_log.detail.get("changes") or []
+        ordering_change = next((c for c in changes if c.get("field") == "primary_metrics_ordered_uuids"), None)
+        assert ordering_change is not None, "Explicit reorder must produce a primary_metrics_ordered_uuids change"
+        self.assertEqual(ordering_change["before"], ["reorder-uuid-a", "reorder-uuid-b"])
+        self.assertEqual(ordering_change["after"], ["reorder-uuid-b", "reorder-uuid-a"])
+
+    def test_explicit_reorder_in_same_patch_as_saved_metric_add_is_logged(self):
+        """If the user supplies ordering alongside an add/remove, the reorder must still be logged."""
+        # Create a saved metric the experiment can later adopt
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Combined PATCH Saved Metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "combined-saved-uuid",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        # Start with one inline primary metric so we have an existing ordering to permute
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Combined PATCH Activity Test",
+                "feature_flag_key": "combined-patch-activity",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "combined-inline-uuid",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                "primary_metrics_ordered_uuids": ["combined-inline-uuid"],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        # Same PATCH: adds the saved metric AND explicitly reorders so the saved metric goes first.
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+                "primary_metrics_ordered_uuids": ["combined-saved-uuid", "combined-inline-uuid"],
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(
+            experiment.primary_metrics_ordered_uuids,
+            ["combined-saved-uuid", "combined-inline-uuid"],
+        )
+
+        # Two new logs: the saved_metric_config add AND the experiment-level reorder.
+        new_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count() - logs_before
+        self.assertEqual(new_logs, 2)
+
+        # The saved metric add is captured
+        config_logs = ActivityLog.objects.filter(
+            item_id=str(experiment_id),
+            scope="Experiment",
+            activity="created",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(config_logs.count(), 1)
+
+        # The user-supplied reorder is also captured in a separate Experiment update log
+        reorder_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment", activity="updated")
+        ordering_changes = [
+            change
+            for log in reorder_logs
+            if log.detail
+            for change in (log.detail.get("changes") or [])
+            if change.get("field") == "primary_metrics_ordered_uuids"
+        ]
+        self.assertEqual(len(ordering_changes), 1, "User-supplied reorder must be logged once")
+        self.assertEqual(ordering_changes[0]["before"], ["combined-inline-uuid"])
+        self.assertEqual(ordering_changes[0]["after"], ["combined-saved-uuid", "combined-inline-uuid"])
 
     def test_cannot_add_saved_metric_from_different_team(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")

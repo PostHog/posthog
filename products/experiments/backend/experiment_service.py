@@ -28,6 +28,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
@@ -2563,10 +2564,12 @@ class ExperimentService:
     ) -> None:
         """Sync ordering arrays with saved metric changes during update.
 
-        Auto-synced ordering changes (side effects of adding/removing saved metrics)
-        are saved directly via QuerySet.update() to bypass activity logging signals.
-        The add/remove of the saved metric itself is already logged, so logging
-        the ordering change would be redundant.
+        When a saved metric is added or removed and the user did not also supply
+        an explicit ordering in the same PATCH, the auto-synced ordering write is
+        persisted via a muted ``experiment.save(update_fields=...)`` so the add/remove
+        is the only thing logged. If the user *did* supply an explicit ordering, the
+        sync is merged into ``update_data`` and flows through the normal
+        ``experiment.save()`` path so the reorder is logged.
         """
         if saved_metrics_data is None:
             return
@@ -2597,11 +2600,14 @@ class ExperimentService:
         added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
         removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
 
-        # Track ordering updates to save separately (bypasses activity logging)
-        ordering_updates: dict[str, list[str]] = {}
+        # Fields whose new value is purely a side effect of add/remove (user did not
+        # supply them in this PATCH) — save these via a muted save to avoid logging
+        # a spurious "reordered metrics" entry alongside the add/remove entry.
+        auto_synced_fields: list[str] = []
 
         if added_primary or removed_primary:
-            if "primary_metrics_ordered_uuids" in update_data:
+            user_supplied = "primary_metrics_ordered_uuids" in update_data
+            if user_supplied:
                 current_ordering = list(update_data["primary_metrics_ordered_uuids"] or [])
             else:
                 current_ordering = list(experiment.primary_metrics_ordered_uuids or [])
@@ -2610,10 +2616,14 @@ class ExperimentService:
             for uuid in added_primary:
                 if uuid not in current_ordering:
                     current_ordering.append(uuid)
-            ordering_updates["primary_metrics_ordered_uuids"] = current_ordering
+
+            update_data["primary_metrics_ordered_uuids"] = current_ordering
+            if not user_supplied:
+                auto_synced_fields.append("primary_metrics_ordered_uuids")
 
         if added_secondary or removed_secondary:
-            if "secondary_metrics_ordered_uuids" in update_data:
+            user_supplied = "secondary_metrics_ordered_uuids" in update_data
+            if user_supplied:
                 current_ordering = list(update_data["secondary_metrics_ordered_uuids"] or [])
             else:
                 current_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
@@ -2622,18 +2632,19 @@ class ExperimentService:
             for uuid in added_secondary:
                 if uuid not in current_ordering:
                     current_ordering.append(uuid)
-            ordering_updates["secondary_metrics_ordered_uuids"] = current_ordering
 
-        # Save ordering changes directly via QuerySet.update() to bypass activity
-        # logging signals. This is intentional: the add/remove is already logged.
-        if ordering_updates:
-            Experiment.objects.filter(pk=experiment.pk).update(**ordering_updates)
-            # Update the in-memory instance to reflect the database state
-            for field, value in ordering_updates.items():
-                setattr(experiment, field, value)
-                # Remove from update_data so validation reads from the experiment object
-                # (which now has the correct values) instead of stale user-provided values
-                update_data.pop(field, None)
+            update_data["secondary_metrics_ordered_uuids"] = current_ordering
+            if not user_supplied:
+                auto_synced_fields.append("secondary_metrics_ordered_uuids")
+
+        # Persist auto-synced ordering via a muted save so the add/remove of the
+        # saved metric is the only activity log entry. The user-initiated reorder
+        # path still flows through the normal save() at the end of update_experiment.
+        if auto_synced_fields:
+            for field in auto_synced_fields:
+                setattr(experiment, field, update_data.pop(field))
+            with mute_selected_signals():
+                experiment.save(update_fields=[*auto_synced_fields, "updated_at"])
 
     def _validate_metric_ordering_on_update(self, experiment: Experiment, update_data: dict) -> None:
         """Validate ordering arrays contain all metric UUIDs (update path)."""
