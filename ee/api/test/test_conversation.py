@@ -475,37 +475,24 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 mock_stream_conversation.assert_called_once()
 
-    @patch("ee.api.conversation.has_pending_queue_work", new_callable=AsyncMock)
-    def test_cannot_resume_idle_conversation_without_message(self, mock_pending):
-        """Test that resuming an idle conversation without a new message returns a conflict error."""
-        mock_pending.return_value = False
-        conversation = Conversation.objects.create(user=self.user, team=self.team, status=Conversation.Status.IDLE)
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/conversations/",
-            {
-                "conversation": str(conversation.id),
-                "content": None,
-                "trace_id": str(uuid.uuid4()),
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        response_data = response.json()
-        self.assertEqual(response_data["detail"], "Cannot continue streaming from an idle conversation")
-
-    @patch("ee.api.conversation.has_pending_queue_work", new_callable=AsyncMock)
-    def test_resume_idle_conversation_during_queued_workflow_handoff(self, mock_pending):
-        """Status is briefly IDLE between a main workflow completing and a
-        queued workflow starting. The reconnect must succeed in that window so
-        the client picks up the queued workflow's stream instead of getting
-        ``Cannot continue streaming from an idle conversation``.
+    def test_resume_idle_conversation_returns_empty_stream(self):
+        """A bare reconnect (``content: null``, no ``resume_payload``) against
+        an IDLE conversation used to raise ``Cannot continue streaming from an
+        idle conversation``. It now succeeds with an empty stream so the
+        client closes cleanly and re-syncs via ``loadConversation`` — covering
+        both the queued-workflow handoff window and benign late reconnects
+        (e.g. the 409-retry path racing a workflow that just finished).
         """
-        mock_pending.return_value = True
         conversation = Conversation.objects.create(user=self.user, team=self.team, status=Conversation.Status.IDLE)
+
+        async def _empty_stream():
+            return
+            yield  # pragma: no cover — unreachable; makes this an async generator
 
         with (
             patch(
                 "ee.hogai.core.executor.AgentExecutor.astream",
-                return_value=_async_generator(),
+                return_value=_empty_stream(),
             ) as mock_astream,
             patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response),
         ):
@@ -519,9 +506,8 @@ class TestConversation(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
+        self.assertEqual(self._get_streaming_content(response), b"")
         mock_astream.assert_called_once()
-        mock_pending.assert_called_once()
 
     def test_stream_from_nonexistent_conversation_without_content(self):
         """Test that streaming from a non-existent conversation without content returns an error."""

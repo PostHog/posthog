@@ -81,13 +81,19 @@ class AgentExecutor:
                 raise ValueError("Cannot resume streaming with a new message")
             async for chunk in self.stream_conversation():
                 yield chunk
-        elif is_pure_reconnect and self._reconnectable and await has_pending_queue_work(str(self._conversation.id)):
-            # Handoff window: ``Conversation.status`` is briefly IDLE between the
-            # main workflow completing and a queued workflow taking over. Read
-            # from the Redis stream so the client's reconnect picks up the
-            # queued workflow's output instead of spawning a duplicate workflow.
-            async for chunk in self.stream_conversation():
-                yield chunk
+        elif is_pure_reconnect and self._reconnectable:
+            # ``Conversation.status`` is IDLE and the client sent a bare reconnect (no message, no
+            # resume payload). Two sub-cases — both must end with the client able to close cleanly
+            # rather than seeing ``Cannot continue streaming from an idle conversation``:
+            #   1) Handoff window — a queued workflow is about to take over. Read the Redis stream
+            #      so the client picks up its events instead of racing a duplicate workflow spawn.
+            #   2) Workflow already finished cleanly (e.g. the 409-retry path slept past the last
+            #      event). Nothing to stream; return an empty generator and let the client refresh
+            #      state via its existing ``completeThreadGeneration`` -> ``loadConversation`` path.
+            if await has_pending_queue_work(str(self._conversation.id)):
+                async for chunk in self.stream_conversation():
+                    yield chunk
+            return
         else:
             # Otherwise, process the new message (new generation) or resume generation (no new message)
             async for chunk in self.start_workflow(workflow, inputs):
