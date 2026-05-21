@@ -13,7 +13,7 @@ import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
 
-from posthog.batch_exports.models import BatchExportRun
+from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
@@ -558,10 +558,11 @@ def send_batch_export_run_failure(
         logger.warning("Email service is not available")
         return None
 
-    batch_export_run: BatchExportRun = BatchExportRun.objects.select_related("batch_export__team").get(
-        id=batch_export_run_id
-    )
-    team: Team = batch_export_run.batch_export.team
+    batch_export_run: BatchExportRun = BatchExportRun.objects.select_related(
+        "batch_export__team", "batch_export_on_demand__team"
+    ).get(id=batch_export_run_id)
+    batch_export = batch_export_run.parent
+    team: Team = batch_export.team
 
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
     if not memberships_to_email:
@@ -572,19 +573,22 @@ def send_batch_export_run_failure(
     # NOTE: We are taking only the date component to cap the number of emails at one per day per batch export.
     last_updated_at_date = batch_export_run.last_updated_at.strftime("%Y-%m-%d")
 
-    campaign_key: str = (
-        f"batch_export_run_email_batch_export_{batch_export_run.batch_export.id}_last_updated_at_{last_updated_at_date}"
-    )
+    campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
 
+    subject = (
+        f"PostHog: {batch_export.name} batch export run failure"
+        if isinstance(batch_export, BatchExport)
+        else "PostHog: batch export on demand run failure"
+    )
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"PostHog: {batch_export_run.batch_export.name} batch export run failure",
+        subject=subject,
         template_name="batch_export_run_failure",
         template_context={
             "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
-            "id": batch_export_run.batch_export.id,
-            "name": batch_export_run.batch_export.name,
+            "id": batch_export.id,
+            "name": batch_export.name if isinstance(batch_export, BatchExport) else "",
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)
@@ -1566,7 +1570,7 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
     customer_name = traits.get("name")
     customer_email = traits.get("email")
 
-    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/conversations/tickets/{ticket.id}"
+    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/support/tickets/{ticket.ticket_number}"
 
     campaign_key = f"new_conversation_ticket_{ticket.id}"
     message = EmailMessage(

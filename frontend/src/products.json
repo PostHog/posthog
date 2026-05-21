@@ -156,6 +156,13 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        {
+            "path": "MCP analytics",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "mcp_analytics",
+            "intents": ["llm_analytics"]
+        },
         { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
         {
             "path": "Product analytics",
@@ -186,6 +193,13 @@
             "intents": ["session_replay", "mobile_replay"]
         },
         { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null, "intents": ["heatmaps"] },
+        {
+            "path": "Replay vision",
+            "category": "Behavior",
+            "iconType": null,
+            "type": "replay_vision",
+            "intents": ["replay_vision"]
+        },
         {
             "path": "Revenue analytics",
             "category": "Analytics",

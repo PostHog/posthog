@@ -1,6 +1,8 @@
 export { GoInstallation } from './go'
+export { IOSInstallation } from './ios'
 export { JavaInstallation } from './java'
 export { NextJSInstallation } from './nextjs'
 export { NodeJSInstallation } from './nodejs'
 export { OpenTelemetryInstallation } from './opentelemetry'
 export { PythonInstallation } from './python'
+export { ReactNativeInstallation } from './react-native'

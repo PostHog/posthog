@@ -599,30 +599,19 @@ EXCLUDED_RULES: frozenset[str] = frozenset(
         "stringContents",
         "fullTemplateString",
         "stringContentsFull",
-        # Hog program top-level
-        "program",
-        "declaration",
-        "statement",
-        # Hog program statements
-        "returnStmt",
-        "throwStmt",
-        "tryCatchStmt",
-        "catchBlock",
-        "ifStmt",
-        "whileStmt",
-        "forStmt",
-        "forInStmt",
-        "funcStmt",
-        "varDecl",
-        "varAssignment",
-        "exprStmt",
-        "emptyStmt",
-        "block",
-        # Hog uses
+        # `kvPair` / `kvPairList` — Hog dict key/value pairs. Not a
+        # program statement; left excluded so enabling Hog programs
+        # doesn't also widen the expression-strategy surface.
         "kvPair",
         "kvPairList",
     }
 )
+# NB: the Hog program rules (`program`, `declaration`, `statement`,
+# `returnStmt` / `throwStmt` / `tryCatchStmt` / `catchBlock` /
+# `ifStmt` / `whileStmt` / `forStmt` / `forInStmt` / `funcStmt` /
+# `varDecl` / `varAssignment` / `exprStmt` / `emptyStmt` / `block`)
+# are intentionally NOT excluded — the grammar PBT drives Hog-program
+# parity via the generated `program_strategy`.
 
 # Alternatives the cpp-json backend (ANTLR parser + Python visitor)
 # unconditionally rejects. The PBT contract is one-sided — we only
@@ -941,9 +930,9 @@ from posthog.hogql.test._grammar_token_strategies import (
     string_literal_token,
 )
 
-_DEFAULT_DEPTH = 3
-_MAX_REPEAT = 2       # cap for `*` / `+` quantifiers (per occurrence)
-_MAX_LR_CHAIN = 2     # cap for chained Pratt-style suffixes (per LR rule)
+_DEFAULT_DEPTH = 5
+_MAX_REPEAT = 4       # cap for `*` / `+` quantifiers (per occurrence)
+_MAX_LR_CHAIN = 4     # cap for chained Pratt-style suffixes (per LR rule)
 
 # Probability an optional ``?``-quantified element is included. 50/50
 # produces unrealistically clause-rich SELECTs (a typical SELECT has 25

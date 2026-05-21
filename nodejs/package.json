@@ -171,7 +171,7 @@
         "pino-pretty": "^9.1.0",
         "prettier": "^3.6.2",
         "supertest": "^7.0.0",
-        "ts-jest": "^29.1.0",
+        "ts-jest": "^29.4.9",
         "ts-node": "^10.9.1",
         "tsc-alias": "^1.8.16",
         "tsconfig-paths": "^4.2.0",

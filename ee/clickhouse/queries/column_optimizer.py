@@ -2,7 +2,6 @@ from collections import Counter as TCounter
 from typing import cast
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -11,6 +10,8 @@ from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, count_hogql_properties, extract_tables_and_properties
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 from posthog.queries.trends.util import is_series_group_based
+
+from products.actions.backend.models.util import get_action_tables_and_properties
 
 
 class EnterpriseColumnOptimizer(FOSSColumnOptimizer):

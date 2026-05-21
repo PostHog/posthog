@@ -21,7 +21,7 @@ jobs:
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
             # Celery worker, migrations, demo data), so the filter mirrors the Dagster
@@ -88,7 +88,7 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -159,7 +159,7 @@ jobs:
         if: needs.changes.outputs.mcp == 'true'
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Setup pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -197,6 +197,9 @@ jobs:
                     echo "::error::MCP unit test artifacts are out of date. Run 'pnpm --filter=@posthog/mcp run test -u' and commit the result."
                     exit 1
                   fi
+
+            - name: Run Hono unit tests
+              run: cd services/mcp && pnpm run test:hono
 
             - name: Create snapshot patch
               id: create-snapshot-patch
@@ -257,7 +260,7 @@ jobs:
             INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
 
@@ -352,7 +355,7 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -459,7 +462,7 @@ jobs:
                   PersonalAPIKey.objects.create(
                       user=user,
                       label='mcp_ci_api_key',
-                      secure_value=hash_key_value('e2e_demo_api_key'),
+                      secure_value=hash_key_value('phx_e2e_demo_api_key'),
                       scopes=['*'],
                   )
                   # Ensure common event definitions exist for MCP integration tests
@@ -491,7 +494,7 @@ jobs:
               run: cd services/mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
-                  TEST_POSTHOG_PERSONAL_API_KEY: e2e_demo_api_key
+                  TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
 
@@ -530,7 +533,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}

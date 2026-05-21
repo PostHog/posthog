@@ -9,6 +9,7 @@ import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/S
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
+import { SurveyResponseFilters } from 'scenes/surveys/components/SurveyResponseFilters'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
 import {
     RESPONDENT_DETAILS_LINE,
@@ -564,6 +565,16 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                 </div>
                             </>
                         ) : null}
+
+                        <Field name="responseFilters">
+                            {({ value, onChange }) => (
+                                <SurveyResponseFilters
+                                    questions={survey.questions}
+                                    filters={value}
+                                    onChange={onChange}
+                                />
+                            )}
+                        </Field>
 
                         <div className="space-y-3">
                             <div className="border-t border-border" />

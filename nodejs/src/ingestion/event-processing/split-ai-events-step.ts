@@ -85,7 +85,7 @@ function maybeStripAiProperties(
     ]
 }
 
-function parseTeamsList(teamsStr: string): number[] | '*' {
+export function parseTeamsList(teamsStr: string): number[] | '*' {
     if (teamsStr === '*') {
         return '*'
     }

@@ -50,6 +50,11 @@ class GoogleAdsSource(
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
+            # Google returns `invalid_grant` from the OAuth token endpoint when the user's
+            # refresh token has been revoked, expired, or otherwise invalidated (common
+            # variants: "Token has been expired or revoked.", "Bad Request"). Only the user
+            # can fix this by reconnecting their Google Ads account.
+            "invalid_grant": "Your Google Ads authorization has expired or been revoked. Please reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -65,6 +70,7 @@ class GoogleAdsSource(
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         google_ads_schemas = get_google_ads_schemas(
             config,

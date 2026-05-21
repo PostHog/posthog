@@ -923,9 +923,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def heartbeat(self, agent_active: bool = False) -> None:
+        if not agent_active:
+            return
         self._heartbeat_received = True
-        if agent_active:
-            self._last_active_time = workflow.now()
+        self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:

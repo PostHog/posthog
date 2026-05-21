@@ -50,14 +50,14 @@ class _BaseDeploymentsAPITest(DeploymentsTeamScopedTestMixin, APIBaseTest):
 
 
 class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
-    def _enable_advanced_permissions(self) -> None:
+    def _enable_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save(update_fields=["available_product_features"])
 
     def _restrict_integrations_resource(self) -> None:
-        self._enable_advanced_permissions()
+        self._enable_access_control()
         AccessControl.objects.create(
             team=self.team,
             resource="integration",
@@ -66,7 +66,7 @@ class TestDeploymentProjectsAPI(_BaseDeploymentsAPITest):
         )
 
     def _restrict_integration(self, integration: Integration) -> None:
-        self._enable_advanced_permissions()
+        self._enable_access_control()
         AccessControl.objects.create(
             team=self.team,
             resource="integration",

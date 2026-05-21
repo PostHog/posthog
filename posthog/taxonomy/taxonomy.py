@@ -2534,7 +2534,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL.",
+                "Fetch the trace referenced by an AI observability URL.",
             ],
         },
         "$mcp_resource_name": {
@@ -2597,11 +2597,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_session_id": {
             "label": "MCP session ID",
-            "description": "Stable MCP-layer session ID supplied by the transport (e.g. the MCP `extra.sessionId` handle or framework session). Distinct from PostHog's `$session_id`, which is a posthog-js / SDK construct — `$mcp_session_id` is the MCP-layer handle, `$session_id` is the analytics-layer one.",
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary — use $mcp_conversation_id when you need a stable identifier across reconnects.",
         },
         "$mcp_conversation_id": {
             "label": "MCP conversation ID",
-            "description": "Logical conversation id that stitches multiple tool calls together. Unlike `$session_id` (transport-level, rotates on reconnect or framework boundary), `$mcp_conversation_id` is minted by the SDK on the first call and echoed back by the agent on subsequent calls via a prompt-back text block. Opt-in via `enableConversationId: true` on the SDK's `track()`.",
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
         },
         # PostHog-specific MCP properties added by the PostHog MCP server on top of the SDK's core
         # set. They identify which deployment, transport, and consumer produced the event. The

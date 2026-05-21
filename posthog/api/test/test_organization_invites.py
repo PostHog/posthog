@@ -34,7 +34,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         super().setUp()
         self.organization.available_product_features = [
             *(self.organization.available_product_features or []),
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
@@ -1413,7 +1413,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         org_b = Organization.objects.create(name="Org B")
         org_b.available_product_features = [
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         org_b.members_can_invite = False
         org_b.save()
@@ -1424,7 +1424,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Org A allows members to invite
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.members_can_invite = True
         self.organization.save()

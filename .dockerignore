@@ -6,6 +6,7 @@
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
+!common/mosaic
 !common/replay-headless
 !common/replay-shared
 !common/plugin_transpiler/*.*
@@ -39,6 +40,15 @@
 !nodejs/assets
 !nodejs/tsconfig.eslint.json
 !nodejs/tsconfig.json
+!services/mcp
+!services/mcp/package.json
+!services/mcp/tsconfig.json
+!services/mcp/scripts
+!services/mcp/src
+!services/mcp/shared
+!services/mcp/types.d.ts
+!services/mcp/worker-configuration.d.ts
+!services/mcp/public
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !pyproject.toml
@@ -55,6 +65,7 @@
 !test-runner-jest-environment.js
 !test-runner-jest.config.js
 !tools/hogli
+!tools/openapi-codegen
 !tsconfig.json
 !unit.json.tpl
 common/*/*/node_modules
@@ -65,6 +76,10 @@ packages/quill/**/node_modules
 packages/quill/**/dist
 products/**/node_modules
 nodejs/node_modules
+services/mcp/node_modules
+services/mcp/dist
+services/mcp/.wrangler
+services/mcp/tests
 ee/**/node_modules
 docs/**/node_modules
 **/__pycache__
