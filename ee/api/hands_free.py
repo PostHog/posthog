@@ -169,6 +169,10 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         api_key = _require_api_key(HANDS_FREE_SYNTHESIZE_COUNTER)
         voice_id = settings.ELEVENLABS_VOICE_ID
+        if not voice_id:
+            HANDS_FREE_SYNTHESIZE_COUNTER.labels(outcome="missing_voice_id").inc()
+            logger.warning("max_hands_free_voice_id_missing")
+            raise HandsFreeNotConfigured("Voice ID is not configured.")
         try:
             upstream = requests.post(
                 f"{settings.ELEVENLABS_API_BASE_URL}/v1/text-to-speech/{voice_id}",
