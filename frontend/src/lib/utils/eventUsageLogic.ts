@@ -322,8 +322,6 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
     return objectClean(payload)
 }
 
-const reportedMissingTaxonomyEntries = new Set<string>()
-
 export const eventUsageLogic = kea<eventUsageLogicType>([
     path(['lib', 'utils', 'eventUsageLogic']),
     connect(() => ({
@@ -453,6 +451,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
+        reportDashboardEditModeDiscardPrompt: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            action: 'shown' | 'discarded' | 'kept_editing'
+        ) => ({ dashboard, action }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -772,9 +774,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             eventName,
         }),
         reportTaxonomicFilterAddFilterClicked: (eventName?: string) => ({ eventName }),
-        reportMissingTaxonomyEntries: (entries: { name: string; groupType: TaxonomicFilterGroupType }[]) => ({
-            entries,
-        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType, mediaPreviewCount?: number) => ({
             type,
@@ -900,8 +899,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
         reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
@@ -1068,24 +1073,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
         // navbar starred
-        reportNavbarStarredItemAdded: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+        reportNavbarStarredItemAdded: (itemType: string, itemName: string) => ({
             itemType,
             itemName,
-            isAIFirst,
         }),
-        reportNavbarStarredItemRemoved: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+        reportNavbarStarredItemRemoved: (itemType: string, itemName: string) => ({
             itemType,
             itemName,
-            isAIFirst,
         }),
-        reportNavbarStarredItemClicked: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+        reportNavbarStarredItemClicked: (itemType: string, itemName: string) => ({
             itemType,
             itemName,
-            isAIFirst,
         }),
         reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
             itemCount,
             isAIFirst,
+        }),
+        // MCP hints
+        reportMCPHintShown: (surfaceKey: string) => ({ surfaceKey }),
+        reportMCPHintDismissed: (dismissType: 'surface' | 'all', surfaceKey?: string) => ({
+            dismissType,
+            surfaceKey,
         }),
     }),
     listeners(({ values }) => ({
@@ -1302,6 +1310,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard: sanitizeDashboard(dashboard),
                 layout_zoom: layoutZoom,
                 source,
+            })
+        },
+        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
+            posthog.capture('dashboard edit mode discard prompt', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                action,
             })
         },
         reportDashboardRefreshed: async ({
@@ -1788,20 +1803,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportTaxonomicFilterAddFilterClicked: ({ eventName }) => {
             posthog.capture('taxonomic filter add filter clicked', { eventName })
         },
-        reportMissingTaxonomyEntries: ({ entries }) => {
-            for (const { name, groupType } of entries) {
-                const key = `${groupType}::${name}`
-                if (reportedMissingTaxonomyEntries.has(key)) {
-                    continue
-                }
-                reportedMissingTaxonomyEntries.add(key)
-                posthog.capture('taxonomy entry missing', {
-                    name,
-                    group_type: groupType,
-                    source: 'taxonomic_filter',
-                })
-            }
-        },
         reportDataManagementDefinitionHovered: ({ type, mediaPreviewCount }) => {
             posthog.capture('definition hovered', { type, media_preview_count: mediaPreviewCount ?? 0 })
         },
@@ -2134,14 +2135,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 entry_point: entrypoint,
             })
         },
-        reportOnboardingStepCompleted: ({ stepKey }) => {
+        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
+                // Optional — only set when the caller knows which product owns the step.
+                // Lets dashboards split step funnels by product without joining elsewhere.
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
-        reportOnboardingStepSkipped: ({ stepKey }) => {
+        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
@@ -2465,31 +2470,39 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
         },
-        reportNavbarStarredItemAdded: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemAdded: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item added', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
-        reportNavbarStarredItemRemoved: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemRemoved: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item removed', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
-        reportNavbarStarredItemClicked: ({ itemType, itemName, isAIFirst }) => {
+        reportNavbarStarredItemClicked: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item clicked', {
                 item_type: itemType,
                 item_name: itemName,
-                is_ai_first: isAIFirst,
             })
         },
         reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {
             posthog.capture('navbar starred items reordered', {
                 item_count: itemCount,
                 is_ai_first: isAIFirst,
+            })
+        },
+        reportMCPHintShown: ({ surfaceKey }) => {
+            posthog.capture('mcp hint shown', {
+                surface_key: surfaceKey,
+            })
+        },
+        reportMCPHintDismissed: ({ dismissType, surfaceKey }) => {
+            posthog.capture('mcp hint dismissed', {
+                dismiss_type: dismissType,
+                surface_key: surfaceKey,
             })
         },
     })),

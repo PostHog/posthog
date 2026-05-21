@@ -159,6 +159,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                     duration: duration,
+                    skip_inactivity: false,
                 },
             }
 

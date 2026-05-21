@@ -353,6 +353,7 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -429,6 +430,7 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -505,6 +507,7 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -592,6 +595,7 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -674,6 +678,7 @@
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -761,6 +766,7 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -849,6 +855,7 @@
            entity_metrics.breakdown_value_2,
            entity_metrics.breakdown_value_3
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -931,6 +938,7 @@
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -1020,6 +1028,7 @@
   GROUP BY winsorized_entity_metrics.variant,
            winsorized_entity_metrics.breakdown_value_1
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -1102,6 +1111,7 @@
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,
@@ -1189,6 +1199,7 @@
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,

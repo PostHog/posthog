@@ -3,7 +3,6 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
@@ -44,8 +43,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     List data modeling jobs which are "runs" for our saved queries.
     """
 
-    scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
+    scope_object = "warehouse_view"
     serializer_class = DataModelingJobSerializer
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()

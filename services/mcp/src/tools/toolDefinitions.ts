@@ -19,6 +19,14 @@ export const ToolDefinitionSchema = z.object({
     feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
     /** One-line selection hint surfaced in the system prompt's query tool catalog. */
     system_prompt_hint: z.string().optional(),
+    /**
+     * When true, the tool is exposed even when the client passes a `features`
+     * or `tools` allowlist that wouldn't otherwise match. Reserved for
+     * cross-cutting utility tools (e.g. feedback) that should remain
+     * discoverable to every client without forcing them to opt in.
+     * Other filters (readOnly, AI consent, feature flags, scopes) still apply.
+     */
+    always_available: z.boolean().optional(),
     annotations: z.object({
         destructiveHint: z.boolean(),
         idempotentHint: z.boolean(),
@@ -121,6 +129,8 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     // Filter by features and/or tools allowlist (OR union).
     // When both are provided, a tool is included if it matches a feature category OR is in the tools list.
     // Normalize hyphens to underscores so that both "error-tracking" and "error_tracking" match.
+    // Tools marked `always_available` bypass this allowlist so utility tools
+    // (e.g. feedback) stay discoverable for every client.
     const hasFeatures = features && features.length > 0
     const hasTools = tools && tools.length > 0
     if (hasFeatures || hasTools) {
@@ -128,6 +138,9 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         const allowedTools = hasTools ? new Set(tools) : null
 
         entries = entries.filter(([toolName, definition]) => {
+            if (definition.always_available) {
+                return true
+            }
             const matchesFeature = normalizedFeatures
                 ? definition.feature && normalizedFeatures.has(normalizeFeatureName(definition.feature))
                 : false

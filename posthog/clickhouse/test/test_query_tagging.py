@@ -14,9 +14,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
+    Feature,
+    HogQLFeatures,
     Product,
     QueryTags,
     TemporalTags,
+    add_fallback_query_tags,
     clear_tag,
     create_base_tags,
     get_caller_source,
@@ -401,3 +404,226 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         comment = self._get_log_comment(marker)
 
         assert comment.get("product") != Product.MCP.value
+
+    def test_execute_hogql_query_populates_hogql_features_tag(self):
+        # End-to-end: a HogQLQuery against `events` filtered by `$exception` should
+        # land in query_log with both the AST-derived hogql_features tag and the
+        # error_tracking product attribution that derives from it.
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query")
+        execute_hogql_query(
+            f"SELECT count() FROM events WHERE distinct_id = '{marker}' AND event = '$exception'",  # noqa: S608
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["hogql_features"] == {"tables": ["events"], "events": ["$exception"]}
+        assert comment["product"] == Product.ERROR_TRACKING.value
+
+    def test_execute_hogql_query_attributes_plain_events_query_to_product_analytics(self):
+        # Plain `events` query (no narrowing event filter) should fall back to
+        # product_analytics via the table-level rule.
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, feature="query")
+        execute_hogql_query(
+            f"SELECT count() FROM events WHERE distinct_id = '{marker}'",  # noqa: S608
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["hogql_features"] == {"tables": ["events"], "events": []}
+        assert comment["product"] == Product.PRODUCT_ANALYTICS.value
+
+    def test_execute_hogql_query_with_mcp_source_still_attributes_via_features(self):
+        # Pulling MCP traffic apart by what it actually does is the whole point
+        # of this fallback — confirm a $exception query from MCP attributes to
+        # error_tracking, not the catch-all MCP product.
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test", team_id=self.team.pk, source="mcp", feature="query")
+        execute_hogql_query(
+            f"SELECT count() FROM events WHERE distinct_id = '{marker}' AND event = '$exception'",  # noqa: S608
+            team=self.team,
+            query_type="HogQLQuery",
+        )
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["product"] == Product.ERROR_TRACKING.value
+
+
+class TestAddFallbackQueryTags(BaseTest):
+    def test_does_not_override_set_product(self):
+        tags = QueryTags(product=Product.LOGS, feature=Feature.QUERY, scene="Cohort", query_type="TrendsQuery")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.LOGS
+        assert tags.feature == Feature.QUERY
+
+    def test_does_not_override_set_feature(self):
+        tags = QueryTags(feature=Feature.DASHBOARD, scene="Cohort")
+        add_fallback_query_tags(tags)
+        assert tags.feature == Feature.DASHBOARD
+        # product was unset, scene fills it in
+        assert tags.product == Product.COHORTS
+
+    def test_scene_fills_product_and_feature(self):
+        tags = QueryTags(scene="SQLEditor")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.WAREHOUSE
+        assert tags.feature == Feature.QUERY
+
+    def test_kind_fills_product_only(self):
+        # Not every query kind is customer-facing (e.g. VectorSearchQuery is internal Max AI).
+        # Better to leave feature unset and let UntaggedQueryError surface where it matters.
+        tags = QueryTags(query_type="TrendsQuery")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+        assert tags.feature is None
+
+    def test_mcp_source_fills_product_only(self):
+        tags = QueryTags(source="mcp")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MCP
+        assert tags.feature is None
+
+    def test_scene_takes_precedence_over_kind(self):
+        # Scene maps to warehouse but kind would have mapped to product_analytics —
+        # scene wins because it's checked first.
+        tags = QueryTags(scene="SQLEditor", query_type="TrendsQuery")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.WAREHOUSE
+
+    def test_kind_takes_precedence_over_mcp_source(self):
+        tags = QueryTags(query_type="LogsQuery", source="mcp")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.LOGS
+
+    def test_empty_tags_left_untouched(self):
+        tags = QueryTags()
+        add_fallback_query_tags(tags)
+        assert tags.product is None
+        assert tags.feature is None
+
+    def test_unmapped_scene_falls_through(self):
+        tags = QueryTags(scene="Unknown", query_type="TrendsQuery")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+
+    @parameterized.expand([("Dashboard",), ("Dashboards",), ("Notebook",), ("Notebooks",), ("DebugQuery",), ("Max",)])
+    def test_container_scene_defers_to_kind(self, scene):
+        # Container scenes explicitly map to None — kind decides the product.
+        tags = QueryTags(scene=scene, query_type="TrendsQuery")
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+
+    def test_unmapped_scene_and_kind_leaves_tags_untouched(self):
+        tags = QueryTags(scene="Unknown", query_type="UnknownKind")
+        add_fallback_query_tags(tags)
+        assert tags.product is None
+        assert tags.feature is None
+
+    @parameterized.expand(
+        [
+            ("ai_generation", ["$ai_generation"], Product.LLM_ANALYTICS),
+            ("ai_span", ["$ai_span"], Product.LLM_ANALYTICS),
+            ("ai_trace", ["$ai_trace"], Product.LLM_ANALYTICS),
+            ("ai_embedding", ["$ai_embedding"], Product.LLM_ANALYTICS),
+            ("ai_metric", ["$ai_metric"], Product.LLM_ANALYTICS),
+            ("ai_feedback", ["$ai_feedback"], Product.LLM_ANALYTICS),
+            ("exception", ["$exception"], Product.ERROR_TRACKING),
+            ("web_vitals", ["$web_vitals"], Product.WEB_ANALYTICS),
+            ("feature_flag_called", ["$feature_flag_called"], Product.FEATURE_FLAGS),
+        ]
+    )
+    def test_hogql_features_event_fills_product(self, _name, events, expected_product):
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            hogql_features=HogQLFeatures(tables=["events"], events=events),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == expected_product
+
+    @parameterized.expand(
+        [
+            ("session_replay", ["session_replay_events"], Product.REPLAY),
+            ("logs_table", ["logs"], Product.LOGS),
+            ("events_table", ["events"], Product.PRODUCT_ANALYTICS),
+        ]
+    )
+    def test_hogql_features_table_fills_product_when_no_event_match(self, _name, tables, expected_product):
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            hogql_features=HogQLFeatures(tables=tables, events=[]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == expected_product
+
+    def test_hogql_features_event_takes_precedence_over_table(self):
+        # Querying the events table for $exception should attribute to error
+        # tracking, not product analytics — events are more specific.
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            hogql_features=HogQLFeatures(tables=["events"], events=["$exception"]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.ERROR_TRACKING
+
+    def test_hogql_features_only_apply_to_hogqlquery_kind(self):
+        # A TrendsQuery would already be product_analytics via kind fallback;
+        # we shouldn't let the AST features override that. More importantly,
+        # the AST contents of e.g. an LLM-analytics insight (which uses
+        # TrendsQuery on $ai_generation) shouldn't get re-attributed.
+        tags = QueryTags(
+            query_type="TrendsQuery",
+            hogql_features=HogQLFeatures(tables=["events"], events=["$exception"]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.PRODUCT_ANALYTICS
+
+    def test_hogql_features_does_not_override_set_product(self):
+        tags = QueryTags(
+            product=Product.MCP,
+            query_type="HogQLQuery",
+            hogql_features=HogQLFeatures(tables=["events"], events=["$exception"]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MCP
+
+    def test_hogql_features_take_precedence_over_mcp_source(self):
+        # The whole point of the hogql_features fallback is to pull MCP traffic
+        # apart by what it actually does — so even when source=mcp, a recognised
+        # event filter must win over the catch-all MCP attribution.
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            source="mcp",
+            hogql_features=HogQLFeatures(tables=["events"], events=["$exception"]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.ERROR_TRACKING
+
+    def test_hogql_features_table_only_take_precedence_over_mcp_source(self):
+        # Same precedence holds for the table-only path.
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            source="mcp",
+            hogql_features=HogQLFeatures(tables=["session_replay_events"], events=[]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.REPLAY
+
+    def test_hogql_features_unmapped_features_fall_through_to_mcp(self):
+        # No interesting events, no recognised tables — let the MCP source
+        # fallback fire instead.
+        tags = QueryTags(
+            query_type="HogQLQuery",
+            source="mcp",
+            hogql_features=HogQLFeatures(tables=[], events=[]),
+        )
+        add_fallback_query_tags(tags)
+        assert tags.product == Product.MCP

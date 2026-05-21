@@ -225,7 +225,7 @@ class TestRunAPI:
         result = api.complete_run(create_result.run_id)
 
         assert result.status == "processing"
-        mock_delay.assert_called_once_with(str(create_result.run_id))
+        mock_delay.assert_called_once_with(repo.team_id, str(create_result.run_id))
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

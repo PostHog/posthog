@@ -8,6 +8,7 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
+from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.views import MAX_ITEMS_PER_PAGE
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
@@ -724,6 +725,64 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert RoleMembership.objects.filter(role=role, user=user_str).exists()
         assert not RoleMembership.objects.filter(role=role, user=user_removed).exists()
         assert RoleMembership.objects.filter(role=role).count() == 2
+
+    # ── Helper contract tests ──
+
+    @parameterized.expand(
+        [
+            ("none_returns_none", None, None),
+            ("string_int_passes_through", "123", "123"),
+            ("raw_int_normalized_to_str", 123, "123"),
+            ("non_numeric_string_returns_none", "abc", None),
+            ("uuid_string_returns_none", "550e8400-e29b-41d4-a716-446655440000", None),
+        ]
+    )
+    def test_parse_member_id(self, _name: str, raw, expected: str | None):
+        assert PostHogSCIMGroup._parse_member_id(raw) == expected
+
+    def test_put_silently_skips_member_not_in_org(self):
+        # User exists but belongs to a different org — _assign_role_member should
+        # return early on the missing org_membership, leaving the role empty.
+        other_org = Organization.objects.create(name="Other Org")
+        external_user = User.objects.create_user(
+            email="external_put@other.com", password=None, first_name="External", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=external_user, organization=other_org, level=OrganizationMembership.Level.MEMBER
+        )
+        role = Role.objects.create(name="ExternalPutRole", organization=self.organization)
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "ExternalPutRole",
+            "members": [{"value": str(external_user.id)}],
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not RoleMembership.objects.filter(role=role, user=external_user).exists()
+        assert RoleMembership.objects.filter(role=role).count() == 0
+
+    def test_put_silently_skips_nonexistent_member(self):
+        # Stale user id from the IdP — _assign_role_member should swallow
+        # User.DoesNotExist and continue.
+        role = Role.objects.create(name="GhostRole", organization=self.organization)
+
+        put_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "GhostRole",
+            "members": [{"value": "999999999"}],
+        }
+
+        response = self.client.put(
+            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert RoleMembership.objects.filter(role=role).count() == 0
 
     # ── Pagination tests ──
 

@@ -31,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     Change,
@@ -42,6 +42,8 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.saved_query_service import (
@@ -147,7 +149,9 @@ class DataWarehouseSavedQuerySerializerMixin:
         ]
 
 
-class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQueryMinimalSerializer(
+    DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     """Lightweight serializer for list views - excludes large query field to reduce memory usage."""
 
     created_by = UserBasicSerializer(read_only=True)
@@ -178,11 +182,14 @@ class DataWarehouseSavedQueryMinimalSerializer(DataWarehouseSavedQuerySerializer
             "origin",
             "is_test",
             "expires_at",
+            "user_access_level",
         ]
         read_only_fields = fields
 
 
-class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, serializers.ModelSerializer):
+class DataWarehouseSavedQuerySerializer(
+    DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
+):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
@@ -243,6 +250,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "origin",
             "is_test",
             "expires_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -255,6 +263,7 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             "folder_name",
             "latest_error",
             "latest_history_id",
+            "user_access_level",
             "is_materialized",
             "origin",
             "expires_at",
@@ -584,14 +593,14 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
-class DataWarehouseSavedQueryFolderSerializer(serializers.ModelSerializer):
+class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     view_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = DataWarehouseSavedQueryFolder
-        fields = ["id", "name", "created_at", "created_by", "view_count"]
-        read_only_fields = ["id", "created_at", "created_by", "view_count"]
+        fields = ["id", "name", "created_at", "created_by", "view_count", "user_access_level"]
+        read_only_fields = ["id", "created_at", "created_by", "view_count", "user_access_level"]
         extra_kwargs = {
             "name": {
                 "help_text": "Display name for the folder used to organize saved queries in the SQL editor sidebar."
@@ -615,7 +624,7 @@ class DataWarehouseSavedQueryFolderSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
-class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQueryFolder.objects.all()
     serializer_class = DataWarehouseSavedQueryFolderSerializer
@@ -667,7 +676,7 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, viewsets.Mode
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
-class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
     """
@@ -761,7 +770,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             team_id=self.team_id, name=request.data.get("name")
         ).first()
         if saved_query:
-            # Update logic
+            # The UPSERT branch updates an existing row without going through get_object(),
+            # so run object-level permission checks explicitly to honor per-object access controls.
+            self.check_object_permissions(request, saved_query)
             serializer = self.get_serializer(saved_query, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
@@ -798,6 +809,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         trigger_saved_query_schedule(saved_query)
 
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="sync_triggered",
+            detail=Detail(name=saved_query.name),
+        )
+
         return response.Response(status=status.HTTP_200_OK)
 
     @action(
@@ -828,6 +850,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             capture_exception(e)
             logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
 
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="materialization_disabled",
+            detail=Detail(name=saved_query.name),
+        )
+
         return response.Response(status=status.HTTP_200_OK)
 
     @action(
@@ -848,6 +881,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
 
         should_unpause = saved_query.sync_frequency_interval is None
+        previous_interval = saved_query.sync_frequency_interval
 
         saved_query.sync_frequency_interval = sync_frequency_interval
         saved_query.is_materialized = True
@@ -874,6 +908,28 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         except Exception as e:
             capture_exception(e)
             logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="materialization_enabled",
+            detail=Detail(
+                name=saved_query.name,
+                changes=[
+                    Change(
+                        field="sync_frequency_interval",
+                        action="changed",
+                        type="DataWarehouseSavedQuery",
+                        before=str(previous_interval) if previous_interval else None,
+                        after=str(sync_frequency_interval),
+                    ),
+                ],
+            ),
+        )
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -1020,13 +1076,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             # This is because the saved_query is used by our UI to prevent multiple cancellations
             saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
             saved_query.save()
-
-            return response.Response(status=status.HTTP_200_OK)
         except Exception as e:
             logger.exception("Failed to cancel workflow", workflow_id=workflow_id, error=str(e))
             return response.Response(
                 {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="sync_cancelled",
+            detail=Detail(name=saved_query.name),
+        )
+
+        return response.Response(status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=True)
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:

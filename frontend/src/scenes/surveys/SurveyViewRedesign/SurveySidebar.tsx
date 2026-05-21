@@ -8,7 +8,6 @@ import { LemonButton, LemonMenu, LemonSelect, Link } from '@posthog/lemon-ui'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils'
-import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
 import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -185,12 +184,6 @@ export function SurveyDetailsPanel(): JSX.Element {
             )}
         </div>
     )
-}
-
-export function SurveyNotificationsPanel(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-
-    return <SurveyNotifications surveyId={survey.id} buttonFullWidth />
 }
 
 export function SurveyExportPanel(): JSX.Element {

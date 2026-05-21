@@ -2,6 +2,7 @@ import logging
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
@@ -20,6 +21,7 @@ class SignalSourceConfig(UUIDModel):
         ZENDESK = "zendesk", "Zendesk"
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
+        PGANALYZE = "pganalyze", "pganalyze"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -120,6 +122,7 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
@@ -187,16 +190,15 @@ class SignalReport(UUIDModel):
         Raises InvalidStatusTransition if the transition is not allowed.
         Does NOT call .save().
         """
-        from django.utils import timezone
-
         S = self.Status
         updated_fields: set[str] = set()
 
         match (self.status, new_status):
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
-            # - READY -> CANDIDATE to update the report with new signals context (every N signals)
-            case (S.POTENTIAL | S.READY, S.CANDIDATE):
+            # - READY | RESOLVED -> CANDIDATE when new matching signals reopen the report for
+            #   summary / agentic research (READY: every signal; resolved: recurrence of the issue)
+            case (S.POTENTIAL | S.READY | S.RESOLVED, S.CANDIDATE):
                 self.promoted_at = timezone.now()
                 updated_fields.add("promoted_at")
 
@@ -225,7 +227,7 @@ class SignalReport(UUIDModel):
                 updated_fields.update(["title", "summary", "error"])
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
-            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY, S.POTENTIAL):
+            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if snooze_for is not None:
@@ -239,22 +241,38 @@ class SignalReport(UUIDModel):
                     updated_fields.add("error")
 
             # Any non-deleted status can fail
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY, S.FAILED):
+            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED, S.FAILED):
                 if error is None:
                     raise ValueError("error is required for transition to failed")
                 self.error = error
                 updated_fields.add("error")
 
             # Any non-deleted status can be suppressed
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED, S.SUPPRESSED):
+            case (
+                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.SUPPRESSED,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
 
             # Any non-deleted status can be deleted
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED | S.SUPPRESSED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.RESOLVED
+                | S.FAILED
+                | S.SUPPRESSED,
                 S.DELETED,
             ):
+                pass
+
+            # Only ready reports can resolve
+            # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
+            case (S.PENDING_INPUT | S.READY, S.RESOLVED):
+                # Just pass through to status setting
                 pass
 
             case _:
@@ -302,6 +320,7 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        DISMISSAL = "dismissal"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")

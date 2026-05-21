@@ -4,7 +4,8 @@ import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icon
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -105,6 +106,10 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const newChannelRestrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const newChannelMenuItems: LemonMenuItems = [
         {
@@ -232,6 +237,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                     icon={<IconPlusSmall />}
                                     size="small"
                                     type="primary"
+                                    disabledReason={newChannelRestrictedReason}
                                 >
                                     New channel
                                 </LemonButton>

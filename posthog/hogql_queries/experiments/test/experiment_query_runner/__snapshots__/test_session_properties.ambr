@@ -71,6 +71,7 @@
   FROM entity_metrics
   GROUP BY entity_metrics.variant
   LIMIT 50000 SETTINGS join_algorithm='grace_hash',
+                       grace_hash_join_initial_buckets=2,
                        readonly=2,
                        max_execution_time=600,
                        allow_experimental_object_type=1,

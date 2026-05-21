@@ -178,6 +178,7 @@ if persons_db_writer_url:
 
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
+PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
 for route in product_routes:
     if route.database in configured_product_databases:
@@ -198,6 +199,7 @@ for route in product_routes:
     if not writer_url:
         continue
 
+    PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
 
@@ -289,6 +291,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
+# respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
+# so a per-cluster topology can actually exercise routing.
+MULTINODE_CLICKHOUSE: bool = get_from_env("MULTINODE_CLICKHOUSE", False, type_cast=str_to_bool)
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
@@ -375,7 +381,11 @@ def is_enable_analyzer_team(team_id: int | None) -> bool:
 def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+    try:
+        value = get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+        return value if isinstance(value, list) else []
+    except Exception:
+        return []
 
 
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
@@ -389,7 +399,8 @@ def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
-        return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        return value if isinstance(value, list) else []
     except Exception:
         return []
 
@@ -455,6 +466,14 @@ if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
     SESSION_RECORDING_REDIS_URL = "redis://{}:{}/".format(
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""),
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
+    )
+
+REPLAY_VISION_REDIS_URL = REDIS_URL
+
+if get_from_env("POSTHOG_REPLAY_VISION_REDIS_HOST", ""):
+    REPLAY_VISION_REDIS_URL = "redis://{}:{}/".format(
+        os.getenv("POSTHOG_REPLAY_VISION_REDIS_HOST", ""),
+        os.getenv("POSTHOG_REPLAY_VISION_REDIS_PORT", "6379"),
     )
 
 if not REDIS_URL:
@@ -572,3 +591,8 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 )
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
+
+WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL", "")
+WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
+    "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""
+)

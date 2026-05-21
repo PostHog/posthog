@@ -4,6 +4,7 @@ from django.utils.html import format_html
 from posthog.models import Plugin
 
 
+@admin.register(Plugin)
 class PluginAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_id", "is_global")
     list_display_links = ("id", "name")

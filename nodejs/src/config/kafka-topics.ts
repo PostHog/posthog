@@ -76,6 +76,11 @@ export const KAFKA_TRACES_INGESTION = `${prefix}ingestion-traces${suffix}`
 export const KAFKA_TRACES_INGESTION_DLQ = `${prefix}ingestion-traces-dlq${suffix}`
 export const KAFKA_TRACES_INGESTION_OVERFLOW = `${prefix}ingestion-traces-overflow${suffix}`
 export const KAFKA_TRACES_CLICKHOUSE = `${prefix}clickhouse_traces${suffix}`
+// Metrics ingestion topics
+export const KAFKA_METRICS_INGESTION = `${prefix}metrics_ingestion${suffix}`
+export const KAFKA_METRICS_INGESTION_DLQ = `${prefix}metrics_ingestion_dlq${suffix}`
+export const KAFKA_METRICS_INGESTION_OVERFLOW = `${prefix}metrics_ingestion_overflow${suffix}`
+export const KAFKA_METRICS_CLICKHOUSE = `${prefix}clickhouse_metrics${suffix}`
 
 // TopHog metrics
 export const KAFKA_CLICKHOUSE_TOPHOG = `${prefix}clickhouse_tophog${suffix}`

@@ -22,9 +22,16 @@ export function formatPercent(value: number): string {
     return `${(value * 100).toFixed(1)}%`
 }
 
+// Only format strings that look like ISO dates — `new Date(...)` is permissive enough that
+// labels like "Day 1" silently parse to Jan 1 2001, mangling pre-formatted axis labels.
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/
+
 export function formatDate(dateStr: string): string {
+    if (!ISO_DATE_PREFIX.test(dateStr)) {
+        return dateStr
+    }
     const date = new Date(dateStr)
-    if (isNaN(date.getTime())) {
+    if (Number.isNaN(date.getTime())) {
         return dateStr
     }
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

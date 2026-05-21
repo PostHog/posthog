@@ -1,13 +1,46 @@
-import type { CSSProperties, ReactElement } from 'react'
+import type { ReactElement } from 'react'
 
-import { EmptyState } from '@posthog/mosaic'
+import { emptyStateIllustration } from '@posthog/mcp-ui'
+import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
 import { FunnelVisualizer } from './FunnelVisualizer'
+import { LifecycleVisualizer } from './LifecycleVisualizer'
+import { RetentionVisualizer } from './RetentionVisualizer'
 import { TableVisualizer } from './TableVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
-import type { FunnelResult, FunnelsQuery, HogQLResult, TrendsQuery, TrendsResult } from './types'
+import type {
+    FunnelResult,
+    FunnelsQuery,
+    HogQLResult,
+    LifecycleQuery,
+    LifecycleResult,
+    RetentionQuery,
+    RetentionResult,
+    TrendsQuery,
+    TrendsResult,
+} from './types'
 
-type VisualizationType = 'trends' | 'funnel' | 'table'
+type VisualizationType = 'trends' | 'funnel' | 'lifecycle' | 'retention' | 'table'
+
+/**
+ * Lifecycle results share the trends shape but each item carries a `status` field
+ * (`new` / `returning` / `resurrecting` / `dormant`), and dormant counts come back
+ * negated from the backend so they render below zero.
+ */
+function isLifecycleResult(results: unknown): results is LifecycleResult {
+    if (!Array.isArray(results) || results.length === 0) {
+        return false
+    }
+    const first = results[0] as Record<string, unknown>
+    if (typeof first !== 'object' || first === null) {
+        return false
+    }
+    const status = first.status
+    return (
+        typeof status === 'string' &&
+        (status === 'new' || status === 'returning' || status === 'resurrecting' || status === 'dormant')
+    )
+}
 
 /**
  * Check if results look like TrendsResult (array of items with data/labels arrays).
@@ -51,6 +84,30 @@ function isFunnelResult(results: unknown): results is FunnelResult {
 }
 
 /**
+ * Retention results are arrays of cohorts where each item has `values: [{ count, ... }]`
+ * and a `date`/`label`. Distinct from trends (which uses `data`/`labels`/`days`).
+ */
+function isRetentionResult(results: unknown): results is RetentionResult {
+    if (!Array.isArray(results) || results.length === 0) {
+        return false
+    }
+    const first = results[0] as Record<string, unknown>
+    if (typeof first !== 'object' || first === null) {
+        return false
+    }
+    if (!Array.isArray(first.values) || !('date' in first)) {
+        return false
+    }
+    // A brand-new cohort can legitimately have an empty `values` array — accept it as long as
+    // the surrounding shape is right. Only validate the inner `count` field when there's a row.
+    if (first.values.length === 0) {
+        return true
+    }
+    const firstValue = first.values[0] as Record<string, unknown>
+    return typeof firstValue === 'object' && firstValue !== null && 'count' in firstValue
+}
+
+/**
  * Check if results look like HogQLResult (object with columns and results arrays).
  */
 function isHogQLResult(results: unknown): results is HogQLResult {
@@ -78,6 +135,14 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
     if (isHogQLResult(results)) {
         return 'table'
     }
+    // Retention must come before trends — its cohort rows could otherwise be misread.
+    if (isRetentionResult(results)) {
+        return 'retention'
+    }
+    // Lifecycle must come before trends — its rows pass `isTrendsResult` too.
+    if (isLifecycleResult(results)) {
+        return 'lifecycle'
+    }
     if (isTrendsResult(results)) {
         return 'trends'
     }
@@ -87,11 +152,17 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 
     // Infer from query kind as fallback
     const query = d.query as Record<string, unknown> | undefined
+    if (query?.kind === 'LifecycleQuery') {
+        return 'lifecycle'
+    }
     if (query?.kind === 'TrendsQuery') {
         return 'trends'
     }
     if (query?.kind === 'FunnelsQuery') {
         return 'funnel'
+    }
+    if (query?.kind === 'RetentionQuery') {
+        return 'retention'
     }
     if (query?.kind === 'HogQLQuery') {
         return 'table'
@@ -102,8 +173,8 @@ function inferVisualizationType(data: unknown): VisualizationType | null {
 
 /** Data payload from MCP tools */
 interface DataPayload {
-    query?: TrendsQuery | FunnelsQuery | Record<string, unknown>
-    results: TrendsResult | FunnelResult | HogQLResult
+    query?: TrendsQuery | FunnelsQuery | LifecycleQuery | RetentionQuery | Record<string, unknown>
+    results: TrendsResult | FunnelResult | LifecycleResult | RetentionResult | HogQLResult
     _posthogUrl?: string
 }
 
@@ -112,34 +183,26 @@ export interface ComponentProps {
 }
 
 export function Component({ data }: ComponentProps): ReactElement {
-    const containerStyle: CSSProperties = {
-        fontFamily:
-            'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)',
-        color: 'var(--color-text-primary, #101828)',
-        backgroundColor: 'var(--color-background-primary, #fff)',
-        padding: '1rem',
-        borderRadius: 'var(--border-radius-lg, 0.5rem)',
-        border: '1px solid var(--color-border-primary, #e5e7eb)',
-    }
-
-    const titleStyle: CSSProperties = {
-        fontSize: '0.875rem',
-        fontWeight: 600,
-        color: 'var(--color-text-secondary, #6b7280)',
-        marginBottom: '1rem',
-        textTransform: 'uppercase',
-        letterSpacing: '0.05em',
-    }
-
     const payload = data as DataPayload
     const visualizationType = inferVisualizationType(data)
 
     if (!visualizationType) {
         return (
-            <div style={containerStyle}>
-                <div style={titleStyle}>Results</div>
-                <EmptyState icon="generic" description="This visualization type isn't supported in this view yet." />
-            </div>
+            <Card>
+                <CardContent>
+                    <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Results
+                    </div>
+                    <Empty>
+                        <EmptyHeader>
+                            <EmptyMedia>{emptyStateIllustration('generic')}</EmptyMedia>
+                            <EmptyDescription>
+                                This visualization type isn't supported in this view yet.
+                            </EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
+                </CardContent>
+            </Card>
         )
     }
 
@@ -155,15 +218,27 @@ export function Component({ data }: ComponentProps): ReactElement {
                     <FunnelVisualizer query={payload.query as FunnelsQuery} results={payload.results as FunnelResult} />
                 )
 
+            case 'lifecycle':
+                return (
+                    <LifecycleVisualizer
+                        query={payload.query as LifecycleQuery}
+                        results={payload.results as LifecycleResult}
+                    />
+                )
+
+            case 'retention':
+                return (
+                    <RetentionVisualizer
+                        query={payload.query as RetentionQuery}
+                        results={payload.results as RetentionResult}
+                    />
+                )
+
             case 'table':
                 return <TableVisualizer results={payload.results as HogQLResult} />
 
             default:
-                return (
-                    <div style={{ color: 'var(--color-text-secondary, #6b7280)' }}>
-                        Unknown visualization type: {visualizationType}
-                    </div>
-                )
+                return <div className="text-muted-foreground">Unknown visualization type: {visualizationType}</div>
         }
     }
 
@@ -173,6 +248,10 @@ export function Component({ data }: ComponentProps): ReactElement {
                 return 'Trends'
             case 'funnel':
                 return 'Funnel'
+            case 'lifecycle':
+                return 'Lifecycle'
+            case 'retention':
+                return 'Retention'
             case 'table':
                 return 'Query results'
             default:
@@ -181,9 +260,13 @@ export function Component({ data }: ComponentProps): ReactElement {
     }
 
     return (
-        <div style={containerStyle}>
-            <div style={titleStyle}>{getTitle()}</div>
-            {renderVisualization()}
-        </div>
+        <Card>
+            <CardContent>
+                <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {getTitle()}
+                </div>
+                {renderVisualization()}
+            </CardContent>
+        </Card>
     )
 }

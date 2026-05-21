@@ -341,15 +341,12 @@ def _detect_actor_type(
 
 
 def _resolve_group_type_name(team: Team, group_type_index: int) -> str:
-    from posthog.models.group_type_mapping import GroupTypeMapping
+    from posthog.models.group_type_mapping import get_group_types_for_project
 
-    try:
-        mapping = GroupTypeMapping.objects.get(  # nosemgrep: no-direct-persons-db-orm
-            team=team, group_type_index=group_type_index
-        )  # nosemgrep: no-direct-persons-db-orm
-        return mapping.name_plural or mapping.name_singular or mapping.group_type
-    except GroupTypeMapping.DoesNotExist:
-        return f"group type {group_type_index}"
+    for m in get_group_types_for_project(team.project_id):
+        if m["group_type_index"] == group_type_index:
+            return m["name_plural"] or m["name_singular"] or m["group_type"]
+    return f"group type {group_type_index}"
 
 
 # Standalone actors (e.g. Persons opened as new insights)

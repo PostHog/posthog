@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 
 from django.conf import settings
+from django.core.cache import cache
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
@@ -12,6 +13,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
@@ -98,6 +100,77 @@ class ProxyRecordListResponseSerializer(serializers.Serializer):
     max_proxy_records = serializers.IntegerField(
         help_text="Maximum number of proxy records allowed for this organization's current plan."
     )
+
+
+# --- Diagnose response serializers ---
+# Mirror the dataclasses defined in products/platform_features/backend/proxy/diagnostics.py.
+# These are pure response shapes — drf-spectacular generates frontend types and MCP tool
+# schemas from them, so every field needs help_text and every choice list must be enumerated.
+
+DIAGNOSE_COOLDOWN_SECONDS = 30
+
+DIAGNOSTIC_CHECK_STATUS_CHOICES = ["passed", "warned", "failed", "skipped"]
+DIAGNOSTIC_SUMMARY_STATUS_CHOICES = ["healthy", "warn", "fail"]
+DIAGNOSTIC_REMEDIATION_TYPE_CHOICES = ["dns", "config", "wait", "retry"]
+
+
+class DiagnosticDnsRecordSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="DNS record name (the hostname the record is set on).")
+    type = serializers.CharField(help_text="DNS record type, e.g. CNAME, CAA, A.")
+    value = serializers.CharField(help_text="DNS record value to set.")
+
+
+class DiagnosticRemediationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=DIAGNOSTIC_REMEDIATION_TYPE_CHOICES,
+        help_text=(
+            "Category of fix. dns: customer must change DNS records. config: customer must adjust their server "
+            "config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry."
+        ),
+    )
+    summary = serializers.CharField(help_text="One-line, action-oriented summary of what to do.")
+    records = DiagnosticDnsRecordSerializer(
+        many=True,
+        help_text="DNS records the customer should add (empty when remediation is not DNS-based).",
+    )
+
+
+class DiagnosticCheckResultSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text="Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry)."
+    )
+    name = serializers.CharField(help_text="Human-readable check name.")
+    status = serializers.ChoiceField(
+        choices=DIAGNOSTIC_CHECK_STATUS_CHOICES,
+        help_text="passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.",
+    )
+    detail = serializers.CharField(help_text="Customer-facing explanation of the check's outcome.")
+    remediation = DiagnosticRemediationSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Concrete remediation steps when the check failed; null when there's nothing actionable.",
+    )
+
+
+class DiagnosticReportSummarySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=DIAGNOSTIC_SUMMARY_STATUS_CHOICES,
+        help_text="Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.",
+    )
+    primary_issue = serializers.CharField(
+        allow_null=True,
+        help_text="Check id of the most actionable failure, if any. Null when status is healthy.",
+    )
+    next_action = serializers.CharField(
+        allow_null=True,
+        help_text="One-sentence next action the customer should take. Null when nothing's wrong.",
+    )
+
+
+class DiagnosticReportSerializer(serializers.Serializer):
+    ran_at = serializers.DateTimeField(help_text="When this diagnostic report was generated (UTC).")
+    summary = DiagnosticReportSummarySerializer(help_text="Top-level outcome and recommended next action.")
+    checks = DiagnosticCheckResultSerializer(many=True, help_text="Per-check results in execution order.")
 
 
 @extend_schema(tags=["reverse_proxy"])
@@ -203,6 +276,39 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         serializer = self.get_serializer(record)
         _capture_proxy_event(request, record, "created")
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        description=(
+            "Run a deep diagnostic on a reverse proxy. Inspects DNS CNAME alignment, the certificate "
+            "provider's hostname state, CAA records walked up the customer's DNS tree, HTTP-01 challenge "
+            "reachability, a live event probe, and certificate expiry. Returns a structured report with "
+            "each check's status and concrete remediation steps (e.g. exact DNS records to add). Use this "
+            "to debug why a proxy is stuck or erroring."
+        ),
+        request=None,
+        responses={200: DiagnosticReportSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def diagnose(self, request, *args, pk=None, **kwargs):
+        try:
+            record = self.organization.proxy_records.get(id=pk)
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
+
+        # Per-user, per-record cooldown. Each diagnose makes ~5–10 outbound requests
+        # against the customer's domain (DNS CAA walk, HTTP probes, TLS handshake) plus a
+        # Cloudflare API call. Even gated to admins, repeated calls would amplify
+        # network traffic toward the configured CNAME chain.
+        cooldown_key = f"proxy_records:diagnose:cooldown:{record.id}:{request.user.id}"
+        if not cache.add(cooldown_key, "1", timeout=DIAGNOSE_COOLDOWN_SECONDS):
+            return Response(
+                {"detail": "A diagnostic was just run for this proxy. Please wait a few seconds before trying again."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        report = diagnose_proxy_record(record)
+        serializer = DiagnosticReportSerializer(report)
+        return Response(serializer.data)
 
     @extend_schema(
         description="Retry provisioning a failed reverse proxy. "

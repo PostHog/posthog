@@ -124,6 +124,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
+            return {
+                cdpCyclotronWorkerHogFlowLegacyPg: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
@@ -147,6 +151,7 @@ export function getPluginServerCapabilities(
                 evaluationScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
+        case PluginServerMode.ingestion_metrics:
         case PluginServerMode.ingestion_traces:
             throw new Error(`Mode ${mode} is handled by a dedicated server, not PluginServer`)
         case PluginServerMode.ingestion_error_tracking:

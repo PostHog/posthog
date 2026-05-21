@@ -17,7 +17,7 @@ from django.utils.timezone import now
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -234,12 +234,251 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         return response.Response({"cancelled": True})
 
 
-class BatchExportDestinationSerializer(serializers.ModelSerializer):
-    """Serializer for an BatchExportDestination model."""
+class DatabricksDestinationConfigSerializer(serializers.Serializer):
+    """Typed configuration for a Databricks batch-export destination.
 
-    integration = TeamScopedPrimaryKeyRelatedField(queryset=Integration.objects.all(), required=False, allow_null=True)
+    Credentials live in the linked Integration, not in this config. Mirrors
+    `DatabricksBatchExportInputs` in `products/batch_exports/backend/service.py`.
+    """
+
+    http_path = serializers.CharField(help_text="Databricks SQL warehouse HTTP path.")
+    catalog = serializers.CharField(help_text="Unity Catalog name.")
+    schema = serializers.CharField(help_text="Schema (database) name inside the catalog.")
+    table_name = serializers.CharField(help_text="Destination table name.")
+    use_variant_type = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether to use the Databricks VARIANT type for JSON-like columns.",
+    )
+    use_automatic_schema_evolution = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether to let Databricks evolve the destination table schema automatically.",
+    )
+
+
+class BigQueryDestinationConfigSerializer(serializers.Serializer):
+    """Typed configuration for a BigQuery batch-export destination.
+
+    Credentials live in the linked Integration, not in this config. Mirrors the
+    non-credential fields of `BigQueryBatchExportInputs` in
+    `products/batch_exports/backend/service.py`.
+    """
+
+    dataset_id = serializers.CharField(help_text="BigQuery dataset ID to write to.")
+    table_id = serializers.CharField(
+        required=False,
+        default="events",
+        help_text="BigQuery table ID inside the dataset.",
+    )
+    use_json_type = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type "
+            "rather than STRING. Cannot be changed after the export is created."
+        ),
+    )
+
+
+class AzureBlobDestinationConfigSerializer(serializers.Serializer):
+    """Typed configuration for an Azure Blob Storage batch-export destination.
+
+    Credentials live in the linked Integration, not in this config. Mirrors
+    `AzureBlobBatchExportInputs` in `products/batch_exports/backend/service.py`.
+    """
+
+    container_name = serializers.CharField(help_text="Azure Blob Storage container name.")
+    prefix = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text="Object key prefix applied to every exported file.",
+    )
+    compression = serializers.ChoiceField(
+        choices=sorted({codec for codecs in AZURE_BLOB_SUPPORTED_COMPRESSIONS.values() for codec in codecs}),
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional compression codec applied to exported files. Valid codecs depend on file_format.",
+    )
+    file_format = serializers.ChoiceField(
+        choices=["JSONLines", "Parquet"],
+        required=False,
+        default="JSONLines",
+        help_text="File format used for exported objects.",
+    )
+    max_file_size_mb = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
+    )
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="BatchExportDestinationConfig",
+        serializers={
+            "Databricks": DatabricksDestinationConfigSerializer,
+            "AzureBlob": AzureBlobDestinationConfigSerializer,
+            "BigQuery": BigQueryDestinationConfigSerializer,
+        },
+        resource_type_field_name="type",
+    )
+)
+class TypedBatchExportDestinationConfigField(serializers.JSONField):
+    """JSONField with a polymorphic OpenAPI schema keyed by the sibling `type`.
+
+    Runtime validation remains a plain JSONField (see
+    `BatchExportDestinationSerializer.validate`); the decorator only shapes the
+    generated OpenAPI spec so clients and MCP tools see typed configs for
+    integration-backed destinations.
+    """
+
+    pass
+
+
+# Request schemas per destination type. These shape the OpenAPI spec for create/update
+# request bodies so that integration-backed destinations advertise integration_id as
+# required. Runtime validation still flows through BatchExportDestinationSerializer and
+# its validate_destination hook — these classes are schema-only.
+class DatabricksDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating a Databricks batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["Databricks"])
+    integration_id = serializers.IntegerField(
+        help_text="ID of a databricks-kind Integration. Use the integrations-list MCP tool to find one.",
+    )
+    config = DatabricksDestinationConfigSerializer()
+
+
+class AzureBlobDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating an Azure Blob Storage batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["AzureBlob"])
+    integration_id = serializers.IntegerField(
+        help_text="ID of an azure-blob-kind Integration. Use the integrations-list MCP tool to find one.",
+    )
+    config = AzureBlobDestinationConfigSerializer()
+
+
+class BigQueryDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating a BigQuery batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["BigQuery"])
+    integration_id = serializers.IntegerField(
+        help_text=(
+            "ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one."
+        ),
+    )
+    config = BigQueryDestinationConfigSerializer()
+
+
+BatchExportDestinationRequest = PolymorphicProxySerializer(
+    component_name="BatchExportDestinationRequest",
+    serializers={
+        "Databricks": DatabricksDestinationRequestSerializer,
+        "AzureBlob": AzureBlobDestinationRequestSerializer,
+        "BigQuery": BigQueryDestinationRequestSerializer,
+    },
+    resource_type_field_name="type",
+)
+
+
+@extend_schema_field(BatchExportDestinationRequest)
+class BatchExportDestinationRequestField(serializers.JSONField):
+    """JSONField annotated with a polymorphic OpenAPI request schema.
+
+    Only integration-backed destinations (Databricks, AzureBlob, BigQuery) are exposed in
+    the schema — their integration_id is required so clients and MCP tools know up front
+    that these destinations need a linked Integration. Runtime validation remains
+    `BatchExportDestinationSerializer.validate_destination`.
+    """
+
+    pass
+
+
+class BatchExportRequestSerializer(serializers.Serializer):
+    """Request body for create/partial_update on BatchExportViewSet.
+
+    Mirrors the writeable fields of `BatchExportSerializer` but uses a polymorphic
+    `destination` schema so integration_id is marked required on the types that need
+    it. Responses continue to use `BatchExportSerializer`.
+    """
+
+    name = serializers.CharField(help_text="Human-readable name for the batch export.")
+    model = serializers.ChoiceField(
+        choices=BatchExport.Model.choices,
+        required=False,
+        help_text="Which data model to export (events, persons, sessions).",
+    )
+    destination = BatchExportDestinationRequestField(
+        help_text="Destination configuration. Required integration_id is enforced per destination type.",
+    )
+    interval = serializers.ChoiceField(
+        choices=BATCH_EXPORT_INTERVALS,
+        help_text="How often the batch export should run.",
+    )
+    paused = serializers.BooleanField(required=False, help_text="Whether the batch export is paused.")
+    hogql_query = serializers.CharField(
+        required=False,
+        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
+    )
+    filters = serializers.JSONField(required=False, allow_null=True)
+    timezone = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.",
+    )
+    offset_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=6,
+        help_text="Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday).",
+    )
+    offset_hour = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=23,
+        help_text="Hour-of-day offset (0-23) for daily and weekly intervals.",
+    )
+
+
+class BatchExportDestinationSerializer(serializers.ModelSerializer):
+    """Serializer for an BatchExportDestination model.
+
+    The `config` field is polymorphic and typed only for destinations that keep
+    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+    Other destination types accept the same JSON shape but without a typed
+    OpenAPI schema. Secret fields are stripped from `config` on read.
+    """
+
+    config = TypedBatchExportDestinationConfigField(
+        help_text=(
+            "Destination-specific configuration. Fields depend on `type`. Credentials for "
+            "integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — "
+            "they live in the linked Integration. Secret fields are stripped from responses."
+        ),
+    )
+    integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="The integration for this destination.",
+    )
     integration_id = TeamScopedPrimaryKeyRelatedField(
-        write_only=True, queryset=Integration.objects.all(), source="integration", required=False, allow_null=True
+        write_only=True,
+        queryset=Integration.objects.all(),
+        source="integration",
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of a team-scoped Integration providing credentials. Required for Databricks, "
+            "AzureBlob, and BigQuery destinations; unused for other types."
+        ),
     )
 
     class Meta:
@@ -279,7 +518,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                 and destination_field.default_factory == dataclasses.MISSING
             )
             if destination_field.name not in config:
-                is_patch = self.context["request"].method == "PATCH"
+                request = self.context.get("request")
+                is_patch = request is not None and request.method == "PATCH"
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
                     # error on missing required fields.
@@ -485,13 +725,42 @@ def resolve_and_validate_host(host: str) -> None:
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
-    destination = BatchExportDestinationSerializer()
-    latest_runs = BatchExportRunSerializer(many=True, read_only=True)
-    interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
-    hogql_query = HogQLSelectQueryField(required=False)
-    timezone = serializers.ChoiceField(choices=TIMEZONES, required=False, allow_null=True)
-    offset_day = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=6)
-    offset_hour = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=23)
+    destination = BatchExportDestinationSerializer(
+        help_text="Destination configuration (type, config, and optional integration)."
+    )
+    latest_runs = BatchExportRunSerializer(
+        many=True,
+        read_only=True,
+        help_text="The 10 most recent runs of this batch export, ordered newest first.",
+    )
+    interval = serializers.ChoiceField(
+        choices=BATCH_EXPORT_INTERVALS,
+        help_text="How often the batch export should run.",
+    )
+    hogql_query = HogQLSelectQueryField(
+        required=False,
+        help_text="Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.",
+    )
+    timezone = serializers.ChoiceField(
+        choices=TIMEZONES,
+        required=False,
+        allow_null=True,
+        help_text="IANA timezone name controlling daily and weekly interval boundaries. Defaults to UTC.",
+    )
+    offset_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=6,
+        help_text="Day-of-week offset for weekly intervals (0=Sunday, 6=Saturday). Only valid when interval is 'week'.",
+    )
+    offset_hour = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=23,
+        help_text="Hour-of-day offset (0-23) for daily and weekly intervals. Only valid when interval is 'day' or 'week'.",
+    )
 
     class Meta:
         model = BatchExport
@@ -743,12 +1012,14 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         if destination_type == BatchExportDestination.Destination.BIGQUERY:
             team_id = self.context["team_id"]
+
             integration = destination_attrs.get("integration")
-            if integration is not None:
-                if integration.team_id != team_id:
-                    raise serializers.ValidationError("Integration does not belong to this team.")
-                if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
-                    raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
+            if integration is None:
+                raise serializers.ValidationError("Integration is required for BigQuery batch exports")
+            if integration.team_id != team_id:
+                raise serializers.ValidationError("Integration does not belong to this team.")
+            if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+                raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
 
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
             team_id = self.context["team_id"]
@@ -1015,6 +1286,14 @@ def recursive_dict_merge(
 
 
 @extend_schema(tags=["batch_exports"])
+@extend_schema_view(
+    # Request bodies use a polymorphic destination schema so that integration-backed types
+    # (Databricks, AzureBlob, BigQuery) advertise integration_id as required up front.
+    # Responses continue to use BatchExportSerializer.
+    create=extend_schema(request=BatchExportRequestSerializer),
+    update=extend_schema(request=BatchExportRequestSerializer),
+    partial_update=extend_schema(request=BatchExportRequestSerializer),
+)
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()

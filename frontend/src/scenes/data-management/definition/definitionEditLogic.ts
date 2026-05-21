@@ -8,11 +8,13 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import { propertyAccessControlLogic } from 'scenes/data-management/definition/propertyAccessControlLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
+import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { Definition, EventDefinition, PropertyDefinition } from '~/types'
@@ -34,8 +36,8 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             ['setLocalEventDefinition'],
             tagsModel,
             ['loadTags'],
-            promotedEventPropertiesModel,
-            ['refreshLoadedPromotedProperties'],
+            primaryEventPropertiesModel,
+            ['refreshLoadedPrimaryProperties'],
         ],
     })),
     forms(({ actions }) => ({
@@ -77,6 +79,18 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                         updatePropertyDefinitions({
                             [`event/${definition.name}`]: definition as PropertyDefinition,
                         })
+
+                        // Save field access control changes if any
+                        const currentTeamId = teamLogic.values.currentTeamId
+                        if (currentTeamId) {
+                            const facLogic = propertyAccessControlLogic({
+                                propertyDefinitionId: definition.id,
+                                teamId: currentTeamId,
+                            })
+                            if (facLogic.values.hasChanges) {
+                                facLogic.actions.saveAccessControls()
+                            }
+                        }
                     }
                     breakpoint()
 
@@ -90,7 +104,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                     actions.setDefinition(definition)
                     actions.loadTags() // reload tags in case new tags are being saved
                     if (values.isEvent) {
-                        actions.refreshLoadedPromotedProperties()
+                        actions.refreshLoadedPrimaryProperties()
                     }
 
                     router.actions.push(

@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
 import { EvaluationItemAttributes } from './traceSummaryLoader'
-import { Cluster, ClusterMetrics, ClusteringRun } from './types'
+import { Cluster, ClusterMetrics, ClusteringLevel, ClusteringRun } from './types'
 
 describe('clustersLogic', () => {
     let logic: ReturnType<typeof clustersLogic.build>
@@ -498,6 +498,62 @@ describe('clustersLogic', () => {
             })
         })
 
+        describe('currentRunMatchesLevel', () => {
+            it('is false when no run is loaded', () => {
+                expect(logic.values.currentRunMatchesLevel).toBe(false)
+            })
+
+            it('is true when the loaded run matches the active level', () => {
+                logic.actions.setClusteringLevel('generation')
+                logic.actions.loadClusteringRunSuccess({
+                    runId: 'r',
+                    clusters: [],
+                    level: 'generation',
+                } as unknown as ClusteringRun)
+
+                expect(logic.values.currentRunMatchesLevel).toBe(true)
+            })
+
+            it('is false when the loaded run is from a different level (level switch in flight)', () => {
+                logic.actions.setClusteringLevel('trace')
+                logic.actions.loadClusteringRunSuccess({
+                    runId: 'r',
+                    clusters: [],
+                    level: 'trace',
+                } as unknown as ClusteringRun)
+                expect(logic.values.currentRunMatchesLevel).toBe(true)
+
+                // Simulate the user switching tabs — the previous run is still in state
+                // until the new level's first run resolves. The guard should suppress it.
+                logic.actions.setClusteringLevel('generation')
+                expect(logic.values.currentRunMatchesLevel).toBe(false)
+            })
+
+            it('gates sortedClusters during a level switch', () => {
+                logic.actions.setClusteringLevel('trace')
+                logic.actions.loadClusteringRunSuccess({
+                    runId: 'r',
+                    clusters: [
+                        {
+                            cluster_id: 0,
+                            size: 1,
+                            title: 'T',
+                            description: '',
+                            traces: {},
+                            centroid: [],
+                            centroid_x: 0,
+                            centroid_y: 0,
+                        },
+                    ] as Cluster[],
+                    level: 'trace',
+                } as unknown as ClusteringRun)
+                expect(logic.values.sortedClusters).toHaveLength(1)
+
+                logic.actions.setClusteringLevel('generation')
+                expect(logic.values.sortedClusters).toEqual([])
+            })
+        })
+
         describe('evaluation filter logic', () => {
             const sampleAttrs: Record<string, EvaluationItemAttributes> = {
                 'id-pass-a': { evaluatorName: 'Accuracy', verdict: 'pass' },
@@ -674,17 +730,20 @@ describe('clustersLogic', () => {
                     },
                 ]
 
-                const loadClustersAsCurrentRun = (): void => {
+                const loadClustersAsCurrentRun = (level?: ClusteringLevel): void => {
                     // filteredSortedClusters reads off the currentRun; seed a run and hydrate the cache.
+                    // We pass the run's level so the level-mismatch guard in `sortedClusters` (which
+                    // exists to suppress stale cards during a level switch) treats the seed as live.
                     logic.actions.loadClusteringRunSuccess({
                         runId: 'test-run',
                         clusters: sampleClusters,
+                        level: level ?? logic.values.clusteringLevel,
                     } as ClusteringRun)
                 }
 
                 it('returns clusters unchanged when no filter is active', () => {
-                    loadClustersAsCurrentRun()
                     setEvalLevelAndAttrs()
+                    loadClustersAsCurrentRun()
 
                     const result = logic.values.filteredSortedClusters
                     expect(result).toHaveLength(2)
@@ -694,8 +753,8 @@ describe('clustersLogic', () => {
                 })
 
                 it('drops non-matching traces, rewrites size, and prunes clusters that empty out', () => {
-                    loadClustersAsCurrentRun()
                     setEvalLevelAndAttrs()
+                    loadClustersAsCurrentRun()
                     logic.actions.setEvalVerdictsFilter(['pass'])
 
                     // Cluster 0 keeps its two pass traces; cluster 1's items are all fail/n/a so it's pruned.
@@ -704,6 +763,90 @@ describe('clustersLogic', () => {
                     expect(result[0].cluster_id).toBe(0)
                     expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
                     expect(result[0].size).toBe(2)
+                })
+
+                it('narrows clusters by propertyFilteredItemIds (cohort / property filter)', () => {
+                    loadClustersAsCurrentRun()
+                    // Property filter alone — the eval-level branch isn't relevant here.
+                    logic.actions.loadPropertyFilteredItemIdsSuccess(new Set(['id-pass-a', 'id-fail-b']))
+
+                    // Without an active filter declared, anyFiltersActive is false, so
+                    // filteredSortedClusters short-circuits to the unfiltered list. Set
+                    // a property filter to make the gate true.
+                    logic.actions.setPropertyFilters([
+                        {
+                            type: 'person' as any,
+                            key: 'email',
+                            value: '@example.com',
+                            operator: 'icontains' as any,
+                        } as any,
+                    ])
+
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(2)
+                    const byId = Object.fromEntries(result.map((c) => [c.cluster_id, c]))
+                    // Cluster 0 keeps only id-pass-a; size becomes 1.
+                    expect(Object.keys(byId[0].traces).sort()).toEqual(['id-pass-a'])
+                    expect(byId[0].size).toBe(1)
+                    // Cluster 1 keeps only id-fail-b; size becomes 1.
+                    expect(Object.keys(byId[1].traces).sort()).toEqual(['id-fail-b'])
+                    expect(byId[1].size).toBe(1)
+                })
+
+                it('combines property and eval filters (intersection)', () => {
+                    setEvalLevelAndAttrs()
+                    loadClustersAsCurrentRun()
+                    // Property filter narrows to {id-pass-a, id-pass-b, id-fail-b}, eval verdict
+                    // narrows to {id-pass-a, id-pass-b}; the intersection should be {id-pass-a,
+                    // id-pass-b}, so cluster 1 (only id-fail-b survives the property filter,
+                    // but verdict 'pass' rules it out) drops entirely.
+                    logic.actions.loadPropertyFilteredItemIdsSuccess(new Set(['id-pass-a', 'id-pass-b', 'id-fail-b']))
+                    logic.actions.setEvalVerdictsFilter(['pass'])
+
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(1)
+                    expect(result[0].cluster_id).toBe(0)
+                    expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
+                })
+
+                it('treats null propertyFilteredItemIds as "no property filter applied"', () => {
+                    loadClustersAsCurrentRun()
+                    // Property filter set but loader returned null — e.g. cluster too large
+                    // for the row cap. We must show every cluster rather than empty out.
+                    logic.actions.setPropertyFilters([
+                        {
+                            type: 'person' as any,
+                            key: 'email',
+                            value: '@example.com',
+                            operator: 'icontains' as any,
+                        } as any,
+                    ])
+                    logic.actions.loadPropertyFilteredItemIdsSuccess(null)
+
+                    const result = logic.values.filteredSortedClusters
+                    expect(result).toHaveLength(2)
+                })
+            })
+
+            describe('propertyFiltersActive / anyFiltersActive', () => {
+                it('propertyFiltersActive flips with property filters and the test-accounts toggle', () => {
+                    expect(logic.values.propertyFiltersActive).toBe(false)
+
+                    logic.actions.setShouldFilterTestAccounts(true)
+                    expect(logic.values.propertyFiltersActive).toBe(true)
+
+                    logic.actions.setShouldFilterTestAccounts(false)
+                    logic.actions.setPropertyFilters([
+                        { type: 'cohort' as any, key: 'id', value: 7, operator: 'in' as any } as any,
+                    ])
+                    expect(logic.values.propertyFiltersActive).toBe(true)
+                })
+
+                it('anyFiltersActive is true when either filter family is active', () => {
+                    expect(logic.values.anyFiltersActive).toBe(false)
+
+                    logic.actions.setShouldFilterTestAccounts(true)
+                    expect(logic.values.anyFiltersActive).toBe(true)
                 })
             })
         })

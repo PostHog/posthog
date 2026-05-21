@@ -278,17 +278,41 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         }
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.endpoints()]: (_, searchParams) => {
             if (searchParams.tab !== 'usage') {
                 return
             }
             const { dateFrom, dateTo, endpointFilter, materializationType, interval, breakdownBy } = searchParams
-            actions.setDates(dateFrom ?? INITIAL_DATE_FROM, dateTo ?? INITIAL_DATE_TO)
-            actions.setEndpointFilter(endpointFilter ? endpointFilter.split(',') : [])
-            actions.setMaterializationType(materializationType ?? null)
-            actions.setInterval(interval ?? INITIAL_INTERVAL)
-            actions.setBreakdownBy(breakdownBy ?? null)
+
+            const nextDateFrom = dateFrom ?? INITIAL_DATE_FROM
+            const nextDateTo = dateTo ?? INITIAL_DATE_TO
+            if (nextDateFrom !== values.dateFilter.dateFrom || nextDateTo !== values.dateFilter.dateTo) {
+                actions.setDates(nextDateFrom, nextDateTo)
+            }
+
+            const nextEndpointFilter: string[] = endpointFilter ? endpointFilter.split(',') : []
+            if (
+                nextEndpointFilter.length !== values.endpointFilter.length ||
+                nextEndpointFilter.some((v: string, i: number) => v !== values.endpointFilter[i])
+            ) {
+                actions.setEndpointFilter(nextEndpointFilter)
+            }
+
+            const nextMaterializationType = materializationType ?? null
+            if (nextMaterializationType !== values.materializationType) {
+                actions.setMaterializationType(nextMaterializationType)
+            }
+
+            const nextInterval = interval ?? INITIAL_INTERVAL
+            if (nextInterval !== values.interval) {
+                actions.setInterval(nextInterval)
+            }
+
+            const nextBreakdownBy = breakdownBy ?? null
+            if (nextBreakdownBy !== values.breakdownBy) {
+                actions.setBreakdownBy(nextBreakdownBy)
+            }
         },
     })),
 ])

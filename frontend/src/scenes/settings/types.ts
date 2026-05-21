@@ -55,6 +55,7 @@ export type SettingSectionId =
     | 'organization-details'
     | 'organization-integrations'
     | 'organization-oauth-apps'
+    | 'organization-cimd-verification-tokens'
     | 'organization-members'
     | 'organization-roles'
     | 'organization-authentication'
@@ -97,6 +98,7 @@ export type SettingId =
     | 'correlation-analysis'
     | 'customer-analytics-usage-metrics'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-accounts'
     | 'person-display-name'
     | 'person-last-seen-at'
     | 'path-cleaning'
@@ -125,6 +127,7 @@ export type SettingId =
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-recalculation-time'
     | 'environment-experiment-matured-users'
+    | 'environment-experiment-cuped-enabled'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-ingestion-controls'
@@ -136,6 +139,7 @@ export type SettingId =
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
     | 'error-tracking-spike-detection'
+    | 'error-tracking-rate-limits'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-posthog-code-slack'
@@ -151,6 +155,7 @@ export type SettingId =
     | 'organization-display-name'
     | 'organization-integrations-list'
     | 'organization-oauth-apps-list'
+    | 'organization-cimd-verification-tokens-list'
     | 'invites'
     | 'members'
     | 'authentication-domains'
@@ -169,6 +174,7 @@ export type SettingId =
     | 'personal-integrations'
     | 'personal-api-keys'
     | 'notifications'
+    | 'realtime-notifications'
     | 'feature-previews'
     | 'feature-previews-coming-soon'
     | 'optout'
@@ -214,11 +220,13 @@ export type SettingId =
     | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
+    | 'logs-drop-rules'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
+    | 'mcp-hints'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -234,8 +242,13 @@ export type Setting = {
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
      * When an array is provided, the setting will be shown if ALL of the conditions are met.
+     * When a tuple is provided, the setting will be shown if the feature flag is enabled and the value matches the given value.
      */
-    flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
+    flag?:
+        | FeatureFlagKey
+        | `!${FeatureFlagKey}`
+        | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
+        | [[FeatureFlagKey, string | boolean]]
 
     /**
      * defaults to true if not provided

@@ -112,10 +112,17 @@ export interface OperatorValueSelectProps {
     size?: 'xsmall' | 'small' | 'medium'
     startVisible?: LemonDropdownProps['startVisible']
     /**
-     * in some contexts you want to externally limit the available operators
-     * this won't add an operator if it isn't valid
-     * i.e. it limits the options shown from the options that would have been shown
-     * **/
+     * Narrows the *operator dropdown options* shown for the active filter.
+     * Flat list — applies to whichever filter type is currently active in this
+     * `OperatorValueSelect`. Won't add operators that wouldn't otherwise be valid.
+     *
+     * Different concern from `excludedOperators` on the picker / `PropertyFilters`:
+     * - `operatorAllowlist` (here) governs which entries appear inside the operator
+     *   dropdown next to a filter value.
+     * - `excludedOperators` governs which *recent property filters* surface in the
+     *   picker's Recent tab (and whether the operator dropdown is shown at all),
+     *   keyed per source group type.
+     */
     operatorAllowlist?: Array<PropertyOperator>
     /**
      * Force single-select mode regardless of operator type

@@ -13,6 +13,8 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 
+from posthog.models.scoping import with_team_scope
+
 from ..logic import HashIntegrityError
 
 logger = structlog.get_logger(__name__)
@@ -26,7 +28,8 @@ logger = structlog.get_logger(__name__)
     reject_on_worker_lost=True,
     max_retries=3,
 )
-def process_run_diffs(self, run_id: str) -> None:
+@with_team_scope()
+def process_run_diffs(self, team_id: int, run_id: str) -> None:
     """
     Verify uploads, create artifacts, and process diffs for a run.
 
@@ -42,11 +45,11 @@ def process_run_diffs(self, run_id: str) -> None:
     run_uuid = UUID(run_id)
 
     try:
-        logger.info("visual_review.diff_processing_started", run_id=run_id)
+        logger.info("visual_review.diff_processing_started", run_id=run_id, team_id=team_id)
         logic.verify_uploads_and_create_artifacts(run_uuid)
         process_diffs(run_uuid)
         logic.finish_processing(run_uuid)
-        logger.info("visual_review.diff_processing_completed", run_id=run_id)
+        logger.info("visual_review.diff_processing_completed", run_id=run_id, team_id=team_id)
     except HashIntegrityError as e:
         logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
         logic.finish_processing(run_uuid, error_message=str(e))
@@ -63,6 +66,6 @@ def process_run_diffs(self, run_id: str) -> None:
         except self.MaxRetriesExceededError:
             logic.finish_processing(run_uuid, error_message="GitHub API rate limit exceeded after retries")
     except Exception as e:
-        logger.exception("visual_review.diff_processing_failed", run_id=run_id, error=str(e))
+        logger.exception("visual_review.diff_processing_failed", run_id=run_id, team_id=team_id, error=str(e))
         logic.finish_processing(run_uuid, error_message=str(e))
         raise
