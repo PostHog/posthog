@@ -8,10 +8,10 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `idle` - idle
- * `running` - running
- * `completed` - completed
- * `error` - error
+ * * `idle` - IDLE
+ * `running` - RUNNING
+ * `completed` - COMPLETED
+ * `error` - ERROR
  */
 export type RunPhaseEnumApi = (typeof RunPhaseEnumApi)[keyof typeof RunPhaseEnumApi]
 
@@ -23,15 +23,15 @@ export const RunPhaseEnumApi = {
 } as const
 
 /**
- * * `pending` - pending
- * `in_progress` - in_progress
- * `completed` - completed
- * `failed` - failed
- * `canceled` - canceled
+ * * `pending` - PENDING
+ * `in_progress` - IN_PROGRESS
+ * `completed` - COMPLETED
+ * `failed` - FAILED
+ * `canceled` - CANCELED
  */
-export type WizardTaskStatusEnumApi = (typeof WizardTaskStatusEnumApi)[keyof typeof WizardTaskStatusEnumApi]
+export type WizardTaskDTOStatusEnumApi = (typeof WizardTaskDTOStatusEnumApi)[keyof typeof WizardTaskDTOStatusEnumApi]
 
-export const WizardTaskStatusEnumApi = {
+export const WizardTaskDTOStatusEnumApi = {
     Pending: 'pending',
     InProgress: 'in_progress',
     Completed: 'completed',
@@ -39,55 +39,74 @@ export const WizardTaskStatusEnumApi = {
     Canceled: 'canceled',
 } as const
 
-export interface WizardTaskApi {
-    /** Stable identifier the wizard assigned to this task. Used to track lifecycle across pushes. */
+export interface WizardTaskDTOApi {
     id: string
-    /** Human-readable title of the task. Should be updated if the task's purpose changes, but can remain the same if only the status changes. */
     title: string
-    /** Current lifecycle stage of the task.
-
-  * `pending` - pending
-  * `in_progress` - in_progress
-  * `completed` - completed
-  * `failed` - failed
-  * `canceled` - canceled */
-    status: WizardTaskStatusEnumApi
+    status: WizardTaskDTOStatusEnumApi
 }
 
-export interface WizardSessionApi {
-    /** Stable identifier the wizard assigns to a run, formatted '{workflow_id}-{skill_id}-{started_at_iso}'. Re-posting with the same session_id upserts the existing row. */
+/**
+ * @nullable
+ */
+export type WizardSessionDTOApiEventPlan = { [key: string]: unknown } | null
+
+/**
+ * @nullable
+ */
+export type WizardSessionDTOApiError = { [key: string]: unknown } | null
+
+/**
+ * Output: serialises a WizardSessionDTO returned by the facade.
+ */
+export interface WizardSessionDTOApi {
     session_id: string
-    readonly team_id: number
-    /** High-level workflow being run, e.g. 'onboarding', 'migration', 'audit'. */
+    team_id: number
     workflow_id: string
-    /** Specific skill within the workflow, e.g. 'posthog_integration', 'revenue_analytics_setup'. */
     skill_id: string
-    /** UTC timestamp when the wizard started this run. Matches the timestamp encoded in session_id. */
     started_at: string
-    /** Lifecycle stage of the wizard run.
-
-  * `idle` - idle
-  * `running` - running
-  * `completed` - completed
-  * `error` - error */
     run_phase: RunPhaseEnumApi
-    /** Full snapshot of the wizard's current task list. Each push overwrites the previous list; tasks may be added, removed, or re-ordered between pushes. */
-    tasks: WizardTaskApi[]
-    /** Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific. */
-    event_plan?: unknown
-    /** Populated when run_phase='error'. Shape: { type: string, message: string }. */
-    error?: unknown
-    readonly created_at: string
-    readonly updated_at: string
+    tasks: WizardTaskDTOApi[]
+    /** @nullable */
+    event_plan: WizardSessionDTOApiEventPlan
+    /** @nullable */
+    error: WizardSessionDTOApiError
+    created_at: string
+    updated_at: string
 }
 
-export interface PaginatedWizardSessionListApi {
+export interface PaginatedWizardSessionDTOListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: WizardSessionApi[]
+    results: WizardSessionDTOApi[]
+}
+
+/**
+ * @nullable
+ */
+export type UpsertWizardSessionRequestApiEventPlan = { [key: string]: unknown } | null
+
+/**
+ * @nullable
+ */
+export type UpsertWizardSessionRequestApiError = { [key: string]: unknown } | null
+
+/**
+ * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
+ */
+export interface UpsertWizardSessionRequestApi {
+    session_id: string
+    workflow_id: string
+    skill_id: string
+    started_at: string
+    run_phase: RunPhaseEnumApi
+    tasks: WizardTaskDTOApi[]
+    /** @nullable */
+    event_plan?: UpsertWizardSessionRequestApiEventPlan
+    /** @nullable */
+    error?: UpsertWizardSessionRequestApiError
 }
 
 export type WizardSessionsListParams = {
@@ -99,4 +118,9 @@ export type WizardSessionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type WizardSessionsStreamRetrieveParams = {
+    skill_id: string
+    workflow_id: string
 }
