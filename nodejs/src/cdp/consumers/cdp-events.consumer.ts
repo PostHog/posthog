@@ -75,6 +75,17 @@ export class CdpEventsConsumer<
             ...(await this.createHogFlowInvocations(invocationGlobals)),
         ]
 
+        // Emit a `running` lifecycle row for each freshly-created invocation.
+        // This fires ONCE per invocation_id at creation — not on every dequeue
+        // — so the runs UI can show in-flight work without us writing duplicate
+        // running rows across fetch retries. The terminal row is queued later
+        // by the cyclotron worker; both collapse under the same `invocation_id`
+        // via ReplacingMergeTree, with the terminal row's later `version`
+        // superseding the running row on FINAL queries.
+        for (const invocation of invocationsToBeQueued) {
+            this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+        }
+
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
@@ -89,6 +100,9 @@ export class CdpEventsConsumer<
                         logger.error('🔴', 'Error producing queued messages for monitoring', { err })
                     }
                 }),
+                instrumentFn({ key: 'cdp.background_task.lifecycle_running_flush', sendException: false }, () =>
+                    this.invocationResultsService.invocationResultsRowsService.flush()
+                ),
             ]),
             invocations: invocationsToBeQueued,
         }
