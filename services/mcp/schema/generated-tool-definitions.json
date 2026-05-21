@@ -1390,6 +1390,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-grouping-rules-update": {
+        "description": "Update an error tracking grouping rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule also clears any auto-disable state so the rule is re-enabled.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking grouping rule",
+        "title": "Update error tracking grouping rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-merge-create": {
         "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
         "category": "Error tracking",

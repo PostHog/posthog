@@ -1,5 +1,6 @@
 """Single Gemini call per lens application; retries once on validation failure with the error fed back."""
 
+import re
 import asyncio
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from products.replay_vision.backend.temporal.state import (
 )
 from products.replay_vision.backend.temporal.types import (
     CallLensProviderInputs,
+    EventCitation,
     LensCallOutput,
     LensLlmInputs,
     LensSnapshot,
@@ -34,6 +36,8 @@ from products.replay_vision.backend.temporal.types import (
 logger = structlog.get_logger(__name__)
 
 _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended
+# Captures the hex hash inside `(event_id <hash>)`; case-insensitive since model output isn't deterministic.
+_EVENT_ID_CITATION_RE = re.compile(r"\(event_id ([0-9a-f]{16})\)", re.IGNORECASE)
 
 
 @activity.defn
@@ -61,7 +65,39 @@ async def call_lens_provider_activity(inputs: CallLensProviderInputs) -> LensCal
     finalized = await _call_with_retry(
         lens=lens, model=snapshot.model.value, prompt_parts=prompt_parts, team_id=inputs.team_id
     )
-    return LensCallOutput(model_output=finalized)
+    finalized, filtered_mapping = _resolve_citations(finalized, lens, llm_inputs.event_id_mapping)
+    return LensCallOutput(model_output=finalized, event_id_mapping=filtered_mapping)
+
+
+def _resolve_citations(
+    finalized: BaseModel,
+    lens: BaseLens,
+    mapping: dict[str, EventCitation],
+) -> tuple[BaseModel, dict[str, EventCitation]]:
+    """Slim event_id_mapping to citations actually used; strip hallucinated `(event_id <hash>)` parens whose hash isn't in `mapping`."""
+    cited_hashes: set[str] = set()
+    field_updates: dict[str, str] = {}
+    for field in lens.citation_fields:
+        text = getattr(finalized, field, None)
+        if not isinstance(text, str):
+            continue
+
+        def _filter(match: re.Match[str]) -> str:
+            hex_hash = match.group(1).lower()
+            if hex_hash not in mapping:
+                return ""  # drop dead citation rather than leaving a parenthetical the FE can't resolve
+            cited_hashes.add(hex_hash)
+            # Rewrite with canonical lowercase hex so persisted text matches the mapping keys.
+            return f"(event_id {hex_hash})"
+
+        new_text = _EVENT_ID_CITATION_RE.sub(_filter, text)
+        if new_text != text:
+            field_updates[field] = new_text
+
+    if field_updates:
+        finalized = finalized.model_copy(update=field_updates)
+    filtered_mapping = {h: c for h, c in mapping.items() if h in cited_hashes}
+    return finalized, filtered_mapping
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> LensSnapshot:
@@ -144,7 +180,7 @@ async def _call_with_retry(*, lens: BaseLens, model: str, prompt_parts: list[typ
                 ),
             ]
 
-    # `non_retryable=True` so the workflow-level retry doesn't re-burn attempts on schema/semantic failures.
+    # non_retryable so workflow-level retries don't re-burn on schema/semantic failures.
     raise ApplicationError(
         f"Lens call rejected after {_MAX_LLM_ATTEMPTS} attempts: {last_error}",
         non_retryable=True,
