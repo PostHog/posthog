@@ -636,7 +636,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(data["detail"], "This field is required.")
         self.assertEqual(data["type"], "validation_error")
 
-    def test_with_join_key_type_error(self):
+    def test_with_type_mismatch_warning(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
             {
@@ -650,7 +650,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
         self.assertEqual(data["attr"], None)
-        self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
+        self.assertEqual(data["code"], "CHQueryErrorTypeMismatch")
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 

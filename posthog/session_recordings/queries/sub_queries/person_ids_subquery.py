@@ -47,7 +47,7 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
             return parse_select(
                 """
                 select
-                    distinct properties.$session_id
+                    distinct `$session_id`
                 from
                     events
                 where
@@ -55,7 +55,7 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
                     and timestamp <= {now}
                     and timestamp >= {date_from}
                     and timestamp <= {date_to}
-                    and notEmpty(properties.$session_id)
+                    and notEmpty(`$session_id`)
                 """,
                 {
                     "person_id": ast.Constant(value=self._query.person_uuid),

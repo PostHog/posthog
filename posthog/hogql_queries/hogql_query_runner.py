@@ -40,7 +40,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         settings: Optional[HogQLGlobalSettings] = None,
         **kwargs,
     ):
-        self.settings = settings or HogQLGlobalSettings()
+        self.settings = settings or HogQLGlobalSettings(enable_analyzer=True)
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight

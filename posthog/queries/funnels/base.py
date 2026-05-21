@@ -289,6 +289,7 @@ class ClickhouseFunnelBase(ABC):
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
+            settings={"enable_analyzer": 0},
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -818,11 +819,10 @@ class ClickhouseFunnelBase(ABC):
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
         ]:
-            attribution_prop_alias = "prop_attribution"
             prop_conditional = (
-                f"notEmpty(arrayFilter(x -> notEmpty(x), {attribution_prop_alias}))"
+                "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
                 if self._query_has_array_breakdown()
-                else f"isNotNull({attribution_prop_alias})"
+                else "isNotNull(prop)"
             )
 
             aggregate_operation = (
@@ -831,13 +831,9 @@ class ClickhouseFunnelBase(ABC):
                 else "argMaxIf"
             )
 
-            breakdown_window_selector = (
-                f"{aggregate_operation}({attribution_prop_alias}, timestamp, {prop_conditional})"
-            )
+            breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
             prop_window = f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals"
-            return ",".join(
-                [basic_prop_selector, f"prop_basic as {attribution_prop_alias}", prop_window]
-            ), basic_prop_params
+            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window]), basic_prop_params
         else:
             # ALL_EVENTS
             return ",".join([basic_prop_selector, "prop_basic as prop"]), basic_prop_params

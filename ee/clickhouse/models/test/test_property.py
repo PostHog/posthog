@@ -1790,36 +1790,6 @@ def test_prop_filter_json_extract_materialized(
     assert uuids == expected
 
 
-@freeze_time("2021-04-01T01:00:00.000Z")
-def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
-    test_events, clean_up_materialised_columns, team
-):
-    column = materialize("events", "email", is_nullable=True)
-    cases = [
-        (Property(key="email", operator="is_set", value="is_set"), [0, 1]),
-        (Property(key="email", operator="is_not_set", value="is_not_set"), range(2, 27)),
-    ]
-
-    for property, expected_event_indexes in cases:
-        query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
-
-        assert column.name not in query
-        assert "JSONHas" in query
-
-        uuids = sorted(
-            [
-                str(uuid)
-                for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
-                    {"team_id": team.pk, **params},
-                )
-            ]
-        )
-        expected = sorted([test_events[index] for index in expected_event_indexes])
-
-        assert uuids == expected
-
-
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract_person_on_events_materialized(

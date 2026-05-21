@@ -123,8 +123,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
-        # access control, instance settings (poe, rate limit), person and distinct id
-        expected_queries = 12
+        # look up if rate limit is enabled (cached after first lookup), instance
+        # setting (poe, rate limit), person and distinct id
+        expected_queries = 13
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(

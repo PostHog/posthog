@@ -268,7 +268,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -330,7 +330,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     )
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
         ) as ch_response:
@@ -379,7 +379,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     async with (
         _clickhouse_query_semaphore,
-        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS) as client,
+        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, enable_analyzer=1) as client,
     ):
         batches = []
         batches_size = 0

@@ -283,7 +283,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=600),
+            settings=HogQLGlobalSettings(max_execution_time=600, enable_analyzer=True),
         )
 
         response.results = self._fill_date_gaps(response.results)
