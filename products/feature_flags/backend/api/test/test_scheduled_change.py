@@ -52,7 +52,10 @@ class TestScheduledChange(APIBaseTest):
         payload = {"operation": "update_status", "value": False}
 
         # Mock the permission check to return False
-        with patch("products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=False):
+        with patch(
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=False,
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/scheduled_changes/",
                 data={
@@ -79,7 +82,10 @@ class TestScheduledChange(APIBaseTest):
         payload = {"operation": "update_status", "value": False}
 
         # Mock the permission check to return True
-        with patch("products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=True):
+        with patch(
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=True,
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/scheduled_changes/",
                 data={
@@ -488,7 +494,10 @@ class TestScheduledChange(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch("products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=True):
+        with patch(
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=True,
+        ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
                 data={"payload": {"operation": "update_status", "value": True}},
@@ -525,7 +534,8 @@ class TestScheduledChange(APIBaseTest):
 
         new_payload = {"operation": "update_status", "value": True}
         with patch(
-            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=has_permission
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=has_permission,
         ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
@@ -565,7 +575,10 @@ class TestScheduledChange(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch("products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission", return_value=True):
+        with patch(
+            "products.feature_flags.backend.api.scheduled_change.CanEditFeatureFlag.has_object_permission",
+            return_value=True,
+        ):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
                 data=patch_body,

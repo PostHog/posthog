@@ -12552,8 +12552,12 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         # Mock on_commit to execute callbacks immediately (Django test transactions don't commit)
         # Patch at source module since the import happens inside the function
-        with patch("products.feature_flags.backend.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()):
-            with patch("products.feature_flags.backend.models.feature_flag.set_feature_flags_for_team_in_cache") as mock_cache:
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()
+        ):
+            with patch(
+                "products.feature_flags.backend.models.feature_flag.set_feature_flags_for_team_in_cache"
+            ) as mock_cache:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
                     {"ids": [f.id for f in flags]},
@@ -13072,7 +13076,9 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             }
         }
 
-        with patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time") as mock_build_props:
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.build_person_properties_at_time"
+        ) as mock_build_props:
             mock_build_props.return_value = {"email": "historical@example.com"}
 
             # Use a recent timestamp that's after flag creation
@@ -13373,7 +13379,9 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        with patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time") as mock_build_props:
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.build_person_properties_at_time"
+        ) as mock_build_props:
             # Mock build_person_properties_at_time to raise ValueError with sensitive information
             mock_build_props.side_effect = ValueError("naive datetime: /secret/path/user123")
 
