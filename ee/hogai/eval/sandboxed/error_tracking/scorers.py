@@ -97,6 +97,14 @@ def _last_successful_input(parser: LogParser | None, tool_name: str) -> dict[str
     return raw if isinstance(raw, dict) else None
 
 
+def _successful_inputs(parser: LogParser | None, tool_name: str) -> list[dict[str, Any]]:
+    if parser is None:
+        return []
+    return [
+        call.input for call in parser.get_tool_calls(tool_name) if not call.is_error and isinstance(call.input, dict)
+    ]
+
+
 def _collect_session_ids(value: Any) -> set[str]:
     if isinstance(value, dict):
         session_ids: set[str] = set()
@@ -429,13 +437,69 @@ class EventsArgsAlignment(_AlignmentClassifier):
     _expected_key = "events_args"
 
     def _extract_actual(self, output: dict[str, Any] | None) -> dict[str, Any] | None:
-        return extract_last_query_issue_events_input(output)
+        calls = _successful_inputs(_parser_for(output), QUERY_ISSUE_EVENTS_TOOL)
+        return {"calls": calls} if calls else None
+
+    def _prepare(self, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> dict[str, Any] | Score:
+        prepared = super()._prepare(output, expected)
+        if isinstance(prepared, Score):
+            return prepared
+
+        expected_payload = prepared["expected"]["expected"]
+        actual = prepared["output"]["actual"]
+        reason = self._first_expensive_call_reason(actual["calls"], expected_payload)
+        if reason is not None:
+            return Score(name=self._name(), score=0.0, metadata=reason)
+        return prepared
+
+    @staticmethod
+    def _expected_limit_max(expected_payload: dict[str, Any]) -> int:
+        raw_limit = expected_payload.get("limit")
+        if isinstance(raw_limit, int) and not isinstance(raw_limit, bool):
+            return raw_limit
+        if isinstance(raw_limit, str):
+            if match := re.fullmatch(r"<=\s*(\d+)", raw_limit):
+                return int(match.group(1))
+            if match := re.fullmatch(r"between_\d+_and_(\d+)", raw_limit):
+                return int(match.group(1))
+        return 5
+
+    @staticmethod
+    def _input_limit(raw_limit: Any) -> int | None:
+        if isinstance(raw_limit, int) and not isinstance(raw_limit, bool):
+            return raw_limit
+        if isinstance(raw_limit, str) and raw_limit.isdigit():
+            return int(raw_limit)
+        return None
+
+    def _first_expensive_call_reason(
+        self, calls: list[dict[str, Any]], expected_payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        max_limit = self._expected_limit_max(expected_payload)
+        expects_raw = expected_payload.get("verbosity") == "raw"
+        for index, call in enumerate(calls, start=1):
+            limit = self._input_limit(call.get("limit"))
+            if limit is not None and limit > max_limit:
+                return {
+                    "reason": f"{QUERY_ISSUE_EVENTS_TOOL} call over-fetched sampled events",
+                    "call_index": index,
+                    "limit": limit,
+                    "max_limit": max_limit,
+                }
+            verbosity = call.get("verbosity")
+            if isinstance(verbosity, str) and verbosity.lower() == "raw" and not expects_raw:
+                return {
+                    "reason": f"{QUERY_ISSUE_EVENTS_TOOL} call requested raw payload without a raw prompt",
+                    "call_index": index,
+                    "verbosity": verbosity,
+                }
+        return None
 
     def __init__(self, **kwargs):
         super().__init__(
             name="events_args_alignment",
             prompt_template="""
-You are comparing the ACTUAL arguments an agent passed to PostHog's `query-error-tracking-issue-events` MCP tool against the EXPECTED shape, given the USER_PROMPT.
+You are comparing the ACTUAL arguments an agent passed to PostHog's `query-error-tracking-issue-events` MCP tool against the EXPECTED shape, given the USER_PROMPT. ACTUAL may contain multiple successful calls; every call must be consistent with EXPECTED.
 
 Material fields when EXPECTED sets them:
 - `limit` — integer; treat as material when EXPECTED specifies a max or a range. The tool defaults `limit=1`; `limit > 5` without an explicit "show me many" prompt is wrong.
@@ -458,7 +522,7 @@ Ignore `issueId` for this check (covered by a separate scorer). Ignore `filterTe
 {{output.actual}}
 </actual_input>
 
-Are the actual events arguments consistent with the expected ones? Answer `yes` or `no`.
+Are all actual events arguments consistent with the expected ones? Answer `yes` or `no`.
 """.strip(),
             choice_scores=BINARY_CHOICE_SCORES,
             model=_JUDGE_MODEL,
@@ -673,16 +737,16 @@ class IssueDrilldownOrder(Scorer):
         if issue_pos is None:
             metadata["reason"] = f"{QUERY_ISSUE_TOOL} was never called successfully"
             return Score(name=self._name(), score=0.0, metadata=metadata)
-        if issue_pos < list_pos:
-            metadata["reason"] = f"{QUERY_ISSUE_TOOL} ran before {QUERY_ISSUES_LIST_TOOL}"
+        if issue_pos <= list_pos:
+            metadata["reason"] = f"{QUERY_ISSUE_TOOL} did not run after {QUERY_ISSUES_LIST_TOOL}"
             return Score(name=self._name(), score=0.0, metadata=metadata)
 
         if requires_events:
             if events_pos is None:
                 metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} was never called successfully"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
-            if events_pos < issue_pos:
-                metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} ran before {QUERY_ISSUE_TOOL}"
+            if events_pos <= issue_pos:
+                metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} did not run after {QUERY_ISSUE_TOOL}"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
         elif forbids_events and events_pos is not None:
             metadata["reason"] = (
@@ -700,8 +764,8 @@ class IssueDrilldownOrder(Scorer):
             # requested without events — the agent might pull the session id
             # from a different surface.
             min_pred = events_pos if requires_events and events_pos is not None else issue_pos
-            if recordings_pos < min_pred:
-                metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} ran before its prerequisite drill-down"
+            if recordings_pos <= min_pred:
+                metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} did not run after its prerequisite drill-down"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
             recordings_call = self._first_successful_call(parser, SESSION_RECORDINGS_LIST_TOOL)
             recordings_session_ids = (
