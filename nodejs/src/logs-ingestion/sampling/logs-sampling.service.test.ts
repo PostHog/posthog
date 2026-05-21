@@ -25,12 +25,13 @@ const LOG_RECORD_AVRO = avro.Type.forSchema({
         { name: 'instrumentation_scope', type: ['null', 'string'] },
         { name: 'event_name', type: ['null', 'string'] },
         { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+        { name: 'bytes_uncompressed', type: ['null', 'long'] },
     ],
 })
 
 const logsSettings: LogsSettings = { json_parse_logs: false, pii_scrub_logs: false }
 
-function baseLog(uuid: string, serviceName: string): LogRecord {
+function baseLog(uuid: string, serviceName: string, bytesUncompressed: number | null = null): LogRecord {
     return {
         uuid,
         trace_id: null,
@@ -46,6 +47,7 @@ function baseLog(uuid: string, serviceName: string): LogRecord {
         instrumentation_scope: null,
         event_name: null,
         attributes: null,
+        bytes_uncompressed: bytesUncompressed,
     }
 }
 
@@ -62,9 +64,9 @@ describe('LogsSamplingService', () => {
             },
         ])
         const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
-            baseLog('a', 'api'),
-            baseLog('b', 'api'),
-            baseLog('c', 'api'),
+            baseLog('a', 'api', 100),
+            baseLog('b', 'api', 100),
+            baseLog('c', 'api', 100),
         ])
 
         const mockRedis: RedisV2 = {
@@ -82,10 +84,52 @@ describe('LogsSamplingService', () => {
 
         expect(result.recordsDropped).toBe(1)
         expect(result.recordsDroppedByRuleId.get('rl-1')).toBe(1)
+        // Each row is fixtured at 100 bytes; the one dropped row contributes 100.
+        expect(result.bytesDropped).toBe(100)
+        expect(result.bytesDroppedByRuleId.get('rl-1')).toBe(100)
         expect(result.allDropped).toBe(false)
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)
+    })
+
+    it('attributes per-row bytes to the dropping rule and contributes 0 for null bytes_uncompressed', async () => {
+        const ruleSet = compileRuleSet([
+            {
+                id: 'rl-1',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { logs_per_second: 100, burst_logs: 1000 },
+            },
+        ])
+        // 3 rows: 250 bytes, 750 bytes, null (old-producer message).
+        // Token budget of 1 → first row admitted, the other two dropped.
+        const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
+            baseLog('a', 'api', 250),
+            baseLog('b', 'api', 750),
+            baseLog('c', 'api', null),
+        ])
+
+        const mockRedis: RedisV2 = {
+            useClient: jest.fn(() => Promise.resolve(null)),
+            usePipeline: jest.fn((_opts, cb) => {
+                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                cb(pipeline)
+                const pipelineResult: [Error | null, any][] = [[null, [1, 0] as const]]
+                return Promise.resolve(pipelineResult)
+            }),
+        }
+
+        const service = new LogsSamplingService(mockRedis, 60)
+        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+
+        expect(result.recordsDropped).toBe(2)
+        // Only the row with a populated bytes_uncompressed contributes to the byte sum;
+        // the null row falls back to 0 (in-flight transition behavior).
+        expect(result.bytesDropped).toBe(750)
+        expect(result.bytesDroppedByRuleId.get('rl-1')).toBe(750)
     })
 
     it('fail-open keeps all rate_limit lines when Redis pipeline returns null', async () => {
@@ -111,6 +155,8 @@ describe('LogsSamplingService', () => {
 
         expect(result.recordsDropped).toBe(0)
         expect(result.recordsDroppedByRuleId.size).toBe(0)
+        expect(result.bytesDropped).toBe(0)
+        expect(result.bytesDroppedByRuleId.size).toBe(0)
 
         const [, , kept] = await decodeLogRecords(result.value)
         expect(kept).toHaveLength(2)

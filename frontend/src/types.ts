@@ -330,6 +330,7 @@ export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
     active_realtime_notification_types?: readonly string[]
+    requires_credential_review?: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean

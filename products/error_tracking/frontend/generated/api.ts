@@ -46,6 +46,7 @@ import type {
     ErrorTrackingStackFramesListParams,
     ErrorTrackingSuppressionRuleApi,
     ErrorTrackingSuppressionRuleCreateRequestApi,
+    ErrorTrackingSuppressionRuleUpdateRequestApi,
     ErrorTrackingSuppressionRulesListParams,
     ErrorTrackingSymbolSetApi,
     ErrorTrackingSymbolSetBulkDeleteApi,
@@ -73,6 +74,7 @@ import type {
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
+    PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
     _SymbolSetDownloadResponseApi,
 } from './api.schemas'
 
@@ -1193,14 +1195,14 @@ export const getErrorTrackingSuppressionRulesUpdateUrl = (projectId: string, id:
 export const errorTrackingSuppressionRulesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
+    errorTrackingSuppressionRuleUpdateRequestApi?: ErrorTrackingSuppressionRuleUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingSuppressionRuleApi> => {
-    return apiMutator<ErrorTrackingSuppressionRuleApi>(getErrorTrackingSuppressionRulesUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSuppressionRulesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingSuppressionRuleApi),
+        body: JSON.stringify(errorTrackingSuppressionRuleUpdateRequestApi),
     })
 }
 
@@ -1211,18 +1213,15 @@ export const getErrorTrackingSuppressionRulesPartialUpdateUrl = (projectId: stri
 export const errorTrackingSuppressionRulesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingSuppressionRuleApi?: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
+    patchedErrorTrackingSuppressionRuleUpdateRequestApi?: PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingSuppressionRuleApi> => {
-    return apiMutator<ErrorTrackingSuppressionRuleApi>(
-        getErrorTrackingSuppressionRulesPartialUpdateUrl(projectId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
-        }
-    )
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingSuppressionRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingSuppressionRuleUpdateRequestApi),
+    })
 }
 
 export const getErrorTrackingSuppressionRulesDestroyUrl = (projectId: string, id: string) => {
