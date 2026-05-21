@@ -905,22 +905,9 @@ class SignalReportViewSet(
 
 
 @extend_schema_view(
-    list=extend_schema(
-        responses=SignalReportArtefactSerializer(many=True),
-        description="List all artefacts on a signal report. Suggested-reviewer entries are enriched with PostHog user info.",
-    ),
-    retrieve=extend_schema(
-        responses=SignalReportArtefactSerializer,
-        description="Retrieve a single signal report artefact, enriched at read time.",
-    ),
-    update=extend_schema(
-        request=SignalReportArtefactWriteSerializer,
-        responses=SignalReportArtefactSerializer,
-        description=(
-            "Replace the contents of a signal report artefact. Currently only artefacts "
-            "of type `suggested_reviewers` may be modified via this endpoint; other types return 400."
-        ),
-    ),
+    list=extend_schema(exclude=True),
+    retrieve=extend_schema(exclude=True),
+    update=extend_schema(exclude=True),
 )
 class SignalReportArtefactViewSet(
     TeamAndOrgViewSetMixin,
@@ -929,14 +916,8 @@ class SignalReportArtefactViewSet(
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Artefacts attached to a signal report.
-
-    GET endpoints return the full artefact set for the report (any type), with
-    `suggested_reviewers` content enriched with linked PostHog user profiles.
-
-    PUT replaces the content of an existing artefact. Only `suggested_reviewers`
-    artefacts may be modified via this endpoint; other types return 400.
-    """
+    """Artefacts attached to a signal report. PUT replaces the content of a
+    `suggested_reviewers` artefact; other types return 400."""
 
     serializer_class = SignalReportArtefactSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -948,11 +929,6 @@ class SignalReportArtefactViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(report_id=self.parents_query_dict["report_id"], team=self.team)
-
-    def get_serializer_class(self):
-        if self.action == "update":
-            return SignalReportArtefactWriteSerializer
-        return SignalReportArtefactSerializer
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -970,19 +946,6 @@ class SignalReportArtefactViewSet(
         )
         if page is not None:
             return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
-
-    def retrieve(self, request, *args, **kwargs):
-        artefact = cast(SignalReportArtefact, self.get_object())
-        logins_union = normalized_github_logins_from_suggested_reviewer_artefacts([artefact])
-        login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
-        serializer = SignalReportArtefactSerializer(
-            artefact,
-            context={
-                **self.get_serializer_context(),
-                "signals_github_login_to_user_map": login_map,
-            },
-        )
         return Response(serializer.data)
 
     def update(self, request, *args, **kwargs):

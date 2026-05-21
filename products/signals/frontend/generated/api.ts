@@ -10,19 +10,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     PaginatedPauseStateResponseListApi,
-    PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
     SignalReportApi,
-    SignalReportArtefactApi,
-    SignalReportArtefactWriteApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
-    SignalsReportsArtefactsListParams,
     SignalsReportsListParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -150,85 +146,6 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getSignalsReportsArtefactsListUrl = (
-    projectId: string,
-    reportId: string,
-    params?: SignalsReportsArtefactsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/`
-}
-
-/**
- * List all artefacts on a signal report. Suggested-reviewer entries are enriched with PostHog user info.
- */
-export const signalsReportsArtefactsList = async (
-    projectId: string,
-    reportId: string,
-    params?: SignalsReportsArtefactsListParams,
-    options?: RequestInit
-): Promise<PaginatedSignalReportArtefactListApi> => {
-    return apiMutator<PaginatedSignalReportArtefactListApi>(
-        getSignalsReportsArtefactsListUrl(projectId, reportId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getSignalsReportsArtefactsRetrieveUrl = (projectId: string, reportId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
-}
-
-/**
- * Retrieve a single signal report artefact, enriched at read time.
- */
-export const signalsReportsArtefactsRetrieve = async (
-    projectId: string,
-    reportId: string,
-    id: string,
-    options?: RequestInit
-): Promise<SignalReportArtefactApi> => {
-    return apiMutator<SignalReportArtefactApi>(getSignalsReportsArtefactsRetrieveUrl(projectId, reportId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getSignalsReportsArtefactsUpdateUrl = (projectId: string, reportId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
-}
-
-/**
- * Replace the contents of a signal report artefact. Currently only artefacts of type `suggested_reviewers` may be modified via this endpoint; other types return 400.
- */
-export const signalsReportsArtefactsUpdate = async (
-    projectId: string,
-    reportId: string,
-    id: string,
-    signalReportArtefactWriteApi: SignalReportArtefactWriteApi,
-    options?: RequestInit
-): Promise<SignalReportArtefactApi> => {
-    return apiMutator<SignalReportArtefactApi>(getSignalsReportsArtefactsUpdateUrl(projectId, reportId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportArtefactWriteApi),
     })
 }
 

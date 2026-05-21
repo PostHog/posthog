@@ -286,27 +286,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
-    content = serializers.SerializerMethodField(
-        help_text=(
-            "Parsed artefact payload. Shape varies by `type`. "
-            "For `suggested_reviewers`, returns a list of "
-            "`{github_login, github_name, relevant_commits, user}` entries where "
-            "`user` is the enriched PostHog org-member profile (or null when no "
-            "user is linked to that GitHub login)."
-        )
-    )
+    content = serializers.SerializerMethodField()
 
     class Meta:
         model = SignalReportArtefact
         fields = ["id", "type", "content", "created_at"]
         read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Stable identifier for the artefact row."},
-            "type": {"help_text": "Kind of artefact (e.g. `suggested_reviewers`, `priority_judgment`, `dismissal`)."},
-            "created_at": {
-                "help_text": "Timestamp when the artefact was written by the agentic pipeline (or via API)."
-            },
-        }
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
