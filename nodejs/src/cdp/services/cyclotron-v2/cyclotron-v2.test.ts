@@ -282,6 +282,162 @@ describe('Cyclotron V2', () => {
             expect(rows[0].person_id).toBe(validPersonId)
             expect(rows[1].person_id).toBe('group-key-not-a-uuid')
         })
+
+        describe('overwriteExisting (rerun re-enqueue)', () => {
+            it('createJob with overwriteExisting=true refuses to clobber an in-flight (running) row', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                // Dequeue → row is now 'running'.
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                expect(jobs).toHaveLength(1)
+                expect((await queryJob(id)).status).toBe('running')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.createJob({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        overwriteExisting: true,
+                    })
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+
+                // Existing row's status untouched.
+                expect((await queryJob(id)).status).toBe('running')
+            })
+
+            it('createJob with overwriteExisting=true refuses to clobber an available (queued, not yet dequeued) row', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                expect((await queryJob(id)).status).toBe('available')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+            })
+
+            it('createJob with overwriteExisting=true resets an existing terminal row to available', async () => {
+                const id = uuidv7()
+                // First insert + drive to terminal state via the worker.
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                await jobs[0].ack()
+                expect((await queryJob(id)).status).toBe('completed')
+
+                // Re-create with the same id and overwriteExisting=true — this
+                // is the rerun path. The row should flip back to 'available'
+                // with the new state.
+                await manager.createJob({
+                    id,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    state: Buffer.from('v2'),
+                    overwriteExisting: true,
+                })
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.state).toEqual(Buffer.from('v2'))
+                expect(row.lock_id).toBeNull()
+                expect(row.last_heartbeat).toBeNull()
+                // transition_count bumps so the janitor's poison-pill guard
+                // still has signal across reruns.
+                expect(row.transition_count).toBeGreaterThan(0)
+            })
+
+            it('createJob with overwriteExisting=true on a never-seen id behaves like a normal insert', async () => {
+                const id = uuidv7()
+                await manager.createJob({
+                    id,
+                    teamId: 1,
+                    queueName: QUEUE,
+                    state: Buffer.from('fresh'),
+                    overwriteExisting: true,
+                })
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.state).toEqual(Buffer.from('fresh'))
+            })
+
+            it('bulkCreateJobs with overwriteExisting reports skipped ids via CyclotronJobConflictError when some are still active', async () => {
+                const terminalId = uuidv7()
+                const activeId = uuidv7()
+                // Drive terminalId to completed, leave activeId in 'available'.
+                await manager.bulkCreateJobs([
+                    { id: terminalId, teamId: 1, queueName: QUEUE },
+                    { id: activeId, teamId: 1, queueName: QUEUE },
+                ])
+                const worker = createWorker()
+                const dequeued = await dequeueOneBatch(worker)
+                const completedJob = dequeued.find((j) => j.id === terminalId)!
+                await completedJob.ack()
+                // The other one will still be 'running' at this point — reschedule it
+                // back to 'available' so the test mirrors a more common case.
+                const activeJob = dequeued.find((j) => j.id === activeId)!
+                await activeJob.reschedule()
+                expect((await queryJob(activeId)).status).toBe('available')
+
+                const { CyclotronJobConflictError } = await import('./manager.js')
+                await expect(
+                    manager.bulkCreateJobs([
+                        {
+                            id: terminalId,
+                            teamId: 1,
+                            queueName: QUEUE,
+                            overwriteExisting: true,
+                            state: Buffer.from('reset'),
+                        },
+                        {
+                            id: activeId,
+                            teamId: 1,
+                            queueName: QUEUE,
+                            overwriteExisting: true,
+                            state: Buffer.from('would-clobber'),
+                        },
+                    ])
+                ).rejects.toBeInstanceOf(CyclotronJobConflictError)
+
+                // The terminal one was still upserted; the active one was not.
+                expect((await queryJob(terminalId)).state).toEqual(Buffer.from('reset'))
+                expect((await queryJob(activeId)).state).toBeNull()
+            })
+
+            it('bulkCreateJobs with overwriteExisting flag upserts every row in the batch', async () => {
+                const ids = [uuidv7(), uuidv7()]
+                // Seed both as completed.
+                await manager.bulkCreateJobs(ids.map((id) => ({ id, teamId: 1, queueName: QUEUE })))
+                const worker = createWorker()
+                const dequeued = await dequeueOneBatch(worker)
+                await Promise.all(dequeued.map((j) => j.ack()))
+
+                // Re-create both via bulk upsert.
+                const resultIds = await manager.bulkCreateJobs(
+                    ids.map((id) => ({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        state: Buffer.from('rerun'),
+                        overwriteExisting: true,
+                    }))
+                )
+                expect(resultIds).toEqual(ids)
+                for (const id of ids) {
+                    const row = await queryJob(id)
+                    expect(row.status).toBe('available')
+                    expect(row.state).toEqual(Buffer.from('rerun'))
+                }
+            })
+
+            it('without overwriteExisting, re-creating with the same id throws on the PK conflict', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                await expect(manager.createJob({ id, teamId: 1, queueName: QUEUE })).rejects.toThrow(
+                    /duplicate key value/i
+                )
+            })
+        })
     })
 
     // ── Worker ───────────────────────────────────────────────────────

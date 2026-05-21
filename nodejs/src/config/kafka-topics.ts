@@ -46,6 +46,9 @@ export const KAFKA_CLICKHOUSE_AI_EVENTS_JSON = `${prefix}clickhouse_ai_events_js
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
+// per-invocation result rows for hog functions and hog flows
+export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
+
 // CDP topics
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`

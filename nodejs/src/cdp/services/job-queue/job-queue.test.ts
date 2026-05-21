@@ -153,9 +153,10 @@ describe('CyclotronJobQueue', () => {
                 )
                 await queue.queueInvocations([invocation])
 
-                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([
-                    expect.objectContaining({ teamId: 79155, queue: 'hog' }),
-                ])
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith(
+                    [expect.objectContaining({ teamId: 79155, queue: 'hog' })],
+                    { overwriteExisting: undefined }
+                )
                 expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([])
             })
 
@@ -167,7 +168,9 @@ describe('CyclotronJobQueue', () => {
                 )
                 await queue.queueInvocations([invocation])
 
-                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([])
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([], {
+                    overwriteExisting: undefined,
+                })
                 expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
                     expect.objectContaining({ teamId: 79155, queue: 'hog' }),
                 ])
@@ -183,7 +186,9 @@ describe('CyclotronJobQueue', () => {
                 expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
                     expect.objectContaining({ teamId: 79155, queue: 'hogflow' }),
                 ])
-                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([])
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([], {
+                    overwriteExisting: undefined,
+                })
             })
 
             it('should not affect other teams', async () => {
@@ -197,7 +202,9 @@ describe('CyclotronJobQueue', () => {
                 expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
                     expect.objectContaining({ teamId: 1, queue: 'hog' }),
                 ])
-                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([])
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([], {
+                    overwriteExisting: undefined,
+                })
             })
         })
 
@@ -363,6 +370,137 @@ describe('CyclotronJobQueue', () => {
                 expect(queue['jobQueuePostgresV2']!.releaseInvocations).not.toHaveBeenCalled()
             }
         )
+    })
+
+    describe('rerun routing (overwriteExisting)', () => {
+        const buildQueueWithMocks = (mapping: string): CyclotronJobQueue => {
+            config.CYCLOTRON_NODE_DATABASE_URL = 'postgres://localhost:5432'
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
+            const queue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+            queue['jobQueuePostgres'].queueInvocations = jest.fn()
+            queue['jobQueueKafka'].queueInvocations = jest.fn()
+            queue['jobQueuePostgresV2'] = {
+                startAsProducer: jest.fn(),
+                queueInvocations: jest.fn(),
+            } as any
+            return queue
+        }
+
+        const hogInvocation = () => createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, exampleHogFunction)
+        const hogflowInvocation = () => ({ ...hogInvocation(), queue: 'hogflow' as const })
+
+        it('routes hog → kafka under the standard mapping (no overwrite passed through)', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
+            const inv = hogInvocation()
+
+            await queue.queueInvocations([inv], { overwriteExisting: true })
+
+            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
+                expect.objectContaining({ queue: 'hog' }),
+            ])
+            // The v2 producer is only called with the v2-routed slice, which here is empty.
+            // `overwriteExisting` is irrelevant when nothing routes there.
+            expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([], { overwriteExisting: true })
+        })
+
+        it('preserves the invocation_id through the kafka rerun path', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
+            const inv = hogInvocation()
+            const originalId = inv.id
+
+            await queue.queueInvocations([inv], { overwriteExisting: true })
+
+            // The rerun paginator sets `id: row.invocation_id` on the rehydrated
+            // invocation; this asserts the routing path doesn't generate a new
+            // UUID before producing to kafka, so lifecycle rows for the rerun
+            // run collapse onto the same key in CH.
+            const enqueued = (queue['jobQueueKafka'].queueInvocations as jest.Mock).mock.calls[0][0]
+            expect(enqueued).toHaveLength(1)
+            expect(enqueued[0].id).toBe(originalId)
+        })
+
+        it('preserves the invocation_id through the postgres-v2 rerun path', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
+            const inv = hogflowInvocation()
+            const originalId = inv.id
+
+            await queue.queueInvocations([inv], { overwriteExisting: true })
+
+            const enqueued = (queue['jobQueuePostgresV2']!.queueInvocations as jest.Mock).mock.calls[0][0]
+            expect(enqueued).toHaveLength(1)
+            expect(enqueued[0].id).toBe(originalId)
+        })
+
+        it('routes hogflow → postgres-v2 with overwriteExisting forwarded', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
+            const inv = hogflowInvocation()
+
+            await queue.queueInvocations([inv], { overwriteExisting: true })
+
+            expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith(
+                [expect.objectContaining({ queue: 'hogflow' })],
+                { overwriteExisting: true }
+            )
+            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([])
+        })
+
+        it('splits mixed batches across kafka + v2 under per-queue routing', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hogflow:postgres-v2')
+
+            await queue.queueInvocations([hogInvocation(), hogflowInvocation(), hogInvocation()], {
+                overwriteExisting: true,
+            })
+
+            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
+                expect.objectContaining({ queue: 'hog' }),
+                expect.objectContaining({ queue: 'hog' }),
+            ])
+            expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith(
+                [expect.objectContaining({ queue: 'hogflow' })],
+                { overwriteExisting: true }
+            )
+            expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([])
+        })
+
+        it('throws for invocations routed to postgres-v1 under overwriteExisting', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hog:postgres,hogflow:postgres-v2')
+            const inv = hogInvocation()
+
+            await expect(queue.queueInvocations([inv], { overwriteExisting: true })).rejects.toThrow(
+                /Rerun routing to postgres-v1 is unsupported \(queue=hog\)/
+            )
+        })
+
+        it('still throws on v1 even when only one of N invocations targets v1', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hog:postgres,hogflow:postgres-v2')
+
+            await expect(
+                queue.queueInvocations([hogflowInvocation(), hogInvocation()], { overwriteExisting: true })
+            ).rejects.toThrow(/postgres-v1 is unsupported/)
+        })
+
+        it('allows v1 routing when overwriteExisting is NOT set (normal traffic path)', async () => {
+            const queue = buildQueueWithMocks('*:kafka,hog:postgres,hogflow:postgres-v2')
+            const inv = hogInvocation()
+
+            await expect(queue.queueInvocations([inv])).resolves.toBeUndefined()
+            expect(queue['jobQueuePostgres'].queueInvocations).toHaveBeenCalledWith([
+                expect.objectContaining({ queue: 'hog' }),
+            ])
+        })
+
+        it('throws if anything is routed to postgres-v2 but v2 was never constructed', async () => {
+            // No CYCLOTRON_NODE_DATABASE_URL → v2 stays unconstructed.
+            config.CYCLOTRON_NODE_DATABASE_URL = undefined
+            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
+            const queue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+            queue['jobQueuePostgres'].queueInvocations = jest.fn()
+            queue['jobQueueKafka'].queueInvocations = jest.fn()
+            // Force a v2-targeted invocation by patching the router.
+            jest.spyOn(queue as any, 'getTarget').mockReturnValue('postgres-v2' as CyclotronJobQueueSource)
+
+            await expect(queue.queueInvocations([hogInvocation()])).rejects.toThrow(/cyclotron-v2 is not configured/)
+        })
     })
 })
 
