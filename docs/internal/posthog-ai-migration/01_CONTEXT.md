@@ -8,7 +8,7 @@ This rewrite supersedes the earlier hybrid (`A/B/C/D`) proposal. There is **one*
 
 ## 1. The model
 
-A user message carries an optional list of typed attachments. The Django sandbox adapter (`ee/hogai/sandbox/`) wraps the message with a `<posthog_context>` block — on both first messages and follow-ups — and forwards the wrapped text into the cloud-agent Task/Run. The frontend never sees the wrapped form on its own outbound requests; it speaks `/conversations/*` as today and just adds an `attached_context` field to the request body.
+A user message carries an optional list of typed attachments. The Django SSE relay (`ee/hogai/sandbox/sse_relay.py` — see [`02_CORE.md`](./02_CORE.md) § 4) wraps the message with a `<posthog_context>` block — on both first messages and follow-ups — and forwards the wrapped text into the cloud-agent Task/Run. The frontend never sees the wrapped form on its own outbound requests; it speaks `/conversations/*` as today and just adds an `attached_context` field to the request body.
 
 ```ts
 interface AttachedContext {
@@ -72,42 +72,44 @@ That's the whole contract. No JSON, no schema the agent has to parse — the wra
 
 ## 3. Frontend design
 
-> **Coexistence mode** (per [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) #1, #2). The existing `maxContextLogic.ts` stays untouched for LangGraph users. Sandbox context lives in a **new** sibling logic at `frontend/src/scenes/max/posthogAIContextLogic.ts`. The two coexist for the entire rollout. The simplification described in this section is the *end state* (post default-on); during the soak only the new file is added.
+> **Coexistence mode** (per [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) #1, #2). The existing `maxContextLogic.ts` stays untouched for LangGraph users — its `maxContext` selector contract on the 3 scene logics is preserved verbatim. Sandbox context lives in a **new** sibling logic at `frontend/src/scenes/max/posthogAiContextLogic.ts`. The two coexist for the entire rollout. The simplification described in this section is the *end state* (post default-on); during the soak only the new file is added.
 
-The new `posthogAIContextLogic.ts` holds a flat `attachments: AttachedContext[]` reducer plus a thin scene-pull listener that *reads* the existing 3 scenes' `maxContext` selectors and **projects** their rich `MaxContextInput[]` items down to flat `AttachedContext[]` at consumption time. Zero scene-side edits — the scenes keep returning their existing rich shapes.
+The new `posthogAiContextLogic.ts` holds **one flat `attachments` reducer** plus a thin scene-pull listener that *reads* the existing 3 scenes' `maxContext` selectors and **projects** their rich `MaxContextInput[]` items down to flat `AttachedContext[]` at consumption time. Zero scene-side edits — the scenes keep returning their existing rich shapes.
 
-### 3.1 The new `posthogAIContextLogic.ts`
+Items added by the scene listener and items added by the user via TaxonomicFilter are **the same kind of thing** — there's no "source" attribute, no manual-vs-scene split, no separate persistence policy. The same entity arriving from both channels is one item.
+
+### 3.1 The new `posthogAiContextLogic.ts`
 
 ```ts
-interface PostHogAIContextLogicValues {
+interface PostHogAiContextLogicValues {
     attachments: AttachedContext[]
     chipsForDisplay: { key: string; label: string; icon: ReactNode; onRemove: () => void }[]
 }
 
-interface PostHogAIContextLogicActions {
-    attach: (item: AttachedContext) => void
-    detach: (key: string) => void   // key = `${type}:${id ?? value}`
-    clearAttachments: () => void
-    syncFromScene: () => void       // called by router listener; reads activeScene.maxContext and projects to AttachedContext[]
+interface PostHogAiContextLogicActions {
+    attach: (item: AttachedContext) => void   // dedup-add; called by scene sync AND TaxonomicFilter
+    detach: (key: string) => void             // key = `${type}:${id ?? value}`
+    clearAttachments: () => void              // convenience reset (e.g. on new conversation)
+    syncSceneAttachments: () => void          // router listener; calls attach() for each projected scene item
 }
 ```
 
-State is per-thread (per `maxThreadLogic` instance — see `02_CORE.md`). Cleared after each message is sent — see § 3.4.
+State is per-thread (per `maxThreadLogic` instance — see `02_CORE.md`). **Nothing clears on send** — attachments persist across messages. Cross-message dedupe of the rendered `<posthog_context>` block happens server-side — see § 4.3.
 
 ### 3.2 The scene `maxContext` selector contract — fully preserved
 
 The 3 scenes that expose `maxContext` today (dashboard, insight, project homepage — confirmed by `grep -rn "maxContext\b" frontend/src/scenes/`) **keep returning `MaxContextInput[]`** verbatim, exactly as today. The sandbox logic does the projection at consumption time:
 
 ```ts
-// inside posthogAIContextLogic, syncFromScene listener
+// inside posthogAiContextLogic, syncSceneAttachments listener
 const sceneItems: MaxContextInput[] = activeSceneLogic.values.maxContext ?? []
-const projected: AttachedContext[] = sceneItems.map(projectToAttachedContext)
-actions.replaceSceneAttachments(projected)
+for (const item of sceneItems) {
+    const projected = projectToAttachedContext(item)
+    if (projected) actions.attach(projected)
+}
 ```
 
-Where `projectToAttachedContext()` is a one-screen helper that strips the rich nested data and emits a flat `{ type, id, name? }` record per entity. This is the **only** new code touching the existing scene-context contract — and it lives in the new file, not in the existing logic. Zero edits to `maxContextLogic.ts`, `dashboardLogic.tsx`, `insightSceneLogic.tsx`, or `projectHomepageLogic.tsx`.
-
-Today (to be removed):
+Where `projectToAttachedContext()` is a one-screen helper that strips the rich nested data and emits a flat `{ type, id, name? }` record per entity. The `attach` reducer dedupes on `(type, id ?? value)` so calling it for an item the user already pinned (or that the scene already contributed) is a no-op. This is the **only** new code touching the existing scene-context contract — and it lives in the new file, not in the existing logic. Zero edits to `maxContextLogic.ts`, `dashboardLogic.tsx`, `insightSceneLogic.tsx`, or `projectHomepageLogic.tsx`.
 
 Today's selector (unchanged during the migration):
 
@@ -124,7 +126,7 @@ maxContext: [
 The sandbox logic reads this and projects:
 
 ```ts
-// posthogAIContextLogic.ts — at consumption time
+// posthogAiContextLogic.ts — at consumption time
 function projectToAttachedContext(item: MaxContextInput): AttachedContext | null {
     if (item.type === MaxContextType.DASHBOARD) {
         return { type: 'dashboard', id: item.data.id, name: item.data.name }
@@ -140,21 +142,27 @@ This stays a one-way street: existing scenes ignore the sandbox runtime entirely
 `Context.tsx` keeps its visual role. The component branches on `conversation.agent_runtime`:
 
 - `'langgraph'` → renders chips from `maxContextLogic.values.contextOptions` (today's behavior, unchanged).
-- `'sandbox'` → renders chips from `posthogAIContextLogic.values.chipsForDisplay`.
+- `'sandbox'` → renders chips from `posthogAiContextLogic.values.chipsForDisplay`. The X on each chip dispatches `detach(key)` — no source distinction; one removal path.
 
-The taxonomic-filter "add context" affordance also branches the same way. Same TaxonomicFilter component, same group types; the dispatched action differs (`maxContextLogic.handleTaxonomicFilterChange` vs `posthogAIContextLogic.attach`).
+The taxonomic-filter "add context" affordance also branches the same way. Same TaxonomicFilter component, same group types; the dispatched action differs (`maxContextLogic.handleTaxonomicFilterChange` vs `posthogAiContextLogic.attach`).
+
+### 3.6 Wrapped-message visibility (debug)
+
+By default the user sees only their typed text on each message bubble — the `<posthog_context>` block the agent actually receives is **not** rendered in the thread. For internal devs debugging "what did the agent see?", a feature-flag-gated `Show context sent to Max` toggle expands an inline preview that calls `GET /api/environments/{tid}/conversations/{id}/preview_wrap/?content=…&attached_context=…` and renders the returned string. The endpoint is a thin wrapper around `wrap_user_message` so the rendered template never duplicates into TypeScript — see § 4.3.
+
+The toggle is gated by a separate internal flag (e.g. `posthog-ai-sandbox-debug`) so external users never see the raw wrapper text. The preview endpoint is read-only and stateless.
 
 ### 3.4 Lifecycle (sandbox runtime)
 
-- **On scene change**: router listener calls `posthogAIContextLogic.syncFromScene`, which:
-  1. Reads `activeSceneLogic.values.maxContext` if present.
-  2. Projects to `AttachedContext[]` via `projectToAttachedContext`.
-  3. Replaces only the *scene-sourced* portion of `attachments`. Manually-attached items (via TaxonomicFilter or @-mention) persist until the user removes them or sends a message.
+- **On scene mount or scene change**: router listener calls `posthogAiContextLogic.syncSceneAttachments`, which projects every item in `activeSceneLogic.values.maxContext` and calls `attach()` for each. Already-attached items are no-ops (dedup on `(type, id ?? value)`). Items the user previously `detach`ed in *this scene* won't re-appear unless they navigate away and back — re-navigation is the explicit signal that the scene's contribution should re-assert.
+- **On user attach via TaxonomicFilter / @-mention**: same `attach(item)` dispatch — no separate manual reducer, no separate persistence policy.
+- **On user remove (X on chip)**: dispatches `detach(key)`. Sticks for the rest of the current scene view.
 - **On message send** (in `maxThreadLogic`, sandbox branch):
-  1. Snapshot current `posthogAIContextLogic.values.attachments`.
-  2. Build the request payload (see § 3.5).
-  3. Dispatch `clearAttachments` (or only-clear-manual-items — open question § 7).
-- **On conversation open from history**: `attachments` starts empty. History rendering shows the historical context per message (read from the persisted log).
+  1. Snapshot current `posthogAiContextLogic.values.attachments`.
+  2. Build the request payload (see § 3.5) with the full list — server-side handles cross-message dedupe of the rendered prompt block (§ 4.3).
+  3. **Nothing is cleared.** The list survives to the next message.
+- **On conversation open from history**: `attachments` starts empty; the active scene's `syncSceneAttachments` fires on mount and repopulates from the current scene. History rendering shows the historical context per message (read from the persisted log).
+- **On new conversation / explicit reset**: optional `clearAttachments()` for a fresh slate; otherwise the next conversation inherits the previous attachment set (acceptable since scene-sync re-asserts what's relevant).
 
 LangGraph conversations follow today's lifecycle unchanged.
 
@@ -189,12 +197,13 @@ POST /api/environments/{teamId}/conversations/{conversationId}/stream/
 }
 ```
 
-The shape is the same in both cases. The adapter is responsible for:
+The shape is the same in both cases. The SSE relay is responsible for:
 
-1. Wrapping `content` with the `<posthog_context>` block before sending it on (to either `POST /tasks/{id}/run/` `pending_user_message` for the first turn, or `POST /command/` `user_message` for follow-ups).
-2. Including the structured `attached_context` under the outbound payload's `state.attached_context` (first turn) or `params._meta.attached_context` (follow-up) so the persisted ACP log keeps a structured record.
+1. Deduping `attached_context` against entity refs already named in the conversation's persisted ACP log (see § 4.3). Dedupe affects only the rendered prompt block — the structured record stays verbatim.
+2. Wrapping `content` with the `<posthog_context>` block built from the deduped list before sending it on (to either `POST /tasks/{id}/run/` `pending_user_message` for the first turn, or `POST /command/` `user_message` for follow-ups).
+3. Including the **full, undeduped** structured `attached_context` under the outbound payload's `state.attached_context` (first turn) or `params._meta.attached_context` (follow-up) so the persisted ACP log keeps a complete record per message.
 
-`ui_context` (today's rich-payload field) is **dropped** from the request shape for `agent_runtime === 'sandbox'` conversations. The LangGraph path keeps reading it for `agent_runtime === 'langgraph'`. The frontend can keep sending both during the soak — the sandbox adapter just ignores `ui_context`.
+`ui_context` (today's rich-payload field) is **dropped** from the request shape for `agent_runtime === 'sandbox'` conversations. The LangGraph path keeps reading it for `agent_runtime === 'langgraph'`. The frontend can keep sending both during the soak — the sandbox SSE relay just ignores `ui_context`.
 
 ---
 
@@ -202,10 +211,12 @@ The shape is the same in both cases. The adapter is responsible for:
 
 ### 4.1 Storage
 
-Two places — both downstream of the adapter:
+Two places — both downstream of the SSE relay:
 
 1. **`Run.state.attached_context: AttachedContext[]`** — set at Run-create time from the initial conversation request. Survives for the life of the Run.
 2. **`_posthog/user_message` log entries** — each follow-up user message logged with its own `attached_context` (and the wrapped content) so the persisted ACP log is a complete record.
+
+In **both** locations the structured record is the **full, undeduped** list as the user sent it. Cross-message dedupe (§ 4.3) applies only to the rendered `<posthog_context>` text block — the structured record stays verbatim so the audit trail, debug views, and any future re-render path are not data-lossy.
 
 `state` is a free-form JSON bag in the existing Task/Run model (cloud-agent spec § 2.5). Adding a key is non-breaking.
 
@@ -213,10 +224,10 @@ The `Conversation` row in PostHog's database does **not** need an `attached_cont
 
 ### 4.2 Where wrapping happens
 
-The Django sandbox adapter (`ee/hogai/sandbox/adapter.py` — owned by `02_CORE.md`) calls the wrapper at two points:
+The Django SSE relay (`ee/hogai/sandbox/sse_relay.py` — see [`02_CORE.md`](./02_CORE.md) § 4) calls the dedupe+wrap pair at two points:
 
-- **First message** — when constructing the `POST /tasks/{id}/run/` body. The adapter sets `pending_user_message = wrap_user_message(content, attached_context)` and `state.attached_context = attached_context`.
-- **Follow-up message** — when constructing the `POST /command/` body. The adapter sets `params.content = wrap_user_message(content, attached_context)` and `params._meta.attached_context = attached_context`.
+- **First message** — when constructing the `POST /tasks/{id}/run/` body. The relay computes `pending_user_message = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=[]))` (on a brand-new conversation the prior set is empty, so dedupe is a no-op) and sets `state.attached_context = attached_context` with the full list.
+- **Follow-up message** — when constructing the `POST /command/` body. The relay first walks prior `_posthog/user_message` entries on the conversation's persisted ACP log to collect already-named `(type, id)` pairs, then computes `params.content = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=seen))` and sets `params._meta.attached_context = attached_context` with the full list.
 
 There is no Temporal workflow involvement. The cloud-agent SSE relay and the sandbox JWT scheme handle the rest of the lifecycle.
 
@@ -242,11 +253,41 @@ def _render_posthog_context_block(items: list[AttachedContext]) -> str:
         lines.append(_format_item(item))
     lines.append("</posthog_context>")
     return "\n".join(lines)
+
+
+def prune_repeated_entity_refs(
+    attached: list[AttachedContext],
+    prior: Iterable[tuple[str, str | int]],
+) -> list[AttachedContext]:
+    """Drop entity refs (type, id) that were already named in earlier messages
+    of the same conversation. `text` items are NEVER deduped — repeated text is
+    intentional (e.g. consecutive error snippets).
+
+    The agent retains entity IDs from prior turns in its context; re-listing
+    them inflates the prompt without adding information. The agent can re-fetch
+    any prior entity via its read tools.
+    """
+    seen = set(prior)
+    out: list[AttachedContext] = []
+    for item in attached:
+        if item.type == "text":
+            out.append(item)
+            continue
+        key = (item.type, item.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
 ```
 
 `_format_item` emits one line per attachment naming the entity type, ID, and (if present) human label. It does **not** name specific tool function signatures — naming is owned by `04_PROMPTS.md` § 5 — but the wrapper does name the tool *category* ("Use the appropriate tools..."). Tool descriptions on the MCP side carry the function signatures the agent reads.
 
-Pure function, no side effects, fully snapshot-testable. Called from the adapter at both first-message Run-create and follow-up `POST /command/` time (§ 4.2).
+Both functions are pure, side-effect-free, snapshot-testable. `wrap_user_message` skips emitting the block entirely when its input is empty — so when dedupe removes everything, the user's message is forwarded without any wrapper noise. Called from the SSE relay at both first-message Run-create and follow-up `POST /command/` time (§ 4.2).
+
+**Template single-sourcing.** The `<posthog_context>` template lives only here, in Python. The frontend never builds it. If a future debug surface needs to show the wrapped form (§ 3.6), it calls a thin `GET /preview_wrap/` endpoint that delegates to `wrap_user_message` — no TypeScript mirror, no risk of the two copies drifting.
+
+**Dedupe scope: lifetime-wide.** `prune_repeated_entity_refs` walks every prior `_posthog/user_message` log entry in the conversation, regardless of how old. There is no windowing or "expire after N turns" behavior. The agent retains entity IDs across the whole conversation; re-listing them once they've been named is pure overhead. Revisit only if an eval surfaces a case where the agent has demonstrably forgotten an entity by turn N — and the right fix there is probably user-side re-priming via a slash command, not changing dedupe.
 
 ### 4.4 Server-side validation
 
@@ -254,10 +295,12 @@ The `attached_context` field is user input. Validate at the boundary:
 
 - `type` ∈ allowed set.
 - `id` matches the type's id shape (int for `dashboard`, short_id for `insight`, UUID for `error_tracking_issue`, ...).
-- Length-cap the list (e.g. 32 items) to prevent prompt-injection-via-overflow.
-- Length-cap `value` for `text` items (e.g. 4096 chars).
+- Hard-cap the list at **32 items** to prevent prompt-injection-via-overflow.
+- Hard-cap `value` for `text` items at **4096 chars**.
 - For entity refs, **don't** validate existence — let the agent's tool call surface a missing-row error naturally. Cheaper than a sync DB lookup per submit.
 - Team-scope safety belongs in the tools themselves (every read tool already filters by `team_id` via `get_team()`).
+
+Both caps are conservative starting points; the real binding constraint is whatever pushes the wrapped block past ~4k tokens (which dedupe substantially reduces in practice). Revisit with eval data — not with per-customer escalations.
 
 ### 4.5 Database changes
 
@@ -272,11 +315,11 @@ If a future iteration needs efficient querying by attached entity (e.g. "show al
 Ordered. Each step is a self-contained PR. **None of these steps modifies the existing `maxContextLogic.ts`, scene logics, or `MaxContextInput`/`MaxUIContext`/`createMaxContextHelpers` types** — that belongs in the deferred cleanup phase per [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md).
 
 1. **Types.** Add `AttachedContext` to `frontend/src/scenes/max/maxTypes.ts` (new export, no existing edits).
-2. **Backend wrapper.** Add `ee/hogai/sandbox/context_wrapper.py`. Snapshot test for: empty, one-of-each-type, mixed-with-free-text, length-capped, missing-name fallbacks. Independent of adapter plumbing.
-3. **Adapter integration.** The adapter (`02_CORE.md`) calls `wrap_user_message` at Run-create and at every `POST /command/` — only on the sandbox branch.
-4. **New sandbox context logic.** Add `frontend/src/scenes/max/posthogAIContextLogic.ts` (sibling to `maxContextLogic.ts`). Includes `projectToAttachedContext` helper. Mounted by `maxThreadLogic` only when `conversation.agent_runtime === 'sandbox'`.
+2. **Backend wrapper + dedupe.** Add `ee/hogai/sandbox/context_wrapper.py` with both `wrap_user_message` and `prune_repeated_entity_refs`. Snapshot test for: empty, one-of-each-type, mixed-with-free-text, repeated-entity-ref dedupe, repeated-text not-deduped, length-capped, missing-name fallbacks. Pure functions — independent of relay plumbing.
+3. **SSE relay integration.** The SSE relay (`02_CORE.md` § 4) calls `prune_repeated_entity_refs` then `wrap_user_message` at Run-create and at every `POST /command/` — only on the sandbox branch. The full undeduped list goes to `state.attached_context` / `params._meta.attached_context`.
+4. **New sandbox context logic.** Add `frontend/src/scenes/max/posthogAiContextLogic.ts` (sibling to `maxContextLogic.ts`). Includes `projectToAttachedContext` helper and the single `attachments` reducer with dedup-on-`attach`. Mounted by `maxThreadLogic` only when `conversation.agent_runtime === 'sandbox'`.
 5. **`Context.tsx` runtime branch.** Add a runtime-aware render branch — LangGraph path uses today's chips; sandbox path uses the new logic. Existing LangGraph branch is verbatim.
-6. **Wire send-message.** `maxThreadLogic.sendMessage` already builds the request body. Add an `if conversation.agent_runtime === 'sandbox'` branch that reads from `posthogAIContextLogic.values.attachments` and sets `attached_context` instead of `ui_context`. LangGraph branch unchanged.
+6. **Wire send-message.** `maxThreadLogic.sendMessage` already builds the request body. Add an `if conversation.agent_runtime === 'sandbox'` branch that reads from `posthogAiContextLogic.values.attachments` and sets `attached_context` instead of `ui_context`. Send does not clear attachments. LangGraph branch unchanged.
 7. **(Deferred to cleanup phase.)** Once the flag is default-on for everyone and a soak confirms parity, a follow-up PR can delete `maxContextLogic.ts`, `maxBillingContextLogic.tsx`, `createMaxContextHelpers`, the `compiledContext` / `loadAndProcessDashboard` / `loadAndProcessInsight` machinery, and the redundant `MaxContextInput` / `MaxUIContext` shapes. The 3 scene `maxContext` selectors can then collapse to `AttachedContext[]`. This is NOT part of the migration — tracked separately.
 
 ---
@@ -285,24 +328,13 @@ Ordered. Each step is a self-contained PR. **None of these steps modifies the ex
 
 | Spec | Dependency |
 |---|---|
-| `02_CORE.md` | `/conversations/stream/` request body gains `attached_context` field for both first and follow-up messages. Adapter calls `wrap_user_message` before forwarding. |
+| `02_CORE.md` | `/conversations/stream/` request body gains `attached_context` field for both first and follow-up messages. The SSE relay calls `prune_repeated_entity_refs` then `wrap_user_message` before forwarding to the cloud-agent. |
 | `03_RICH_UI.md` | Scene–agent interaction is one-directional: scenes contribute attachments via the existing `maxContext` selector and can subscribe to thread state read-only (`useValues(maxThreadLogic)`). No agent-side callbacks; `useMaxTool` / `MaxTool` are deleted (owned by `03`). |
 | `04_PROMPTS.md` | (a) Don't inject groups, billing, or core memory into `systemPrompt` — MCP tools handle it. (b) Tool naming used in `<posthog_context>` wrappers comes from § 5 of that spec — keep the wrapper template generic ("the appropriate tools") so renames don't break this. (c) Drop `ManageMemoriesTool` from the catalog (no core memory). |
 
 ---
 
-## 7. Open questions
-
-1. **Selector rename.** Keep `maxContext` (zero churn) or rename to `sceneAttachments` (clearer post-Max)? Bias toward keeping the name during the migration window; revisit after `scenes/max/` is deleted.
-2. **Persistence of manually-attached items across messages.** When the user explicitly adds (via TaxonomicFilter) an insight that isn't part of the current scene, does that attachment stick across messages, or clear on send like the scene-sourced ones? Bias toward "clear on send" — matches today's chip UX where the chip vanishes after submission — but the chip-UI could grow a pin affordance later.
-3. **`text` attachment ergonomics.** Useful for paste-snippets ("here's the error I saw: ..."). Or skip until a real need shows up? Bias toward shipping with `text` supported since the wrapper handles it generically and removing later costs nothing.
-4. **Wrapper-template drift.** The wrapping is centralized in the Django adapter, so frontend and follow-up wrapping share one template definition. Confirm there's no scenario where the frontend needs the wrapped form before sending (e.g., to show the user what was sent) — if so, we either duplicate the template in TS or expose a small `/api/.../preview_wrap/` endpoint.
-5. **Wrapped-message visibility in UI.** Should the user see the `<posthog_context>` block (folded by default), or only their typed text? Bias toward hiding by default with a "Show context sent to Max" debug toggle behind a feature flag for internal users.
-6. **Attachment limits.** What's the hard cap on `attached_context` length? 32 items × 2048 chars per `value` is generous; the actual number that hurts is whatever pushes the wrapped block past ~4k tokens. Pick a number and revisit with eval data.
-
----
-
-## 8. What this spec does not cover
+## 7. What this spec does not cover
 
 - **Tool naming and MCP server layout** → `04_PROMPTS.md`.
 - **Where the wrapped message is stored on the wire** (Run.state JSON key vs dedicated column) → backend implementation choice; the spec says "in `state`" and that's enough.
