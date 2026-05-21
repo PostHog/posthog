@@ -30,10 +30,10 @@ type ColumnsDecorators = (Option<Vec<String>>, Option<Vec<(String, Value)>>);
 /// Return value of [`Parser::parse_function_args_inner`]: the
 /// `DISTINCT` flag, the positional args, and an optional in-arg
 /// `ORDER BY` list.
-type FunctionArgs = (bool, Vec<Value>, Option<Vec<Value>>);
+type FunctionArgs<V> = (bool, Vec<V>, Option<Vec<V>>);
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
-    pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<Value, ParseError> {
+    pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<E::Value, ParseError> {
         let lhs_start = self.peek0.start;
         let lhs = self.parse_prefix()?;
         let lhs = self.wrap_pos(lhs, lhs_start);
@@ -46,10 +46,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// trailing `* …` arithmetic).
     pub(crate) fn pratt_continue_with_lhs(
         &mut self,
-        mut lhs: Value,
+        mut lhs: E::Value,
         min_bp: u8,
         lhs_start: usize,
-    ) -> Result<Value, ParseError> {
+    ) -> Result<E::Value, ParseError> {
         loop {
             let kind = self.peek();
             if let Some((lbp, rbp, op)) = infix_bp(kind) {
@@ -153,7 +153,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(self.wrap_pos(lhs, lhs_start))
     }
 
-    pub(crate) fn parse_prefix(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_prefix(&mut self) -> Result<E::Value, ParseError> {
         // `IDENT (, IDENT)* -> body` — a bare-list arrow lambda may
         // appear as the RHS of any binary operator (e.g. `x =~* y, z ->
         // body` parses as `x =~* (lambda y, z -> body)`). The probe is
@@ -181,7 +181,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         self.bump()?;
                         let n = self.bump()?;
                         let src = self.consume_optional_fractional(self.text(n));
-                        return parse_number_literal(&src, true);
+                        return parse_number_literal(&self.emit, &src, true);
                     }
                     TokenKind::Dot => {
                         // `-.<digits>` — leading-dot float. Peek one
@@ -216,7 +216,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let rhs = self.parse_expr_bp(BP_UNARY_MINUS)?;
                 Ok(self
                     .emit
-                    .arith(self.emit.constant(Value::from(0)), "-", rhs))
+                    .arith(self.emit.constant(self.emit.int(0)), "-", rhs))
             }
             TokenKind::Plus => {
                 // `+` is only a sign on a `numberLiteral` per grammar
@@ -230,7 +230,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         self.bump()?;
                         let n = self.bump()?;
                         let src = self.consume_optional_fractional(self.text(n));
-                        parse_number_literal(&src, false)
+                        parse_number_literal(&self.emit, &src, false)
                     }
                     TokenKind::Dot => {
                         if let Some(num) = self.consume_signed_dot_float(false)? {
@@ -482,13 +482,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
-    fn parse_primary(&mut self) -> Result<Value, ParseError> {
+    fn parse_primary(&mut self) -> Result<E::Value, ParseError> {
         let tok = self.peek0;
         match tok.kind {
             TokenKind::Number => {
                 self.bump()?;
                 let src = self.consume_optional_fractional(self.text(tok));
-                Ok(parse_number_literal(&src, false)?)
+                Ok(parse_number_literal(&self.emit, &src, false)?)
             }
             // `.<digits>` — bare-decimal float per the grammar's
             // `floatingLiteral: DOT (DECIMAL_LITERAL | ...)`.
@@ -496,13 +496,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.bump()?;
                 let n = self.bump()?;
                 let src = format!(".{}", self.text(n));
-                Ok(parse_number_literal(&src, false)?)
+                Ok(parse_number_literal(&self.emit, &src, false)?)
             }
             TokenKind::String => {
                 self.bump()?;
                 Ok(self
                     .emit
-                    .constant(Value::String(unquote_single_string(self.text(tok)))))
+                    .constant(self.emit.string(&unquote_single_string(self.text(tok)))))
             }
             TokenKind::TemplateString => {
                 // Lexer captured the whole `f'…'` or `F'…'` span. The
@@ -545,15 +545,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
             TokenKind::Keyword(Kw::True) => {
                 self.bump()?;
-                Ok(self.emit.constant(Value::Bool(true)))
+                Ok(self.emit.constant(self.emit.bool(true)))
             }
             TokenKind::Keyword(Kw::False) => {
                 self.bump()?;
-                Ok(self.emit.constant(Value::Bool(false)))
+                Ok(self.emit.constant(self.emit.bool(false)))
             }
             TokenKind::Keyword(Kw::Null) => {
                 self.bump()?;
-                Ok(self.emit.constant(Value::Null))
+                Ok(self.emit.constant(self.emit.null()))
             }
             TokenKind::Keyword(Kw::Inf) => {
                 // cpp 1.3.45's `VISIT(NumberLiteral)` maps both `inf`
@@ -745,7 +745,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `CASE [scrutinee] WHEN c1 THEN r1 [WHEN c2 THEN r2 ...] [ELSE r] END`
     /// rewrites to `Call("if"|"multiIf"|"transform", ...)` per the C++
     /// visitor's [`VISIT(ColumnExprCase)`] logic.
-    fn parse_case_expr(&mut self) -> Result<Value, ParseError> {
+    fn parse_case_expr(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Case, "CASE")?;
         // Optional scrutinee. The simple case (peek != WHEN) parses
         // greedy and uses the result. The WHEN-first case is more
@@ -769,7 +769,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         } else {
             let cp = self.checkpoint();
             match self.parse_expr_bp(0) {
-                Ok(s) if self.peek() == TokenKind::Keyword(Kw::When) && !is_bare_field(&s) => {
+                Ok(s) if self.peek() == TokenKind::Keyword(Kw::When) && !is_bare_field(&self.emit, &s) => {
                     Some(s)
                 }
                 _ => {
@@ -778,8 +778,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
             }
         };
-        let mut whens: Vec<Value> = Vec::new();
-        let mut thens: Vec<Value> = Vec::new();
+        let mut whens: Vec<E::Value> = Vec::new();
+        let mut thens: Vec<E::Value> = Vec::new();
         while self.eat_kw(Kw::When)? {
             whens.push(self.parse_expr_bp(0)?);
             self.expect_kw(Kw::Then, "THEN")?;
@@ -808,7 +808,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             //   case S when v then r else d end  → transform(S, [v], [r], d)
             //   case S when v1 then r1 when v2 then r2 end
             //                                    → transform(S, [v1, v2], [r1], r2)
-            let mut flat: Vec<Value> = Vec::with_capacity(whens.len() * 2 + 2);
+            let mut flat: Vec<E::Value> = Vec::with_capacity(whens.len() * 2 + 2);
             for (w, t) in whens.into_iter().zip(thens) {
                 flat.push(w);
                 flat.push(t);
@@ -818,9 +818,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
             let else_arg = flat
                 .pop()
-                .unwrap_or_else(|| self.emit.constant(Value::Null));
-            let mut whens_arr: Vec<Value> = Vec::new();
-            let mut thens_arr: Vec<Value> = Vec::new();
+                .unwrap_or_else(|| self.emit.constant(self.emit.null()));
+            let mut whens_arr: Vec<E::Value> = Vec::new();
+            let mut thens_arr: Vec<E::Value> = Vec::new();
             for (i, col) in flat.into_iter().enumerate() {
                 if i % 2 == 0 {
                     whens_arr.push(col);
@@ -847,7 +847,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // Notably an implicit-NULL else is NOT synthesised here, so
         // `case when c then r end` produces `multiIf(c, r)`, not
         // `if(c, r, null)`.
-        let mut columns: Vec<Value> = Vec::with_capacity(whens.len() * 2 + 1);
+        let mut columns: Vec<E::Value> = Vec::with_capacity(whens.len() * 2 + 1);
         for (w, t) in whens.into_iter().zip(thens) {
             columns.push(w);
             columns.push(t);
@@ -863,7 +863,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 
     /// `CAST(expr AS type)` / `TRY_CAST(expr AS type)`.
-    fn parse_cast_expr(&mut self, is_try: bool) -> Result<Value, ParseError> {
+    fn parse_cast_expr(&mut self, is_try: bool) -> Result<E::Value, ParseError> {
         self.bump()?; // consume CAST / TRY_CAST
         self.expect(TokenKind::LParen, "(")?;
         // cpp grammar: `castFunction: CAST LPAREN columnExpr AS
@@ -964,7 +964,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     /// `INTERVAL <expr> <unit>` or `INTERVAL '<n> <unit>'`. Both forms
     /// rewrite to `Call("toInterval<Unit>", [expr])` per the C++ visitor.
-    fn parse_interval_expr(&mut self) -> Result<Value, ParseError> {
+    fn parse_interval_expr(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Interval, "INTERVAL")?;
         // `INTERVAL '5 day'` — a single string literal carrying both
         // count and unit. Only take this branch when the string is the
@@ -1021,7 +1021,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.bump()?;
                     return Ok(self
                         .emit
-                        .call(unit_name, vec![self.emit.constant(Value::from(count))]));
+                        .call(unit_name, vec![self.emit.constant(self.emit.int(count))]));
                 }
                 // Unit not lowercase / not recognised — cpp errors
                 // here even though the count was valid.
@@ -1145,7 +1145,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
-    fn parse_trim_keyword_form(&mut self) -> Result<Value, ParseError> {
+    fn parse_trim_keyword_form(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Trim, "TRIM")?;
         self.expect(TokenKind::LParen, "(")?;
         let name = if self.eat_kw(Kw::Leading)? {
@@ -1179,7 +1179,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `lambda IDENT (, IDENT)* : body`. The body admits a bare-list
     /// arrow lambda (`a, b -> body`) as a full columnExpr, so we try
     /// that form first before falling back to the regular Pratt parse.
-    fn parse_lambda_keyword(&mut self) -> Result<Value, ParseError> {
+    fn parse_lambda_keyword(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Lambda, "lambda")?;
         let mut params: Vec<String> = Vec::new();
         loop {
@@ -1215,7 +1215,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `EXCLUDE (…)` / `REPLACE (…)` decoration and an optional
     /// `IDENT.*` qualifier. Plus the leading-`ASTERISK COLUMNS(…)` spread
     /// forms. Covers the full ColumnExprColumns* family from the grammar.
-    fn parse_columns_expr(&mut self) -> Result<Value, ParseError> {
+    fn parse_columns_expr(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Columns, "COLUMNS")?;
         self.expect(TokenKind::LParen, "(")?;
         // Three shapes inside the parens:
@@ -1320,8 +1320,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.set_lexer_pos(probe.pos())?;
                     let (exclude, replace) = self.parse_columns_decorators()?;
                     let mut chain_values: Vec<Value> =
-                        chain.into_iter().map(Value::String).collect();
-                    chain_values.push(Value::String("*".into()));
+                        chain.into_iter().map(|s| self.emit.string(&s)).collect();
+                    chain_values.push(self.emit.string("*"));
                     let qualified_field =
                         self.wrap_pos_to(self.emit.field(chain_values), saved_pos, asterisk_end);
                     // Four C++-visitor shapes, all reachable here:
@@ -1376,7 +1376,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// larger `columnExpr` (a postfix `(…)` call etc.) and may be the
     /// first of a comma list — continue it through the Pratt loop and
     /// collect the rest as `ColumnExprColumnsList`.
-    fn columns_list_from_first(&mut self, first: Value) -> Result<Value, ParseError> {
+    fn columns_list_from_first(&mut self, first: E::Value) -> Result<E::Value, ParseError> {
         if self.peek() == TokenKind::RParen {
             return Ok(self
                 .emit
@@ -1508,7 +1508,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///   either regex or list)
     /// - `* EXCLUDE (…)` / `* REPLACE (…)` → `ColumnsExpr(all_columns=True, …)`
     /// - bare `*` → `Field(["*"])` (C++ visitor's `ColumnExprAsterisk`)
-    fn parse_top_level_asterisk(&mut self) -> Result<Value, ParseError> {
+    fn parse_top_level_asterisk(&mut self) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::Asterisk, "*")?;
         // `* COLUMNS(…)` — spread-columns form. The inner is whatever
         // parse_columns_expr produces (regex / list / qualified-all);
@@ -1540,24 +1540,24 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             ));
         }
         if exclude.is_none() && replace.is_none() {
-            Ok(self.emit.field(vec![Value::String("*".into())]))
+            Ok(self.emit.field(vec![self.emit.string("*")]))
         } else {
             Ok(self.emit.columns_expr(None, None, true, exclude, replace))
         }
     }
 
     /// `#<integer>` — positional column reference from a SELECT.
-    fn parse_positional(&mut self) -> Result<Value, ParseError> {
+    fn parse_positional(&mut self) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::Hash, "#")?;
         let tok = self.bump()?;
         if tok.kind != TokenKind::Number {
             return Err(self.err(format!("expected integer after '#', got {:?}", tok.kind)));
         }
         let n: i64 = self.text(tok).parse().unwrap_or(0);
-        Ok(json!({"node": "PositionalRef", "index": n}))
+        Ok(self.emit.positional_ref(n))
     }
 
-    pub(crate) fn parse_brace_dict_or_placeholder(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_brace_dict_or_placeholder(&mut self) -> Result<E::Value, ParseError> {
         // Capture the `{` start so the resulting Dict / Placeholder carries
         // a span from `{` through `}`. Callers reached via `parse_expr_bp`
         // also wrap, but `parse_table_expr` and the join-expr placeholder
@@ -1590,7 +1590,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
-    fn parse_single_arg_arrow_lambda(&mut self) -> Result<Value, ParseError> {
+    fn parse_single_arg_arrow_lambda(&mut self) -> Result<E::Value, ParseError> {
         let ident = self.bump()?;
         let name = identifier_text(self.text(ident), ident.kind);
         self.expect(TokenKind::Arrow, "->")?;
@@ -1612,7 +1612,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// any nesting depth — a heuristic that pattern-matches the brace
     /// contents inevitably misses shapes (e.g. a block of juxtaposed
     /// `exprStmt`s carries no `;`, keyword, or `:=` to key on).
-    pub(crate) fn parse_lambda_body(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_lambda_body(&mut self) -> Result<E::Value, ParseError> {
         if self.peek() == TokenKind::LBrace {
             return self.try_alt(&[&Self::parse_brace_expr_body, &Self::parse_block]);
         }
@@ -1622,14 +1622,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `try_alt` arm: parse a `{…}` lambda body as a single Dict /
     /// Placeholder expression. Fails (so the block arm takes over) when
     /// the brace contents are not one whole `columnExpr`.
-    fn parse_brace_expr_body(&mut self) -> Result<Value, ParseError> {
+    fn parse_brace_expr_body(&mut self) -> Result<E::Value, ParseError> {
         self.parse_expr_bp(0)
     }
 
     /// Try the bare-list arrow lambda form: `IDENT (, IDENT)* -> body`.
     /// Only valid at the outermost expression level (inside argument lists
     /// the commas are separators, so we never need to detect it there).
-    pub(crate) fn try_bare_list_lambda(&mut self) -> Result<Option<Value>, ParseError> {
+    pub(crate) fn try_bare_list_lambda(&mut self) -> Result<Option<E::Value>, ParseError> {
         // `IDENT (, IDENT)* COMMA? -> body`. A lambda parameter is an
         // `identifier`: a plain Ident, a QuotedIdent, or any keyword
         // admitted by `kw_valid_as_identifier` (`name -> 1`,
@@ -1690,7 +1690,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `(...)` may be a paren-wrapped expression, a tuple, or a lambda
     /// head followed by `->`. We probe for the lambda shape first because
     /// it's the only one that needs to refuse non-identifier contents.
-    fn parse_paren_or_lambda(&mut self) -> Result<Value, ParseError> {
+    fn parse_paren_or_lambda(&mut self) -> Result<E::Value, ParseError> {
         // Probe for `( [IDENT (, IDENT)* COMMA?]? ) ARROW`.
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         let lp = probe.next_token()?;
@@ -1848,7 +1848,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// token after the dot is `Number` before committing. Returns
     /// `Ok(None)` (without moving the cursor) when the lookahead
     /// doesn't fit, so the caller can fall through to unary-minus.
-    fn consume_signed_dot_float(&mut self, negative: bool) -> Result<Option<Value>, ParseError> {
+    fn consume_signed_dot_float(&mut self, negative: bool) -> Result<Option<E::Value>, ParseError> {
         // Probe the token after `.` via a shadow lexer; only commit if
         // it's a Number.
         let mut probe = Lexer::with_pos(self.src, self.peek1.end);
@@ -1870,7 +1870,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(())
     }
 
-    fn parse_paren_or_tuple(&mut self) -> Result<Value, ParseError> {
+    fn parse_paren_or_tuple(&mut self) -> Result<E::Value, ParseError> {
         // Capture the outer-LParen start before consuming it. cpp's
         // `ColumnExprColumnsReplace` / `ColumnExprColumnsExcludeReplace`
         // grammar alts (`LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`)
@@ -1913,7 +1913,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // Exclude-only `(* EXCLUDE (...))` is a regular ColumnExprAsterisk
         // inside ColumnExprParens (pass-through), so REPLACE is the
         // distinguishing marker.
-        if is_paren_form_columns_replace(&result) {
+        if is_paren_form_columns_replace(&self.emit, &result) {
             let end = self.last_consumed_end;
             return Ok(self.replace_pos_to(result, outer_start, end));
         }
@@ -1922,7 +1922,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     /// `parse_paren_or_tuple` arm: ColumnExprParens or ColumnExprTuple
     /// after the leading `(` has been consumed.
-    fn parse_paren_expr_or_tuple_arm(&mut self) -> Result<Value, ParseError> {
+    fn parse_paren_expr_or_tuple_arm(&mut self) -> Result<E::Value, ParseError> {
         let first = self.parse_expr_bp(0)?;
         if self.eat(TokenKind::Comma)? {
             let mut exprs = vec![first];
@@ -2365,7 +2365,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
-    fn parse_array_literal(&mut self) -> Result<Value, ParseError> {
+    fn parse_array_literal(&mut self) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::LBracket, "[")?;
         let mut exprs = Vec::new();
         if self.peek() != TokenKind::RBracket {
@@ -2388,7 +2388,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// function-call form covers the full grammar shape: parametric calls
     /// (`quantile(0.95)(x)`), DISTINCT, in-arg ORDER BY, trailing FILTER,
     /// and WITHIN GROUP (which forces the first paren list to be params).
-    pub(crate) fn parse_ident_lead(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_ident_lead(&mut self) -> Result<E::Value, ParseError> {
         let head = self.bump()?;
         let name = identifier_text(self.text(head), head.kind);
 
@@ -2418,7 +2418,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             && self.stop_postfix_call_before_colon_equals
             && self.paren_block_then_colon_equals(self.peek0.end)
         {
-            return Ok(json!({"node": "Field", "chain": [name]}));
+            return Ok(self.emit.field(vec![self.emit.string(&name)]));
         }
 
         if self.peek() == TokenKind::LParen {
@@ -2587,7 +2587,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             ));
         }
 
-        let mut chain: Vec<Value> = vec![Value::String(name)];
+        let mut chain: Vec<E::Value> = vec![self.emit.string(&name)];
         let mut ended_with_star = false;
         while self.peek() == TokenKind::Dot {
             // `.<number>` is a tuple access, handled by the postfix loop.
@@ -2610,7 +2610,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // Stop the chain at the `*` and let the outer Pratt
                     // postfix loop apply DOT → ArrayAccess to whatever
                     // follows.
-                    chain.push(Value::String("*".into()));
+                    chain.push(self.emit.string("*"));
                     ended_with_star = true;
                     break;
                 }
@@ -2621,7 +2621,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     )))
                 }
             }
-            chain.push(Value::String(identifier_text(self.text(part), part.kind)));
+            chain.push(self.emit.string(&identifier_text(self.text(part), part.kind)));
             ended_with_star = false;
         }
         // `IDENT(.IDENT)*.* EXCLUDE (…)` — the grammar's `ColumnExprAsterisk`
@@ -2704,7 +2704,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
-    fn try_parametric_call(&mut self, name: &str) -> Result<Value, ParseError> {
+    fn try_parametric_call(&mut self, name: &str) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::LParen, "(")?;
         let params = self.parse_arg_list(TokenKind::RParen)?;
         // A bare `selectSetStmt` inside the first paren means this is
@@ -2797,7 +2797,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             && matches!(self.peek_next(), TokenKind::Keyword(Kw::By))
     }
 
-    fn parse_function_args_inner(&mut self) -> Result<FunctionArgs, ParseError> {
+    fn parse_function_args_inner(&mut self) -> Result<FunctionArgs<E::Value>, ParseError> {
         // Only consume DISTINCT as the args-keyword when what follows can
         // legitimately continue the rule (`RPAREN`, `ORDER`, or the start
         // of a columnExpr). cpp's ANTLR otherwise parses DISTINCT as a
@@ -2815,7 +2815,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         } else {
             false
         };
-        let mut args: Vec<Value> = Vec::new();
+        let mut args: Vec<E::Value> = Vec::new();
         if self.peek() != TokenKind::RParen && !self.peek_starts_in_arg_order_by() {
             loop {
                 args.push(self.parse_call_argument_for_function()?);
@@ -3797,7 +3797,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// argument shape `ident := expr` which is grammar-bound to call sites,
     /// and a `SELECT …` subquery (`f(select 1)`) which the grammar's
     /// `ColumnExprCallSelect` allows.
-    fn parse_call_argument(&mut self) -> Result<Value, ParseError> {
+    fn parse_call_argument(&mut self) -> Result<E::Value, ParseError> {
         // Default caller: `parse_arg_list`, which is the postfix `(...)`
         // form (cpp's `ColumnExprCallSelect`). The grammar there admits
         // a selectSetStmt as the entire body — including its
@@ -3816,14 +3816,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// vs 237), so a trailing `ORDER BY` after the inner paren-wrapped
     /// SELECT belongs to the outer `Call.order_by`, not the inner
     /// SetStmt wrapper.
-    fn parse_call_argument_for_function(&mut self) -> Result<Value, ParseError> {
+    fn parse_call_argument_for_function(&mut self) -> Result<E::Value, ParseError> {
         self.parse_call_argument_with(true)
     }
 
     fn parse_call_argument_with(
         &mut self,
         suppress_inner_trailing_order_by: bool,
-    ) -> Result<Value, ParseError> {
+    ) -> Result<E::Value, ParseError> {
         // cpp's `ColumnExprNamedArg: identifier COLONEQUALS columnExpr`
         // admits the full `identifier` rule — IDENT / QUOTED_IDENTIFIER /
         // any keyword accepted by `kw_valid_as_identifier`. That includes
@@ -3868,7 +3868,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     fn parse_call_argument_select(
         &mut self,
         suppress_trailing_order_by: bool,
-    ) -> Result<Value, ParseError> {
+    ) -> Result<E::Value, ParseError> {
         // Selectively suppress the SetStmt-wrapper-level ORDER BY when
         // the caller is the named-function-call path (cpp's
         // `ColumnExprFunction`). For the postfix call-select form
@@ -3924,7 +3924,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
 
     // ---- Postfix --------------------------------------------------------
 
-    fn parse_postfix(&mut self, kind: TokenKind, lhs: Value) -> Result<Value, ParseError> {
+    fn parse_postfix(&mut self, kind: TokenKind, lhs: E::Value) -> Result<E::Value, ParseError> {
         match kind {
             TokenKind::LParen => {
                 self.bump()?;
@@ -4032,7 +4032,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         let name = identifier_text(self.text(part), part.kind);
                         Ok(self.emit.array_access(
                             lhs,
-                            self.emit.constant(Value::String(name)),
+                            self.emit.constant(self.emit.string(&name)),
                             false,
                         ))
                     }
@@ -4047,7 +4047,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         let name = identifier_text(self.text(part), part.kind);
                         Ok(self.emit.array_access(
                             lhs,
-                            self.emit.constant(Value::String(name)),
+                            self.emit.constant(self.emit.string(&name)),
                             false,
                         ))
                     }
@@ -4086,7 +4086,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         let name = identifier_text(self.text(part), part.kind);
                         Ok(self.emit.array_access(
                             lhs,
-                            self.emit.constant(Value::String(name)),
+                            self.emit.constant(self.emit.string(&name)),
                             true,
                         ))
                     }
@@ -4094,7 +4094,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         let name = identifier_text(self.text(part), part.kind);
                         Ok(self.emit.array_access(
                             lhs,
-                            self.emit.constant(Value::String(name)),
+                            self.emit.constant(self.emit.string(&name)),
                             true,
                         ))
                     }
@@ -4167,7 +4167,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     fn try_special_infix(
         &mut self,
         kind: TokenKind,
-        lhs: &mut Value,
+        lhs: &mut E::Value,
         min_bp: u8,
         lhs_start: usize,
     ) -> Result<Option<bool>, ParseError> {
@@ -4262,7 +4262,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // and would not otherwise receive a span. cpp emits position info on BetweenExpr
                     // unconditionally — match that. Use `high.end` (not `last_consumed_end`) — see
                     // the BETWEEN arm below for the rationale.
-                    let high_end = high.get("end").cloned();
+                    let high_end = self.emit.get_field(&high, "end");
                     let between_inner = self.emit.between(prev, low, high, true);
                     let mut between = match high_end {
                         Some(end) => {
@@ -4272,7 +4272,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         None => self.wrap_pos(between_inner, lhs_start),
                     };
                     for hoist in hoisted {
-                        between = apply_between_hoist(between, hoist);
+                        between = apply_between_hoist(&self.emit, between, hoist);
                     }
                     *lhs = between;
                     Ok(Some(true))
@@ -4326,7 +4326,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // When `parse_between_body`'s WIDE arm absorbs a nested BETWEEN and the split hoists
                 // it back out (`BetweenHoist::Between`), `last_consumed_end` is past the high we'll
                 // actually use; mirror cpp's per-ctx span by reading the end off `high` directly.
-                let high_end = high.get("end").cloned();
+                let high_end = self.emit.get_field(&high, "end");
                 let between_inner = self.emit.between(prev, low, high, false);
                 let mut between = match high_end {
                     Some(end) => self
@@ -4335,7 +4335,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     None => self.wrap_pos(between_inner, lhs_start),
                 };
                 for hoist in hoisted {
-                    between = apply_between_hoist(between, hoist);
+                    between = apply_between_hoist(&self.emit, between, hoist);
                 }
                 *lhs = between;
                 Ok(Some(true))
@@ -4537,7 +4537,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///
     /// Both alts share the same post-parse split + literal-AND
     /// fallback; the difference is just the starting BP.
-    fn parse_between_body(&mut self, outer_min_bp: u8) -> Result<BetweenSplit, ParseError> {
+    fn parse_between_body(&mut self, outer_min_bp: u8) -> Result<BetweenSplit<E::Value>, ParseError> {
         // Depth-aware arm ordering:
         //   - OUTERMOST call (depth=0): WIDE first. The body greedy
         //     parse maximizes what's inside the OUTER BETWEEN; split
@@ -4597,7 +4597,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         &mut self,
         start_bp: u8,
         outer_min_bp: u8,
-    ) -> Result<BetweenSplit, ParseError> {
+    ) -> Result<BetweenSplit<E::Value>, ParseError> {
         let (low, high, hoisted) = Self::parse_between_body_arm(self, start_bp)?;
         if hoisted.iter().any(|h| hoist_min_bp(h) <= outer_min_bp) {
             return Err(
@@ -4610,9 +4610,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// Shared body of `parse_between_body`'s two `try_alt` arms,
     /// parameterized by the starting binding power. See
     /// `parse_between_body` for the narrow/wide rationale.
-    fn parse_between_body_arm(&mut self, start_bp: u8) -> Result<BetweenSplit, ParseError> {
+    fn parse_between_body_arm(&mut self, start_bp: u8) -> Result<BetweenSplit<E::Value>, ParseError> {
         let chain = self.parse_expr_bp(start_bp)?;
-        if let Some((low, high, hoisted)) = split_at_rightmost_and(&chain) {
+        if let Some((low, high, hoisted)) = split_at_rightmost_and(&self.emit, &chain) {
             return Ok((low, high, hoisted));
         }
         // The body had no AND that the split could find — consume the
@@ -4845,16 +4845,16 @@ fn peek_can_start_clause_body(tok: TokenKind) -> bool {
 ///   high), then, else)`), we hoist the ternary's then/else out to
 ///   wrap the BetweenExpr the caller builds.
 #[derive(Debug, Clone)]
-pub(crate) enum BetweenHoist {
+pub(crate) enum BetweenHoist<V> {
     Alias(String),
     Between {
-        low: Value,
-        high: Value,
+        low: V,
+        high: V,
         negated: bool,
     },
     Ternary {
-        then_branch: Value,
-        else_branch: Value,
+        then_branch: V,
+        else_branch: V,
     },
     /// `Or(left_siblings ... , <expr>, right_siblings ...)` —  the
     /// greedy body parse absorbed an OR whose AND-carrying child sits
@@ -4863,8 +4863,8 @@ pub(crate) enum BetweenHoist {
     /// BETWEEN's high body, so the OR (and its siblings) become an
     /// outer wrapper around the alias-wrapped BetweenExpr.
     Or {
-        left_siblings: Vec<Value>,
-        right_siblings: Vec<Value>,
+        left_siblings: Vec<V>,
+        right_siblings: Vec<V>,
     },
     /// `IsDistinctFrom(<expr>, right, negated?)` — `BETWEEN body AND
     /// high AS al IS [NOT] DISTINCT FROM rhs` parses with the IS
@@ -4873,7 +4873,7 @@ pub(crate) enum BetweenHoist {
     /// terminates BETWEEN's high body, and IS DISTINCT FROM applies
     /// to the alias-wrapped BetweenExpr).
     IsDistinctFrom {
-        right: Value,
+        right: V,
         negated: bool,
     },
     /// `IsNull(<expr>, negated?)` — `BETWEEN body AND high AS al IS
@@ -4890,7 +4890,7 @@ pub(crate) enum BetweenHoist {
     /// with the alias, we hoist it OUTSIDE the alias around the
     /// BetweenExpr.
     ArrayAccess {
-        property: Value,
+        property: V,
         nullish: bool,
     },
     /// `ExprCall(<expr>, args)` — postfix `(<args>)` on top of the
@@ -4901,14 +4901,14 @@ pub(crate) enum BetweenHoist {
     /// the ExprCall hoists out alongside the alias to wrap the
     /// final BetweenExpr.
     ExprCall {
-        args: Vec<Value>,
+        args: Vec<V>,
     },
     /// `TypeCast(<expr>, "<type-ident>")` — postfix `:: <type>` at
     /// BP_POSTFIX=130. Same hoisting rationale as ExprCall: the
     /// type-cast attaches OUTSIDE the BetweenExpr after the inner
     /// AND-bearing wrapper chain is peeled.
     TypeCast {
-        type_name: Value,
+        type_name: String,
     },
     /// `TupleAccess(<tuple>, index, nullish?)` — postfix `.<NUMBER>`
     /// / `?.<NUMBER>` at BP_POSTFIX=130. Same hoisting rationale as
@@ -4931,14 +4931,14 @@ pub(crate) enum BetweenHoist {
     /// rather than hoisting.)
     ArithmeticOperation {
         op: String,
-        right: Value,
+        right: V,
     },
 }
 
 /// Result of finding the BETWEEN separator AND inside a greedy body
 /// parse. `hoisted` wrappers are applied around the BetweenExpr by
 /// the caller of `parse_between_body`, innermost first.
-type BetweenSplit = (Value, Value, Vec<BetweenHoist>);
+type BetweenSplit<V> = (V, V, Vec<BetweenHoist<V>>);
 
 /// The lowest binding power at which this hoist's outer wrapper can
 /// fire. Used by `parse_between_body_arm_wide` to detect when an
@@ -4946,7 +4946,7 @@ type BetweenSplit = (Value, Value, Vec<BetweenHoist>);
 /// would itself claim the wrapper — in which case the WIDE arm must
 /// reject so the wrapper attaches at the outer level instead of
 /// being applied INSIDE the BETWEEN.
-fn hoist_min_bp(hoist: &BetweenHoist) -> u8 {
+fn hoist_min_bp<V>(hoist: &BetweenHoist<V>) -> u8 {
     match hoist {
         BetweenHoist::Alias(_) => BP_ALIAS,
         BetweenHoist::Ternary { .. } => BP_TERNARY,
@@ -4969,48 +4969,32 @@ fn hoist_min_bp(hoist: &BetweenHoist) -> u8 {
 }
 
 /// Apply one outer wrapper around an in-progress BetweenExpr.
-fn apply_between_hoist(expr: Value, hoist: BetweenHoist) -> Value {
+fn apply_between_hoist<E: Emitter>(emit: &E, expr: E::Value, hoist: BetweenHoist<E::Value>) -> E::Value {
     match hoist {
-        BetweenHoist::Alias(name) => emit::alias(expr, &name),
-        BetweenHoist::Between { low, high, negated } => emit::between(expr, low, high, negated),
+        BetweenHoist::Alias(name) => emit.alias(expr, &name),
+        BetweenHoist::Between { low, high, negated } => emit.between(expr, low, high, negated),
         BetweenHoist::Ternary {
             then_branch,
             else_branch,
-        } => emit::call("if", vec![expr, then_branch, else_branch]),
+        } => emit.call("if", vec![expr, then_branch, else_branch]),
         BetweenHoist::Or {
             left_siblings,
             right_siblings,
         } => {
-            let mut all: Vec<Value> = left_siblings;
+            let mut all: Vec<E::Value> = left_siblings;
             all.push(expr);
             all.extend(right_siblings);
-            emit::or_(all)
+            emit.or_(all)
         }
         BetweenHoist::IsDistinctFrom { right, negated } => {
-            serde_json::json!({
-                "node": "IsDistinctFrom",
-                "left": expr,
-                "right": right,
-                "negated": negated,
-            })
+            emit.is_distinct_from(expr, right, negated)
         }
-        BetweenHoist::IsNull { negated } => emit::compare_is_null(expr, negated),
+        BetweenHoist::IsNull { negated } => emit.compare_is_null(expr, negated),
         BetweenHoist::ArrayAccess { property, nullish } => {
-            let mut obj = serde_json::Map::new();
-            obj.insert("node".into(), Value::String("ArrayAccess".into()));
-            obj.insert("array".into(), expr);
-            obj.insert("property".into(), property);
-            if nullish {
-                obj.insert("nullish".into(), Value::Bool(true));
-            }
-            Value::Object(obj)
+            emit.array_access(expr, property, nullish)
         }
         BetweenHoist::ExprCall { args } => {
-            let mut obj = serde_json::Map::new();
-            obj.insert("node".into(), Value::String("ExprCall".into()));
-            obj.insert("expr".into(), expr);
-            obj.insert("args".into(), Value::Array(args));
-            Value::Object(obj)
+            emit.expr_call(expr, args)
         }
         BetweenHoist::TypeCast { type_name } => {
             // Reconstruct the TypeCast node the WIDE parse produced.
@@ -5018,32 +5002,16 @@ fn apply_between_hoist(expr: Value, hoist: BetweenHoist) -> Value {
             // `type_name` (per cpp's `VISIT(ColumnTypeExprSimple)` —
             // it deserialises to the Python dataclass field of the
             // same name).
-            serde_json::json!({
-                "node": "TypeCast",
-                "expr": expr,
-                "type_name": type_name,
-            })
+            emit.type_cast(expr, &type_name)
         }
         BetweenHoist::TupleAccess { index, nullish } => {
             // cpp's `VISIT(ColumnExprTupleAccess)` emits the inner
             // expression on the `tuple` field, and the dot-number
             // index on `index`. Mirror that.
-            let mut obj = serde_json::Map::new();
-            obj.insert("node".into(), Value::String("TupleAccess".into()));
-            obj.insert("tuple".into(), expr);
-            obj.insert("index".into(), serde_json::Value::from(index));
-            if nullish {
-                obj.insert("nullish".into(), Value::Bool(true));
-            }
-            Value::Object(obj)
+            emit.tuple_access(expr, index, nullish)
         }
         BetweenHoist::ArithmeticOperation { op, right } => {
-            serde_json::json!({
-                "node": "ArithmeticOperation",
-                "left": expr,
-                "right": right,
-                "op": op,
-            })
+            emit.arith(expr, &op, right)
         }
     }
 }
@@ -5057,21 +5025,17 @@ fn apply_between_hoist(expr: Value, hoist: BetweenHoist) -> Value {
 /// expressions that the pratt loop wraps). Derive the span from the
 /// first child's `start` and the last child's `end` so the inner
 /// synthetic node carries a non-null span.
-fn stamp_span_from_children(mut node: Value, children: &[Value]) -> Value {
+fn stamp_span_from_children<E: Emitter>(emit: &E, mut node: E::Value, children: &[E::Value]) -> E::Value {
     if children.is_empty() {
         return node;
     }
-    let start = children[0].get("start").cloned();
-    let end = children[children.len() - 1].get("end").cloned();
-    if let Some(obj) = node.as_object_mut() {
-        if let Some(s) = start {
-            obj.insert("start".into(), s);
-        }
-        if let Some(e) = end {
-            obj.insert("end".into(), e);
-        }
+    let start = emit.get_field(&children[0], "start");
+    let end = emit.get_field(&children[children.len() - 1], "end");
+    if let (Some(s), Some(e)) = (start, end) {
+        emit.replace_pos(node, s, e)
+    } else {
+        node
     }
-    node
 }
 
 /// Walk an already-parsed boolean tree to find the rightmost AND in
@@ -5085,10 +5049,11 @@ fn stamp_span_from_children(mut node: Value, children: &[Value]) -> Value {
 /// - An `Or` node defers — walk children right-to-left so we find the
 ///   *latest* AND-bearing child. Reconstruct the Or above the split.
 /// - Anything else has no AND in it; return None.
-fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
-    let node_name = node.get("node").and_then(Value::as_str);
+fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<BetweenSplit<E::Value>> {
+    let node_name = emit.node_kind(node);
+    let node_name = node_name.as_deref();
     if node_name == Some("And") {
-        let exprs = node.get("exprs").and_then(Value::as_array).cloned()?;
+        let exprs = emit.get_field(node, "exprs").and_then(|v| emit.as_list(&v))?;
         if exprs.len() < 2 {
             return None;
         }
@@ -5101,7 +5066,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
         // outer high. Without this descent we'd just pop the last
         // element (NamedArg) wholesale and lose that AND.
         if let Some((deep_left, deep_right, hoisted)) =
-            split_at_rightmost_and(&exprs[exprs.len() - 1])
+            split_at_rightmost_and(emit, &exprs[exprs.len() - 1])
         {
             let mut new_exprs = exprs.clone();
             let last_idx = new_exprs.len() - 1;
@@ -5109,8 +5074,8 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
             let new_left = if new_exprs.len() == 1 {
                 new_exprs.into_iter().next().unwrap()
             } else {
-                let synthetic = emit::and_(new_exprs.clone());
-                stamp_span_from_children(synthetic, &new_exprs)
+                let synthetic = emit.and_(new_exprs.clone());
+                stamp_span_from_children(emit, synthetic, &new_exprs)
             };
             return Some((new_left, deep_right, hoisted));
         }
@@ -5120,15 +5085,15 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
         let left = if exprs.len() == 1 {
             exprs.pop().unwrap()
         } else {
-            let synthetic = emit::and_(exprs.clone());
-            stamp_span_from_children(synthetic, &exprs)
+            let synthetic = emit.and_(exprs.clone());
+            stamp_span_from_children(emit, synthetic, &exprs)
         };
         return Some((left, right, Vec::new()));
     }
     if node_name == Some("Or") {
-        let exprs = node.get("exprs").and_then(Value::as_array).cloned()?;
+        let exprs = emit.get_field(node, "exprs").and_then(|v| emit.as_list(&v))?;
         for i in (0..exprs.len()).rev() {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(&exprs[i]) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &exprs[i]) {
                 if hoisted.is_empty() {
                     // AND was found directly inside the Or's child (no
                     // looser-wrapper between them). cpp's grammar lets
@@ -5136,22 +5101,22 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                     // children flow into the high alongside the descent
                     // result. `x BETWEEN low AND high OR rest` →
                     // BETWEEN(x, low, Or(high, rest)).
-                    let mut left_children: Vec<Value> = exprs[..i].to_vec();
+                    let mut left_children: Vec<E::Value> = exprs[..i].to_vec();
                     left_children.push(left_in);
                     let left = if left_children.len() == 1 {
                         left_children.pop().unwrap()
                     } else {
-                        let synthetic = emit::or_(left_children.clone());
-                        stamp_span_from_children(synthetic, &left_children)
+                        let synthetic = emit.or_(left_children.clone());
+                        stamp_span_from_children(emit, synthetic, &left_children)
                     };
-                    let mut right_children: Vec<Value> = Vec::with_capacity(exprs.len() - i);
+                    let mut right_children: Vec<E::Value> = Vec::with_capacity(exprs.len() - i);
                     right_children.push(right_in);
                     right_children.extend_from_slice(&exprs[i + 1..]);
                     let right = if right_children.len() == 1 {
                         right_children.pop().unwrap()
                     } else {
-                        let synthetic = emit::or_(right_children.clone());
-                        stamp_span_from_children(synthetic, &right_children)
+                        let synthetic = emit.or_(right_children.clone());
+                        stamp_span_from_children(emit, synthetic, &right_children)
                     };
                     return Some((left, right, hoisted));
                 }
@@ -5162,8 +5127,8 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                 // being absorbed into the high. Pushing the Or hoist
                 // AFTER `hoisted` puts it OUTSIDE the wrappers the
                 // descent has accumulated.
-                let left_siblings: Vec<Value> = exprs[..i].to_vec();
-                let right_siblings: Vec<Value> = exprs[i + 1..].to_vec();
+                let left_siblings: Vec<E::Value> = exprs[..i].to_vec();
+                let right_siblings: Vec<E::Value> = exprs[i + 1..].to_vec();
                 if !left_siblings.is_empty() || !right_siblings.is_empty() {
                     hoisted.push(BetweenHoist::Or {
                         left_siblings,
@@ -5189,11 +5154,11 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     //   BetweenExpr. Descend through the Alias and HOIST its name to
     //   the caller's outer-wrap list.
     if node_name == Some("Lambda") {
-        if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
-                let mut new_node = node.as_object()?.clone();
-                new_node.insert("expr".into(), left_in);
-                return Some((Value::Object(new_node), right_in, hoisted));
+        if let Some(inner) = emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let mut new_node = node.clone();
+                emit.set_field(&mut new_node, "expr", left_in);
+                return Some((new_node, right_in, hoisted));
             }
         }
     }
@@ -5204,11 +5169,11 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // `Not.expr` peels the AND off so the outer BETWEEN sees its own
     // `low = Not(Lambda(x, b))`, `high = c` split.
     if node_name == Some("Not") {
-        if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
-                let mut new_node = node.as_object()?.clone();
-                new_node.insert("expr".into(), left_in);
-                return Some((Value::Object(new_node), right_in, hoisted));
+        if let Some(inner) = emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let mut new_node = node.clone();
+                emit.set_field(&mut new_node, "expr", left_in);
+                return Some((new_node, right_in, hoisted));
             }
         }
     }
@@ -5235,47 +5200,43 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // possible), cpp prefers the rightmost-in-source which lives in
     // `.right`.
     if node_name == Some("ArithmeticOperation") {
-        if let Some(inner) = node.get("right") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
-                let mut new_node = node.as_object()?.clone();
-                new_node.insert("right".into(), left_in);
-                return Some((Value::Object(new_node), right_in, hoisted));
+        if let Some(inner) = emit.get_field(node, "right") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let mut new_node = node.clone();
+                emit.set_field(&mut new_node, "right", left_in);
+                return Some((new_node, right_in, hoisted));
             }
         }
-        if let Some(inner) = node.get("left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
-                let op = node
-                    .get("op")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let right = node.get("right").cloned().unwrap_or(Value::Null);
+        if let Some(inner) = emit.get_field(node, "left") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let op = emit.get_field(node, "op").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).unwrap_or_default();
+                let right = emit.get_field(node, "right").unwrap_or_else(|| emit.null());
                 hoisted.push(BetweenHoist::ArithmeticOperation { op, right });
                 return Some((left_in, right_in, hoisted));
             }
         }
     }
     if node_name == Some("NamedArgument") {
-        if let Some(inner) = node.get("value") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
-                let mut new_node = node.as_object()?.clone();
-                new_node.insert("value".into(), left_in);
-                return Some((Value::Object(new_node), right_in, hoisted));
+        if let Some(inner) = emit.get_field(node, "value") {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let mut new_node = node.clone();
+                emit.set_field(&mut new_node, "value", left_in);
+                return Some((new_node, right_in, hoisted));
             }
         }
     }
-    if node_name == Some("Call") && node.get("name").and_then(Value::as_str) == Some("if") {
-        if let Some(args) = node.get("args").and_then(Value::as_array) {
+    if node_name == Some("Call") && emit.get_field(node, "name").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).as_deref() == Some("if") {
+        if let Some(args) = emit.get_field(node, "args").and_then(|v| emit.as_list(&v)) {
             if args.len() == 3 {
                 // Try the else-branch (args[2]) first: `cond ? then :
                 // else AND high` parses with else absorbing the AND;
                 // we peel and rewrap the if-call.
-                if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(&args[2]) {
+                if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(emit, &args[2]) {
                     let mut new_args = args.clone();
                     new_args[2] = left_in;
-                    let mut new_node = node.as_object()?.clone();
-                    new_node.insert("args".into(), Value::Array(new_args));
-                    return Some((Value::Object(new_node), right_in, hoisted));
+                    let mut new_node = node.clone();
+                    emit.set_field(&mut new_node, "args", emit.array_(new_args));
+                    return Some((new_node, right_in, hoisted));
                 }
                 // Try the cond (args[0]): `(BETWEEN body AND high) ?
                 // then : else` parses with the AND inside the cond of
@@ -5285,7 +5246,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                 // BetweenExpr the caller builds. The if-call node
                 // itself dissolves: its then/else go to the hoist, its
                 // cond's split becomes BETWEEN's low/high.
-                if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(&args[0]) {
+                if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &args[0]) {
                     hoisted.push(BetweenHoist::Ternary {
                         then_branch: args[1].clone(),
                         else_branch: args[2].clone(),
@@ -5296,17 +5257,13 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
         }
     }
     if node_name == Some("Alias") {
-        if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+        if let Some(inner) = emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
                 // Hoist *this* alias name. Caller wraps BetweenExpr
                 // with each hoisted item in order (innermost first),
                 // which matches cpp's `Alias(BetweenExpr(...),
                 // outer_name)` shape.
-                let name = node
-                    .get("alias")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
+                let name = emit.get_field(node, "alias").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).unwrap_or_default();
                 hoisted.push(BetweenHoist::Alias(name));
                 return Some((left_in, right_in, hoisted));
             }
@@ -5323,13 +5280,10 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // accumulated wrappers so it ends up OUTERMOST around the
     // alias-wrapped BetweenExpr the caller will build.
     if node_name == Some("IsDistinctFrom") {
-        if let Some(inner) = node.get("left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
-                let right = node.get("right").cloned().unwrap_or(Value::Null);
-                let negated = node
-                    .get("negated")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+        if let Some(inner) = emit.get_field(node, "left") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let right = emit.get_field(node, "right").unwrap_or_else(|| emit.null());
+                let negated = emit.get_field(node, "negated").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
                 hoisted.push(BetweenHoist::IsDistinctFrom { right, negated });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5341,10 +5295,10 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
             .and_then(Value::as_bool)
             == Some(true)
     {
-        if let Some(inner) = node.get("left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+        if let Some(inner) = emit.get_field(node, "left") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
                 // `op` is "==" for IS NULL, "!=" for IS NOT NULL.
-                let negated = node.get("op").and_then(Value::as_str) == Some("!=");
+                let negated = emit.get_field(node, "op").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).as_deref() == Some("!=");
                 hoisted.push(BetweenHoist::IsNull { negated });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5355,13 +5309,10 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // Descend through `array`; on success, hoist the access OUTSIDE
     // the alias so it wraps the BetweenExpr the caller builds.
     if node_name == Some("ArrayAccess") {
-        if let Some(inner) = node.get("array") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
-                let property = node.get("property").cloned().unwrap_or(Value::Null);
-                let nullish = node
-                    .get("nullish")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+        if let Some(inner) = emit.get_field(node, "array") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let property = emit.get_field(node, "property").unwrap_or_else(|| emit.null());
+                let nullish = emit.get_field(node, "nullish").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
                 hoisted.push(BetweenHoist::ArrayAccess { property, nullish });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5375,8 +5326,8 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // on `Alias(And(1, (2)), 'a')`, burying the BETWEEN-separator
     // AND inside the call's `.expr`.
     if node_name == Some("ExprCall") {
-        if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+        if let Some(inner) = emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
                 let args = node
                     .get("args")
                     .and_then(Value::as_array)
@@ -5390,9 +5341,9 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // `TypeCast(<expr>, type_name)` — postfix `:: <type>` at
     // BP_POSTFIX=130. Same hoisting pattern as ExprCall.
     if node_name == Some("TypeCast") {
-        if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
-                let type_name = node.get("type_name").cloned().unwrap_or(Value::Null);
+        if let Some(inner) = emit.get_field(node, "expr") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let type_name = emit.get_field(node, "type_name").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).unwrap_or_default();
                 hoisted.push(BetweenHoist::TypeCast { type_name });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5403,13 +5354,10 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // ArrayAccess but on a different node type with a different
     // field name (`tuple` vs `array`, `index` vs `property`).
     if node_name == Some("TupleAccess") {
-        if let Some(inner) = node.get("tuple") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
-                let index = node.get("index").and_then(Value::as_i64).unwrap_or(0);
-                let nullish = node
-                    .get("nullish")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+        if let Some(inner) = emit.get_field(node, "tuple") {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
+                let index = emit.get_field(node, "index").and_then(|v| emit.as_i64(&v)).unwrap_or(0);
+                let nullish = emit.get_field(node, "nullish").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
                 hoisted.push(BetweenHoist::TupleAccess { index, nullish });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5443,22 +5391,19 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     //    (no AND), so the `low` peel above fails. Fall through to
     //    `expr`: split And(d,e), hoist (f, g, neg=true).
     if node_name == Some("BetweenExpr") {
-        if let (Some(inner_low), Some(inner_high)) = (node.get("low"), node.get("high")) {
+        if let (Some(inner_low), Some(inner_high)) = (emit.get_field(node, "low"), emit.get_field(node, "high")) {
             if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(inner_low) {
-                let mut new_inner = node.as_object()?.clone();
-                new_inner.insert("low".into(), new_low);
-                new_inner.insert("high".into(), new_high);
-                return Some((Value::Object(new_inner), inner_high.clone(), hoisted));
+                let mut new_inner = node.clone();
+                emit.set_field(&mut new_inner, "low", new_low);
+                emit.set_field(&mut new_inner, "high", new_high);
+                return Some((new_inner, inner_high, hoisted));
             }
         }
-        if let Some(inner_expr) = node.get("expr") {
+        if let Some(inner_expr) = emit.get_field(node, "expr") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner_expr) {
-                let low = node.get("low").cloned().unwrap_or(Value::Null);
-                let high = node.get("high").cloned().unwrap_or(Value::Null);
-                let negated = node
-                    .get("negated")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+                let low = emit.get_field(node, "low").unwrap_or_else(|| emit.null());
+                let high = emit.get_field(node, "high").unwrap_or_else(|| emit.null());
+                let negated = emit.get_field(node, "negated").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
                 hoisted.push(BetweenHoist::Between { low, high, negated });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5473,14 +5418,11 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
 /// `offset`) that resolved to a bare identifier and should NOT extend
 /// the column list — cpp backs off the comma and dispatches them as
 /// the next clause introducer.
-pub(crate) fn is_bare_field(v: &Value) -> bool {
-    let Some(obj) = v.as_object() else {
-        return false;
-    };
-    if obj.get("node").and_then(Value::as_str) != Some("Field") {
+pub(crate) fn is_bare_field<E: Emitter>(emit: &E, v: &E::Value) -> bool {
+    if emit.node_kind(v).as_deref() != Some("Field") {
         return false;
     }
-    let Some(chain) = obj.get("chain").and_then(Value::as_array) else {
+    let Some(chain) = emit.get_field(v, "chain").and_then(|c| emit.as_list(&c)) else {
         return false;
     };
     chain.len() == 1
@@ -5494,15 +5436,12 @@ pub(crate) fn is_bare_field(v: &Value) -> bool {
 /// bare-paren form. The COLUMNS-prefixed `COLUMNS(* REPLACE(...))`
 /// variant takes a different parse path (it doesn't go through
 /// `parse_paren_or_tuple`), so this check is safe.
-fn is_paren_form_columns_replace(v: &Value) -> bool {
-    let Some(obj) = v.as_object() else {
-        return false;
-    };
-    if obj.get("node").and_then(Value::as_str) != Some("ColumnsExpr") {
+fn is_paren_form_columns_replace<E: Emitter>(emit: &E, v: &E::Value) -> bool {
+    if emit.node_kind(v).as_deref() != Some("ColumnsExpr") {
         return false;
     }
-    if obj.get("all_columns").and_then(Value::as_bool) != Some(true) {
+    if emit.get_field(v, "all_columns").and_then(|v| emit.as_bool(&v)) != Some(true) {
         return false;
     }
-    obj.get("replace").map(|v| !v.is_null()).unwrap_or(false)
+    emit.get_field(v, "replace").map(|v| !emit.is_null(&v)).unwrap_or(false)
 }

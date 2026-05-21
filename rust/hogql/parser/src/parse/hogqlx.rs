@@ -63,28 +63,24 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// byte-walks the body directly and re-seeks the lexer via
     /// `consume_hogqlx_text`, so peek1's transient invalid state is
     /// recoverable.
-    pub(crate) fn parse_hogqlx_tag_element(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_hogqlx_tag_element(&mut self) -> Result<E::Value, ParseError> {
         self.hogqlx_text_lookahead_depth += 1;
         let result = self.parse_hogqlx_tag_element_inner();
         self.hogqlx_text_lookahead_depth -= 1;
         result
     }
 
-    fn parse_hogqlx_tag_element_inner(&mut self) -> Result<Value, ParseError> {
+    fn parse_hogqlx_tag_element_inner(&mut self) -> Result<E::Value, ParseError> {
         let tag_start = self.peek0.start;
         self.expect(TokenKind::Lt, "<")?;
         let kind = self.parse_hogqlx_identifier("tag name")?;
-        let mut attributes: Vec<Value> = Vec::new();
+        let mut attributes: Vec<E::Value> = Vec::new();
         loop {
             match self.peek() {
                 TokenKind::SlashGt => {
                     self.bump()?;
                     return Ok(self.wrap_pos(
-                        json!({
-                            "node": "HogQLXTag",
-                            "kind": kind,
-                            "attributes": attributes,
-                        }),
+                        self.emit.hogqlx_tag(&kind, attributes),
                         tag_start,
                     ));
                 }
@@ -110,18 +106,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                                 "Can't have a HogQLX tag with both children and a 'children' attribute",
                             ));
                         }
-                        attributes.push(json!({
-                            "node": "HogQLXAttribute",
-                            "name": "children",
-                            "value": children,
-                        }));
+                        attributes.push(self.emit.hogqlx_attribute("children", children));
                     }
                     return Ok(self.wrap_pos(
-                        json!({
-                            "node": "HogQLXTag",
-                            "kind": kind,
-                            "attributes": attributes,
-                        }),
+                        self.emit.hogqlx_tag(&kind, attributes),
                         tag_start,
                     ));
                 }
@@ -145,15 +133,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///   - `name = 'string'` → HogQLXAttribute(name, Constant(string))
     ///   - `name = { expr }` → HogQLXAttribute(name, expr)
     ///   - `name`            → HogQLXAttribute(name, Constant(true))
-    fn parse_hogqlx_attribute(&mut self) -> Result<Value, ParseError> {
+    fn parse_hogqlx_attribute(&mut self) -> Result<E::Value, ParseError> {
         let name = self.parse_hogqlx_identifier("attribute name")?;
         // No `=` → bare attribute, value is Constant(true).
         if self.peek() != TokenKind::EqDouble {
-            return Ok(json!({
-                "node": "HogQLXAttribute",
-                "name": name,
-                "value": self.emit.constant(Value::Bool(true)),
-            }));
+            return Ok(self.emit.hogqlx_attribute(&name, self.emit.constant(self.emit.bool(true))));
         }
         self.bump()?; // `=`
         let value = match self.peek() {
@@ -175,11 +159,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 )));
             }
         };
-        Ok(json!({
-            "node": "HogQLXAttribute",
-            "name": name,
-            "value": value,
-        }))
+        Ok(self.emit.hogqlx_attribute(&name, value))
     }
 
     /// Read tag-body children until the closing `</`. Children are:
@@ -191,8 +171,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// Text scanning uses the source's byte stream directly because the
     /// lexer's whitespace skip would otherwise destroy significant
     /// inter-token spacing (e.g. `Hello World`).
-    fn parse_hogqlx_children(&mut self) -> Result<Vec<Value>, ParseError> {
-        let mut children: Vec<Value> = Vec::new();
+    fn parse_hogqlx_children(&mut self) -> Result<Vec<E::Value>, ParseError> {
+        let mut children: Vec<E::Value> = Vec::new();
         loop {
             let text = self.consume_hogqlx_text()?;
             // cpp's `VISIT(HogqlxTagElementNested)` drops child text

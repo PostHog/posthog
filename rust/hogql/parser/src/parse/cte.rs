@@ -17,7 +17,7 @@ use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
-    pub(crate) fn parse_with_expr_list(&mut self) -> Result<Vec<Value>, ParseError> {
+    pub(crate) fn parse_with_expr_list(&mut self) -> Result<Vec<E::Value>, ParseError> {
         // The C++ visitor returns CTEs as a list; the Python deserialiser
         // turns it into a dict keyed by name. We follow the same shape.
         // ANTLR ALL(*) tolerates a trailing comma before the SELECT
@@ -79,7 +79,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
-    fn parse_with_expr(&mut self) -> Result<Value, ParseError> {
+    fn parse_with_expr(&mut self) -> Result<E::Value, ParseError> {
         let cte_start = self.peek0.start;
         // The grammar's `identifier` rule accepts plain IDENTIFIERs,
         // QUOTED_IDENTIFIERs, and (most) reserved keywords — see
@@ -195,12 +195,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
         };
         Ok(self.wrap_pos(
-            json!({"node": "CTE", "name": name, "expr": expr, "cte_type": "column"}),
+            self.emit.cte(&name, expr, "column"),
             cte_start,
         ))
     }
 
-    fn parse_with_expr_subquery(&mut self) -> Result<Value, ParseError> {
+    fn parse_with_expr_subquery(&mut self) -> Result<E::Value, ParseError> {
         let id = self.bump()?;
         let name = identifier_text(self.text(id), id.kind);
         // Optional column-name list (parenthesised idents).
@@ -269,26 +269,6 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.expect(TokenKind::LParen, "(")?;
         let sub = self.parse_select_set_stmt()?;
         self.expect(TokenKind::RParen, ")")?;
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("CTE".into()));
-        obj.insert("name".into(), Value::String(name));
-        obj.insert("expr".into(), sub);
-        obj.insert("cte_type".into(), Value::String("subquery".into()));
-        if let Some(c) = columns {
-            obj.insert(
-                "columns".into(),
-                Value::Array(c.into_iter().map(Value::String).collect()),
-            );
-        }
-        if let Some(uk) = using_key {
-            obj.insert(
-                "using_key".into(),
-                Value::Array(uk.into_iter().map(Value::String).collect()),
-            );
-        }
-        if let Some(m) = materialized {
-            obj.insert("materialized".into(), Value::Bool(m));
-        }
-        Ok(Value::Object(obj))
+        Ok(self.emit.cte_subquery(&name, sub, columns, using_key, materialized))
     }
 }

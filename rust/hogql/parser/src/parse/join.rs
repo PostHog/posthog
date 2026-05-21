@@ -16,7 +16,7 @@ use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
-    pub(crate) fn parse_join_expr(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_join_expr(&mut self) -> Result<E::Value, ParseError> {
         // Left-recursive in the grammar; iterate, chaining each new
         // right-side table into the previous JoinExpr's `next_join` field.
         let chain_start = self.peek0.start;
@@ -175,7 +175,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// instead follows a join *constraint* (`a JOIN b ON x PIVOT (…)`)
     /// applies to the whole chain; that case is left for the caller's
     /// loop, which calls `wrap_pivot_chain` with `joined_any`.
-    fn parse_table_atom_with_pivot(&mut self) -> Result<Value, ParseError> {
+    fn parse_table_atom_with_pivot(&mut self) -> Result<E::Value, ParseError> {
         let atom_start = self.peek0.start;
         let atom = self.parse_table_atom()?;
         if matches!(
@@ -199,7 +199,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         left: Value,
         joined_any: bool,
         table_start: usize,
-    ) -> Result<Value, ParseError> {
+    ) -> Result<E::Value, ParseError> {
         // For the single-atom case (no JOIN happened) the chain is a
         // JoinExpr that only wraps a bare Field — unwrap to match cpp's
         // shape (PivotExpr's `table` is the bare Field). When the
@@ -457,7 +457,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(Some(tokens.join(" ")))
     }
 
-    fn parse_join_constraint_opt(&mut self) -> Result<Option<Value>, ParseError> {
+    fn parse_join_constraint_opt(&mut self) -> Result<Option<E::Value>, ParseError> {
         let cons_start = self.peek0.start;
         if self.eat_kw(Kw::On)? {
             let expr = self.parse_expr_bp(0)?;
@@ -488,7 +488,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 ));
             }
             return Ok(Some(self.wrap_pos(
-                json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "ON"}),
+                self.emit.join_constraint(expr, "ON"),
                 cons_start,
             )));
         }
@@ -514,7 +514,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.emit.tuple_(exprs)
             };
             return Ok(Some(self.wrap_pos(
-                json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "USING"}),
+                self.emit.join_constraint(expr, "USING"),
                 cons_start,
             )));
         }
@@ -540,7 +540,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
-    fn parse_table_atom(&mut self) -> Result<Value, ParseError> {
+    fn parse_table_atom(&mut self) -> Result<E::Value, ParseError> {
         let atom_start = self.peek0.start;
         let mut table_expr = self.parse_table_expr()?;
         // Snapshot the end of `tableExpr` before alias / FINAL / SAMPLE
@@ -754,7 +754,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         }
     }
 
-    fn parse_table_expr(&mut self) -> Result<Value, ParseError> {
+    fn parse_table_expr(&mut self) -> Result<E::Value, ParseError> {
         // `(selectSet)`, table identifier (with optional function-arg
         // syntax), `{placeholder}`, `VALUES (...)`, `(joinExpr)`
         // (per the grammar's `JoinExprParens` rule — e.g. `FROM (t FINAL)`),
@@ -846,7 +846,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             })));
         }
         // Field chain.
-        let mut chain: Vec<Value> = vec![Value::String(name)];
+        let mut chain: Vec<E::Value> = vec![Value::String(name)];
         while self.peek() == TokenKind::Dot {
             self.bump()?;
             let part = self.bump()?;
@@ -872,7 +872,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// The inner is anything `selectSetStmt` admits — SELECT statements,
     /// WITH-CTE selects, paren-wrapped set-stmts, or a bare placeholder
     /// `{x}` (placeholders are first-class `selectStmtWithParens` arms).
-    fn parse_table_expr_subquery_arm(&mut self) -> Result<Value, ParseError> {
+    fn parse_table_expr_subquery_arm(&mut self) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::LParen, "(")?;
         let inner = self.parse_select_set_stmt()?;
         self.expect(TokenKind::RParen, ")")?;
@@ -883,7 +883,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `VALUES` is the first inner token and uniquely identifies this arm,
     /// but we still parse it inside the try_alt so a malformed valuesClause
     /// (e.g. `(VALUES, x)`) rolls back cleanly to the joinExpr fallback.
-    fn parse_table_expr_values_arm(&mut self) -> Result<Value, ParseError> {
+    fn parse_table_expr_values_arm(&mut self) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::LParen, "(")?;
         if self.peek() != TokenKind::Keyword(Kw::Values) {
             return Err(self.err("not a VALUES clause"));
@@ -898,7 +898,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// sample-decorated tables, JOIN chains. cpp's `JoinExprParens` doesn't
     /// allow trailing FINAL / SAMPLE at the outer level; `parse_table_atom`
     /// distinguishes this case via the returned node's `"JoinExpr"` shape.
-    fn parse_join_expr_parens_arm(&mut self) -> Result<Value, ParseError> {
+    fn parse_join_expr_parens_arm(&mut self) -> Result<E::Value, ParseError> {
         self.expect(TokenKind::LParen, "(")?;
         let inner = self.parse_join_expr()?;
         self.expect(TokenKind::RParen, ")")?;
@@ -908,9 +908,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `VALUES (...), (...)` — a literal-row query usable wherever a table
     /// reference is expected. The caller has already consumed the leading
     /// `(` if any; we consume the `VALUES` keyword and emit a ValuesQuery.
-    fn parse_values_query(&mut self) -> Result<Value, ParseError> {
+    fn parse_values_query(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Values, "VALUES")?;
-        let mut rows: Vec<Value> = Vec::new();
+        let mut rows: Vec<E::Value> = Vec::new();
         loop {
             self.expect(TokenKind::LParen, "(")?;
             let row = self.parse_expr_list_until_paren()?;
@@ -920,13 +920,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 break;
             }
         }
-        Ok(json!({"node": "ValuesQuery", "rows": rows}))
+        Ok(self.emit.values_query(rows))
     }
 
     /// `SAMPLE ratioExpr PERCENT? (OFFSET ratioExpr)? (LPAREN ident RPAREN)?`
     /// — attached to a table reference inside a JoinExpr. Returns None
     /// when no SAMPLE clause is present.
-    pub(crate) fn try_consume_sample(&mut self) -> Result<Option<Value>, ParseError> {
+    pub(crate) fn try_consume_sample(&mut self) -> Result<Option<E::Value>, ParseError> {
         if !matches!(self.peek(), TokenKind::Keyword(Kw::Sample)) {
             return Ok(None);
         }
@@ -1030,7 +1030,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// ratio context never runs the postfix loop — so a bare `5.`
     /// would leave the `.` stranded. Detect Number-then-bare-Dot and
     /// upgrade to a float Constant in-place.
-    fn consume_ratio_value(&mut self) -> Result<Value, ParseError> {
+    fn consume_ratio_value(&mut self) -> Result<E::Value, ParseError> {
         let val_start = self.peek0.start;
         // cpp grammar: `ratioExpr: placeholder | numberLiteral
         // (SLASH numberLiteral)?`. The numerator/denominator side is
@@ -1090,7 +1090,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(self.wrap_pos(val, val_start))
     }
 
-    fn parse_ratio_expr(&mut self) -> Result<Value, ParseError> {
+    fn parse_ratio_expr(&mut self) -> Result<E::Value, ParseError> {
         // cpp grammar: `ratioExpr: placeholder | numberLiteral
         // (SLASH numberLiteral)?`. We mirror it narrowly so the
         // trailing `(identifier)` sample qualifier — and an unrelated
@@ -1133,7 +1133,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         &mut self,
         mut table: Value,
         table_start: usize,
-    ) -> Result<Value, ParseError> {
+    ) -> Result<E::Value, ParseError> {
         loop {
             if matches!(self.peek(), TokenKind::Keyword(Kw::Pivot)) {
                 let pivot_start = table_start;
@@ -1143,7 +1143,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // Parse pivotColumnList: `FOR pivotColumn+` where each
                 // pivotColumn is `<expr|tuple> IN (cols)`.
                 self.expect_kw(Kw::For, "FOR")?;
-                let mut columns: Vec<Value> = Vec::new();
+                let mut columns: Vec<E::Value> = Vec::new();
                 loop {
                     let col_expr = self.parse_expr_tuple_or_single(true)?;
                     self.expect_kw(Kw::In, "IN")?;
@@ -1157,11 +1157,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     }
                     let values = self.parse_expr_list_until_paren()?;
                     self.expect(TokenKind::RParen, ")")?;
-                    columns.push(json!({
-                        "node": "PivotColumn",
-                        "column": col_expr,
-                        "values": values,
-                    }));
+                    columns.push(self.emit.pivot_column(col_expr, values));
                     // `pivotColumn+`: keep collecting columns until the
                     // list terminator — the closing `)` or an optional
                     // `GROUP BY`. Anything else begins the next
@@ -1224,7 +1220,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 //   `tos FOR tos IN ( list ) (tos IN ( list ))*`.
                 // The trailing `(tos IN ( list ))*` groups are parsed but
                 // dropped — cpp's visitor keeps only the first IN list.
-                let mut columns: Vec<Value> = Vec::new();
+                let mut columns: Vec<E::Value> = Vec::new();
                 loop {
                     // value-columns slot is bounded by `FOR`, not a
                     // structural `IN` — no `pivot_in_stop` needed.
@@ -1235,12 +1231,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     self.expect(TokenKind::LParen, "(")?;
                     let unpivot_values = self.parse_expr_list_until_paren()?;
                     self.expect(TokenKind::RParen, ")")?;
-                    columns.push(json!({
-                        "node": "UnpivotColumn",
-                        "value_columns": value_columns,
-                        "name_columns": name_columns,
-                        "unpivot_values": unpivot_values,
-                    }));
+                    columns.push(self.emit.unpivot_column(value_columns, name_columns, unpivot_values));
                     // Additional `tos IN ( list )` groups (no FOR, no
                     // comma) extend the SAME unpivotColumn; they are
                     // discarded to match cpp.
@@ -1297,7 +1288,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// it as an operator. The value-columns slot of an `unpivotColumn`
     /// is bounded by `FOR` instead — never an infix operator — so it
     /// needs no stop.
-    fn parse_expr_tuple_or_single(&mut self, in_separated: bool) -> Result<Value, ParseError> {
+    fn parse_expr_tuple_or_single(&mut self, in_separated: bool) -> Result<E::Value, ParseError> {
         let op_start = self.peek0.start;
         if self.peek() == TokenKind::LParen && self.paren_group_followed_by_for_or_in() {
             self.bump()?;
@@ -1493,7 +1484,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// spec). Comma-separated.
     fn parse_expr_list_until_terminators_at_for_or_rparen(
         &mut self,
-    ) -> Result<Vec<Value>, ParseError> {
+    ) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         loop {
             out.push(self.parse_expr_bp(0)?);

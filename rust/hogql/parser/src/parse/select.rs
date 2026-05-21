@@ -20,10 +20,10 @@ use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
-    pub(crate) fn parse_select_set_stmt(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_select_set_stmt(&mut self) -> Result<E::Value, ParseError> {
         let stmt_start = self.peek0.start;
         let first = self.parse_select_stmt_with_parens()?;
-        let mut subsequent: Vec<Value> = Vec::new();
+        let mut subsequent: Vec<E::Value> = Vec::new();
         while let Some(op) = self.try_consume_set_op()? {
             let next = self.parse_select_stmt_with_parens()?;
             subsequent.push(json!({
@@ -214,7 +214,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(Some(op))
     }
 
-    fn parse_trailing_set_decorators(&mut self) -> Result<Vec<(String, Value)>, ParseError> {
+    fn parse_trailing_set_decorators(&mut self) -> Result<Vec<(String, E::Value)>, ParseError> {
         let mut out: Vec<(String, Value)> = Vec::new();
         // `selectSetStmt`'s `orderByClause?` slot at this level is
         // parsed by ANTLR but cpp's `VISIT(SelectSetStmt)` never emits
@@ -320,7 +320,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(out)
     }
 
-    fn parse_select_stmt_with_parens(&mut self) -> Result<Value, ParseError> {
+    fn parse_select_stmt_with_parens(&mut self) -> Result<E::Value, ParseError> {
         // `WITH … (selectSet)` — paren'd set wrapper form with CTEs.
         // Consume the WITH clause and its CTEs, then peek the next token
         // to decide between the two valid continuations:
@@ -376,7 +376,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 
     /// Single `SELECT` statement with all its clauses.
-    fn parse_select_stmt(&mut self) -> Result<Value, ParseError> {
+    fn parse_select_stmt(&mut self) -> Result<E::Value, ParseError> {
         // WITH at the start; consume CTEs here then delegate to the body
         // helper. This lets parse_select_stmt_with_parens hand us
         // already-parsed CTEs when it disambiguated WITH+`(`.
@@ -415,7 +415,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         &mut self,
         pre_parsed_ctes: Option<Vec<Value>>,
         override_start: Option<usize>,
-    ) -> Result<Value, ParseError> {
+    ) -> Result<E::Value, ParseError> {
         let stmt_start = override_start.unwrap_or(self.peek0.start);
         let mut obj = serde_json::Map::new();
         obj.insert("node".into(), Value::String("SelectQuery".into()));
@@ -515,7 +515,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             obj.insert("array_join_op".into(), Value::String(op.into()));
             // Inline expr-list parsing so we can capture each item's span
             // for the alias-required error.
-            let mut exprs: Vec<Value> = Vec::new();
+            let mut exprs: Vec<E::Value> = Vec::new();
             loop {
                 let item_start = self.peek0.start;
                 let expr = self.parse_expr_bp(0)?;
@@ -607,7 +607,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // the Python AST can hold them in `group_by: list[Expr]`.
                 // The cpp ctx for `groupingSet` is `LPAREN columnExprList? RPAREN`
                 // so the position spans the parens themselves.
-                let mut sets: Vec<Value> = Vec::new();
+                let mut sets: Vec<E::Value> = Vec::new();
                 loop {
                     let set_start = self.peek0.start;
                     self.expect(TokenKind::LParen, "(")?;
@@ -725,7 +725,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // Optional `INTERPOLATE [(expr [AS expr], …)]` after ORDER BY.
             if self.eat_kw(Kw::Interpolate)? {
                 let items = if self.eat(TokenKind::LParen)? {
-                    let mut items: Vec<Value> = Vec::new();
+                    let mut items: Vec<E::Value> = Vec::new();
                     // `interpolateClause: INTERPOLATE (LPAREN interpolateExpr
                     // (COMMA interpolateExpr)* RPAREN)?` — when parens are
                     // present, at least one interpolateExpr is required.
@@ -1144,11 +1144,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// LIMIT body (`limit_body_depth > 0`).
     pub(crate) fn try_limit_modulo_extension(
         &mut self,
-        lhs: Value,
+        lhs: E::Value,
         lhs_start: usize,
-    ) -> Result<Option<Value>, ParseError> {
+    ) -> Result<Option<E::Value>, ParseError> {
         let cp = self.checkpoint();
-        let trial = (|p: &mut Self| -> Result<Option<Value>, ParseError> {
+        let trial = (|p: &mut Self| -> Result<Option<E::Value>, ParseError> {
             p.bump()?; // %
             let rhs = p.parse_expr_bp(BP_MULT + 1)?;
             let combined = p.emit.arith(lhs.clone(), "%", rhs);
@@ -1334,7 +1334,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// continues the list, but the probe returns false (treating
     /// COLUMNS-with-paren as the body of `OFFSET *`). Override OFFSET
     /// specifically with a more permissive infix-or-postfix check.
-    fn parse_limit_by_exprs(&mut self) -> Result<Vec<Value>, ParseError> {
+    fn parse_limit_by_exprs(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         out.push(self.parse_expr_bp(0)?);
         while self.eat(TokenKind::Comma)? {
@@ -1404,7 +1404,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// appears. Without this RANGE/ROWS would be consumed as Field
     /// identifiers (per the keyword rule) and BETWEEN that follows
     /// them would over-greedily eat the window frame body.
-    fn parse_window_partition_by_exprs(&mut self) -> Result<Vec<Value>, ParseError> {
+    fn parse_window_partition_by_exprs(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         loop {
             out.push(self.parse_expr_bp(0)?);
@@ -1428,7 +1428,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(out)
     }
 
-    pub(crate) fn parse_window_expr(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_window_expr(&mut self) -> Result<E::Value, ParseError> {
         let we_start = self.peek0.start;
         let mut obj = serde_json::Map::new();
         obj.insert("node".into(), Value::String("WindowExpr".into()));
@@ -1498,7 +1498,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(self.wrap_pos(Value::Object(obj), we_start))
     }
 
-    fn parse_window_frame_bound(&mut self) -> Result<Value, ParseError> {
+    fn parse_window_frame_bound(&mut self) -> Result<E::Value, ParseError> {
         let bound_start = self.peek0.start;
         if self.eat_kw(Kw::Current)? {
             self.expect_kw(Kw::Row, "ROW")?;
@@ -1553,11 +1553,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         ))
     }
 
-    fn parse_select_columns(&mut self) -> Result<Vec<Value>, ParseError> {
+    fn parse_select_columns(&mut self) -> Result<Vec<E::Value>, ParseError> {
         // `selectColumnExprList` with optional trailing comma. Each item is
         // either `IDENT COLON expr` (alias-before), `expr [implicitAlias]`,
         // or `expr AS alias` (`AS` already handled by Pratt as an infix).
-        let mut cols: Vec<Value> = Vec::new();
+        let mut cols: Vec<E::Value> = Vec::new();
         loop {
             if matches!(
                 self.peek(),

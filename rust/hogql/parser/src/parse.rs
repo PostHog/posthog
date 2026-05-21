@@ -403,7 +403,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// ANTLR `getStartIndex()` / `getCharPositionInLine()` are
     /// character-based, so byte offsets need converting through `src`
     /// slicing for any source containing non-ASCII bytes.
-    pub(crate) fn pos_obj(&self, byte_offset: usize) -> Value {
+    pub(crate) fn pos_obj(&self, byte_offset: usize) -> E::Value {
         let (line, byte_col, line_start_byte) = offset_to_line_col(&self.line_starts, byte_offset);
         // ASCII fast path: byte == char in every dimension. Avoid the
         // `byte_to_char_index` binary search and the line-slice chars
@@ -452,7 +452,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// `last_consumed_end` (the end of the last token consumed). The
     /// canonical wrap-on-return helper for every `parse_*` fn that emits
     /// an AST node.
-    pub(crate) fn wrap_pos(&self, value: Value, start: usize) -> Value {
+    pub(crate) fn wrap_pos(&self, value: E::Value, start: usize) -> E::Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(self.last_consumed_end);
         self.emit.with_pos(value, s, e)
@@ -461,7 +461,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// Variant of [`Self::wrap_pos`] that takes an explicit end offset —
     /// used when the natural end of the node isn't `last_consumed_end`
     /// (e.g. composite chain re-tagged with the rightmost child's end).
-    pub(crate) fn wrap_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
+    pub(crate) fn wrap_pos_to(&self, value: E::Value, start: usize, end: usize) -> E::Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(end);
         self.emit.with_pos(value, s, e)
@@ -472,7 +472,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// tokens that the outer grammar rule includes — e.g. cpp's
     /// `ColumnExprColumnsReplace` ctx covers the outer parens but the
     /// inner ColumnsExpr was wrapped at the `*` position only.
-    pub(crate) fn replace_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
+    pub(crate) fn replace_pos_to(&self, value: E::Value, start: usize, end: usize) -> E::Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(end);
         self.emit.replace_pos(value, s, e)
@@ -666,9 +666,9 @@ fn parse_hex_float_value(rest: &str) -> f64 {
 /// Emit a finite float as a numeric Constant, or `±Infinity` / `NaN`
 /// when the value isn't finite — mirrors cpp's `stod` result (and its
 /// `out_of_range` → `±Infinity` fallthrough).
-fn emit_float_constant(f: f64) -> Value {
+fn emit_float_constant<E: Emitter>(emit: &E, f: f64) -> E::Value {
     if !f.is_finite() {
-        return emit::constant_special_number(if f.is_nan() {
+        return emit.constant_special_number(if f.is_nan() {
             "NaN"
         } else if f > 0.0 {
             "Infinity"
@@ -676,14 +676,10 @@ fn emit_float_constant(f: f64) -> Value {
             "-Infinity"
         });
     }
-    emit::constant(
-        serde_json::Number::from_f64(f)
-            .map(Value::Number)
-            .unwrap_or(Value::Null),
-    )
+    emit.constant(emit.float(f))
 }
 
-pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, ParseError> {
+pub(crate) fn parse_number_literal<E: Emitter>(emit: &E, src: &str, negative: bool) -> Result<E::Value, ParseError> {
     // Hex literal — `0x…`. Three cases:
     //   - Contains `p`/`P`: hex-float (`FLOATING_LITERAL` strict C99
     //     `HEX (DOT HEX*)? P [+-]? DEC+`). Parse to f64 — Rust's f64
@@ -695,7 +691,7 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
     if let Some(rest) = src.strip_prefix("0x").or_else(|| src.strip_prefix("0X")) {
         if rest.bytes().any(|b| b == b'p' || b == b'P') {
             let f = parse_hex_float_value(rest);
-            return Ok(emit_float_constant(if negative { -f } else { f }));
+            return Ok(emit_float_constant(emit, if negative { -f } else { f }));
         }
         let signed = if negative {
             format!("-{rest}")
@@ -710,7 +706,7 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
                 } else {
                     src.to_string()
                 };
-                return Ok(emit::constant_number_string(lit));
+                return Ok(emit.constant_number_string(lit));
             }
         }
     }
@@ -761,12 +757,12 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
             } else {
                 -(magnitude as i64)
             };
-            return Ok(emit::constant(Value::from(v)));
+            return Ok(emit.constant(emit.int(v)));
         }
         // Positive: `Value::from(u64)` emits the exact magnitude as a
         // JSON number — for magnitude > i64::MAX this preserves the
         // full unsigned value (cpp emits the same via Json::raw).
-        return Ok(emit::constant(Value::from(magnitude)));
+        return Ok(emit.constant(emit.uint(magnitude)));
     }
     // cpp 1.3.45's `VISIT(NumberLiteral)` parses integer text with
     // `stoll(text, nullptr, 10)` — base 10, NOT base-0 auto-detect.
@@ -778,7 +774,7 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
     let is_float = src.contains('.') || src.contains('e') || src.contains('E');
     if is_float {
         let f: f64 = src.parse().unwrap_or(0.0);
-        return Ok(emit_float_constant(if negative { -f } else { f }));
+        return Ok(emit_float_constant(emit, if negative { -f } else { f }));
     }
     // Integer. The signed text carries the sign so
     // `-9223372036854775808` (i64::MIN) parses exactly. A literal
@@ -790,8 +786,8 @@ pub(crate) fn parse_number_literal(src: &str, negative: bool) -> Result<Value, P
         src.to_string()
     };
     match signed.parse::<i64>() {
-        Ok(i) => Ok(emit::constant(Value::from(i))),
-        Err(_) => Ok(emit::constant_number_string(signed)),
+        Ok(i) => Ok(emit.constant(emit.int(i))),
+        Err(_) => Ok(emit.constant_number_string(signed)),
     }
 }
 
@@ -1014,7 +1010,7 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
 /// **appends** the outer CTEs after any existing inner CTEs — so if the
 /// inner already has `WITH a AS ...`, the outer's CTEs come *after* `a`
 /// in declaration order. Match that.
-pub(crate) fn inject_ctes_into_select(node: &mut Value, ctes: Vec<Value>) {
+pub(crate) fn inject_ctes_into_select<E: Emitter>(emit: &E, node: &mut E::Value, ctes: Vec<E::Value>) {
     let mut cursor: &mut Value = node;
     loop {
         let Some(obj) = cursor.as_object_mut() else {
@@ -1071,7 +1067,7 @@ pub(crate) fn format_set_op(base: &str, modifier: Option<&str>, by_name: bool) -
 /// SELECT/SelectSetQuery node. When the target is a SelectSetQuery they
 /// land on the wrapper; for a single SelectQuery they merge into its
 /// existing fields. We pass through whatever shape we have.
-pub(crate) fn merge_select_decorators(mut node: Value, decorators: Vec<(String, Value)>) -> Value {
+pub(crate) fn merge_select_decorators<E: Emitter>(emit: &E, mut node: E::Value, decorators: Vec<(String, E::Value)>) -> E::Value {
     if decorators.is_empty() {
         return node;
     }
@@ -1099,12 +1095,13 @@ pub(crate) fn merge_select_decorators(mut node: Value, decorators: Vec<(String, 
 /// Build / extend a JoinExpr chain. `left` is the existing chain root; we
 /// walk down its `next_join` pointers and attach `right` (carrying its
 /// `join_type` + `constraint`) at the tail.
-pub(crate) fn chain_join(
-    mut left: Value,
-    mut right: Value,
+pub(crate) fn chain_join<E: Emitter>(
+    emit: &E,
+    mut left: E::Value,
+    mut right: E::Value,
     join_type: &str,
     constraint: Option<Value>,
-) -> Value {
+) -> E::Value {
     if let Some(obj) = right.as_object_mut() {
         obj.insert("join_type".into(), Value::String(join_type.into()));
         if let Some(c) = constraint {

@@ -35,6 +35,14 @@ pub trait Emitter {
     fn bool(&self, v: bool) -> Self::Value;
     fn int(&self, v: i64) -> Self::Value;
     fn string(&self, v: &str) -> Self::Value;
+    /// Finite float as `Value::Number` (Json) / Python float (Py).
+    /// Non-finite (NaN, ±Inf) caller-side route through
+    /// `constant_special_number` instead.
+    fn float(&self, v: f64) -> Self::Value;
+    /// Unsigned integer beyond i64 range. JSON emits as `Value::Number`
+    /// via `u64` (preserving the full magnitude); Py emits as a
+    /// Python int.
+    fn uint(&self, v: u64) -> Self::Value;
 
     // ===== AST node builders =====
     fn constant(&self, value: Self::Value) -> Self::Value;
@@ -117,6 +125,103 @@ pub trait Emitter {
         replace: Option<Vec<(String, Self::Value)>>,
     ) -> Self::Value;
     fn spread_expr(&self, expr: Self::Value) -> Self::Value;
+    /// `{positional_ref: index}` — the `$N` form inside Hog blocks. Mirrors
+    /// cpp's `PositionalRef` node.
+    fn positional_ref(&self, index: i64) -> Self::Value;
+
+    /// `Program(declarations)`.
+    fn program(&self, declarations: Vec<Self::Value>) -> Self::Value;
+    /// `Block(declarations)`.
+    fn block(&self, declarations: Vec<Self::Value>) -> Self::Value;
+    /// `ExprStatement(expr)`.
+    fn expr_statement(&self, expr: Self::Value) -> Self::Value;
+    /// `IfStatement(expr, then, else_)`.
+    fn if_statement(&self, cond: Self::Value, then: Self::Value, else_: Self::Value) -> Self::Value;
+    /// `WhileStatement(expr, body)`.
+    fn while_statement(&self, cond: Self::Value, body: Self::Value) -> Self::Value;
+    /// `ForInStatement(keyVar, valueVar, expr, body)`.
+    fn for_in_statement(
+        &self,
+        key_var: Self::Value,
+        value_var: Self::Value,
+        expr: Self::Value,
+        body: Self::Value,
+    ) -> Self::Value;
+    /// `ForStatement(initializer, condition, increment, body)`.
+    fn for_statement(
+        &self,
+        initializer: Self::Value,
+        condition: Self::Value,
+        increment: Self::Value,
+        body: Self::Value,
+    ) -> Self::Value;
+    /// `Function(name, params, body)`.
+    fn function_(&self, name: &str, params: Vec<Self::Value>, body: Self::Value) -> Self::Value;
+    /// `VariableAssignment(left, right)`.
+    fn variable_assignment(&self, left: Self::Value, right: Self::Value) -> Self::Value;
+    /// `ReturnStatement(expr)`. `expr` may be null for `return;`.
+    fn return_statement(&self, expr: Self::Value) -> Self::Value;
+    /// `TryCatchStatement(try_stmt, catches, finally_stmt)`. Each catch
+    /// is itself a `[var, type, body]` tuple — encoded as a list value.
+    fn try_catch_statement(
+        &self,
+        try_stmt: Self::Value,
+        catches: Vec<Self::Value>,
+        finally_stmt: Self::Value,
+    ) -> Self::Value;
+    /// `ThrowStatement(expr)`.
+    fn throw_statement(&self, expr: Self::Value) -> Self::Value;
+    /// `VariableDeclaration(name, expr)`.
+    fn variable_declaration(&self, name: &str, expr: Self::Value) -> Self::Value;
+    /// One element of a `try_catch` `catches` list: `[var, type, body]`.
+    /// Represented as an array of three values (matching cpp's
+    /// nlohmann::json shape).
+    fn catch_clause(&self, var: Self::Value, ty: Self::Value, body: Self::Value) -> Self::Value;
+
+    // ===== Query / clause builders =====
+    /// `CTE(name, expr, cte_type)`. `cte_type` is "column" / "subquery".
+    fn cte(&self, name: &str, expr: Self::Value, cte_type: &str) -> Self::Value;
+    /// Subquery CTE with optional columns/using_key/materialized flags.
+    fn cte_subquery(
+        &self,
+        name: &str,
+        expr: Self::Value,
+        columns: Option<Vec<String>>,
+        using_key: Option<Vec<String>>,
+        materialized: Option<bool>,
+    ) -> Self::Value;
+    /// `JoinConstraint(expr, constraint_type)`. constraint_type is "ON"/"USING".
+    fn join_constraint(&self, expr: Self::Value, constraint_type: &str) -> Self::Value;
+    /// `ValuesQuery(rows)`.
+    fn values_query(&self, rows: Vec<Self::Value>) -> Self::Value;
+    /// `PivotColumn(column, values)`.
+    fn pivot_column(&self, column: Self::Value, values: Vec<Self::Value>) -> Self::Value;
+    /// `UnpivotColumn(value_columns, name_columns, unpivot_values)`.
+    fn unpivot_column(
+        &self,
+        value_columns: Vec<Self::Value>,
+        name_columns: Vec<Self::Value>,
+        unpivot_values: Vec<Self::Value>,
+    ) -> Self::Value;
+    /// `GroupingSet(exprs)`.
+    fn grouping_set(&self, exprs: Vec<Self::Value>) -> Self::Value;
+    /// `HogQLXTag(kind, attributes)`.
+    fn hogqlx_tag(&self, kind: &str, attributes: Vec<Self::Value>) -> Self::Value;
+    /// `HogQLXAttribute(name, value)`.
+    fn hogqlx_attribute(&self, name: &str, value: Self::Value) -> Self::Value;
+    /// `WindowFrameExpr(...)`. Various optional fields encoded via the
+    /// trait method below; here we just take all fields verbatim.
+    fn window_frame_expr(
+        &self,
+        frame_type: &str,
+        start_type: &str,
+        start_expr: Option<Self::Value>,
+        end_type: Option<&str>,
+        end_expr: Option<Self::Value>,
+    ) -> Self::Value;
+    /// `SelectSetNode(select_query, set_operator)`. Used inside the
+    /// SelectSetQuery `subsequent_select_queries` list.
+    fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>) -> Self::Value;
 
     // ===== Position machinery =====
     /// `{line, column, offset}` per cpp's visitor — line is 1-based,
@@ -156,6 +261,30 @@ pub trait Emitter {
     fn as_list(&self, v: &Self::Value) -> Option<Vec<Self::Value>>;
     /// Get the `offset` field of a position object.
     fn position_offset(&self, v: &Self::Value) -> Option<usize>;
+    /// Extract a boolean if `v` is a boolean value.
+    fn as_bool(&self, v: &Self::Value) -> Option<bool>;
+    /// Extract an `i64` if `v` is an integer value.
+    fn as_i64(&self, v: &Self::Value) -> Option<i64>;
+
+    // ===== Mutation =====
+    /// Set / overwrite a named field on a node. Used by AST-surgery
+    /// sites that copy a node and tweak one field — primarily the
+    /// BETWEEN-split recursion, the merge-select-decorators pass, and
+    /// CTE injection. JSON impl inserts into the underlying `Map`; Py
+    /// impl calls `obj.setattr(name, value)`.
+    fn set_field(&self, v: &mut Self::Value, name: &str, value: Self::Value);
+    /// Extend a list-valued field by pushing additional items at the
+    /// end. Used by `inject_ctes_into_select` and AND/OR mutators.
+    /// Falls back to setting the field outright if it isn't present
+    /// or isn't a list.
+    fn extend_list_field(&self, v: &mut Self::Value, name: &str, items: Vec<Self::Value>);
+    /// Clone a value. Convenience for sites that need an owned copy.
+    /// `Self::Value: Clone` is already in the trait bound, but
+    /// callers in generic contexts that don't have direct access to
+    /// the bound sometimes need this method form.
+    fn clone_value(&self, v: &Self::Value) -> Self::Value {
+        v.clone()
+    }
 }
 
 // ============================================================================
@@ -181,6 +310,12 @@ impl Emitter for JsonEmitter {
     }
     fn string(&self, v: &str) -> Value {
         Value::String(v.into())
+    }
+    fn float(&self, v: f64) -> Value {
+        serde_json::Number::from_f64(v).map(Value::Number).unwrap_or(Value::Null)
+    }
+    fn uint(&self, v: u64) -> Value {
+        Value::Number(v.into())
     }
 
     fn constant(&self, value: Value) -> Value {
@@ -367,6 +502,162 @@ impl Emitter for JsonEmitter {
     fn spread_expr(&self, expr: Value) -> Value {
         json!({"node": "SpreadExpr", "expr": expr})
     }
+    fn positional_ref(&self, index: i64) -> Value {
+        json!({"node": "PositionalRef", "index": index})
+    }
+
+    fn program(&self, declarations: Vec<Value>) -> Value {
+        json!({"node": "Program", "declarations": declarations})
+    }
+    fn block(&self, declarations: Vec<Value>) -> Value {
+        json!({"node": "Block", "declarations": declarations})
+    }
+    fn expr_statement(&self, expr: Value) -> Value {
+        json!({"node": "ExprStatement", "expr": expr})
+    }
+    fn if_statement(&self, cond: Value, then: Value, else_: Value) -> Value {
+        json!({"node": "IfStatement", "expr": cond, "then": then, "else_": else_})
+    }
+    fn while_statement(&self, cond: Value, body: Value) -> Value {
+        json!({"node": "WhileStatement", "expr": cond, "body": body})
+    }
+    fn for_in_statement(&self, key_var: Value, value_var: Value, expr: Value, body: Value) -> Value {
+        json!({
+            "node": "ForInStatement",
+            "keyVar": key_var,
+            "valueVar": value_var,
+            "expr": expr,
+            "body": body,
+        })
+    }
+    fn for_statement(&self, initializer: Value, condition: Value, increment: Value, body: Value) -> Value {
+        json!({
+            "node": "ForStatement",
+            "initializer": initializer,
+            "condition": condition,
+            "increment": increment,
+            "body": body,
+        })
+    }
+    fn function_(&self, name: &str, params: Vec<Value>, body: Value) -> Value {
+        json!({"node": "Function", "name": name, "params": params, "body": body})
+    }
+    fn variable_assignment(&self, left: Value, right: Value) -> Value {
+        json!({"node": "VariableAssignment", "left": left, "right": right})
+    }
+    fn return_statement(&self, expr: Value) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("ReturnStatement".into()));
+        obj.insert("expr".into(), expr);
+        Value::Object(obj)
+    }
+    fn try_catch_statement(&self, try_stmt: Value, catches: Vec<Value>, finally_stmt: Value) -> Value {
+        json!({
+            "node": "TryCatchStatement",
+            "try_stmt": try_stmt,
+            "catches": catches,
+            "finally_stmt": finally_stmt,
+        })
+    }
+    fn throw_statement(&self, expr: Value) -> Value {
+        json!({"node": "ThrowStatement", "expr": expr})
+    }
+    fn variable_declaration(&self, name: &str, expr: Value) -> Value {
+        json!({"node": "VariableDeclaration", "name": name, "expr": expr})
+    }
+    fn catch_clause(&self, var: Value, ty: Value, body: Value) -> Value {
+        json!([var, ty, body])
+    }
+    fn cte(&self, name: &str, expr: Value, cte_type: &str) -> Value {
+        json!({"node": "CTE", "name": name, "expr": expr, "cte_type": cte_type})
+    }
+    fn cte_subquery(
+        &self,
+        name: &str,
+        expr: Value,
+        columns: Option<Vec<String>>,
+        using_key: Option<Vec<String>>,
+        materialized: Option<bool>,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("CTE".into()));
+        obj.insert("name".into(), Value::String(name.into()));
+        obj.insert("expr".into(), expr);
+        obj.insert("cte_type".into(), Value::String("subquery".into()));
+        if let Some(c) = columns {
+            obj.insert("columns".into(), Value::Array(c.into_iter().map(Value::String).collect()));
+        }
+        if let Some(uk) = using_key {
+            obj.insert("using_key".into(), Value::Array(uk.into_iter().map(Value::String).collect()));
+        }
+        if let Some(m) = materialized {
+            obj.insert("materialized".into(), Value::Bool(m));
+        }
+        Value::Object(obj)
+    }
+    fn join_constraint(&self, expr: Value, constraint_type: &str) -> Value {
+        json!({"node": "JoinConstraint", "expr": expr, "constraint_type": constraint_type})
+    }
+    fn values_query(&self, rows: Vec<Value>) -> Value {
+        json!({"node": "ValuesQuery", "rows": rows})
+    }
+    fn pivot_column(&self, column: Value, values: Vec<Value>) -> Value {
+        json!({"node": "PivotColumn", "column": column, "values": values})
+    }
+    fn unpivot_column(
+        &self,
+        value_columns: Vec<Value>,
+        name_columns: Vec<Value>,
+        unpivot_values: Vec<Value>,
+    ) -> Value {
+        json!({
+            "node": "UnpivotColumn",
+            "value_columns": value_columns,
+            "name_columns": name_columns,
+            "unpivot_values": unpivot_values,
+        })
+    }
+    fn grouping_set(&self, exprs: Vec<Value>) -> Value {
+        json!({"node": "GroupingSet", "exprs": exprs})
+    }
+    fn hogqlx_tag(&self, kind: &str, attributes: Vec<Value>) -> Value {
+        json!({"node": "HogQLXTag", "kind": kind, "attributes": attributes})
+    }
+    fn hogqlx_attribute(&self, name: &str, value: Value) -> Value {
+        json!({"node": "HogQLXAttribute", "name": name, "value": value})
+    }
+    fn window_frame_expr(
+        &self,
+        frame_type: &str,
+        start_type: &str,
+        start_expr: Option<Value>,
+        end_type: Option<&str>,
+        end_expr: Option<Value>,
+    ) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("WindowFrameExpr".into()));
+        obj.insert("frame_type".into(), Value::String(frame_type.into()));
+        obj.insert("frame_start_type".into(), Value::String(start_type.into()));
+        if let Some(se) = start_expr {
+            obj.insert("frame_start_expr".into(), se);
+        }
+        if let Some(et) = end_type {
+            obj.insert("frame_end_type".into(), Value::String(et.into()));
+        }
+        if let Some(ee) = end_expr {
+            obj.insert("frame_end_expr".into(), ee);
+        }
+        Value::Object(obj)
+    }
+    fn select_set_node(&self, select_query: Value, set_operator: Option<&str>) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("node".into(), Value::String("SelectSetNode".into()));
+        obj.insert("select_query".into(), select_query);
+        if let Some(op) = set_operator {
+            obj.insert("set_operator".into(), Value::String(op.into()));
+        }
+        Value::Object(obj)
+    }
 
     fn position(&self, line: u32, column: u32, offset: usize) -> Value {
         json!({"line": line, "column": column, "offset": offset})
@@ -415,6 +706,29 @@ impl Emitter for JsonEmitter {
     }
     fn position_offset(&self, v: &Value) -> Option<usize> {
         v.get("offset").and_then(Value::as_u64).map(|n| n as usize)
+    }
+    fn as_bool(&self, v: &Value) -> Option<bool> {
+        v.as_bool()
+    }
+    fn as_i64(&self, v: &Value) -> Option<i64> {
+        v.as_i64()
+    }
+    fn set_field(&self, v: &mut Value, name: &str, value: Value) {
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert(name.into(), value);
+        }
+    }
+    fn extend_list_field(&self, v: &mut Value, name: &str, items: Vec<Value>) {
+        if let Some(obj) = v.as_object_mut() {
+            match obj.get_mut(name) {
+                Some(Value::Array(arr)) => {
+                    arr.extend(items);
+                }
+                _ => {
+                    obj.insert(name.into(), Value::Array(items));
+                }
+            }
+        }
     }
 }
 
@@ -579,6 +893,10 @@ mod compat {
     #[inline]
     pub fn spread_expr(expr: Value) -> Value {
         JsonEmitter.spread_expr(expr)
+    }
+    #[inline]
+    pub fn positional_ref(index: i64) -> Value {
+        JsonEmitter.positional_ref(index)
     }
     #[inline]
     pub fn position(line: u32, column: u32, offset: usize) -> Value {
