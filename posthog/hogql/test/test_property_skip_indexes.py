@@ -49,6 +49,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
@@ -456,6 +457,33 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             self._filter(PropertyOperator.LT, value),
             expected_used={index},
         )
+
+    def test_mat_col_nullable_minmax_lt_numeric_looking_strings_compare_lexically(self) -> None:
+        # String columns compare byte-by-byte. ``'1000' < '500'`` is TRUE (``'1' < '5'``),
+        # even though numerically 1000 > 500. ``'200' < '500'`` is also TRUE (``'2' < '5'``),
+        # but ``'900'`` is excluded (``'9' > '5'``).
+        #
+        # If this were a numeric comparison, the result would be just ``'200'`` — '1000'
+        # would NOT match and '900' WOULD match. Verifying both rows return makes the
+        # lexical behavior load-bearing for the test rather than incidental.
+        #
+        # The fix in real code is to declare the property's ``property_type=Numeric``
+        # in a PropertyDefinition (PropertySwapper then wraps the column in ``toFloat``),
+        # at the cost of the minmax index — see ``test_mat_col_lt_typed_numeric_property``.
+        _create_event(team=self.team, distinct_id="d_200", event="test_event", properties={EVENT_PROP_KEY: "200"})
+        _create_event(team=self.team, distinct_id="d_900", event="test_event", properties={EVENT_PROP_KEY: "900"})
+        _create_event(team=self.team, distinct_id="d_1000", event="test_event", properties={EVENT_PROP_KEY: "1000"})
+        flush_persons_and_events()
+
+        self._materialize_with(is_nullable=True, create_minmax_index=True)
+
+        result = execute_hogql_query(
+            team=self.team,
+            query="SELECT distinct_id FROM events WHERE properties.test_prop < '500' ORDER BY distinct_id",
+        )
+        # Lexical: '1000' (1 < 5) and '200' (2 < 5) both match; '900' (9 > 5) is excluded.
+        # If numeric: only '200' would match.
+        self.assertEqual(result.results, [("d_1000",), ("d_200",)])
 
     @parameterized.expand(
         [

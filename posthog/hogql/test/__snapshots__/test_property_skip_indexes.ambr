@@ -377,6 +377,25 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_looking_strings_compare_lexically
+  '''
+  SELECT events.distinct_id AS distinct_id
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '500')
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  ORDER BY events.distinct_id ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_0_string_pure_alpha
   '''
   SELECT count() AS `count()`
