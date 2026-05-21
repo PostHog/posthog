@@ -51,7 +51,7 @@ _BRACKET_ERROR = "Angle brackets are not allowed in this field."
 _INVISIBLE_ERROR = "Invisible or direction-override characters are not allowed in this field."
 
 
-def _check_shared(value: str, *, check_bare_domains: bool) -> None:
+def _check_shared(value: str) -> None:
     """
     Run the checks shared between display names and message bodies against an
     NFKC-normalized copy of `value`. Normalization folds fullwidth / compat
@@ -63,8 +63,6 @@ def _check_shared(value: str, *, check_bare_domains: bool) -> None:
     if _BRACKET_RE.search(normalized):
         raise serializers.ValidationError(_BRACKET_ERROR, code="invalid_bracket")
     if _URL_SCHEME_RE.search(normalized):
-        raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
-    if check_bare_domains and _BARE_DOMAIN_RE.search(normalized):
         raise serializers.ValidationError(_URL_ERROR, code="invalid_url")
 
 
@@ -79,10 +77,12 @@ def validate_display_name(value: None) -> None: ...
 def validate_display_name(value: str | None) -> str | None:
     """
     Validate identity fields (`first_name`, `last_name`, organization name,
-    invite recipient name). Rejects URLs (including bare domains), line
-    breaks, control characters, angle brackets, and zero-width / bidi
-    characters. Returns the stripped value; empty / blank input passes
-    through.
+    invite recipient name). Rejects URL schemes (`https://`, `javascript:`,
+    `www.`), line breaks, control characters, angle brackets, and zero-width /
+    bidi characters. Bare domains (`google.com`) are allowed — users
+    legitimately set those as org names, and `sanitize_email_string` defangs
+    them at email render time. Returns the stripped value; empty / blank input
+    passes through.
     """
     if value is None:
         return None
@@ -91,7 +91,7 @@ def validate_display_name(value: str | None) -> str | None:
         return stripped
     if _CONTROL_CHAR_RE.search(stripped):
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
-    _check_shared(stripped, check_bare_domains=True)
+    _check_shared(stripped)
     return stripped
 
 
@@ -100,13 +100,13 @@ def validate_message_body(value: str | None) -> str | None:
     Validate a free-text message body. Newlines and tabs are allowed; URL
     schemes (`http://`, `javascript:`, `www.`, ...), non-newline control
     chars, angle brackets, and invisible chars are not. Bare domains are
-    permitted here to keep messages like "see the foo.py file" usable.
+    permitted so messages like "see the foo.py file" stay usable.
     """
     if value is None:
         return None
     if _NON_NEWLINE_CONTROL_RE.search(value):
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
-    _check_shared(value, check_bare_domains=False)
+    _check_shared(value)
     return value
 
 

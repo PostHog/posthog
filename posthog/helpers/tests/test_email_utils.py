@@ -326,6 +326,14 @@ class TestValidateDisplayName(SimpleTestCase):
             ("trims", "   Marius   ", "Marius"),
             ("empty", "", ""),
             ("whitespace_only", "   ", ""),
+            # Bare domains are allowed — users legitimately set org names like
+            # `google.com`. Render-time defang in `sanitize_email_string` neutralizes
+            # mail-client auto-linking.
+            ("bare_domain_org", "google.com", "google.com"),
+            ("bare_domain_titlecase", "Acme.com", "Acme.com"),
+            ("bare_domain_io", "mycompany.io", "mycompany.io"),
+            ("bare_domain_subdomain", "sub.example.com", "sub.example.com"),
+            ("bare_domain_embedded", "join evil.com now", "join evil.com now"),
         ]
     )
     def test_accepts(self, _name: str, value: str, expected: str) -> None:
@@ -352,9 +360,6 @@ class TestValidateDisplayName(SimpleTestCase):
             ("paragraph_separator", "foo\u2029bar", "invalid_control_char"),
             ("next_line", "foo\u0085bar", "invalid_control_char"),
             ("www_embedded", "myname www.scam.io", "invalid_url"),
-            ("bare_domain", "join evil.com now", "invalid_url"),
-            ("bare_domain_at_start", "Acme.com", "invalid_url"),
-            ("bare_domain_subdomain", "join sub.evil.com today", "invalid_url"),
             ("javascript_scheme", "click javascript:alert(1)", "invalid_url"),
             ("data_scheme", "see data:text/html,x", "invalid_url"),
             ("vbscript_scheme", "run vbscript:msgbox", "invalid_url"),
@@ -426,6 +431,9 @@ class TestSanitizeDisplayName(SimpleTestCase):
             ("plain", "Acme Inc", "Acme Inc"),
             ("strips_whitespace", "  Acme Inc  ", "Acme Inc"),
             ("unicode_name", "\u00c9mile", "\u00c9mile"),
+            # Bare-domain org names round-trip; the defang happens later in
+            # `sanitize_email_properties` at render time.
+            ("bare_domain", "acme.com", "acme.com"),
         ]
     )
     def test_returns_validated_value(self, _name: str, value: str, expected: str) -> None:
@@ -435,7 +443,6 @@ class TestSanitizeDisplayName(SimpleTestCase):
         [
             ("url", "https://acme.example.com"),
             ("www", "www.scam.io"),
-            ("bare_domain", "acme.com"),
             ("javascript_scheme", "javascript:alert(1)"),
             ("bracket", "<acme>"),
             ("zero_width", "foo\u200bbar"),
