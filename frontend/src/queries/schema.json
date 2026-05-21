@@ -19656,7 +19656,8 @@
                 "ClickHouse",
                 "Plain",
                 "Resend",
-                "PgAnalyze"
+                "PgAnalyze",
+                "Custom"
             ],
             "type": "string"
         },

@@ -2217,6 +2217,7 @@ class ExternalDataSourceType(StrEnum):
     PLAIN = "Plain"
     RESEND = "Resend"
     PG_ANALYZE = "PgAnalyze"
+    CUSTOM = "Custom"
 
 
 class ExternalQueryErrorCode(StrEnum):
