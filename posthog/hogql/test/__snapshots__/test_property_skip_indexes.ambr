@@ -257,7 +257,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_00_eq
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_0_eq
   '''
   SELECT count() AS `count()`
   FROM events
@@ -266,7 +266,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_01_neq
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_1_neq
   '''
   SELECT count() AS `count()`
   FROM events
@@ -274,7 +274,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_02_lt
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_2_lt
   '''
   SELECT count() AS `count()`
   FROM events
@@ -283,7 +283,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_03_gt
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_3_gt
   '''
   SELECT count() AS `count()`
   FROM events
@@ -292,7 +292,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_04_lte
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_4_lte
   '''
   SELECT count() AS `count()`
   FROM events
@@ -301,7 +301,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_05_gte
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_5_gte
   '''
   SELECT count() AS `count()`
   FROM events
@@ -310,7 +310,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_06_in_multi
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_6_in_multi
   '''
   SELECT count() AS `count()`
   FROM events
@@ -318,7 +318,7 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_07_icontains_with_isnotnull
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_7_icontains_with_isnotnull
   '''
   SELECT count() AS `count()`
   FROM events
@@ -326,27 +326,11 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_08_regex
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_8_regex
   '''
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(match(toString(events.mat_test_prop), '[0-9]'), 0))
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_09_is_set
-  '''
-  SELECT count() AS `count()`
-  FROM events
-  WHERE and(equals(events.team_id, 99999), isNotNull(events.mat_test_prop))
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_10_is_not_set
-  '''
-  SELECT count() AS `count()`
-  FROM events
-  WHERE and(equals(events.team_id, 99999), isNull(events.mat_test_prop))
   LIMIT 50000
   '''
 # ---
@@ -599,14 +583,6 @@
   LIMIT 50000
   '''
 # ---
-# name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_minmax_5_is_set
-  '''
-  SELECT count() AS `count()`
-  FROM events
-  WHERE and(equals(events.team_id, 99999), isNotNull(events.mat_pp_test_prop))
-  LIMIT 50000
-  '''
-# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_ngrambf_lower_0_icontains_long
   '''
   SELECT count() AS `count()`
@@ -778,23 +754,6 @@
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   WHERE ifNull(ilike(toString(persons.properties___test_prop), '%5%'), 0)
-  LIMIT 50000
-  '''
-# ---
-# name: TestPersonPropertySkipIndexes.test_mat_col_nullable_minmax_4_is_set
-  '''
-  SELECT count() AS `count()`
-  FROM
-    (SELECT tupleElement(argMax(tuple(person.pmat_test_prop), person.version), 1) AS properties___test_prop,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), isNotNull(where_optimization.pmat_test_prop)))))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE isNotNull(persons.properties___test_prop)
   LIMIT 50000
   '''
 # ---

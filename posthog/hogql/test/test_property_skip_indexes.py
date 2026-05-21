@@ -324,14 +324,11 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("gte", PropertyOperator.GTE, "5", True),
             # Multi-value IN uses the printer's ``has([values], col)`` optimized path — minmax prunes granules out of range.
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
-            # ILIKE can't use minmax, but the printer's ``col IS NOT NULL`` companion can — prunes entirely-NULL granules.
+            # ILIKE can't use minmax on its own, but the printer's combined form with ``col IS NOT NULL`` does get minmax considered (entirely-NULL granules pruneable).
             ("icontains_with_isnotnull", PropertyOperator.ICONTAINS, "5", True),
             # Regex stays wrapped in ``ifNull(match(...), 0)`` — no minmax.
             ("regex", PropertyOperator.REGEX, "[0-9]", False),
-            # is_set lowers to ``col IS NOT NULL``, which minmax prunes.
-            ("is_set", PropertyOperator.IS_SET, None, True),
-            # is_not_set → ``col IS NULL``; ClickHouse uses minmax on the inverse to skip granules where the value is always set.
-            ("is_not_set", PropertyOperator.IS_NOT_SET, None, True),
+            # is_set / is_not_set (``col IS NOT NULL`` / ``col IS NULL``) — whether minmax is considered is ClickHouse-version-dependent (CH 26.3 yes, 25.12 no), so we don't assert it.
         ]
     )
     def test_mat_col_nullable_minmax(
@@ -666,7 +663,7 @@ class TestPersonOnEventsPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("gt", PropertyOperator.GT, "5", True),
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             ("icontains_with_isnotnull", PropertyOperator.ICONTAINS, "5", True),
-            ("is_set", PropertyOperator.IS_SET, None, True),
+            # is_set omitted — minmax usage for ``col IS NOT NULL`` is ClickHouse-version-dependent (CH 26.3 yes, 25.12 no).
         ]
     )
     def test_mat_col_nullable_minmax(
@@ -769,7 +766,7 @@ class TestPersonPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("lt", PropertyOperator.LT, "5", True),
             ("gt", PropertyOperator.GT, "5", True),
             ("icontains_with_isnotnull", PropertyOperator.ICONTAINS, "5", True),
-            ("is_set", PropertyOperator.IS_SET, None, True),
+            # is_set omitted — minmax usage for ``col IS NOT NULL`` is ClickHouse-version-dependent (CH 26.3 yes, 25.12 no).
         ]
     )
     def test_mat_col_nullable_minmax(
