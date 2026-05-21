@@ -319,13 +319,19 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         if multipart:
+            uploaded_file = request.FILES.get("file")
+            if uploaded_file is None:
+                return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
             data = bytearray()
-            for chunk in request.FILES["file"].chunks():
+            for chunk in uploaded_file.chunks():
                 data.extend(chunk)
         else:
             # legacy: older versions of the CLI did not use multipart uploads
             # file added to the request data by the FileUploadParser
-            data = request.data["file"].read()
+            uploaded_file = request.data.get("file")
+            if uploaded_file is None:
+                return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+            data = uploaded_file.read()
 
         (storage_ptr, content_hash) = upload_content(bytearray(data))
         create_symbol_set(chunk_id, self.team, release_id, storage_ptr, content_hash)

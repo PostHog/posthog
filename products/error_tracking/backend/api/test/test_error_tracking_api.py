@@ -232,6 +232,27 @@ class TestErrorTracking(APIBaseTest):
         symbol_set = ErrorTrackingSymbolSet.objects.get(id=response_json["symbol_set_id"])
         assert symbol_set.content_hash is None
 
+    def test_deprecated_create_returns_400_without_file_multipart(self) -> None:
+        # Hitting the deprecated symbol-set create endpoint without an attached file
+        # used to raise KeyError -> 500. It should now return a clean 400.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/?chunk_id={uuid7()}&multipart=true",
+            data={},
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "file is required"
+
+    def test_deprecated_create_returns_400_without_file_legacy(self) -> None:
+        # Legacy (non-multipart) path: also should not 500 when no file is provided.
+        # This matches the URL shape seen in the recurring 500s, e.g.
+        # /api/environments/1/error_tracking/symbol_sets/?chunk_id=test-uuid-1234
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/?chunk_id={uuid7()}",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "file is required"
+
     def test_finish_upload_fails_if_file_not_found(self):
         symbol_set = ErrorTrackingSymbolSet.objects.create(
             team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
