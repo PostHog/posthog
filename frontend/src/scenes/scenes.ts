@@ -346,6 +346,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
     [Scene.VercelLinkError]: { layout: 'plain', name: 'Vercel account mismatch' },
+    [Scene.AgenticAccountMismatch]: { layout: 'plain', name: 'Account mismatch', allowUnauthenticated: true },
     [Scene.Person]: {
         projectBased: true,
         name: 'People',
@@ -644,6 +645,7 @@ export const redirects: Record<
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
+    '/data-management/data-warehouse': urls.sources(),
     '/data-pipelines': urls.sources(),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
@@ -874,6 +876,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
+    [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],

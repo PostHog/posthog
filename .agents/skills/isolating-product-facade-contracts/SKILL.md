@@ -50,7 +50,7 @@ For detailed sequencing, load [references/phased-migration-plan.md](references/p
    - Classify each usage by capability (read/list, detail/read, create/update/delete, async/task, webhook/event).
 2. Define the minimal contract surface.
    - Start from currently consumed fields only.
-   - Create frozen dataclasses in `backend/facade/contracts.py`.
+   - Create frozen dataclasses in `backend/facade/contracts.py` using `pydantic.dataclasses.dataclass` — same shape as the stdlib variant but with runtime type validation on construction.
 3. Introduce a thin facade in `backend/facade/api.py`.
    - Map ORM instances to contracts with explicit mapper functions.
    - Keep method names capability-oriented and stable.

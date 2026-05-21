@@ -53,6 +53,8 @@ logger = structlog.get_logger(__name__)
 # Default model for LLM judge
 DEFAULT_JUDGE_MODEL = "gpt-5-mini"
 
+SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
+
 # Retry policy for LLM judge activity with exponential backoff to prevent amplifying load during outages
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -358,10 +360,10 @@ async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> 
         is_exhausted = inputs.threshold_pct >= 100
 
         if is_exhausted:
-            subject = "Your LLM analytics trial evaluations have been used up"
+            subject = "Your AI observability trial evaluations have been used up"
             template_name = "llm_analytics_trial_exhausted"
         else:
-            subject = f"You've used {inputs.threshold_pct}% of your LLM analytics trial evaluations"
+            subject = f"You've used {inputs.threshold_pct}% of your AI observability trial evaluations"
             template_name = "llm_analytics_trial_warning"
 
         message = EmailMessage(
@@ -405,8 +407,8 @@ class SendEvaluationDisabledEmailInputs:
 
 
 _STATUS_REASON_SUBJECTS = {
-    "model_not_allowed": "Your LLM analytics evaluation was disabled because its model isn't supported on the trial plan",
-    "provider_key_deleted": "Your LLM analytics evaluation was disabled because its provider API key was removed",
+    "model_not_allowed": "Your AI observability evaluation was disabled because its model isn't supported on the trial plan",
+    "provider_key_deleted": "Your AI observability evaluation was disabled because its provider API key was removed",
 }
 
 
@@ -706,7 +708,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             )
         )
     except AuthenticationError:
-        increment_errors("auth_error")
+        increment_errors("auth_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
@@ -715,7 +717,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             )
         raise
     except ModelPermissionError:
-        increment_errors("permission_error")
+        increment_errors("permission_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key doesn't have access to this model.",
@@ -724,7 +726,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             )
         raise
     except QuotaExceededError:
-        increment_errors("quota_error")
+        increment_errors("quota_error", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key has exceeded its quota.",
@@ -733,7 +735,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             )
         raise
     except RateLimitError:
-        increment_errors("rate_limit")
+        increment_errors("rate_limit", provider=provider)
         if is_byok:
             raise ApplicationError(
                 "API key is being rate limited.",
@@ -742,21 +744,28 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             )
         raise
     except ModelNotFoundError:
-        increment_errors("model_not_found")
+        increment_errors("model_not_found", provider=provider)
         raise ApplicationError(
             f"Model '{model}' not found.",
             non_retryable=True,
         )
     except StructuredOutputParseError as e:
-        increment_errors("parse_error")
+        increment_errors("parse_error", provider=provider)
         raise ApplicationError(
             str(e),
             {"error_type": "parse_error"},
             non_retryable=True,
         ) from e
 
-    except Exception:
-        increment_errors("unknown_error")
+    except Exception as e:
+        logger.exception(
+            "Unhandled error from LLM client",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error_class=type(e).__name__,
+        )
+        increment_errors(type(e).__name__, provider=provider)
         raise
 
     # Parse structured output
@@ -1021,6 +1030,10 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             "$session_id": source_props.get("$session_id"),
         }
 
+        for property_name in SOURCE_AI_PROPERTIES_TO_COPY:
+            if source_props.get(property_name) is not None:
+                properties[property_name] = source_props[property_name]
+
         if result.get("skipped"):
             properties["$ai_evaluation_skipped"] = True
             properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
@@ -1282,7 +1295,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except Exception:
-            increment_errors("emit_evaluation_event_failed")
+            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
             raise
 
         # Activity 5: Emit internal telemetry (fire-and-forget). Internal telemetry tracks model,

@@ -13,7 +13,9 @@ from unittest import mock
 
 from django.test import override_settings
 
-from posthog.schema import TrendsFilter, TrendsQuery
+from parameterized import parameterized
+
+from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType, TrendsFilter, TrendsQuery
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -621,6 +623,86 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 [0.0, 0.0, 0.0, 0.0, 0.0, 750.0, 0.0, 0.0],
             ],
             [series["data"] for series in response],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_hogql_with_as_alias(self):
+        self._run(
+            {
+                "breakdownFilter": {
+                    "breakdown": 'properties.location AS "Location"',
+                    "breakdown_type": "hogql",
+                }
+            }
+        )
+
+    @parameterized.expand(
+        [
+            ("bare", "properties.location AS Location"),
+            ("double_quoted", 'properties.location AS "Some Location"'),
+            ("backticked", "properties.location AS `Some Location`"),
+            ("nested", 'properties.location AS Inner AS "Outer"'),
+            ("inside_call", "concat(properties.location AS Inner, '') AS \"Outer\""),
+            ("system_alias_collision", "properties.location AS breakdown_value"),
+        ]
+    )
+    def test_breakdown_hogql_alias_forms(self, _name: str, breakdown_expr: str):
+        response = self._run(
+            {
+                "breakdownFilter": {
+                    "breakdown": breakdown_expr,
+                    "breakdown_type": "hogql",
+                }
+            }
+        )
+        baseline = self._run(
+            {
+                "breakdownFilter": {
+                    "breakdown": "properties.location",
+                    "breakdown_type": "hogql",
+                }
+            }
+        )
+        self.assertEqual(
+            [series["breakdown_value"] for series in response],
+            [series["breakdown_value"] for series in baseline],
+        )
+        self.assertEqual(
+            [series["data"] for series in response],
+            [series["data"] for series in baseline],
+        )
+
+    def test_multiple_breakdowns_with_hogql_aliases(self):
+        response = self._run(
+            {
+                "breakdownFilter": BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(property='properties.location AS "Location"', type=MultipleBreakdownType.HOGQL),
+                        Breakdown(
+                            property="person.properties.$some_prop AS `Some Prop`",
+                            type=MultipleBreakdownType.HOGQL,
+                        ),
+                    ]
+                ),
+            }
+        )
+        baseline = self._run(
+            {
+                "breakdownFilter": BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(property="properties.location", type=MultipleBreakdownType.HOGQL),
+                        Breakdown(property="person.properties.$some_prop", type=MultipleBreakdownType.HOGQL),
+                    ]
+                ),
+            }
+        )
+        self.assertEqual(
+            [series["breakdown_value"] for series in response],
+            [series["breakdown_value"] for series in baseline],
+        )
+        self.assertEqual(
+            [series["data"] for series in response],
+            [series["data"] for series in baseline],
         )
 
     def test_breakdown_mismatching_sizes(self):

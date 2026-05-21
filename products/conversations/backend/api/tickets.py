@@ -25,20 +25,23 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from posthog.schema import HogQLQueryModifiers
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
-from posthog.models.person.util import (
-    get_person_by_distinct_id,
-    get_person_by_email_property,
-    get_persons_by_distinct_ids,
-)
+from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids, get_persons_by_uuids
+from posthog.models.team import Team
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     AIBurstRateThrottle,
@@ -66,6 +69,59 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
+
+# Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
+PERSON_EMAIL_LOOKUP_QUERY = """
+SELECT id, properties.email
+FROM persons
+WHERE lower(properties.email) IN {emails}
+"""
+
+
+def _get_persons_by_email(
+    team: Team,
+    emails: list[str],
+    modifiers: HogQLQueryModifiers | None = None,
+) -> dict[str, Person]:
+    """Batch look up persons by their properties.email value via ClickHouse.
+
+    Returns a dict mapping lowercase email -> Person for the first match.
+    Only checks ``properties.email`` (the canonical, materialized key with
+    a skip index). Uses the HogQL ``persons`` virtual table (argMax dedup
+    handled automatically).
+    """
+    if not emails:
+        return {}
+
+    emails_lower = [e.lower() for e in emails]
+    with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
+        response = execute_hogql_query(
+            PERSON_EMAIL_LOOKUP_QUERY,
+            placeholders={"emails": ast.Constant(value=emails_lower)},
+            team=team,
+            query_type="conversations_person_email_lookup",
+            modifiers=modifiers,
+        )
+
+    if not response.results:
+        return {}
+
+    email_to_uuid: dict[str, str] = {}
+    for person_uuid, prop_email in response.results:
+        if prop_email:
+            lower = prop_email.lower()
+            if lower not in email_to_uuid:
+                email_to_uuid[lower] = str(person_uuid)
+
+    persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
+    uuid_to_person: dict[str, Person] = {str(p.uuid): p for p in persons}
+
+    result: dict[str, Person] = {}
+    for email_lower, person_uuid in email_to_uuid.items():
+        person = uuid_to_person.get(person_uuid)
+        if person is not None:
+            result[email_lower] = person
+    return result
 
 
 class SuggestReplyResponseSerializer(serializers.Serializer):
@@ -429,17 +485,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         # Fallback: for email-channel tickets with no person match,
         # try matching on properties.email (handles cases where the
         # person's distinct_id differs from their email address)
-        # unmatched = [
-        #    t
-        #    for t in tickets
-        #    if t.distinct_id and not getattr(t, "person", None) and t.channel_source == Channel.EMAIL and t.email_from
-        # ]
-        # for ticket in unmatched:
-        #    email = ticket.email_from
-        #   if email:
-        #        found = get_person_by_email_property(self.team_id, email)
-        #        if found is not None:
-        #            ticket.person = found
+        unmatched = [
+            t
+            for t in tickets
+            if t.distinct_id and not getattr(t, "person", None) and t.channel_source == Channel.EMAIL and t.email_from
+        ]
+        if unmatched:
+            emails = [t.email_from for t in unmatched if t.email_from]
+            email_to_person = _get_persons_by_email(self.team, emails)
+            for ticket in unmatched:
+                if ticket.email_from:
+                    found = email_to_person.get(ticket.email_from.lower())
+                    if found is not None:
+                        ticket.person = found
 
     @extend_schema(
         parameters=[
@@ -875,11 +933,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         recipient_email = data["recipient_email"]
         distinct_id = data.get("recipient_distinct_id", "") or recipient_email
 
-        person = get_person_by_distinct_id(team.id, distinct_id)
-        if person is None and distinct_id == recipient_email:
-            person = get_person_by_email_property(team.id, recipient_email)
+        person: Person | None = None
+        if distinct_id != recipient_email:
+            person = get_person_by_distinct_id(team.id, distinct_id)
+
+        if person is None:
+            person = _get_persons_by_email(team, [recipient_email]).get(recipient_email.lower())
             if person is not None and person.distinct_ids:
                 distinct_id = person.distinct_ids[0]
+
+        if data.get("recipient_distinct_id") and person is not None:
+            person_email = (person.properties or {}).get("email", "")
+            if person_email and person_email.lower() != recipient_email.lower():
+                return Response(
+                    {"detail": "Recipient email does not match the person's email on file."},
+                    status=drf_status.HTTP_400_BAD_REQUEST,
+                )
 
         with transaction.atomic():
             ticket = Ticket.objects.create_with_number(

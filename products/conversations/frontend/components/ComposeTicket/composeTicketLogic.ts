@@ -13,9 +13,10 @@ import type { composeTicketLogicType } from './composeTicketLogicType'
 export const composeTicketLogic = kea<composeTicketLogicType>([
     path(['products', 'conversations', 'frontend', 'components', 'ComposeTicket', 'composeTicketLogic']),
     actions({
-        openComposeModal: true,
+        openComposeModal: (prefill?: { distinctId?: string; email?: string }) => ({ prefill }),
         closeComposeModal: true,
         setRecipientEmail: (email: string) => ({ email }),
+        setRecipientDistinctId: (distinctId: string) => ({ distinctId }),
         setEmailSubject: (subject: string) => ({ subject }),
         setEmailConfigId: (configId: string) => ({ configId }),
         resetForm: true,
@@ -35,6 +36,15 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setRecipientEmail: (_, { email }) => email,
+                openComposeModal: () => '',
+                resetForm: () => '',
+            },
+        ],
+        recipientDistinctId: [
+            '',
+            {
+                setRecipientDistinctId: (_, { distinctId }) => distinctId,
+                openComposeModal: () => '',
                 resetForm: () => '',
             },
         ],
@@ -42,6 +52,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setEmailSubject: (_, { subject }) => subject,
+                openComposeModal: () => '',
                 resetForm: () => '',
             },
         ],
@@ -49,6 +60,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setEmailConfigId: (_, { configId }) => configId,
+                openComposeModal: () => '',
                 resetForm: () => '',
             },
         ],
@@ -57,6 +69,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             {
                 submitCompose: () => true,
                 submitComposeFinished: () => false,
+                openComposeModal: () => false,
                 resetForm: () => false,
             },
         ],
@@ -78,11 +91,17 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        openComposeModal: () => {
+        openComposeModal: ({ prefill }) => {
+            if (prefill?.distinctId) {
+                actions.setRecipientDistinctId(prefill.distinctId)
+            }
+            if (prefill?.email) {
+                actions.setRecipientEmail(prefill.email)
+            }
             actions.loadEmailConfigs()
         },
         submitCompose: async ({ message, richContent }) => {
-            const { recipientEmail, emailSubject, emailConfigId } = values
+            const { recipientEmail, recipientDistinctId, emailSubject, emailConfigId } = values
 
             if (!message.trim()) {
                 lemonToast.error('Message is required.')
@@ -107,6 +126,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
                     message,
                     recipient_email: recipientEmail,
                     email_config_id: emailConfigId,
+                    ...(recipientDistinctId ? { recipient_distinct_id: recipientDistinctId } : {}),
                     ...(emailSubject ? { email_subject: emailSubject } : {}),
                     ...(richContent ? { rich_content: richContent } : {}),
                 })

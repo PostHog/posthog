@@ -6,7 +6,6 @@ from typing import Optional, TypeVar, Union, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from django.db.models import Q
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -555,23 +554,6 @@ def get_person_by_distinct_id(team_id: int, distinct_id: str) -> Optional[Person
         .filter(team_id=team_id, persondistinctid__distinct_id=distinct_id)
         .first(),
         team_id=team_id,
-    )
-
-
-def get_person_by_email_property(team_id: int, email: str) -> Optional[Person]:
-    """Look up a person by their properties email value.
-
-    Checks common key variants: ``email``, ``Email``, ``$email``.
-    No personhog RPC exists for property-based search — uses ORM directly.
-    When a personhog RPC is added, convert to _personhog_routed.
-    """
-    return (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-        .filter(
-            Q(properties__email=email) | Q(**{"properties__Email": email}) | Q(**{"properties__$email": email}),
-            team_id=team_id,
-        )
-        .first()
     )
 
 

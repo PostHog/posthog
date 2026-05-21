@@ -231,6 +231,56 @@ class TestBingAdsSource:
         with pytest.raises(ValueError, match="Bing Ads refresh token not found for job test-job-id"):
             self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
+    @pytest.mark.parametrize(
+        "pattern,raised_message",
+        [
+            # Auth-specific substrings — wrapped by BingAdsClient.get_customer_id as
+            # `ValueError("Failed to fetch customer ID: <ExcType>: <msg>")`, so the substring
+            # must appear inside that combined message.
+            (
+                "OAuthTokenRequestException",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+            ),
+            (
+                "invalid_grant",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+            ),
+            (
+                "AuthenticationTokenExpired",
+                "Failed to fetch customer ID: WebFault: ... AuthenticationTokenExpired ...",
+            ),
+            (
+                "InvalidCredentials",
+                "Failed to fetch customer ID: WebFault: ... InvalidCredentials ...",
+            ),
+            # Deterministic credential/config errors raised in source_for_pipeline.
+            ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
+            ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
+            ("Bing Ads developer token not configured", "Bing Ads developer token not configured"),
+        ],
+    )
+    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert pattern in non_retryable_errors
+        assert pattern in raised_message
+
+    @pytest.mark.parametrize(
+        "transient_message",
+        [
+            # Plain transport-level failures — must NOT match any non-retryable pattern,
+            # otherwise the schema would be disabled after the first few transient failures.
+            "Failed to fetch customer ID: ConnectionError: HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded",
+            "Failed to fetch customer ID: TimeoutError: The read operation timed out",
+            "Failed to fetch customer ID: WebFault: Server raised fault: 'Internal Error'",
+            "Failed to fetch customer ID: HTTPError: 503 Server Error: Service Unavailable",
+        ],
+    )
+    def test_get_non_retryable_errors_does_not_match_transient_failures(self, transient_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
         inputs = mock.MagicMock()

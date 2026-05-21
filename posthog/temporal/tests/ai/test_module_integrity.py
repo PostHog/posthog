@@ -211,6 +211,7 @@ class TestSummarizationSweepModuleIntegrity:
             "list_enabled_teams_activity",
             "list_summarization_schedule_team_ids_activity",
             "upsert_team_schedule_activity",
+            "consume_summary_quota_activity",
         ]
         actual_activity_names = [a.__name__ for a in SUMMARIZATION_SWEEP_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (

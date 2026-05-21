@@ -1495,6 +1495,23 @@ class TestUserAPI(APIBaseTest):
         self.assertIn("test-flag-1", cached_data["feature_flags"])
         self.assertIn("test-flag-2", cached_data["feature_flags"])
 
+    @patch("posthog.api.user.get_flags_from_service")
+    def test_prepare_toolbar_preloaded_flags_passes_internal_request_token(self, mock_get_flags):
+        """The toolbar prep handler is internal PostHog traffic, not customer SDK
+        traffic — it must forward INTERNAL_REQUEST_TOKEN so the Rust service skips
+        the per-team billing limiter."""
+        mock_get_flags.return_value = {"flags": {}}
+
+        with self.settings(INTERNAL_REQUEST_TOKEN="test-internal-token"):
+            response = self.client.post(
+                "/api/user/prepare_toolbar_preloaded_flags/",
+                {"distinct_id": "user123"},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["internal_request_token"], "test-internal-token")
+
     def test_get_toolbar_preloaded_flags_retrieves_from_cache(self):
         """Test that get_toolbar_preloaded_flags retrieves flags from cache"""
         from django.core.cache import cache

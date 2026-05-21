@@ -11,7 +11,9 @@ import {
     IconGraph,
     IconHandwave,
     IconMegaphone,
+    IconNotebook,
     IconPeople,
+    IconPhone,
     IconPulse,
     IconSparkles,
     IconTarget,
@@ -19,12 +21,14 @@ import {
     IconTrending,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
-import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType } from '../../constants'
+import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateMode, SurveyTemplateType } from '../../constants'
 import { surveysLogic } from '../../surveysLogic'
 import { surveyWizardLogic } from '../surveyWizardLogic'
 
@@ -42,6 +46,8 @@ const TEMPLATE_ICONS: Partial<Record<SurveyTemplateType, React.ComponentType<{ c
     [SurveyTemplateType.OnboardingFeedback]: IconHandwave,
     [SurveyTemplateType.BetaFeedback]: IconFlask,
     [SurveyTemplateType.Announcement]: IconMegaphone,
+    [SurveyTemplateType.UserResearchIntake]: IconPhone,
+    [SurveyTemplateType.ProductResearch]: IconNotebook,
 }
 
 interface TemplateCardProps {
@@ -88,10 +94,12 @@ function TemplateCard({ template, onClick, featured }: TemplateCardProps): JSX.E
 }
 
 export function TemplateStep({ handleCustomizeMore }: { handleCustomizeMore: () => void }): JSX.Element {
-    const { coreTemplates, otherTemplates } = useValues(surveyWizardLogic)
-    const { selectTemplate } = useActions(surveyWizardLogic)
+    const { coreTemplates, otherTemplates, templateMode } = useValues(surveyWizardLogic)
+    const { selectTemplate, setTemplateMode } = useActions(surveyWizardLogic)
     const { reportSurveyAiPromptSubmitted } = useActions(eventUsageLogic)
     const { handleMaxSurveyCreated } = useActions(surveysLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
     const [showOthers, setShowOthers] = useState(false)
     const [prompt, setPrompt] = useState('')
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
@@ -109,12 +117,40 @@ export function TemplateStep({ handleCustomizeMore }: { handleCustomizeMore: () 
         }
     }
 
+    const isHostedMode = templateMode === 'hosted'
+    const modeDescription = isHostedMode
+        ? "Pick a template — you'll get a shareable link, no SDK needed."
+        : 'Start with a proven template, then customize it to your needs.'
+
     return (
         <div className="space-y-6">
             <div className="text-center space-y-2">
                 <h1 className="text-2xl font-semibold">Choose a survey template</h1>
-                <p className="text-secondary">Start with a proven template, then customize it to your needs</p>
+                <p className="text-secondary">{modeDescription}</p>
             </div>
+
+            {hostedEditorEnabled && (
+                <div className="flex justify-center">
+                    <LemonSegmentedButton
+                        value={templateMode}
+                        onChange={(value) => setTemplateMode(value as SurveyTemplateMode)}
+                        options={[
+                            { value: 'in_app', label: 'In-app survey' },
+                            {
+                                value: 'hosted',
+                                label: (
+                                    <span className="flex items-center gap-1.5">
+                                        Hosted link
+                                        <LemonTag type="warning" size="small">
+                                            Beta
+                                        </LemonTag>
+                                    </span>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
+            )}
 
             {/* Core templates - 2x2 grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

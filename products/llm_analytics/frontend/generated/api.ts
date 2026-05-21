@@ -1385,7 +1385,7 @@ export const getLlmAnalyticsTextReprCreateUrl = (projectId: string) => {
  *
 Generate a human-readable text representation of an LLM trace event.
 
-This endpoint converts LLM analytics events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
+This endpoint converts AI observability events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
 into formatted text representations suitable for display, logging, or analysis.
 
 **Supported Event Types:**
