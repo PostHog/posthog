@@ -1594,8 +1594,13 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
  * Create and start a batch export on demand run to download a file.
  */
 export const fileDownloadBatchExportsCreateBodyOneFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin = 0
+
 export const fileDownloadBatchExportsCreateBodyTwoFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
+
 export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
 
 export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
     zod
@@ -1622,6 +1627,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         ),
                     max_size_mb: zod
                         .number()
+                        .min(fileDownloadBatchExportsCreateBodyOneFileMaxSizeMbMin)
                         .nullish()
                         .describe('Split download into multiple files of at most this size in MB'),
                 })
@@ -1657,6 +1663,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         ),
                     max_size_mb: zod
                         .number()
+                        .min(fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin)
                         .nullish()
                         .describe('Split download into multiple files of at most this size in MB'),
                 })
@@ -1690,6 +1697,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         ),
                     max_size_mb: zod
                         .number()
+                        .min(fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin)
                         .nullish()
                         .describe('Split download into multiple files of at most this size in MB'),
                 })

@@ -8190,6 +8190,7 @@ export namespace Schemas {
       compression?: CompressionEnum | null;
       /**
          * Split download into multiple files of at most this size in MB
+         * @minimum 0
          * @nullable
          */
       max_size_mb?: number | null;
