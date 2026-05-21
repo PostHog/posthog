@@ -38,7 +38,7 @@ describe('LLM analytics URL split', () => {
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
         expect(redirectUrl('/llm-analytics')).toBe('/ai-observability/dashboard')
         expect(redirectUrl('/llm-analytics/settings')).toBe('/settings/project-ai-observability#ai-observability-byok')
-        expect(redirectUrl('/llm-analytics/settings', {}, {}, { 'llm-analytics-byok': true })).toBe(
+        expect(redirectUrl('/llm-analytics/settings', {}, {}, { 'llm-analytics-byok': 'true' })).toBe(
             '/settings/project-ai-observability#ai-observability-byok'
         )
         expect(redirectUrl('/llm-analytics/reviews', {}, { queue_id: 'queue-1' })).toBe(
