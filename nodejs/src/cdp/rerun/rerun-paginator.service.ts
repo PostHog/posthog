@@ -8,7 +8,8 @@ import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
@@ -72,6 +73,17 @@ export interface PageOutcome {
 }
 
 /**
+ * Re-enqueue targets keyed by rerun function kind. Mirrors the split in
+ * cdp-events-consumer — hog functions go to kafka, hog flows to postgres-v2.
+ * Keying by kind (rather than two positional queue args of similar shape)
+ * stops the two backends from being swapped by mistake.
+ */
+export interface RerunJobQueues {
+    hog_function: JobQueue
+    hog_flow: CyclotronJobQueuePostgresV2
+}
+
+/**
  * Context the worker passes alongside the parsed state on each page. Lets the
  * paginator stamp wrapper lifecycle rows with the right `invocation_id`
  * (= cyclotron job id) and a stable `scheduled_at` for the wrapper across pages.
@@ -95,7 +107,8 @@ export class RerunPaginatorService {
         private hogFlowManager: HogFlowManagerService,
         private hogInputsService: HogInputsService,
         private invocationResultsRowsService: HogInvocationResultsService,
-        private cyclotronJobQueue: CyclotronJobQueue,
+        // Re-enqueue targets keyed by function kind — see RerunJobQueues.
+        private jobQueues: RerunJobQueues,
         private monitoringService: HogFunctionMonitoringService,
         // Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var).
         private maxCount: number
@@ -120,42 +133,47 @@ export class RerunPaginatorService {
 
             let conflictSkipped = 0
             if (queuedInvocations.length > 0) {
-                // Rerun re-uses the original invocation_id. Routing is the
-                // same as cdp-events-consumer (`getTarget()` per invocation —
-                // hog → kafka, hog_flow → postgres-v2). `overwriteExisting`
-                // only matters for the v2 path: it upserts ONLY when the
-                // existing cyclotron row is in a terminal state. If a v2-
-                // routed invocation's row is still active, the v2 manager
-                // raises CyclotronJobConflictError listing the conflicting
-                // ids — skip those, still queue the rest. Kafka-routed
-                // invocations can't conflict (no PK) and v1 is unsupported
-                // for rerun (throws at the queue boundary).
+                // Rerun re-uses the original invocation_id. A rerun job is
+                // scoped to a single function kind, so the whole page routes to
+                // one backend — hog → kafka, hog_flow → postgres-v2, the same
+                // split cdp-events-consumer uses.
                 let invocationsToEnqueue = queuedInvocations
-                try {
-                    await this.cyclotronJobQueue.queueInvocations(invocationsToEnqueue, {
-                        overwriteExisting: true,
-                    })
-                } catch (e) {
-                    if (!(e instanceof CyclotronJobConflictError)) {
-                        throw e
+                if (function_kind === 'hog_flow') {
+                    // postgres-v2. `overwriteExisting` upserts ONLY when the
+                    // existing cyclotron row is in a terminal state. If a row
+                    // is still active, the v2 manager raises
+                    // CyclotronJobConflictError listing the conflicting ids —
+                    // skip those, still queue the rest.
+                    try {
+                        await this.jobQueues.hog_flow.queueInvocations(invocationsToEnqueue, {
+                            overwriteExisting: true,
+                        })
+                    } catch (e) {
+                        if (!(e instanceof CyclotronJobConflictError)) {
+                            throw e
+                        }
+                        const raw = e.conflictingIds
+                        const conflictingIds = new Set(Array.isArray(raw) ? raw : [raw])
+                        logger.warn('Rerun skipping invocations that are still in-flight', {
+                            rerun_function_kind: function_kind,
+                            rerun_function_id: function_id,
+                            conflicting_invocation_ids: Array.from(conflictingIds),
+                        })
+                        conflictSkipped = conflictingIds.size
+                        for (let i = 0; i < conflictSkipped; i++) {
+                            counterRerunInvocationsSkipped.labels(function_kind, 'still_in_flight').inc()
+                        }
+                        // The conflicting invocations also queued a 'running'
+                        // lifecycle row above — drop them so we don't show a
+                        // stale running row for an invocation that didn't
+                        // actually re-enqueue.
+                        invocationsToEnqueue = queuedInvocations.filter((i) => !conflictingIds.has(i.id))
+                        this.invocationResultsRowsService.dropQueuedRowsFor(Array.from(conflictingIds))
                     }
-                    const raw = e.conflictingIds
-                    const conflictingIds = new Set(Array.isArray(raw) ? raw : [raw])
-                    logger.warn('Rerun skipping invocations that are still in-flight', {
-                        rerun_function_kind: function_kind,
-                        rerun_function_id: function_id,
-                        conflicting_invocation_ids: Array.from(conflictingIds),
-                    })
-                    conflictSkipped = conflictingIds.size
-                    for (let i = 0; i < conflictSkipped; i++) {
-                        counterRerunInvocationsSkipped.labels(function_kind, 'still_in_flight').inc()
-                    }
-                    // The conflicting invocations also queued a 'running'
-                    // lifecycle row above — drop them so we don't show a stale
-                    // running row for an invocation that didn't actually
-                    // re-enqueue.
-                    invocationsToEnqueue = queuedInvocations.filter((i) => !conflictingIds.has(i.id))
-                    this.invocationResultsRowsService.dropQueuedRowsFor(Array.from(conflictingIds))
+                } else {
+                    // kafka. No PK, so a re-enqueue with the original
+                    // invocation_id can't conflict — no overwrite path needed.
+                    await this.jobQueues.hog_function.queueInvocations(invocationsToEnqueue)
                 }
                 await this.invocationResultsRowsService.flush()
                 counterRerunInvocationsQueued.labels(function_kind).inc(invocationsToEnqueue.length)

@@ -203,6 +203,24 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         default=True
     )  # DEPRECATED in favor of User.partial_notification_settings
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=False)
+    is_ai_training_opted_in = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, this organization allows its data to be used to train PostHog AI models.",
+    )
+    is_ai_training_locked = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, the AI training opt-out setting cannot be modified through the UI or API.",
+    )
+    is_ai_training_cta_shown = models.BooleanField(
+        default=True,
+        null=True,
+        blank=True,
+        help_text="When True, in-app callouts inviting members to enable AI training are shown.",
+    )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)

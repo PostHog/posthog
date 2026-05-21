@@ -6,9 +6,21 @@ import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
 import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
+import { RerunJobQueues } from '../rerun/rerun-paginator.service'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CdpRerunWorkerConsumer } from './cdp-rerun-worker.consumer'
+
+// Minimal stub for a job queue backend — the consumer only calls the producer
+// lifecycle hooks; the paginator (which would call queueInvocations) is stubbed.
+const buildMockJobQueues = (): RerunJobQueues => {
+    const stub = () =>
+        ({
+            startAsProducer: jest.fn().mockResolvedValue(undefined),
+            stopProducer: jest.fn().mockResolvedValue(undefined),
+            queueInvocations: jest.fn().mockResolvedValue(undefined),
+        }) as any
+    return { hog_function: stub(), hog_flow: stub() }
+}
 
 jest.setTimeout(20000)
 
@@ -64,7 +76,7 @@ describe('CdpRerunWorkerConsumer', () => {
         // consumer constructs cleanly. Real queue interactions are mocked below.
         hub.CYCLOTRON_NODE_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
-        consumer = new CdpRerunWorkerConsumer(hub, createCdpConsumerDeps(hub))
+        consumer = new CdpRerunWorkerConsumer(hub, createCdpConsumerDeps(hub), buildMockJobQueues())
 
         // Replace the paginator with a stub so we exercise the consumer's
         // ack/reschedule/fail decisions without hitting ClickHouse. The catch
@@ -75,13 +87,9 @@ describe('CdpRerunWorkerConsumer', () => {
             writeWrapperFailure: jest.fn().mockResolvedValue(undefined),
         } as any
 
-        // We don't want the consumer to actually start the cyclotron worker loop or
-        // the cyclotronJobQueue producer plumbing during these tests.
+        // Don't start the real cyclotron worker loop — job queue producers are
+        // already stubbed via buildMockJobQueues.
         consumer['worker'] = null
-        consumer['cyclotronJobQueue'] = {
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(() => Promise.resolve()),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
     })
 
     afterEach(async () => {
