@@ -1021,7 +1021,10 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .optional()
                 .describe('JSON-encoded property filter to exclude. Same shape as the list endpoint.'),
-            tags: zod.string().optional().describe('Comma-separated list of tags to filter by.'),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
             has_evaluation_contexts: zod
                 .boolean()
                 .optional()

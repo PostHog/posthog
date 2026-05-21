@@ -971,8 +971,8 @@ export interface BulkDeleteFiltersApi {
     evaluation_runtime?: EvaluationRuntimeEnumApi
     /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
     excluded_properties?: string
-    /** Comma-separated list of tags to filter by. */
-    tags?: string
+    /** Tag names to filter by. Flags carrying at least one of these tags match. */
+    tags?: string[]
     /** When true, only matches flags with at least one evaluation context. */
     has_evaluation_contexts?: boolean
 }
