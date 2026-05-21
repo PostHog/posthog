@@ -16,15 +16,6 @@ import logging
 from datetime import datetime
 from typing import Any
 
-# Temporal activity workers run headless, so the only viable matplotlib backend
-# is Agg. Set MPLBACKEND via env var before the first matplotlib import so we
-# pick the backend the canonical way and avoid post-import `matplotlib.use(...)`
-# mutations to library-global state. `setdefault` leaves an explicit override
-# from the environment intact.
-os.environ.setdefault("MPLBACKEND", "Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
-
 logger = logging.getLogger(__name__)
 
 CHART_WIDTH_IN = 8.0
@@ -49,6 +40,15 @@ def render_series_chart(
     """
     if not dates or not values or len(dates) != len(values):
         return None
+
+    # Defer the matplotlib import to first use: importing matplotlib.pyplot
+    # resolves a config/cache dir via tempfile.gettempdir(), which raises
+    # FileNotFoundError on hosts with an unwritable tempdir. This module is
+    # reachable from posthog.api at Django startup, so importing eagerly turns
+    # that runtime concern into a hard boot failure. Temporal activity workers
+    # are headless, so force the Agg backend right before the first import.
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    import matplotlib.pyplot as plt
 
     try:
         fig, ax = plt.subplots(figsize=(CHART_WIDTH_IN, CHART_HEIGHT_IN), dpi=CHART_DPI)

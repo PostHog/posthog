@@ -1,4 +1,5 @@
 import enum
+import functools
 from datetime import timedelta
 from typing import get_args
 
@@ -25,7 +26,15 @@ from products.signals.backend.temporal.types import BufferSignalsInput, EmitSign
 logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
-_tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+
+
+@functools.lru_cache(maxsize=1)
+def _get_tiktoken_encoding() -> tiktoken.Encoding:
+    # Loaded lazily because tiktoken.get_encoding touches the filesystem via
+    # tempfile.gettempdir(); doing this at import time turns an unwritable
+    # tempdir into a hard Django boot failure (the signals api module is
+    # reachable from posthog.api at startup).
+    return tiktoken.get_encoding("cl100k_base")
 
 
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
@@ -99,7 +108,7 @@ async def emit_signal(
     if not is_enabled:
         return
 
-    token_count = len(_tiktoken_encoding.encode(description))
+    token_count = len(_get_tiktoken_encoding().encode(description))
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
             f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
