@@ -43,9 +43,11 @@ import { HogFunctionInvocationGlobals } from './types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
-// Use the same env var as config.ts (line 210-211) so the cleanup pool and hub always target the same DB
+// Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+const CYCLOTRON_DB_URL =
+    process.env.CYCLOTRON_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
 describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)', (mode) => {
     jest.setTimeout(30000)
@@ -61,7 +63,9 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     let cyclotronPool: Pool
 
     beforeAll(() => {
-        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+        cyclotronPool = new Pool({
+            connectionString: mode === 'postgres-v2' ? CYCLOTRON_NODE_DB_URL : CYCLOTRON_DB_URL,
+        })
     })
 
     afterAll(async () => {
@@ -164,8 +168,15 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     }
 
+    // v1 stores lifecycle in `state` (and vm payload in `vm_state`);
+    // v2 stores lifecycle in `status` (and state payload in `state`).
+    // Normalize so tests can use `.status` regardless of mode.
+    const statusColumn = mode === 'postgres-v2' ? 'status' : 'state'
+
     async function queryCyclotronJobs(): Promise<any[]> {
-        const result = await cyclotronPool.query('SELECT * FROM cyclotron_jobs ORDER BY created ASC')
+        const result = await cyclotronPool.query(
+            `SELECT *, ${statusColumn} AS status FROM cyclotron_jobs ORDER BY created ASC`
+        )
         return result.rows
     }
 
@@ -571,7 +582,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).not.toHaveBeenCalled()
 
             // Fast-forward: set the scheduled time to now so the worker picks it up
-            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE status = 'available'`)
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available'`)
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
