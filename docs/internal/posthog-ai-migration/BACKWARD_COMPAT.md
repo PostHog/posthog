@@ -59,19 +59,19 @@ Each row classifies the touchpoint by risk and pins the coexistence disposition.
 |---|---|---|---|
 | 24 | `Conversation` model schema | Medium — new columns | **Strictly additive.** `agent_runtime` (string, default `'langgraph'`, NOT NULL) and `task_run_id` (nullable UUID FK) added via Django migration. Existing rows automatically default to `langgraph`. No code path that reads `Conversation` today fails on the new columns. |
 | 25 | `Conversation.sandbox_task_id` / `Conversation.sandbox_run_id` columns | Medium — already exist as UUIDFields, used by current `executor.py` Redis flow | **`sandbox_task_id` → `sandbox_task` FK (`tasks.Task`, `SET_NULL`); `sandbox_run_id` dropped outright** (current Run is derived, not stored). If `sandbox_task_id` is unused: rename + `SeparateDatabaseAndState` to swap type with the same `db_column`. If still used: add new FK alongside, backfill, drop after soak. See `02_CORE.md` § 2.2. |
-| 26 | `POST /api/.../conversations/stream/` endpoint | Critical — every Max user hits this | **Branch on `Conversation.agent_runtime`.** Existing branch (LangGraph) is unchanged. New `'sandbox'` branch invokes the SSE relay. The view-level Python file is touched, but its existing code path is preserved verbatim — only an `if conversation.agent_runtime == 'sandbox': ...` early-return is added near the top. |
+| 26 | `POST /api/.../conversations/stream/` endpoint | Critical — every Max user hits this | **LangGraph-only now.** Sandbox runtime uses a new sibling endpoint `POST /conversations/{id}/sandbox/` (non-streaming routing) — see `02_CORE.md` § 3. The existing `/stream/` view is untouched; sandbox conversations never enter it. Frontend (`maxThreadLogic`) picks the endpoint by `agent_runtime` at send time. |
 | 27 | `POST /api/.../conversations/{id}/queue/` endpoint | Low — LangGraph-only feature today | **Keep working for LangGraph.** Sandbox runtime never calls it. No deprecation during the soak. |
-| 28 | LangGraph stack under `ee/hogai/chat_agent/` | Critical — production code path | **Completely untouched.** New SSE relay lives in `ee/hogai/sandbox/` (sibling). No imports across the boundary. |
-| 29 | Existing `ee/hogai/sandbox/executor.py` Redis relay | Medium — already in code | **Decision needed.** If unused in prod, replace its internals with the new direct upstream-SSE relay. If used, leave alone and add new `sse_relay.py` next to it. Confirm by grep + flag check before proceeding. |
+| 28 | LangGraph stack under `ee/hogai/chat_agent/` | Critical — production code path | **Completely untouched.** New sandbox message-routing code lives in `ee/hogai/sandbox/` (sibling). No imports across the boundary. |
+| 29 | Existing `ee/hogai/sandbox/executor.py` Redis relay | Medium — already in code | **Confirm-before-touching.** Grep + flag check. The Option B pivot means we never build a Django-side SSE relay, so the "alongside-vs-replace" question dissolves — just confirm nothing else relies on the current shape before any cleanup. |
 | 30 | `ui_context` / `billing_context` / `contextual_tools` request fields | Critical — every existing request sends them | **Adapter ignores them.** The fields stay in the request schema; the LangGraph branch reads them; the sandbox branch silently ignores them. Frontend sends them or not based on runtime (see #10). |
 | 31 | `core_memory` reads (LangGraph) | Medium — feeds the existing AGENT_CORE_MEMORY_PROMPT | **Keep working for LangGraph.** The sandbox `build_posthog_ai_system_prompt` doesn't call them. |
 | 32 | `posthog_corememory` model + `/remember` write path | Low — separate concern | **Keep functional.** `/remember` writes still land in `posthog_corememory` for LangGraph users. Sandbox users see a "not available" message (#16). |
-| 33 | Telemetry / LLM Analytics event shapes | High — dashboards filter on event types and `trace_id` | **Mirror existing shapes from the SSE relay where possible.** The sandbox path emits the same `PROMPT_SENT`, `TASK_RUN_CANCELLED`, `PERMISSION_RESPONDED` analytics events the LangGraph path emits, with `execution_type: 'sandbox'` added as a new property (no breaking change to existing filters). |
+| 33 | Telemetry / LLM Analytics event shapes | High — dashboards filter on event types and `trace_id` | **Mirror existing shapes from the `POST /sandbox/` handler.** The sandbox path emits the same `PROMPT_SENT`, `TASK_RUN_CANCELLED`, `PERMISSION_RESPONDED` analytics events the LangGraph path emits, with `execution_type: 'sandbox'` added as a new property (no breaking change to existing filters). |
 | 34 | MCP servers (`services/mcp/`) | Low — additive | **Add `posthog-data`, `posthog-notebook` MCP servers alongside existing services.** No existing MCP server modified. |
 | 35 | Generated OpenAPI types / `frontend/src/generated/core/` | Medium — auto-generated | **Re-run `hogli build:openapi`** after Conversation model migration. Type additions only; no existing types removed during soak. |
 | 36 | DRF serializers for Conversation | Medium — adding nullable fields | **Add `agent_runtime` and `task_run_id` to the response serializer.** Existing fields stay; new ones are optional/nullable on read so old clients ignore them gracefully. |
 | 37 | `Conversation` SDK methods (`api.conversations.*` in `lib/api.ts`) | Medium — frontend uses them | **Optional `attached_context` field added to request types.** Existing callers ignore it. |
-| 38 | LLM Analytics trace correlation | Medium — `trace_id` per turn | **Generate `trace_id` from the SSE relay** the same way the LangGraph view does today. Same dashboards. |
+| 38 | LLM Analytics trace correlation | Medium — `trace_id` per turn | **Generate `trace_id` in the `POST /sandbox/` handler** the same way the LangGraph view does today. Same dashboards. |
 | 39 | Permission system / IDOR coverage | Low — Conversation already team-scoped | **No new model, no IDOR risk.** Both runtimes operate over the same `Conversation` row. |
 | 40 | Activity logging | Low | **No change.** LangGraph events still log; sandbox events log additively with `execution_type: 'sandbox'`. |
 
@@ -90,7 +90,8 @@ posthog/
       __init__.py                       (existing)
       context_wrapper.py                ← NEW (per 01_CONTEXT.md § 4)
       system_prompt.py                  ← NEW (per 04_PROMPTS.md § 6)
-      sse_relay.py                      ← NEW (UpstreamSseRelay — ACP passthrough)
+      message_view.py                   ← NEW (POST /sandbox/ handler — non-streaming)
+      log_assembler.py                  ← NEW (multi-Run chain walker for GET /log/)
       posthog_api.py                    ← NEW (typed HTTP client for /api/projects/.../tasks/*)
       bootstrap.py                      ← NEW (REST + SSE merge + content-dedup)
       executor.py                       ← CONFIRM usage, then either repurpose or leave alone
@@ -174,7 +175,7 @@ These are tracked separately and **not in scope for this migration**.
 
 ## Open questions
 
-1. **`ee/hogai/sandbox/executor.py` repurpose vs leave.** Need a grep + git log read of how `executor.py` is invoked today. If it's behind an already-shipped flag with active users, we add `sse_relay.py` next to it rather than replace.
+1. **`ee/hogai/sandbox/executor.py` repurpose vs leave.** Need a grep + git log read of how `executor.py` is invoked today. With Option B (no Django SSE relay) the "add alongside vs replace" framing collapses — just confirm nothing else relies on the Redis-relay flow before cleanup.
 2. **Are `Conversation.sandbox_task_id` / `sandbox_run_id` columns already in use?** Determines whether the FK conversion is in-place (rename + `SeparateDatabaseAndState`) or alongside (add new columns + backfill + drop). Same investigation as #1.
 3. **Runtime badge in `ConversationHistory.tsx`.** Optional UI cue ("Sandbox" pill on sandbox conversations). Decide whether internal-only or shippable to all users.
 4. **`/remember` no-op messaging.** Should we hide the command entirely from the autocomplete for sandbox users, or show it with a disabled state and explanation tooltip? Bias toward the latter — discoverability.
