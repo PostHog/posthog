@@ -1162,7 +1162,7 @@ def route_posthog_code_event_to_relevant_region(
         if event_type == "app_mention":
             if not _posthog_code_enabled_for_integration(local_match):
                 logger.info(
-                    "posthog_code_event_flag_off",
+                    "slack_app_mention_flag_disabled",
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
                 )
@@ -1194,7 +1194,7 @@ def route_posthog_code_event_to_relevant_region(
         success = proxy_slack_event_to_secondary_region(request)
         return ROUTE_PROXIED if success else ROUTE_PROXY_FAILED
     else:
-        logger.warning("posthog_code_no_integration_found", slack_team_id=slack_team_id)
+        logger.warning("slack_app_integration_not_found", slack_team_id=slack_team_id)
         return ROUTE_NO_INTEGRATION
 
 
@@ -1235,8 +1235,8 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        posthog_code_config = SlackIntegration.posthog_code_slack_config()
-        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
+        slack_config = SlackIntegration.slack_config()
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("posthog_code_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -1625,8 +1625,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        posthog_code_config = SlackIntegration.posthog_code_slack_config()
-        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
+        slack_config = SlackIntegration.slack_config()
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("posthog_code_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
