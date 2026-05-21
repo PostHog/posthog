@@ -62,6 +62,20 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+class AiReportStageError(Exception):
+    """Wraps a transient pipeline failure with the stage that produced it, so the
+    SubscriptionDelivery error record (and the ad-hoc 500) distinguishes a planner
+    timeout from a synthesis timeout instead of surfacing a bare ``TimeoutError``.
+
+    ``PromptRejectedError`` is intentionally NOT wrapped — callers catch it directly
+    to auto-disable the subscription / return a 400, so it must keep its own type.
+    """
+
+    def __init__(self, stage: str, original: BaseException) -> None:
+        self.stage = stage
+        super().__init__(f"AI report failed at {stage} stage: {original}")
+
+
 def generate_ai_report(
     *,
     team: Team,
@@ -75,7 +89,8 @@ def generate_ai_report(
 
     Raises :class:`PromptRejectedError` for permanent input failures (missing user,
     empty/oversize prompt, malformed planner output). Transient LLM / HogQL failures
-    propagate as their original exceptions so the caller can decide whether to retry.
+    propagate as :class:`AiReportStageError` (carrying ``.stage``) so the delivery
+    error record names the failing stage; Temporal still retries them type-agnostically.
 
     :param team: The team whose data the report describes. Drives HogQL execution.
     :param user: The user the LLM call is billed to. Must be non-None.
@@ -89,15 +104,24 @@ def generate_ai_report(
     if user is None:
         raise PromptRejectedError("AI report must have a user to run.")
 
-    spec = build_enriched_prompt(
-        team=team,
-        user=user,
-        prompt=prompt,
-        window_days=window_days,
-        ai_config=ai_config,
-        trace_correlation_id=trace_correlation_id,
-    )
-    rendered_results = asyncio.run(_arun_plan(spec, team, user, ai_config, trace_correlation_id))
+    try:
+        spec = build_enriched_prompt(
+            team=team,
+            user=user,
+            prompt=prompt,
+            window_days=window_days,
+            ai_config=ai_config,
+            trace_correlation_id=trace_correlation_id,
+        )
+    except PromptRejectedError:
+        raise
+    except Exception as exc:
+        raise AiReportStageError("planner", exc) from exc
+
+    try:
+        rendered_results = asyncio.run(_arun_plan(spec, team, user, ai_config, trace_correlation_id))
+    except Exception as exc:
+        raise AiReportStageError("query", exc) from exc
 
     model_name = resolve_ai_model(ai_config, "model", DEFAULT_SYNTHESIS_MODEL)
     posthog_properties: dict[str, Union[str, int]] = {
@@ -120,12 +144,15 @@ def generate_ai_report(
         posthog_properties=posthog_properties,
     )
 
-    result = chat.invoke(
-        [
-            ("system", AI_SUBSCRIPTION_SYNTHESIS_PROMPT),
-            ("human", _compose_synthesis_human_message(spec, rendered_results)),
-        ]
-    )
+    try:
+        result = chat.invoke(
+            [
+                ("system", AI_SUBSCRIPTION_SYNTHESIS_PROMPT),
+                ("human", _compose_synthesis_human_message(spec, rendered_results)),
+            ]
+        )
+    except Exception as exc:
+        raise AiReportStageError("synthesis", exc) from exc
     content = result.content if hasattr(result, "content") else str(result)
     return content if isinstance(content, str) else str(content)
 
@@ -271,4 +298,4 @@ async def _arequest_hogql_fix(
     return fixed or None
 
 
-__all__ = ["generate_ai_report"]
+__all__ = ["generate_ai_report", "AiReportStageError"]

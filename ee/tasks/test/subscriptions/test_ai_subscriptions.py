@@ -18,6 +18,7 @@ from posthog.models.subscription import Subscription
 from posthog.temporal.subscriptions.activities import _deliver_ai_subscription
 from posthog.temporal.subscriptions.types import DeliverSubscriptionInputs, DeliverSubscriptionResult
 
+from ee.hogai.ai_reports import AiReportStageError
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.tasks.subscriptions.ai_subscription.delivery import (
     SlackIntegrationMissingError,
@@ -148,6 +149,41 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
         out = generate_ai_subscription_markdown(sub)
         assert out == "final"
         llm.invoke.assert_called_once()
+
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
+    def test_synthesis_failure_is_tagged_with_stage(self, mock_build, mock_executor_cls, mock_llm_cls):
+        sub = self._make_ai_sub()
+        mock_build.return_value = EnrichedPromptSpec(
+            cleaned_prompt="prompt",
+            context_blob="ctx",
+            plan=QueryPlan(
+                overall_intent="x",
+                steps=[QueryPlanStep(description="step a", query_type="hogql", hogql="SELECT 1")],
+            ),
+        )
+        executor = MagicMock()
+        executor.arun_and_format_query = AsyncMock(return_value=("ok", False))
+        mock_executor_cls.return_value = executor
+
+        llm = MagicMock()
+        llm.invoke.side_effect = Exception("LLM unavailable")
+        mock_llm_cls.return_value = llm
+
+        with pytest.raises(AiReportStageError) as exc_info:
+            generate_ai_subscription_markdown(sub)
+        assert exc_info.value.stage == "synthesis"
+        assert "synthesis" in str(exc_info.value)
+
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
+    def test_prompt_rejected_is_not_wrapped_in_stage_error(self, mock_build):
+        sub = self._make_ai_sub()
+        mock_build.side_effect = PromptRejectedError("planner returned a malformed plan")
+
+        # PromptRejectedError must keep its own type so callers can auto-disable / 400.
+        with pytest.raises(PromptRejectedError):
+            generate_ai_subscription_markdown(sub)
 
     @patch("ee.hogai.ai_reports.MaxChatOpenAI")
     @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
