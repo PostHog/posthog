@@ -393,7 +393,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </label>
                     <div
                         className={cn(
-                            'absolute flex items-center gap-1',
+                            'absolute flex items-center',
+                            handsFreeFlagEnabled && 'gap-1',
                             isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
