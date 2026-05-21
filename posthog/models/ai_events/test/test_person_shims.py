@@ -2,7 +2,11 @@ import re
 
 import pytest
 
-from posthog.models.ai_events.person_shims import PERSON_AI_EVENTS_SHIM_SQL, PERSON_DISTINCT_ID2_AI_EVENTS_SHIM_SQL
+from posthog.models.ai_events.person_shims import (
+    PERSON_AI_EVENTS_SHIM_MATERIALIZED_COLUMNS,
+    PERSON_AI_EVENTS_SHIM_SQL,
+    PERSON_DISTINCT_ID2_AI_EVENTS_SHIM_SQL,
+)
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE_BASE_SQL, PERSONS_TABLE_BASE_SQL
 
 
@@ -40,24 +44,29 @@ def _render_base_for_parsing(template: str) -> str:
     )
 
 
+_PERSON_SHIM_EXTRAS = {name for name, _ in PERSON_AI_EVENTS_SHIM_MATERIALIZED_COLUMNS}
+
+
 @pytest.mark.parametrize(
-    "shim_sql, base_template, shim_table_name, join_plan_columns",
+    "shim_sql, base_template, shim_table_name, join_plan_columns, extra_columns",
     [
         (
             PERSON_DISTINCT_ID2_AI_EVENTS_SHIM_SQL,
             PERSON_DISTINCT_ID2_TABLE_BASE_SQL,
             "person_distinct_id2",
             {"team_id", "distinct_id", "person_id", "is_deleted", "version"},
+            set(),
         ),
         (
             PERSON_AI_EVENTS_SHIM_SQL,
             PERSONS_TABLE_BASE_SQL,
             "person",
             {"id", "team_id", "properties", "is_deleted", "version"},
+            _PERSON_SHIM_EXTRAS,
         ),
     ],
 )
-def test_shim_shape(shim_sql, base_template, shim_table_name, join_plan_columns):
+def test_shim_shape(shim_sql, base_template, shim_table_name, join_plan_columns, extra_columns):
     rendered = shim_sql()
 
     assert f"CREATE TABLE IF NOT EXISTS {shim_table_name}" in rendered
@@ -71,7 +80,15 @@ def test_shim_shape(shim_sql, base_template, shim_table_name, join_plan_columns)
     assert join_plan_columns.issubset(shim_columns), (
         f"Shim is missing join-plan columns {join_plan_columns - shim_columns}"
     )
-    assert shim_columns.issubset(base_columns), (
-        f"Shim declares columns not in the source template: {shim_columns - base_columns}. "
-        "The source may have renamed or removed a column — mirror the change on NodeRole.AI_EVENTS."
+    assert extra_columns.issubset(shim_columns), (
+        f"Shim is missing declared materialized-column shims {extra_columns - shim_columns}"
+    )
+    # Allow extras for materialized columns that only exist on the data cluster (e.g. `pmat_email`):
+    # the shim must declare them so the HogQL printer can reference them, but they are intentionally
+    # absent from the source template.
+    unexpected = shim_columns - base_columns - extra_columns
+    assert not unexpected, (
+        f"Shim declares columns not in the source template: {unexpected}. "
+        "The source may have renamed or removed a column — mirror the change on NodeRole.AI_EVENTS, "
+        "or add the column to PERSON_AI_EVENTS_SHIM_MATERIALIZED_COLUMNS if it is a materialized-column shim."
     )

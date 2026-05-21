@@ -286,10 +286,13 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
 
 
 def _email_filter(email: str) -> ast.Expr:
-    # With person-on-events mode `person.properties.email` is a denormalized column on
-    # the events row, so this is a single column read rather than a join — it also catches
-    # every event the user identified with, including historical distinct_ids merged into
-    # the same person.
+    # `person.properties.email` on the `ai_events` HogQL table joins distinct_id → person
+    # (see `AiEventsTable.person = FieldTraverser(chain=["pdi", "person"])`), so this is a
+    # real LazyJoin against `person`, not a denormalized column read. It catches every event
+    # the user identified with, including historical distinct_ids merged into the same person.
+    # On the ai_events satellite cluster the join targets a Distributed shim back to the main
+    # cluster — keep `posthog/models/ai_events/person_shims.py` in sync with any materialized
+    # columns on `person` that the HogQL printer might reference here.
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["person", "properties", "email"]),
