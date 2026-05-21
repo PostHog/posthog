@@ -30,8 +30,10 @@ import type {
     ErrorTrackingIssueMergeRequestApi,
     ErrorTrackingIssueMergeResponseApi,
     ErrorTrackingIssueQueryRequestApi,
+    ErrorTrackingIssueReadApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
+    ErrorTrackingIssueUpdateApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
@@ -69,6 +71,7 @@ import type {
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueFullApi,
+    PatchedErrorTrackingIssueUpdateApi,
     PatchedErrorTrackingReleaseApi,
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
@@ -585,23 +588,6 @@ export const errorTrackingIssuesList = async (
     })
 }
 
-export const getErrorTrackingIssuesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/error_tracking/issues/`
-}
-
-export const errorTrackingIssuesCreate = async (
-    projectId: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
-    options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
-    })
-}
-
 export const getErrorTrackingIssuesRetrieveUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/error_tracking/issues/${id}/`
 }
@@ -624,14 +610,14 @@ export const getErrorTrackingIssuesUpdateUrl = (projectId: string, id: string) =
 export const errorTrackingIssuesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueUpdateApi?: ErrorTrackingIssueUpdateApi,
     options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueReadApi> => {
+    return apiMutator<ErrorTrackingIssueReadApi>(getErrorTrackingIssuesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueUpdateApi),
     })
 }
 
@@ -642,14 +628,14 @@ export const getErrorTrackingIssuesPartialUpdateUrl = (projectId: string, id: st
 export const errorTrackingIssuesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFullApi?: NonReadonly<PatchedErrorTrackingIssueFullApi>,
+    patchedErrorTrackingIssueUpdateApi?: PatchedErrorTrackingIssueUpdateApi,
     options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueReadApi> => {
+    return apiMutator<ErrorTrackingIssueReadApi>(getErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingIssueFullApi),
+        body: JSON.stringify(patchedErrorTrackingIssueUpdateApi),
     })
 }
 
@@ -693,7 +679,7 @@ export const getErrorTrackingIssuesAssignPartialUpdateUrl = (projectId: string, 
 export const errorTrackingIssuesAssignPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFullApi?: NonReadonly<PatchedErrorTrackingIssueFullApi>,
+    patchedErrorTrackingIssueFullApi?: PatchedErrorTrackingIssueFullApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingIssuesAssignPartialUpdateUrl(projectId, id), {
@@ -711,7 +697,7 @@ export const getErrorTrackingIssuesCohortUpdateUrl = (projectId: string, id: str
 export const errorTrackingIssuesCohortUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueFullApi: ErrorTrackingIssueFullApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingIssuesCohortUpdateUrl(projectId, id), {
@@ -778,7 +764,7 @@ export const getErrorTrackingIssuesBulkCreateUrl = (projectId: string) => {
 
 export const errorTrackingIssuesBulkCreate = async (
     projectId: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueFullApi: ErrorTrackingIssueFullApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingIssuesBulkCreateUrl(projectId), {

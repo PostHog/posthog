@@ -3247,7 +3247,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -3258,41 +3258,19 @@ export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object
 export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .describe(
+            '* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed'
+        )
         .optional()
         .describe(
-            '* `archived` - Archived\n* `active` - Active\n* `resolved` - Resolved\n* `pending_release` - Pending release\n* `suppressed` - Suppressed'
+            'Updated issue status.\n\n* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }).optional(),
-    assignee: zod
-        .object({
-            id: zod.union([zod.number(), zod.string(), zod.null()]).optional(),
-            type: zod.string().optional(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.string().optional(),
-                integration: zod
-                    .object({
-                        id: zod.number().optional(),
-                        kind: zod.string().optional(),
-                        display_name: zod.string().optional(),
-                    })
-                    .optional(),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.string(),
-                external_url: zod.string().optional(),
-            })
-        )
-        .optional(),
+    name: zod.string().nullish().describe('Updated issue name.'),
+    description: zod.string().nullish().describe('Updated issue description.'),
 })
 
 export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -3305,7 +3283,7 @@ export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesSplitCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

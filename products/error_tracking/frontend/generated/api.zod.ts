@@ -176,163 +176,115 @@ export const ErrorTrackingGroupingRulesReorderPartialUpdateBody = /* @__PURE__ *
     disabled_data: zod.unknown().optional(),
 })
 
-export const ErrorTrackingIssuesCreateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
-            }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
-})
-
 export const ErrorTrackingIssuesUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .describe(
+            '\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed'
+        )
         .optional()
         .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
+            'Updated issue status.\n\n\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
-            }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
+    name: zod.string().nullish().describe('Updated issue name.'),
+    description: zod.string().nullish().describe('Updated issue description.'),
 })
 
 export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
+        .describe(
+            '\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed'
+        )
         .optional()
         .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
+            'Updated issue status.\n\n\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed'
         ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }).optional(),
-    assignee: zod
-        .object({
-            id: zod.union([zod.number(), zod.string(), zod.null()]),
-            type: zod.string(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod.string(),
-                    display_name: zod.string(),
-                }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.uuid(),
-                external_url: zod.string(),
-            })
-        )
-        .optional(),
+    name: zod.string().nullish().describe('Updated issue name.'),
+    description: zod.string().nullish().describe('Updated issue description.'),
 })
 
-export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }).optional(),
-    assignee: zod
-        .object({
-            id: zod.union([zod.number(), zod.string(), zod.null()]),
-            type: zod.string(),
-        })
-        .optional(),
-    external_issues: zod
-        .array(
-            zod.object({
-                id: zod.uuid(),
-                integration: zod.object({
-                    id: zod.number(),
-                    kind: zod.string(),
-                    display_name: zod.string(),
+export const ErrorTrackingIssuesAssignPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid().optional(),
+        status: zod.string().optional(),
+        name: zod.string().nullish(),
+        description: zod.string().nullish(),
+        first_seen: zod.iso.datetime({ offset: true }).nullish(),
+        assignee: zod
+            .union([
+                zod.object({
+                    id: zod.union([zod.number(), zod.string(), zod.null()]),
+                    type: zod.string(),
                 }),
-                integration_id: zod.number(),
-                config: zod.unknown(),
-                issue: zod.uuid(),
-                external_url: zod.string(),
-            })
-        )
-        .optional(),
-})
+                zod.null(),
+            ])
+            .optional(),
+        external_issues: zod
+            .array(
+                zod.object({
+                    id: zod.uuid(),
+                    integration: zod.object({
+                        id: zod.number(),
+                        kind: zod.string(),
+                        display_name: zod.string(),
+                    }),
+                    integration_id: zod.number(),
+                    config: zod.unknown(),
+                    issue: zod.uuid(),
+                    external_url: zod.string(),
+                })
+            )
+            .optional(),
+        cohort: zod
+            .union([
+                zod.object({
+                    id: zod.number(),
+                    name: zod.string(),
+                }),
+                zod.null(),
+            ])
+            .optional(),
+    })
+    .describe('Read-only serializer for issue contract types returned by the facade.')
 
-export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
+export const ErrorTrackingIssuesCohortUpdateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid(),
+        status: zod.string(),
+        name: zod.string().nullable(),
+        description: zod.string().nullable(),
+        first_seen: zod.iso.datetime({ offset: true }).nullable(),
+        assignee: zod.union([
+            zod.object({
+                id: zod.union([zod.number(), zod.string(), zod.null()]),
+                type: zod.string(),
             }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
-})
+            zod.null(),
+        ]),
+        external_issues: zod.array(
+            zod.object({
+                id: zod.uuid(),
+                integration: zod.object({
+                    id: zod.number(),
+                    kind: zod.string(),
+                    display_name: zod.string(),
+                }),
+                integration_id: zod.number(),
+                config: zod.unknown(),
+                issue: zod.uuid(),
+                external_url: zod.string(),
+            })
+        ),
+        cohort: zod.union([
+            zod.object({
+                id: zod.number(),
+                name: zod.string(),
+            }),
+            zod.null(),
+        ]),
+    })
+    .describe('Read-only serializer for issue contract types returned by the facade.')
 
 export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
     ids: zod.array(zod.uuid()).describe('IDs of the issues to merge into the current issue.'),
@@ -357,35 +309,43 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
 })
 
-export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
-    status: zod
-        .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
-        .optional()
-        .describe(
-            '\* `archived` - Archived\n\* `active` - Active\n\* `resolved` - Resolved\n\* `pending_release` - Pending release\n\* `suppressed` - Suppressed'
-        ),
-    name: zod.string().nullish(),
-    description: zod.string().nullish(),
-    first_seen: zod.iso.datetime({ offset: true }),
-    assignee: zod.object({
-        id: zod.union([zod.number(), zod.string(), zod.null()]),
-        type: zod.string(),
-    }),
-    external_issues: zod.array(
-        zod.object({
-            id: zod.uuid(),
-            integration: zod.object({
-                id: zod.number(),
-                kind: zod.string(),
-                display_name: zod.string(),
+export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid(),
+        status: zod.string(),
+        name: zod.string().nullable(),
+        description: zod.string().nullable(),
+        first_seen: zod.iso.datetime({ offset: true }).nullable(),
+        assignee: zod.union([
+            zod.object({
+                id: zod.union([zod.number(), zod.string(), zod.null()]),
+                type: zod.string(),
             }),
-            integration_id: zod.number(),
-            config: zod.unknown(),
-            issue: zod.uuid(),
-            external_url: zod.string(),
-        })
-    ),
-})
+            zod.null(),
+        ]),
+        external_issues: zod.array(
+            zod.object({
+                id: zod.uuid(),
+                integration: zod.object({
+                    id: zod.number(),
+                    kind: zod.string(),
+                    display_name: zod.string(),
+                }),
+                integration_id: zod.number(),
+                config: zod.unknown(),
+                issue: zod.uuid(),
+                external_url: zod.string(),
+            })
+        ),
+        cohort: zod.union([
+            zod.object({
+                id: zod.number(),
+                name: zod.string(),
+            }),
+            zod.null(),
+        ]),
+    })
+    .describe('Read-only serializer for issue contract types returned by the facade.')
 
 /**
  * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline.

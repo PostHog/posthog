@@ -535,49 +535,31 @@ export interface PatchedErrorTrackingGroupingRuleApi {
     readonly updated_at?: string
 }
 
-/**
- * * `archived` - Archived
- * `active` - Active
- * `resolved` - Resolved
- * `pending_release` - Pending release
- * `suppressed` - Suppressed
- */
-export type ErrorTrackingIssueFullStatusEnumApi =
-    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
-
-export const ErrorTrackingIssueFullStatusEnumApi = {
-    Archived: 'archived',
-    Active: 'active',
-    Resolved: 'resolved',
-    PendingRelease: 'pending_release',
-    Suppressed: 'suppressed',
-} as const
-
-export interface ErrorTrackingIssueAssignmentApi {
+export interface ErrorTrackingIssueAssigneeReadApi {
     readonly id: number | string | null
-    readonly type: string
+    type: string
+}
+
+export interface ErrorTrackingIssueCohortReadApi {
+    id: number
+    name: string
 }
 
 /**
- * @nullable
+ * Read-only serializer for issue contract types returned by the facade.
  */
-export type ErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
-
 export interface ErrorTrackingIssueFullApi {
-    readonly id: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+    id: string
+    status: string
     /** @nullable */
-    name?: string | null
+    name: string | null
     /** @nullable */
-    description?: string | null
-    first_seen: string
-    assignee: ErrorTrackingIssueAssignmentApi
+    description: string | null
+    /** @nullable */
+    first_seen: string | null
+    assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
-    /** @nullable */
-    readonly cohort: ErrorTrackingIssueFullApiCohort
+    cohort: ErrorTrackingIssueCohortReadApi | null
 }
 
 export interface PaginatedErrorTrackingIssueFullListApi {
@@ -590,25 +572,97 @@ export interface PaginatedErrorTrackingIssueFullListApi {
 }
 
 /**
- * @nullable
+ * * `archived` - archived
+ * `active` - active
+ * `resolved` - resolved
+ * `pending_release` - pending_release
+ * `suppressed` - suppressed
  */
-export type PatchedErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
+export type ErrorTrackingIssueUpdateStatusEnumApi =
+    (typeof ErrorTrackingIssueUpdateStatusEnumApi)[keyof typeof ErrorTrackingIssueUpdateStatusEnumApi]
 
+export const ErrorTrackingIssueUpdateStatusEnumApi = {
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
+} as const
+
+export interface ErrorTrackingIssueUpdateApi {
+    /** Updated issue status.
+
+  * `archived` - archived
+  * `active` - active
+  * `resolved` - resolved
+  * `pending_release` - pending_release
+  * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueUpdateStatusEnumApi
+    /**
+     * Updated issue name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Updated issue description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+/**
+ * Read-only serializer for issue contract types returned by the facade.
+ */
+export interface ErrorTrackingIssueReadApi {
+    id: string
+    status: string
+    /** @nullable */
+    name: string | null
+    /** @nullable */
+    description: string | null
+    /** @nullable */
+    first_seen: string | null
+    assignee: ErrorTrackingIssueAssigneeReadApi | null
+    external_issues: ErrorTrackingExternalReferenceResultApi[]
+    cohort: ErrorTrackingIssueCohortReadApi | null
+}
+
+export interface PatchedErrorTrackingIssueUpdateApi {
+    /** Updated issue status.
+
+  * `archived` - archived
+  * `active` - active
+  * `resolved` - resolved
+  * `pending_release` - pending_release
+  * `suppressed` - suppressed */
+    status?: ErrorTrackingIssueUpdateStatusEnumApi
+    /**
+     * Updated issue name.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * Updated issue description.
+     * @nullable
+     */
+    description?: string | null
+}
+
+/**
+ * Read-only serializer for issue contract types returned by the facade.
+ */
 export interface PatchedErrorTrackingIssueFullApi {
-    readonly id?: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+    id?: string
+    status?: string
     /** @nullable */
     name?: string | null
     /** @nullable */
     description?: string | null
-    first_seen?: string
-    assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
-    readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
+    first_seen?: string | null
+    assignee?: ErrorTrackingIssueAssigneeReadApi | null
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
+    cohort?: ErrorTrackingIssueCohortReadApi | null
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {

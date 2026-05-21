@@ -13955,9 +13955,14 @@ export namespace Schemas {
       sessions?: number;
     }
 
-    export interface ErrorTrackingIssueAssignment {
+    export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
-      readonly type: string;
+      type: string;
+    }
+
+    export interface ErrorTrackingIssueCohortRead {
+      id: number;
+      name: string;
     }
 
     export interface ErrorTrackingTopFrame {
@@ -14174,43 +14179,20 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Read-only serializer for issue contract types returned by the facade.
      */
-    export type ErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
-    /**
-     * * `archived` - Archived
-    * `active` - Active
-    * `resolved` - Resolved
-    * `pending_release` - Pending release
-    * `suppressed` - Suppressed
-     */
-    export type ErrorTrackingIssueFullStatusEnum = typeof ErrorTrackingIssueFullStatusEnum[keyof typeof ErrorTrackingIssueFullStatusEnum];
-
-
-    export const ErrorTrackingIssueFullStatusEnum = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-    } as const;
-
     export interface ErrorTrackingIssueFull {
-      readonly id: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
+      id: string;
+      status: string;
       /** @nullable */
-      name?: string | null;
+      name: string | null;
       /** @nullable */
-      description?: string | null;
-      first_seen: string;
-      assignee: ErrorTrackingIssueAssignment;
+      description: string | null;
+      /** @nullable */
+      first_seen: string | null;
+      assignee: ErrorTrackingIssueAssigneeRead | null;
       external_issues: ErrorTrackingExternalReferenceResult[];
-      /** @nullable */
-      readonly cohort: ErrorTrackingIssueFullCohort;
+      cohort: ErrorTrackingIssueCohortRead | null;
     }
 
     export interface ErrorTrackingIssueListItem {
@@ -14299,6 +14281,23 @@ export namespace Schemas {
       includeSparkline?: boolean;
     }
 
+    /**
+     * Read-only serializer for issue contract types returned by the facade.
+     */
+    export interface ErrorTrackingIssueRead {
+      id: string;
+      status: string;
+      /** @nullable */
+      name: string | null;
+      /** @nullable */
+      description: string | null;
+      /** @nullable */
+      first_seen: string | null;
+      assignee: ErrorTrackingIssueAssigneeRead | null;
+      external_issues: ErrorTrackingExternalReferenceResult[];
+      cohort: ErrorTrackingIssueCohortRead | null;
+    }
+
     export interface ErrorTrackingIssueSplitFingerprint {
       /** Fingerprint to split into a new issue. */
       fingerprint: string;
@@ -14318,6 +14317,45 @@ export namespace Schemas {
       success: boolean;
       /** IDs of the new issues created by the split. */
       new_issue_ids: string[];
+    }
+
+    /**
+     * * `archived` - archived
+    * `active` - active
+    * `resolved` - resolved
+    * `pending_release` - pending_release
+    * `suppressed` - suppressed
+     */
+    export type ErrorTrackingIssueUpdateStatusEnum = typeof ErrorTrackingIssueUpdateStatusEnum[keyof typeof ErrorTrackingIssueUpdateStatusEnum];
+
+
+    export const ErrorTrackingIssueUpdateStatusEnum = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+    } as const;
+
+    export interface ErrorTrackingIssueUpdate {
+      /** Updated issue status.
+
+      * `archived` - archived
+      * `active` - active
+      * `resolved` - resolved
+      * `pending_release` - pending_release
+      * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueUpdateStatusEnum;
+      /**
+         * Updated issue name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Updated issue description.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     /**
@@ -26832,25 +26870,41 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Read-only serializer for issue contract types returned by the facade.
      */
-    export type PatchedErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
     export interface PatchedErrorTrackingIssueFull {
-      readonly id?: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
+      id?: string;
+      status?: string;
       /** @nullable */
       name?: string | null;
       /** @nullable */
       description?: string | null;
-      first_seen?: string;
-      assignee?: ErrorTrackingIssueAssignment;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
-      readonly cohort?: PatchedErrorTrackingIssueFullCohort;
+      first_seen?: string | null;
+      assignee?: ErrorTrackingIssueAssigneeRead | null;
+      external_issues?: ErrorTrackingExternalReferenceResult[];
+      cohort?: ErrorTrackingIssueCohortRead | null;
+    }
+
+    export interface PatchedErrorTrackingIssueUpdate {
+      /** Updated issue status.
+
+      * `archived` - archived
+      * `active` - active
+      * `resolved` - resolved
+      * `pending_release` - pending_release
+      * `suppressed` - suppressed */
+      status?: ErrorTrackingIssueUpdateStatusEnum;
+      /**
+         * Updated issue name.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Updated issue description.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface PatchedErrorTrackingRelease {
