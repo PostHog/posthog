@@ -7567,6 +7567,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             headers={"authorization": f"Bearer {personal_api_key}"},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
+        # Pin the body so a regression that grants the PAT scope but loses the
+        # mutation (broken preload_object_access_controls, wrong scope_object,
+        # etc.) can't stay green: the endpoint returns 200 with the flag in
+        # `skipped` rather than a non-2xx status when ACLs drop it.
+        body = response.json()
+        assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
+        assert body["skipped"] == []
 
     # Lives in the feature-flag test file (instead of test_insight.py) so the
     # full bulk-ops PAT regression story — positive feature-flag cases and the
@@ -8835,6 +8842,77 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["keys"].get(str(flag.id)), "default-none-flag")
+
+    def test_member_blocked_from_bulk_keys_via_explicit_deny_on_individual_flag(self) -> None:
+        # Exercises the exclude() branch of filter_queryset_by_access_level
+        # (user_access_control.py line 937): the team-wide default is permissive
+        # (no resource-level "none" row), but this flag carries an explicit
+        # "none" ACL for the caller's membership. bulk_keys must still drop it.
+        # The existing IDOR tests all hit the filter() branch (line 931) via a
+        # team-wide deny; without this case, a regression that only handled
+        # team-wide denies would ship clean.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other-explicit-deny@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        other_membership = other.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="explicit deny flag",
+            key="explicit-deny-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=other_membership,
+            access_level="none",
+        )
+
+        self.client.force_login(other)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(flag.id), response.json()["keys"])
+
+    def test_creator_still_sees_denied_flag_in_bulk_keys(self) -> None:
+        # filter_queryset_by_access_level deliberately preserves
+        # Q(created_by=self._user) in both branches (user_access_control.py
+        # lines 931 and 937), so creators retain visibility of their own flags
+        # even with a deny ACL. This mirrors the list endpoint's contract.
+        # Pinning it so a future "harden the IDOR fix" patch can't silently
+        # strip the creator clause and diverge bulk_keys from list.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator-self@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="self-created flag",
+            key="self-created-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(creator)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "self-created-flag")
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

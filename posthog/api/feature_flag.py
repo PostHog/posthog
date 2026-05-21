@@ -2898,6 +2898,9 @@ class FeatureFlagViewSet(
             response_data["warning"] = f"Invalid flag IDs ignored: {invalid_ids}"
 
         # Filter through per-object ACLs so a caller can't probe IDs to learn keys of flags they've been denied.
+        # The queryset is project-scoped (team__project_id) while the AC filter is team-scoped — equivalent today
+        # since team_id == project_id, asymmetric only under the deprecated multi-team-per-project ("environments")
+        # path being removed. Mirrors the list endpoint's ACL filtering.
         queryset = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id)
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
         flags = queryset.values_list("id", "key")
