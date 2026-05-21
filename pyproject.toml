@@ -332,6 +332,7 @@ select = [
     "E",
     "F",
     "I",
+    "PLC0415",
     "RUF005",
     "RUF013",
     "RUF015",
@@ -354,6 +355,18 @@ select = [
 # Django settings aggregator: star imports are how settings modules merge into one namespace.
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
+
+# PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
+# Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
+".github/**" = ["PLC0415"]
+"bin/**" = ["PLC0415"]
+"common/**" = ["PLC0415"]
+"ee/**" = ["PLC0415"]
+"manage.py" = ["PLC0415"]
+"posthog/**" = ["PLC0415"]
+"scripts/**" = ["PLC0415"]
+"services/stripe-mock/**" = ["PLC0415"]
+"tools/**" = ["PLC0415"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -472,6 +485,7 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
+    "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.oauth",

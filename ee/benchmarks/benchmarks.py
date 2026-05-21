@@ -18,7 +18,8 @@ from posthog.queries.session_recordings.session_recording_list import (
     SessionRecordingList,
 )
 from posthog.queries.util import get_earliest_timestamp
-from posthog.models import Action, Cohort, Team, Organization
+from posthog.models import Cohort, Team, Organization
+from products.actions.backend.models.action import Action
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties

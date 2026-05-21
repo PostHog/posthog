@@ -66,7 +66,9 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert ordered[1]["id"] == a["id"]
         assert ordered[1]["priority"] == 1
 
-    def test_create_rate_limit_requires_scope_service(self):
+    def test_create_rate_limit_without_scope_service(self):
+        # scope_service is no longer required for rate_limit — the matching
+        # happens through config.filter_group instead.
         response = self.client.post(
             self.base_url,
             self._payload(
@@ -77,8 +79,8 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
             ),
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "scope_service"
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["scope_service"] is None
 
     def test_create_rate_limit_success(self):
         response = self.client.post(

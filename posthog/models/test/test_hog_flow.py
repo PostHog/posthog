@@ -2,9 +2,10 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from posthog.models.action.action import Action
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.user import User
+
+from products.actions.backend.models.action import Action
 
 
 class TestHogFlow(TestCase):

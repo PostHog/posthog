@@ -52,7 +52,7 @@ export function OnboardingBreadcrumbs(): JSX.Element | null {
                 // Middle dot scopes the product name as a qualifier rather than reading
                 // as one phrase ("Install · Web Analytics" instead of "Install Web Analytics").
                 // Product names use the registry's Title Case ("Product Analytics",
-                // "LLM Analytics") as-is — these are proper-noun product names.
+                // "AI observability") as-is — these are proper-noun product names.
                 return `${base} · ${productName}`
             }
         }

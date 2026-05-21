@@ -34,7 +34,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
@@ -60,7 +60,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
@@ -84,7 +84,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
@@ -110,7 +110,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
@@ -133,7 +133,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
@@ -157,7 +157,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
@@ -200,7 +200,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout
@@ -234,7 +234,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         container:
-            image: semgrep/semgrep
+            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
         steps:
             - name: Checkout

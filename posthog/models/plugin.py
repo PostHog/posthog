@@ -251,7 +251,7 @@ class PluginConfig(models.Model):
 
     # DEPRECATED - this never actually got used - filters is the way to go
     match_action = models.ForeignKey(
-        "posthog.Action",
+        "actions.Action",
         on_delete=models.SET_NULL,
         related_name="plugin_configs",
         blank=True,

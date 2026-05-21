@@ -9,6 +9,18 @@ feature: mcp_analytics
 url_prefix: /mcp-analytics
 ui_apps: {}
 tools:
+    mcp-analytics-intent-clusters-recompute:
+        operation: mcp_analytics_intent_clusters_recompute
+        enabled: false
+    mcp-analytics-intent-clusters-retrieve:
+        operation: mcp_analytics_intent_clusters_retrieve
+        enabled: false
+    mcp-analytics-sessions-list:
+        operation: mcp_analytics_sessions_list
+        enabled: false
+    mcp-analytics-sessions-tool-calls:
+        operation: mcp_analytics_sessions_tool_calls
+        enabled: false
     mcp-feedback-list:
         operation: mcp_analytics_feedback_list
         enabled: false
