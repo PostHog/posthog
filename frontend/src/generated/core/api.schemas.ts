@@ -2903,6 +2903,23 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown: boolean | null
+    /** @nullable */
+    readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
 
   * `bayesian` - Bayesian
