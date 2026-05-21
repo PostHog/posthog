@@ -2653,6 +2653,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     @extend_schema(
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
+        operation_id="endpoints_openapi_spec_retrieve",
         parameters=[
             OpenApiParameter(
                 name="version",
