@@ -5480,6 +5480,12 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them.'
         ),
+    kept_variant_was_recommended: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether the kept variant matched the modal's recommendation. Populated by the UI to enable measurement of how often users accept the system's suggestion versus override it. Null when the UI cannot determine a recommendation (e.g., no conclusion set, legacy code path)."
+        ),
 })
 
 /**

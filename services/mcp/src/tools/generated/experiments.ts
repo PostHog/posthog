@@ -566,6 +566,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             if (params.release_to_everyone !== undefined) {
                 body['release_to_everyone'] = params.release_to_everyone
             }
+            if (params.kept_variant_was_recommended !== undefined) {
+                body['kept_variant_was_recommended'] = params.kept_variant_was_recommended
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/ship_variant/`,
