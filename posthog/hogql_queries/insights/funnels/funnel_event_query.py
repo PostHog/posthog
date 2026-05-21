@@ -430,6 +430,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "group":
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
             return get_breakdown_expr(breakdown, properties_column)
+        elif breakdownType == "session":
+            return get_breakdown_expr(breakdown, "session")
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
             exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]

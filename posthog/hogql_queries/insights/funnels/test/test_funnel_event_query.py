@@ -5,9 +5,12 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 import regex
 import sqlparse
+from parameterized import parameterized
 
 from posthog.schema import (
     ActionsNode,
+    BreakdownFilter,
+    BreakdownType,
     DataWarehousePropertyFilter,
     EventPropertyFilter,
     EventsNode,
@@ -394,3 +397,27 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
 
         select = format_query(funnel_event_query)
         self.assertIn("IN(event, tuple('$pageleave', '$pageview'))", select)
+
+    @parameterized.expand(
+        [
+            ("$session_duration",),
+            ("$channel_type",),
+        ]
+    )
+    @freeze_time("2025-11-12")
+    def test_session_breakdown(self, breakdown_property: str):
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$autocapture")],
+            breakdownFilter=BreakdownFilter(breakdown=breakdown_property, breakdown_type=BreakdownType.SESSION),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        breakdown_expr = FunnelEventQuery(context=context)._get_breakdown_expr()
+        self.assertEqual(
+            str(breakdown_expr),
+            f"Array([ifNull(toString(session.{breakdown_property}), '')])",
+        )
+
+        funnel_event_query = FunnelEventQuery(context=context).to_query()
+        select = format_query(funnel_event_query)
+        self.assertIn(f"ifNull(toString(session.{breakdown_property}), '')", select)
