@@ -393,25 +393,42 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     order_by=order_by,
                 )
 
-                # Presorted optimization: sort narrow data (uuid) first, then fetch wide data for matched rows.
-                # Avoids sorting giant rows with properties and elements_chain cols - instead sorts uuids.
+                # Presorted optimization: resolve the narrow ordering/identity columns
+                # (timestamp, uuid) in an inner subquery, then point-fetch the wide columns
+                # (properties, elements_chain, materialized props) for only the matched rows.
+                #
+                # The outer prefilter matches the (timestamp, uuid) PAIR rather than uuid alone.
+                # uuid identifies the row, so matching the pair returns exactly the inner-selected
+                # rows; the timestamp in the pair is what lets ClickHouse prune. The events sort
+                # key leads with toDate(timestamp), so a bare `uuid IN (subquery)` cannot prune on
+                # the primary index (cityHash64(uuid) is the trailing key column) — the outer query
+                # ends up reading the wide projection across the whole granule range the inner's
+                # timestamp filter spans, just to evaluate the IN. That over-read is what drives the
+                # worst-case multi-TiB reads and query-memory-limit blowups on wide selects (e.g.
+                # SELECT * with a person join). Feeding the concrete timestamps back through the
+                # tuple lets the index skip the granules that hold none of them, so the wide columns
+                # are materialized for ~LIMIT rows instead of the full over-read set.
+                #
+                # toTimeZone is order-preserving and applied identically on both sides by the
+                # property swapper, so the pair comparison is exact and the timezone-wrapped
+                # timestamp still prunes (verified against ClickHouse 25.x/26.x). The inner enforces
+                # every filter, so the outer needs only this prefilter (the printer still adds the
+                # team_id guard); the returned rows are identical to selecting uuid IN (...).
                 if self._can_use_presorted_optimization(order_by) and not has_any_aggregation:
                     logger.info(
                         "events_query_runner_presorted_optimization",
                         team_id=self.team.pk,
                     )
-                    inner_query = parse_select("SELECT uuid FROM events")
+                    inner_query = parse_select("SELECT timestamp, uuid FROM events")
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
                     inner_query.order_by = order_by
                     inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
 
-                    prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
-
-                    if where is not None:
-                        stmt.where = ast.And(exprs=[prefilter_sorted, where])
-                    else:
-                        stmt.where = prefilter_sorted
+                    stmt.where = parse_expr(
+                        "(timestamp, uuid) in ({inner_query})",
+                        {"inner_query": inner_query},
+                    )
 
                 return stmt
 

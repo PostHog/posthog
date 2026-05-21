@@ -862,6 +862,63 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         actual_indices = [row[0] for row in all_results]
         self.assertEqual(actual_indices, ["1", "2", "3", "4", "5"])
 
+    @freeze_time("2021-01-21")
+    def test_presorted_outer_is_point_fetch_not_rescan(self):
+        # The outer query must be a pure point-fetch: it matches the (timestamp, uuid) pairs the
+        # inner subquery resolved and nothing else. Re-applying the original filters (event,
+        # property, timestamp range) in the outer WHERE would make ClickHouse re-scan that range
+        # and read the wide projection across every matching row, which is the inefficiency this
+        # optimization removes.
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp DESC"],
+            select=["*"],
+            properties=[EventPropertyFilter(key="some_prop", value="a", operator=PropertyOperator.EXACT, type="event")],
+        )
+        query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
+
+        # Outer WHERE is the single (timestamp, uuid) IN (...) prefilter, not an And of re-applied
+        # filters. The inner subquery is what carries every filter.
+        outer_where = cast(ast.CompareOperation, query_ast.where)
+        self.assertEqual(outer_where.op, CompareOperationOp.In)
+        self.assertEqual([f.chain for f in cast(ast.Tuple, outer_where.left).exprs], [["timestamp"], ["uuid"]])
+
+        inner = cast(ast.SelectQuery, outer_where.right)
+        self.assertEqual([cast(ast.Field, e).chain for e in inner.select], [["timestamp"], ["uuid"]])
+        # The inner keeps the event + property filters; the outer does not duplicate them.
+        self.assertIsNotNone(inner.where)
+        self.assertIsInstance(query_ast.where, ast.CompareOperation)
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2021-01-21")
+    def test_presorted_handles_tied_timestamps_at_limit_boundary(self):
+        # Several events share the exact same timestamp straddling the LIMIT boundary. The
+        # (timestamp, uuid) point-fetch must return exactly LIMIT rows and never duplicate or drop
+        # a tied row, regardless of which tied rows the inner subquery happened to rank.
+        self._create_events(
+            data=[("p1", "2021-01-20T12:00:00Z", {"idx": i}) for i in range(10)],
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            after="-7d",
+            event="$pageview",
+            kind="EventsQuery",
+            orderBy=["timestamp DESC"],
+            select=["uuid", "timestamp"],
+            limit=5,
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        self.assertEqual(len(response.results), 5)
+        # No duplicate uuids across the returned page.
+        returned_uuids = [row[0] for row in response.results]
+        self.assertEqual(len(set(returned_uuids)), 5)
+
     def test_cursor_pagination_sets_before(self):
         query = EventsQuery(
             kind="EventsQuery",
