@@ -793,7 +793,7 @@ def no_memory_leak_check(method):
     nothing leaks). The decorated test method still runs, just once,
     and skips the priming / measurement loop entirely.
     """
-    method._no_memory_leak_check = True  # type: ignore[attr-defined]
+    method._no_memory_leak_check = True
     return method
 
 

@@ -1332,7 +1332,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWinFrameBound(self, ctx: HogQLParser.WinFrameBoundContext):
         # Mirror cpp's `VISIT(WinFrameBound)`: unwrap a Constant int frame_value to a bare number; floats / strings / other Constants stay wrapped.
         if ctx.PRECEDING() or ctx.FOLLOWING():
-            frame_type = "PRECEDING" if ctx.PRECEDING() else "FOLLOWING"
+            frame_type: Literal["PRECEDING", "FOLLOWING"] = "PRECEDING" if ctx.PRECEDING() else "FOLLOWING"
             frame_value = self.visit(ctx.columnExpr()) if ctx.columnExpr() else None
             if (
                 isinstance(frame_value, ast.Constant)
