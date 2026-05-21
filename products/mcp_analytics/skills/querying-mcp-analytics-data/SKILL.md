@@ -1,6 +1,6 @@
 ---
 name: querying-mcp-analytics-data
-description: 'Query and interpret MCP analytics data — understand the event schema (mcp_tool_call, mcp_initialize), the $mcp_* property namespace, how sessions are grouped via $mcp_session_id, and how tool quality / intent clustering are derived. Use when writing HogQL against MCP events, debugging the MCP analytics product, building dashboards for MCP usage, or investigating why a session, tool call, or cluster looks the way it does in the MCP analytics UI.'
+description: 'Query and interpret MCP analytics data — answer questions about MCP tool usage, error rates, latency, session counts, or which clients and tools are most used. Covers the event schema (mcp_initialize, mcp_tools_list, mcp_tool_call), the $mcp_* property namespace, the three grouping ids ($mcp_conversation_id for stable cross-reconnect grouping, $mcp_session_id for raw transport sessions), the cli-mode gotcha where every $mcp_tool_name is "exec" (the real inner tool lives in $mcp_exec_tool_call_name), and how tool quality and intent clustering are derived. Use when writing HogQL against MCP events, ranking or counting MCP tools or clients, building dashboards for MCP usage, debugging the MCP analytics product, or investigating why a session, tool call, or cluster looks the way it does in the MCP analytics UI.'
 ---
 
 # Querying MCP analytics data
