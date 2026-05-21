@@ -47,7 +47,7 @@
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^5.1.1",
-        "vite": "^6.3.5",
+        "vite": "^6.4.2",
         "vite-plugin-dts": "^4.5.4"
     },
     "peerDependencies": {
