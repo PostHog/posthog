@@ -1,4 +1,5 @@
 #include <cctype>
+#include <cstdio>
 
 #include "error.h"
 #include "string.h"
@@ -122,4 +123,36 @@ void replace_all(string& str, const string& from, const string& to) {
     str.replace(pos, from.length(), to);
     pos += to.length();
   }
+}
+
+string describe_unexpected_character(const string& utf8_char) {
+  // Decode the single UTF-8-encoded character to its Unicode code point.
+  unsigned int code_point = 0;
+  size_t len = utf8_char.size();
+  if (len >= 1) {
+    unsigned char b0 = static_cast<unsigned char>(utf8_char[0]);
+    if (len == 1) {
+      code_point = b0;
+    } else if (len == 2) {
+      code_point = ((b0 & 0x1Fu) << 6) | (static_cast<unsigned char>(utf8_char[1]) & 0x3Fu);
+    } else if (len == 3) {
+      code_point = ((b0 & 0x0Fu) << 12) | ((static_cast<unsigned char>(utf8_char[1]) & 0x3Fu) << 6) |
+                   (static_cast<unsigned char>(utf8_char[2]) & 0x3Fu);
+    } else {
+      code_point = ((b0 & 0x07u) << 18) | ((static_cast<unsigned char>(utf8_char[1]) & 0x3Fu) << 12) |
+                   ((static_cast<unsigned char>(utf8_char[2]) & 0x3Fu) << 6) |
+                   (static_cast<unsigned char>(utf8_char[3]) & 0x3Fu);
+    }
+  }
+  char buffer[64];
+  if (code_point >= 0x21 && code_point <= 0x7E) {
+    // Printable ASCII — show the glyph alongside the code point.
+    std::snprintf(
+        buffer, sizeof(buffer), "Unexpected character '%c' (U+%04X)", static_cast<char>(code_point), code_point
+    );
+  } else {
+    // Invisible or non-ASCII — the code point is the only useful handle.
+    std::snprintf(buffer, sizeof(buffer), "Unexpected character U+%04X", code_point);
+  }
+  return string(buffer);
 }

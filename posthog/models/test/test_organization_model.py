@@ -127,7 +127,6 @@ class TestOrganization(BaseTest):
                 [{"key": "recordings_file_export"}, {"key": "role_based_access"}],
                 "enterprise",
             ),
-            ("advanced_permissions_flags_enterprise", [{"key": "advanced_permissions"}], "enterprise"),
             ("access_control_flags_enterprise", [{"key": "access_control"}], "enterprise"),
             ("saml_flags_enterprise", [{"key": "saml"}], "enterprise"),
             ("scim_flags_enterprise", [{"key": "scim"}], "enterprise"),

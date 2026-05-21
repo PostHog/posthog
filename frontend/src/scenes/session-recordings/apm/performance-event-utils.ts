@@ -239,6 +239,9 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
                 snapshot.data.plugin === NETWORK_PLUGIN_NAME
             ) {
                 const properties = snapshot.data.payload as any
+                if (!properties || typeof properties !== 'object') {
+                    return
+                }
 
                 const data: Partial<PerformanceEvent> = {
                     timestamp: snapshot.timestamp,
@@ -261,7 +264,7 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
             ) {
                 const payload = snapshot.data.payload as any
 
-                if (!Array.isArray(payload.requests) || payload.requests.length === 0) {
+                if (!payload || !Array.isArray(payload.requests) || payload.requests.length === 0) {
                     return
                 }
 

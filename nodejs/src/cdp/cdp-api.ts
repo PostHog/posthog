@@ -24,6 +24,8 @@ import {
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
+import { RerunJobManager } from './rerun/rerun-job.manager'
+import { RerunRequest } from './rerun/rerun-job.types'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
@@ -81,6 +83,7 @@ export class CdpApi {
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
+    private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
     private cyclotronJobQueue: CyclotronJobQueue
     private emailTrackingService: EmailTrackingService
@@ -141,6 +144,19 @@ export class CdpApi {
     async start(): Promise<void> {
         await this.cdpSourceWebhooksConsumer.start()
         await this.cyclotronJobQueue.startAsProducer()
+
+        // Rerun endpoints don't run the work — they just enqueue a wrapper
+        // job onto the cyclotron-v2 'rerun' queue. A dedicated consumer
+        // (`CdpRerunWorkerConsumer`) deployed as PLUGIN_SERVER_MODE=cdp-rerun-worker
+        // pages ClickHouse, rehydrates invocations, and commits progress back
+        // to the wrapper job via reschedule(state).
+        if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
+            this.rerunJobManager = new RerunJobManager({
+                dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
+                maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
+            })
+            await this.rerunJobManager.connect()
+        }
     }
 
     async stop(): Promise<void> {
@@ -148,6 +164,7 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.cyclotronJobQueue.stop(),
             this.batchExportHogFunctionService.stop(),
+            this.rerunJobManager?.disconnect() ?? Promise.resolve(),
         ])
     }
 
@@ -176,9 +193,10 @@ export class CdpApi {
             asyncHandler(this.postHogFlowBatchInvocation)
         )
         router.post(
-            '/api/projects/:team_id/hog_flows/:id/bulk_replay_invocations',
-            asyncHandler(this.postHogflowBulkReplayInvocations)
+            '/api/projects/:team_id/hog_functions/:id/rerun',
+            asyncHandler(this.postRerunInvocations('hog_function'))
         )
+        router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -611,108 +629,87 @@ export class CdpApi {
         }
     }
 
-    private postHogflowBulkReplayInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-        try {
-            const { id, team_id } = req.params
-            const { items } = req.body as {
-                items: Array<{
-                    clickhouse_event: any
-                    action_id: string
-                    instance_id: string
-                }>
-            }
+    // Rerun endpoints don't run the work — they just enqueue a wrapper job
+    // onto the cyclotron-v2 'rerun' queue. The dedicated `CdpRerunWorkerConsumer`
+    // picks it up, pages ClickHouse, rehydrates invocations onto the regular
+    // queue, and commits progress back to the wrapper job's state.
+    private postRerunInvocations =
+        (functionKind: 'hog_function' | 'hog_flow') =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            try {
+                if (!this.rerunJobManager) {
+                    return res.status(503).json({
+                        error: 'Rerun manager not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                    })
+                }
 
-            if (!Array.isArray(items) || items.length === 0) {
-                return res.status(400).json({ error: 'Missing or empty items array' })
-            }
+                const { team_id, id } = req.params
+                const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+                if (!team) {
+                    return res.status(404).json({ error: 'Team not found' })
+                }
 
-            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
-            if (!team) {
-                return res.status(404).json({ error: 'Team not found' })
-            }
-
-            const hogFlow = await this.hogFlowManager.getHogFlow(id)
-            if (!hogFlow || hogFlow.team_id !== team.id) {
-                return res.status(404).json({ error: 'Workflow not found' })
-            }
-
-            const siteUrl = this.config.SITE_URL ?? 'http://localhost:8000'
-            const invocations: any[] = []
-            const logEntries: any[] = []
-            let succeeded = 0
-            let failed = 0
-
-            for (const item of items) {
-                try {
-                    const { clickhouse_event, action_id, instance_id } = item
-
-                    if (!clickhouse_event || !action_id || !instance_id) {
-                        failed++
-                        continue
+                if (functionKind === 'hog_function') {
+                    const hogFunction = await this.hogFunctionManager.getHogFunction(id)
+                    if (!hogFunction || hogFunction.team_id !== team.id) {
+                        return res.status(404).json({ error: 'Hog function not found' })
                     }
-
-                    const actionExists = hogFlow.actions?.some((a: any) => a.id === action_id)
-                    if (!actionExists) {
-                        failed++
-                        continue
+                } else {
+                    const hogFlow = await this.hogFlowManager.getHogFlow(id)
+                    if (!hogFlow || hogFlow.team_id !== team.id) {
+                        return res.status(404).json({ error: 'Hog flow not found' })
                     }
+                }
 
-                    const globals = convertToHogFunctionInvocationGlobals(clickhouse_event, team, siteUrl)
-                    const triggerGlobals: HogFunctionInvocationGlobals = {
-                        ...globals,
-                        project: {
-                            id: team.id,
-                            name: team.name,
-                            url: `${siteUrl}/project/${team.id}`,
+                const rerunRequest = req.body as RerunRequest
+                const rerunJobId = await this.rerunJobManager.enqueue(team.id, functionKind, id, rerunRequest)
+
+                // Surface the wrapper job in the Invocations list immediately —
+                // a 'running' lifecycle row + a `rerun_queued` log line. Both
+                // share the same `instance_id = rerun_job_id` so the logs
+                // viewer in the row's expand panel picks them up automatically.
+                const now = new Date()
+                this.invocationResultsService.invocationResultsRowsService.queueRerunWrapperRow({
+                    teamId: team.id,
+                    parentFunctionKind: functionKind,
+                    functionId: id,
+                    rerunJobId,
+                    status: 'running',
+                    pagesProcessed: 0,
+                    filter: rerunRequest.filter,
+                    scheduledAt: now,
+                    startedAt: now,
+                })
+                this.invocationResultsService.monitoringService.queueLogs(
+                    [
+                        {
+                            team_id: team.id,
+                            log_source: functionKind,
+                            log_source_id: id,
+                            instance_id: rerunJobId,
+                            timestamp: DateTime.fromJSDate(now),
+                            level: 'info',
+                            message: `Re-run queued. Filter: ${JSON.stringify(rerunRequest.filter)}`,
                         },
-                    }
-                    const filterGlobals = convertToHogFunctionFilterGlobal({
-                        event: globals.event,
-                        person: globals.person,
-                        groups: globals.groups,
-                        variables: {},
-                    })
+                    ],
+                    functionKind
+                )
+                await this.invocationResultsService.flush()
 
-                    const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-                    invocation.state.currentAction = {
-                        id: action_id,
-                        startedAtTimestamp: Date.now(),
-                    }
-                    invocations.push(invocation)
-
-                    logEntries.push({
-                        team_id: team.id,
-                        log_source: 'hog_flow' as const,
-                        log_source_id: id,
-                        instance_id,
-                        timestamp: DateTime.utc(),
-                        level: 'info' as const,
-                        message: `[Replay] Queued replay for event ${clickhouse_event.uuid ?? 'unknown'} from action ${action_id}. New invocation: ${invocation.id}`,
-                    })
-                    succeeded++
-                } catch {
-                    failed++
-                }
+                logger.info('⚡️', 'Rerun job enqueued', {
+                    function_kind: functionKind,
+                    function_id: id,
+                    team_id: team.id,
+                    rerun_job_id: rerunJobId,
+                })
+                res.json({ rerun_job_id: rerunJobId, queued_count: 0, skipped_count: 0 })
+            } catch (e) {
+                logger.error('Error enqueueing rerun job', {
+                    error: e instanceof Error ? e.message : String(e),
+                })
+                res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
             }
-
-            if (invocations.length > 0) {
-                await this.cyclotronJobQueue.queueInvocations(invocations)
-
-                // Only write replay markers after invocations are successfully queued,
-                // otherwise failed runs would disappear from the blocked list permanently
-                if (logEntries.length > 0) {
-                    this.invocationResultsService.monitoringService.queueLogs(logEntries, 'hog_flow')
-                    await this.invocationResultsService.flush()
-                }
-            }
-
-            logger.info('⚡️', 'Bulk replay completed', { id, team_id, succeeded, failed })
-            res.json({ succeeded, failed })
-        } catch (e) {
-            logger.error('Error handling hogflow bulk replay', { error: e })
-            res.status(500).json({ error: e.message })
         }
-    }
 
     private postHogFlowBatchInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {

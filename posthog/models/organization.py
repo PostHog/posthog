@@ -74,11 +74,10 @@ class ProductFeature(TypedDict):
 def _enterprise_only_feature_keys() -> frozenset[str]:
     """Enterprise-plan-only feature keys, computed once per process.
 
-    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`, plus `ACCESS_CONTROL`
-    (the successor to `ADVANCED_PERMISSIONS` per the `AvailableFeature` enum) which
-    isn't reflected in `License.ENTERPRISE_FEATURES` yet but should classify the same way.
+    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`. Returns an empty
+    set when the ee package isn't importable.
     """
-    keys: set[str] = {str(AvailableFeature.ACCESS_CONTROL)}
+    keys: set[str] = set()
     try:
         from ee.models.license import License
 
@@ -346,12 +345,10 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """Best-effort plan tier derived from `available_product_features`.
 
         "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
-        minus `SCALE_FEATURES`, plus `access_control` — the successor to `advanced_permissions`
-        per `AvailableFeature` in constants.py — which is not yet reflected in `License`).
-        "paid" if any feature is present, otherwise "free". Paid uses "any feature present"
-        rather than an allow-list because the billing service grants features (alerts,
-        surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an allow-list
-        silently downgrades those orgs to free.
+        minus `SCALE_FEATURES`). "paid" if any feature is present, otherwise "free". Paid uses
+        "any feature present" rather than an allow-list because the billing service grants
+        features (alerts, surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an
+        allow-list silently downgrades those orgs to free.
         """
         available_keys = {
             feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
@@ -685,7 +682,7 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from posthog.models.alert import AlertSubscription
+    from products.alerts.backend.models.alert import AlertSubscription
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,

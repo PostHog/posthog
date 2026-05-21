@@ -37,7 +37,7 @@ export interface CreateRepoInputApi {
 /**
  * @nullable
  */
-export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null | null
+export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]: string } | null
 
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
@@ -46,7 +46,34 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
+export interface QuarantineSourceRunApi {
+    id: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+}
+
+export interface BaselineQuarantineSummaryApi {
+    created_by?: UserBasicInfoApi | null
+    source_run?: QuarantineSourceRunApi | null
+    id: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+}
+
 export interface BaselineEntryApi {
+    /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+    quarantine?: BaselineQuarantineSummaryApi | null
     identifier: string
     run_type: string
     /** @nullable */
@@ -83,14 +110,10 @@ export interface BaselineOverviewApi {
     generated_at: string
 }
 
-export interface UserBasicInfoApi {
-    id: number
-    first_name: string
-    email: string
-}
-
 export interface QuarantinedIdentifierEntryApi {
     created_by?: UserBasicInfoApi | null
+    /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
+    source_run?: QuarantineSourceRunApi | null
     id: string
     identifier: string
     run_type: string
@@ -111,10 +134,21 @@ export interface PaginatedQuarantinedIdentifierEntryListApi {
 }
 
 export interface QuarantineInputApi {
-    /** @maxLength 512 */
+    /**
+     * Snapshot identifier to quarantine.
+     * @maxLength 512
+     */
     identifier: string
-    /** @maxLength 255 */
+    /**
+     * Why this snapshot is being quarantined.
+     * @maxLength 255
+     */
     reason: string
+    /**
+     * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
+     * @nullable
+     */
+    source_run_id?: string | null
     /** @nullable */
     expires_at?: string | null
 }

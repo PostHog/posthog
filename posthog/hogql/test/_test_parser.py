@@ -79,6 +79,207 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertEqual(self._expr("1e-18"), ast.Constant(value=1e-18))
             self.assertEqual(self._expr("2.34e+20"), ast.Constant(value=2.34e20))
 
+        @parameterized.expand(
+            [
+                # Hex: HEXADECIMAL_LITERAL tokens were being parsed via base-10 stoll/int,
+                # which stops at the 'x' and silently yielded 0.
+                ("hex_positive", "0x1F", 31),
+                ("hex_zero", "0x0", 0),
+                ("hex_ff", "0xff", 255),
+                ("hex_negative", "-0x1F", -31),
+                ("hex_positive_sign", "+0x1F", 31),
+                # Hex digits include 'e' — must be dispatched before the float guard,
+                # or "0xfe" routes through float()/stod and either raises (Python)
+                # or silently returns a double (C++) instead of an int64.
+                ("hex_with_e_digit", "0xfe", 254),
+                ("hex_negative_with_e_digit", "-0xae", -174),
+                # Near 2^60 the double mantissa is 8 bits short, so a stod-based hex parse rounds wrong.
+                ("hex_breaks_double_precision", "0x100000000000000e", 0x100000000000000E),
+                # Leading zeros are no-ops, never octal — "017" → 17, "09" → 9 — matching ClickHouse/Postgres.
+                ("leading_zero_017_decimal", "017", 17),
+                ("leading_zero_negative_017_decimal", "-017", -17),
+                ("leading_zero_signed_017_decimal", "+017", 17),
+                ("leading_zero_011", "011", 11),
+                ("leading_zero_018", "018", 18),
+                ("leading_zero_09", "09", 9),
+                ("leading_zero_019", "019", 19),
+                ("leading_zero_08", "08", 8),
+                ("leading_zero_099", "099", 99),
+                ("leading_zero_negative_09", "-09", -9),
+                # `+inf` once fell through to NaN — visitor only matched "inf" / "-inf".
+                ("positive_inf", "+inf", float("inf")),
+                # `infinity` spelling (INF token matches it too) — accepted, matching ClickHouse.
+                ("infinity_lowercase", "infinity", float("inf")),
+                ("infinity_titlecase", "Infinity", float("inf")),
+                ("infinity_uppercase", "INFINITY", float("inf")),
+                ("infinity_negative", "-Infinity", float("-inf")),
+                ("infinity_positive_sign", "+Infinity", float("inf")),
+            ]
+        )
+        def test_signed_radix_number_literals(self, _name: str, expr: str, expected: int | float):
+            self.assertEqual(self._expr(expr), ast.Constant(value=expected))
+
+        def test_select_columns_leading_zero_literals(self):
+            # Leading zeros are no-ops in SELECT-column position too.
+            select = cast(ast.SelectQuery, self._select("SELECT 9, 09, 011, 017, 018"))
+            self.assertEqual([cast(ast.Constant, c).value for c in select.select], [9, 9, 11, 17, 18])
+
+        @parameterized.expand(
+            [
+                ("binary_zero", "0b0", 0),
+                ("binary_one", "0b1", 1),
+                ("binary_two_bit", "0b10", 2),
+                ("binary_byte", "0b1010", 10),
+                ("binary_uppercase_prefix", "0B11", 3),
+                ("binary_negative", "-0b1010", -10),
+                ("binary_positive_sign", "+0b11", 3),
+                # 64-bit boundary: magnitude fits UInt64 (positive) or Int64 (negative).
+                ("binary_int64_max", "0b" + "1" * 63, 2**63 - 1),
+                ("binary_uint64_max", "0b" + "1" * 64, 2**64 - 1),
+                ("binary_int64_min", "-0b1" + "0" * 63, -(2**63)),
+            ]
+        )
+        def test_binary_literals(self, _name: str, expr: str, expected: int):
+            # `0b<binary-digits>` is a real lexer token; ClickHouse parses binary literals natively.
+            self.assertEqual(self._expr(expr), ast.Constant(value=expected))
+
+        def test_select_binary_literals_in_select(self):
+            # Before BINARY_LITERAL was a token, `0b1010` split into `0` + IDENTIFIER `b1010`.
+            select = cast(ast.SelectQuery, self._select("SELECT 0b1010, 0b11 + 1, 0b0"))
+            values = []
+            for c in select.select:
+                if isinstance(c, ast.Constant):
+                    values.append(c.value)
+                else:
+                    values.append(c)  # arithmetic expr stays
+            self.assertEqual(values[0], 10)
+            self.assertEqual(values[2], 0)
+            # 0b11 + 1: 3 + 1 = 4, expressed as an ArithmeticOperation.
+            self.assertEqual(
+                values[1],
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Add,
+                    left=ast.Constant(value=3),
+                    right=ast.Constant(value=1),
+                ),
+            )
+
+        def test_binary_literal_in_where(self):
+            # Binary literals work in every position a number can — including WHERE.
+            select = cast(ast.SelectQuery, self._select("SELECT 1 FROM events WHERE id = 0b1010"))
+            assert select.where is not None
+            where = cast(ast.CompareOperation, select.where)
+            self.assertEqual(cast(ast.Constant, where.right).value, 10)
+
+        @parameterized.expand(
+            [
+                ("octal_lowercase_o", "SELECT 0o11"),
+                ("octal_uppercase_o", "SELECT 0O11"),
+                ("octal_in_arithmetic", "SELECT 0o11 + 1"),
+                ("octal_in_where", "SELECT 1 FROM events WHERE id = 0o11"),
+                ("octal_invalid_digit", "SELECT 0o9"),  # rejected regardless of digit validity
+                ("octal_signed", "SELECT -0o11"),
+            ]
+        )
+        def test_postgres_octal_literals_rejected(self, _name: str, query: str):
+            # `0o<digits>` lexes as OCTAL_PREFIX_LITERAL and visitNumberLiteral throws — matches ClickHouse / pre-pg16 PG.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
+        @parameterized.expand(
+            [
+                ("invalid_digit_2", "SELECT 0b22"),
+                ("invalid_digit_9", "SELECT 0b9"),
+                ("partial_invalid", "SELECT 0b102"),
+            ]
+        )
+        def test_malformed_binary_literals_rejected(self, _name: str, query: str):
+            # `0b<non-binary-digit>` lexes as MALFORMED_BINARY_LITERAL, unreferenced by any rule, so the parser rejects it.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
+        @parameterized.expand(
+            [
+                ("65_bits", "SELECT 0b" + "1" * 65),
+                ("2_to_the_64", "SELECT 0b1" + "0" * 64),
+                ("negative_below_int64_min", "SELECT -0b" + "1" * 64),
+            ]
+        )
+        def test_oversized_binary_literals_rejected(self, _name: str, query: str):
+            # ClickHouse caps binary literals at 64 bits — magnitude must fit UInt64 (positive) or Int64 (negative).
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
+        @parameterized.expand(
+            [
+                ("logical_not", "let x := !y", "U+0021"),
+                ("logical_not_in_condition", "if (!country) { return 1 }", "U+0021"),
+                ("logical_and", "let x := a && b", "U+0026"),
+                ("bitwise_and", "let x := a & b", "U+0026"),
+                ("stray_at_sign", "let x := a @ b", "U+0040"),
+                ("zero_width_space", "let x :=​y", "U+200B"),
+                ("zero_width_joiner", "let x := a‍b", "U+200D"),
+            ]
+        )
+        def test_unexpected_character_rejected(self, _name: str, program: str, code_point: str):
+            # A character no lexer rule matches — a JavaScript `!`, `&&`, a
+            # zero-width space, any stray byte — lexes as the catch-all
+            # UNEXPECTED_CHARACTER token. No parser rule references it, so
+            # the program fails loudly instead of the lexer silently
+            # dropping the character via error recovery and the rest
+            # parsing as a different, valid-looking program. The error
+            # names the offending character by Unicode code point — the
+            # only actionable signal when the character is invisible.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
+                self._program(program)
+            self.assertIn(code_point, str(caught.exception))
+
+        def test_zero_width_character_allowed_inside_string(self):
+            # The catch-all only fires outside string literals — a
+            # zero-width character is ordinary content within a string.
+            self._program("let x := 'a​b'")
+
+        @parameterized.expand(
+            [
+                ("not_equals", "a != b"),
+                ("not_regex", "a !~ b"),
+                ("concat", "a || b"),
+                ("nullish_coalesce", "a ?? b"),
+            ]
+        )
+        def test_multi_character_operators_still_parse(self, _name: str, expr: str):
+            # The catch-all is a last-resort fallback: maximal munch keeps
+            # genuine multi-character operators whose first byte would
+            # otherwise be unrecognized (`!=`, `!~`) intact.
+            self._expr(expr)
+
+        @parameterized.expand(
+            [
+                ("no_break_space", " "),
+                ("next_line", ""),
+                ("ogham_space_mark", " "),
+                ("en_space", " "),
+                ("line_separator", " "),
+                ("paragraph_separator", " "),
+                ("narrow_no_break_space", " "),
+                ("medium_mathematical_space", " "),
+                ("ideographic_space", "　"),
+            ]
+        )
+        def test_unicode_whitespace_separates_tokens(self, _name: str, space: str):
+            # A Unicode whitespace character — routinely pasted in from
+            # rich editors or documents — is genuine whitespace. It must
+            # keep separating tokens and produce the same AST as an
+            # ordinary space, NOT fall through to UNEXPECTED_CHARACTER and
+            # fail the parse. Checked both between statements and inside
+            # an expression.
+            self.assertEqual(self._program(f"let x :={space}1"), self._program("let x := 1"))
+            self.assertEqual(self._expr(f"1{space}+{space}2"), self._expr("1 + 2"))
+
+        def test_byte_order_mark_does_not_break_parse(self):
+            # A file saved with a leading UTF-8 byte-order mark still parses.
+            self.assertEqual(self._program("﻿let x := 1"), self._program("let x := 1"))
+
         def test_booleans(self):
             self.assertEqual(self._expr("true"), ast.Constant(value=True))
             self.assertEqual(self._expr("TRUE"), ast.Constant(value=True))
@@ -1285,6 +1486,16 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_select_columns_quoted_exclude(self):
+            # Quoted identifiers inside an exclude list must be unquoted, matching the cpp parser.
+            self.assertEqual(
+                self._select('select * exclude ("first name") from customers'),
+                ast.SelectQuery(
+                    select=[ast.ColumnsExpr(all_columns=True, exclude=["first name"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["customers"])),
+                ),
+            )
+
         def test_ignore_nulls_expr(self):
             self.assertEqual(
                 self._expr("event IGNORE NULLS"),
@@ -2118,6 +2329,25 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ),
                 ),
             )
+
+        def test_select_set_level_limit_offset_divergences(self):
+            # Set-level LIMIT/OFFSET on a SelectSetQuery initial query — Python dropped both. C++ was already correct.
+            parsed = self._select("((select 1) intersect (select 2)) limit 3, 4")
+            assert isinstance(parsed, ast.SelectSetQuery)
+            self.assertEqual(parsed.limit, ast.Constant(value=3))
+            self.assertEqual(parsed.offset, ast.Constant(value=4))
+
+            # A bare outer `LIMIT n` must not clobber an existing inner OFFSET.
+            parsed = self._select("(select 1 offset 5) limit 3")
+            assert isinstance(parsed, ast.SelectQuery)
+            self.assertEqual(parsed.limit, ast.Constant(value=3))
+            self.assertEqual(parsed.offset, ast.Constant(value=5))
+
+            # A placeholder select body has no node to carry a set-level LIMIT/OFFSET, so both backends drop the clause.
+            placeholder = ast.Placeholder(expr=ast.Field(chain=["foo"]))
+            for query in ("{foo} offset 1", "{foo} limit 2", "{foo} limit 2 offset 3"):
+                with self.subTest(query=query):
+                    self.assertEqual(self._select(query), placeholder)
 
         def test_select_placeholders(self):
             self.assertEqual(
@@ -3256,6 +3486,44 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
             self.assertEqual(program, expected)
 
+        def test_program_exprstmt_routes_assignment_vs_expression(self):
+            # `:=` present yields a VariableAssignment for any expression target; otherwise an ExprStatement.
+            declarations = self._program("a := 1; o.a := 2; arr[1] := 3; (x) := 9; foo();").declarations
+            self.assertEqual(
+                [type(declaration).__name__ for declaration in declarations],
+                [
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "VariableAssignment",
+                    "ExprStatement",
+                ],
+            )
+
+        def test_named_argument_in_call_not_treated_as_assignment(self):
+            # A named argument inside a call stays a NamedArgument; only a statement-level one is promoted.
+            call = self._expr("f(x := 1)")
+            # `assert isinstance` rather than `assertIsInstance` so mypy narrows the type.
+            assert isinstance(call, ast.Call)
+            assert isinstance(call.args[0], ast.NamedArgument)
+            self.assertEqual(call.args[0].name, "x")
+            declaration = self._program("f(x := 1);").declarations[0]
+            assert isinstance(declaration, ast.ExprStatement)
+
+        def test_parenthesized_named_arg_is_an_expression_statement(self):
+            # `(x := 9)` is a parenthesised named-argument expression, not a statement-level
+            # assignment; the fold does not unwrap parens, so both backends agree.
+            for code in ("(x := 9);", "((y := 2));"):
+                assert isinstance(self._program(code).declarations[0], ast.ExprStatement)
+
+        def test_promoted_assignment_target_carries_position(self):
+            # The Field synthesised for a bare-identifier assignment target carries the
+            # identifier's source position, matching a non-folded target.
+            assignment = parse_program("xyz := 1", backend=backend).declarations[0]
+            assert isinstance(assignment, ast.VariableAssignment)
+            assert assignment.left.start is not None
+            assert assignment.left.end is not None
+
         def test_program_variable_declarations_with_sql_expr(self):
             code = """
                 let query := (select id, properties.email from events where timestamp > now() - interval 1 day);
@@ -3485,6 +3753,45 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ],
             )
             self.assertEqual(program, expected)
+
+        def test_program_quoted_identifiers(self):
+            # Quoted identifiers in name positions must be unquoted, matching the cpp parser.
+            self.assertEqual(
+                self._program('fn "my fn"("a b", "c d") { return 1; }'),
+                Program(
+                    declarations=[
+                        Function(
+                            name="my fn",
+                            params=["a b", "c d"],
+                            body=Block(declarations=[ast.ReturnStatement(expr=Constant(value=1))]),
+                        )
+                    ],
+                ),
+            )
+            self.assertEqual(
+                self._program('let "my var" := 1;'),
+                Program(declarations=[VariableDeclaration(name="my var", expr=Constant(value=1))]),
+            )
+            self.assertEqual(
+                self._program('for (let "key", "val" in [1]) {}'),
+                Program(
+                    declarations=[
+                        ast.ForInStatement(
+                            keyVar="key",
+                            valueVar="val",
+                            expr=ast.Array(exprs=[Constant(value=1)]),
+                            body=Block(declarations=[]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_program_bare_throw_rejected(self):
+            # `throwStmt` requires an expression — Hog has no bare-throw / implicit re-throw.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._program("throw")
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._program("throw;")
 
         def test_program_array(self):
             code = "let a := [1, 2, 3];"

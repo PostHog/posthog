@@ -10,6 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type { DocsSearchRequestApi, DocsSearchResponseApi, McpToolsCreate200 } from './api.schemas'
 
+export const getMcpToolsCreateUrl = (projectId: string, toolName: string) => {
+    return `/api/environments/${projectId}/mcp_tools/${toolName}/`
+}
+
 /**
  * Invoke an MCP tool by name.
 
@@ -18,10 +22,6 @@ without going through the full LangChain conversation flow.
 
 Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
  */
-export const getMcpToolsCreateUrl = (projectId: string, toolName: string) => {
-    return `/api/environments/${projectId}/mcp_tools/${toolName}/`
-}
-
 export const mcpToolsCreate = async (
     projectId: string,
     toolName: string,
@@ -33,14 +33,14 @@ export const mcpToolsCreate = async (
     })
 }
 
-/**
- * Run a hybrid (semantic + full-text) RAG search over the PostHog documentation via Inkeep. Returns a markdown body with title, URL, and excerpt for each match for the agent to cite back to the user.
- * @summary Search PostHog documentation
- */
 export const getDocsSearchUrl = (projectId: string) => {
     return `/api/environments/${projectId}/mcp_tools/docs_search/`
 }
 
+/**
+ * Run a hybrid (semantic + full-text) RAG search over the PostHog documentation via Inkeep. Returns a markdown body with title, URL, and excerpt for each match for the agent to cite back to the user.
+ * @summary Search PostHog documentation
+ */
 export const docsSearch = async (
     projectId: string,
     docsSearchRequestApi: DocsSearchRequestApi,

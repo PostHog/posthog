@@ -15,6 +15,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
@@ -106,6 +107,11 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
+# Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
+# *after* Django applies `disable_existing_loggers: True`. Using `__name__` here
+# results in a disabled logger because `posthog.api.feature_flag` is loaded during
+# Django startup. Remove this logger together with the helper once the scope is enforced.
+scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -124,6 +130,51 @@ RUST_FLAG_FIELDS = (
     "ensure_experience_continuity",
     "evaluation_tags",
 )
+
+
+def warn_if_missing_feature_flag_write_scope(
+    request,
+    *,
+    action: str,
+    team_id: int | None = None,
+    feature_flag_id: int | None = None,
+) -> None:
+    # Temporary observability for a cross-resource scope bypass: SurveyViewSet and
+    # EarlyAccessFeatureViewSet mutate FeatureFlag rows under their own scope
+    # (`survey:write` / `early_access_feature:write`). Before enforcing
+    # `feature_flag:write` on these paths we want to know which customers rely on
+    # the transitive access so we can notify them. Remove this helper and its
+    # call sites once the scope is enforced.
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        scopes = list(authenticator.personal_api_key.scopes or [])
+        auth_kind = "personal_api_key"
+        auth_id: str | None = authenticator.personal_api_key.id
+        auth_label: str | None = authenticator.personal_api_key.label
+    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+        scope_string = authenticator.access_token.scope or ""
+        scopes = scope_string.split()
+        auth_kind = "oauth_access_token"
+        raw_id = getattr(authenticator.access_token, "id", None)
+        auth_id = str(raw_id) if raw_id is not None else None
+        auth_label = None
+    else:
+        return
+
+    if "*" in scopes or "feature_flag:write" in scopes:
+        return
+
+    scope_audit_logger.warning(
+        "feature_flag_write_via_other_scope",
+        action=action,
+        team_id=team_id,
+        feature_flag_id=feature_flag_id,
+        scopes=scopes,
+        auth_kind=auth_kind,
+        auth_id=auth_id,
+        auth_label=auth_label,
+        user_id=getattr(getattr(request, "user", None), "id", None),
+    )
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -822,10 +873,10 @@ class FeatureFlagSerializer(
         """Validate feature flag creation/update including evaluation tag requirements."""
         attrs = super().validate(attrs)
 
+        # Run universal validations before any early returns so they always apply,
+        # regardless of creation_context (surveys, etc.) or evaluation contexts.
+        self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
-
-        # Validate team-wide flag count limit before any early returns, since it
-        # applies to all creates regardless of creation context (surveys, etc.)
         self._validate_flag_limits()
 
         request = self.context.get("request")
@@ -878,6 +929,37 @@ class FeatureFlagSerializer(
                     )
 
         return attrs
+
+    def _validate_device_bucketing_with_persist_auth(self, attrs):
+        """Validate that persist across auth is not enabled with device ID bucketing"""
+        # bucketing_identifier is nullable (CharField(null=True)), so we use a sentinel to
+        # distinguish "field absent from PATCH" from "field explicitly set to null". A bare
+        # `attrs.get(...) is None` fallback would otherwise treat an explicit null as missing
+        # and validate against the stale instance value.
+        _MISSING: Any = object()
+        bucketing_identifier = attrs.get("bucketing_identifier", _MISSING)
+        ensure_experience_continuity = attrs.get("ensure_experience_continuity", _MISSING)
+
+        if self.instance:
+            if bucketing_identifier is _MISSING:
+                bucketing_identifier = self.instance.bucketing_identifier
+            if ensure_experience_continuity is _MISSING:
+                ensure_experience_continuity = self.instance.ensure_experience_continuity
+
+        # Prevent new combinations of device_id + ensure_experience_continuity=True
+        if bucketing_identifier == "device_id" and ensure_experience_continuity is True:
+            # Allow if this combination already existed (no change)
+            if (
+                self.instance
+                and self.instance.bucketing_identifier == "device_id"
+                and self.instance.ensure_experience_continuity is True
+            ):
+                pass  # Allow existing combination to be saved without changes
+            else:
+                raise serializers.ValidationError(
+                    "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
+                    "These features are incompatible."
+                )
 
     def _validate_encrypted_payloads_require_remote_config(self, attrs: dict) -> None:
         """Encrypted payloads are only valid on remote configuration flags."""
@@ -2233,7 +2315,6 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
-            "has_encrypted_payloads",
             "version",
             "evaluation_runtime",
             "bucketing_identifier",
@@ -3427,6 +3508,7 @@ class FeatureFlagViewSet(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            evaluation_runtime="all",
         )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.

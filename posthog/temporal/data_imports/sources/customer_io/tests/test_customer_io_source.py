@@ -3,9 +3,12 @@ from typing import Literal, cast
 
 from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
+
 from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -16,7 +19,7 @@ from posthog.temporal.data_imports.sources.customer_io.constants import (
     CIO_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_CIO_OBJECT_TYPE,
 )
-from posthog.temporal.data_imports.sources.customer_io.source import CustomerIOSource
+from posthog.temporal.data_imports.sources.customer_io.source import CustomerIOSource, _webhook_table_transformer
 from posthog.temporal.data_imports.sources.generated_configs import CustomerIOSourceConfig
 
 
@@ -294,3 +297,78 @@ class TestCustomerIOSourcePipelineDispatch:
         schemas = source.get_schemas(_config(), team_id=1)
 
         assert "messages" not in {s.name for s in schemas}
+
+
+class TestCustomerIOWebhookTableTransformer:
+    def test_lifts_data_fields_and_preserves_event_id_timestamp_and_metric(self):
+        table = table_from_py_list(
+            [
+                {
+                    "event_id": "evt-1",
+                    "timestamp": 1777655416,
+                    "object_type": "email",
+                    "metric": "sent",
+                    "data": {
+                        "recipient": "rebcore01@gmail.com",
+                        "subject": "We don't want (all of) your money",
+                        "journey_id": "32KE4CT86V53208000000000CF70",
+                    },
+                }
+            ]
+        )
+
+        result = _webhook_table_transformer(table)
+        rows = result.to_pylist()
+
+        assert len(rows) == 1
+        assert rows[0]["event_id"] == "evt-1"
+        assert rows[0]["timestamp"] == 1777655416
+        assert rows[0]["metric"] == "sent"
+        assert rows[0]["recipient"] == "rebcore01@gmail.com"
+        assert rows[0]["subject"] == "We don't want (all of) your money"
+        assert rows[0]["journey_id"] == "32KE4CT86V53208000000000CF70"
+        # `object_type` is implicit in the schema name (e.g. `email_events`) and dropped.
+        assert "object_type" not in rows[0]
+
+    def test_handles_data_as_json_string(self):
+        # Defensive: if an upstream change serializes `data` as a JSON string instead
+        # of a nested struct, we still parse it correctly.
+        table = pa.table(
+            {
+                "event_id": ["evt-2"],
+                "timestamp": [1777655416],
+                "metric": ["opened"],
+                "data": ['{"recipient": "a@example.com"}'],
+            }
+        )
+
+        result = _webhook_table_transformer(table)
+        rows = result.to_pylist()
+
+        assert rows == [
+            {"event_id": "evt-2", "timestamp": 1777655416, "metric": "opened", "recipient": "a@example.com"}
+        ]
+
+    def test_skips_rows_with_null_data(self):
+        # A null `data` field would produce a row with no lifted columns — skip it
+        # rather than emit a sparse row that can't be partitioned reliably.
+        table = pa.table(
+            {
+                "event_id": ["evt-3", "evt-4"],
+                "timestamp": [1, 2],
+                "metric": ["sent", "clicked"],
+                "data": [None, {"recipient": "b@example.com"}],
+            }
+        )
+
+        result = _webhook_table_transformer(table)
+        rows = result.to_pylist()
+
+        assert rows == [{"event_id": "evt-4", "timestamp": 2, "metric": "clicked", "recipient": "b@example.com"}]
+
+    def test_returns_empty_when_data_column_missing(self):
+        table = pa.table({"event_id": ["evt-5"], "timestamp": [1]})
+
+        result = _webhook_table_transformer(table)
+
+        assert result.num_rows == 0

@@ -42,6 +42,30 @@ message GroupTypeMappingsByKey {
   repeated GroupTypeMapping mappings = 2;
 }
 
+// ListGroupsRequest returns groups for a team with filtering and keyset pagination.
+// Used by the groups list API endpoint.
+message ListGroupsRequest {
+  int64 team_id = 1;
+  int32 group_type_index = 2;
+  // Substring match on group_key (case-insensitive). Empty means no filter.
+  string group_key_contains = 3;
+  // Substring search across group_properties JSON and exact match on group_key.
+  // Empty means no search filter.
+  string search = 4;
+  // Keyset pagination cursor: pass the created_at millis + id from the last
+  // result of the previous page. First page: cursor_created_at_ms = 0, cursor_id = 0.
+  int64 cursor_created_at_ms = 5;
+  int64 cursor_id = 6;
+  int32 limit = 7;
+  ReadOptions read_options = 8;
+}
+
+message ListGroupsResponse {
+  repeated Group groups = 1;
+  // True when more results exist beyond this page.
+  bool has_more = 2;
+}
+
 message GetGroupRequest {
   int64 team_id = 1;
   int32 group_type_index = 2;

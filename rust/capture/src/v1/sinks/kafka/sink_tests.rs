@@ -689,6 +689,9 @@ fn sink_name_returns_configured_name() {
 #[case::overflow(Destination::Overflow, "events_overflow")]
 #[case::dlq(Destination::Dlq, "events_dlq")]
 #[case::custom(Destination::Custom("my_topic".into()), "my_topic")]
+#[case::exception(Destination::ExceptionErrorTracking, "error_tracking_events")]
+#[case::heatmap(Destination::HeatmapMain, "heatmaps_ingestion")]
+#[case::client_ingestion_warning(Destination::ClientIngestionWarning, "events_plugin_ingestion")]
 #[tokio::test]
 async fn destination_routes_to_correct_topic(
     #[case] destination: Destination,

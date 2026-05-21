@@ -206,6 +206,7 @@ export class ErrorTrackingServer implements NodeServer {
                     statefulOverflowRedisTTLSeconds: this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
                     statefulOverflowLocalCacheTTLSeconds:
                         this.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                    preservePartitionLocality: this.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
                     pipeline: this.config.INGESTION_PIPELINE ?? 'errortracking',
                     rateLimiterEnabled: this.config.ERROR_TRACKING_RATE_LIMITER_ENABLED,
                     rateLimiterReportingMode: this.config.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,

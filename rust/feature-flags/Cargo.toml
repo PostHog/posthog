@@ -27,6 +27,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 bytes = { workspace = true }
+http-body-util = "0.1"
 url = "2.5"
 once_cell = { workspace = true }
 rand = { workspace = true }

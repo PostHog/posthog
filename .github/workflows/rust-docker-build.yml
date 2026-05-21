@@ -71,6 +71,9 @@ jobs:
                     - release: flags-cache-jumphost
                       digest_key: flags-cache-warmer
                       values_key: image
+                    - release: flags-consumer
+                      digest_key: flags-consumer
+                      values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker
                       values_key: image

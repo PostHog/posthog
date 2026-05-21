@@ -48,6 +48,13 @@
             "host": "%mailFromSub%",
             "spfRules": "include:amazonses.com",
             "ttl": 3600
+        },
+        {
+            "groupId": "dmarc",
+            "type": "TXT",
+            "host": "_dmarc",
+            "data": "v=DMARC1; p=none;",
+            "ttl": 3600
         }
     ]
 }
