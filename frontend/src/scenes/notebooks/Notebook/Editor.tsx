@@ -196,7 +196,7 @@ export function Editor(): JSX.Element {
 
     return (
         <RichContentEditor
-            // TipTap keeps its initial extension set, so preview/live mode needs a keyed editor remount.
+            // Key forces editor to unmount/remount when moving between live collab and history preview.
             key={editorLogicKey}
             logicKey={editorLogicKey}
             extensions={extensions}
