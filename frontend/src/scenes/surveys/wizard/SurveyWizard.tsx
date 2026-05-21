@@ -22,7 +22,6 @@ import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/type
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
-import { CopySurveyLink } from '../CopySurveyLink'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
 import { surveyLogic } from '../surveyLogic'
@@ -256,15 +255,10 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     <SdkVersionWarnings warnings={surveyWarnings} />
                     {isHostedSurvey ? (
                         <div className="flex flex-col gap-3">
-                            {survey.id && survey.id !== 'new' && (
-                                <div className="flex flex-col gap-1">
-                                    <span className="text-muted text-xs">Share link</span>
-                                    <CopySurveyLink
-                                        surveyId={survey.id}
-                                        enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
-                                    />
-                                </div>
-                            )}
+                            <p className="text-secondary m-0">
+                                Once launched, anyone with the link can answer the survey. You'll get the share link on
+                                the next screen.
+                            </p>
                             <HostedSurveyRespondentHint />
                         </div>
                     ) : hasConditions || hasAudienceConditions ? (

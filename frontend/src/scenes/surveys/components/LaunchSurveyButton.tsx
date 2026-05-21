@@ -4,10 +4,11 @@ import { ReactNode } from 'react'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { HostedSurveyRespondentHint } from 'scenes/surveys/components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
-import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
+import { getSurveyUrl } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -42,13 +43,10 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                 <SdkVersionWarnings warnings={surveyWarnings} />
                                 {isHostedSurvey ? (
                                     <div className="flex flex-col gap-3 text-sm">
-                                        <div className="flex flex-col gap-1">
-                                            <div className="text-muted text-xs">Share link</div>
-                                            <CopySurveyLink
-                                                surveyId={survey.id}
-                                                enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
-                                            />
-                                        </div>
+                                        <p className="text-secondary m-0">
+                                            Once launched, anyone with the link can answer the survey. We'll copy the
+                                            link to your clipboard so you can share it right away.
+                                        </p>
                                         <HostedSurveyRespondentHint />
                                     </div>
                                 ) : conditionsSummary.length > 0 ? (
@@ -69,11 +67,14 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                             </div>
                         ),
                         primaryButton: {
-                            children: 'Launch',
+                            children: isHostedSurvey ? 'Launch and copy link' : 'Launch',
                             type: 'primary',
                             onClick: () => {
                                 if (needsOptIn) {
                                     updateCurrentTeam({ surveys_opt_in: true })
+                                }
+                                if (isHostedSurvey) {
+                                    void copyToClipboard(getSurveyUrl(survey.id), 'survey link')
                                 }
                                 launchSurvey()
                             },
