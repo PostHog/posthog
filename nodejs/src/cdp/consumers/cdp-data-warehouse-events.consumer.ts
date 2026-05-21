@@ -10,7 +10,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
@@ -22,13 +22,13 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
-    protected cyclotronJobQueue: CyclotronJobQueue
+    protected hogQueue: JobQueue
     protected kafkaConsumer: KafkaConsumerInterface
     private hogFunctionPipeline: HogFunctionInvocationPipeline
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, hogQueue: JobQueue) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.hogQueue = hogQueue
         this.kafkaConsumer = createKafkaConsumer({
             groupId: 'cdp-data-warehouse-events-consumer',
             topic: 'cdp_data_warehouse_source_table',
@@ -63,7 +63,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
         return {
             backgroundTask: Promise.all([
                 instrumentFn({ key: 'cdp.background_task.queue_invocations', sendException: false }, () =>
-                    this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
+                    this.hogQueue.queueInvocations(invocationsToBeQueued)
                 ),
                 instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
                     try {
@@ -112,7 +112,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
     public override async start(): Promise<void> {
         await super.start()
-        await this.cyclotronJobQueue.startAsProducer()
+        await this.hogQueue.startAsProducer()
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, { size: messages.length })
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
@@ -126,7 +126,7 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     public override async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
-        await this.cyclotronJobQueue.stop()
+        await this.hogQueue.stopProducer()
         await super.stop()
     }
 
