@@ -5,7 +5,7 @@
   # Do not edit manually - run `pnpm generate:source-configs` to regenerate.
   
   from posthog.temporal.data_imports.sources.common import config
-  from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
+  from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig
   from products.data_warehouse.backend.types import ExternalDataSourceType
   from typing import Literal
   
