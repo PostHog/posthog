@@ -496,7 +496,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 Some("INNER") => "INNER ARRAY JOIN",
                 _ => "ARRAY JOIN",
             };
-            self.emit.set_field(&mut obj, "array_join_op", self.emit.string("op"));
+            self.emit.set_field(&mut obj, "array_join_op", self.emit.string(op));
             // Inline expr-list parsing so we can capture each item's span
             // for the alias-required error.
             let mut exprs: Vec<E::Value> = Vec::new();
@@ -581,7 +581,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 let exprs = self.parse_expr_list_until_paren()?;
                 self.expect(TokenKind::RParen, ")")?;
                 self.emit.set_field(&mut obj, "group_by", self.emit.list_value(exprs));
-                self.emit.set_field(&mut obj, "group_by_mode", self.emit.string("kw"));
+                self.emit.set_field(&mut obj, "group_by_mode", self.emit.string(kw));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Grouping))
                 && self.peek_next() == TokenKind::Keyword(Kw::Sets)
             {
@@ -1427,7 +1427,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             None
         };
         if let Some(m) = frame_method {
-            self.emit.set_field(&mut obj, "frame_method", self.emit.string("m"));
+            self.emit.set_field(&mut obj, "frame_method", self.emit.string(m));
             // `BETWEEN` after ROWS / RANGE is ambiguous: the
             // `frameBetween` alt (`BETWEEN bound AND bound`) or a
             // `frameStart` bound whose `columnExpr` is the `between`

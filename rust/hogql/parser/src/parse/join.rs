@@ -567,26 +567,8 @@ let pivot_input = if joined_any {
         // parse_table_expr signals table-function args via a sentinel key
         // on the returned Field — extract them into `table_args` so the
         // JoinExpr wrapper gets the C++-shape Field + table_args split.
-        let table_args = self.emit.get_field(&table_expr, "__rust_table_args");
-        let table_expr = if table_args.is_some() {
-            // Remove the sentinel from the value. Since we can't mutate
-            // fields out (no remove_field on trait), we leave the
-            // sentinel in place for downstream — the join_expr trait
-            // method's JSON impl uses set_field which overwrites, and
-            // PyEmitter will simply have a stray attribute that's
-            // harmless when serialized via dataclass __eq__.
-            //
-            // Actually for JSON we DO need to remove the sentinel since
-            // the Python deserialiser doesn't know it. Use the trait
-            // helper: clone and rebuild via emit.no_pos which preserves
-            // most fields... no, simplest: add a remove_field method.
-            // For now, set it to null to satisfy the deserialiser.
-            let mut te = table_expr;
-            self.emit.set_field(&mut te, "__rust_table_args", self.emit.null());
-            te
-        } else {
-            table_expr
-        };
+        let mut table_expr = table_expr;
+        let table_args = self.emit.remove_field(&mut table_expr, "__rust_table_args");
         let is_table_function = table_args.is_some();
         // Grammar order: `TableExprAlias` is `tableExpr (alias | AS
         // identifier) columnAliases?` — the alias and column-aliases
