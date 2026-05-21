@@ -7,10 +7,9 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
-import { RerunPaginatorService } from '../rerun/rerun-paginator.service'
+import { RerunJobQueues, RerunPaginatorService } from '../rerun/rerun-paginator.service'
 import { CyclotronV2Worker } from '../services/cyclotron-v2'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
-import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Heartbeat interval — the cyclotron-v2 lock timeout is 30s by default, send
@@ -45,14 +44,15 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
     protected name = 'CdpRerunWorkerConsumer'
 
     private worker: CyclotronV2Worker | null = null
-    private cyclotronJobQueue: CyclotronJobQueuePostgresV2
+    private jobQueues: RerunJobQueues
     private paginator: RerunPaginatorService | null = null
     private clickhouseClient: ClickHouseClient | null = null
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueues: RerunJobQueues) {
         super(config, deps)
-        // Used by the paginator to re-enqueue invocations as it pages.
-        this.cyclotronJobQueue = new CyclotronJobQueuePostgresV2(config.CONSUMER_BATCH_SIZE, config)
+        // Used by the paginator to re-enqueue rehydrated invocations as it
+        // pages — hog functions to kafka, hog flows to postgres-v2.
+        this.jobQueues = jobQueues
     }
 
     override async start(): Promise<void> {
@@ -60,7 +60,8 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             throw new Error('CYCLOTRON_NODE_DATABASE_URL is required for the rerun worker')
         }
 
-        await this.cyclotronJobQueue.startAsProducer()
+        await this.jobQueues.hog_function.startAsProducer()
+        await this.jobQueues.hog_flow.startAsProducer()
 
         // Dedicated ClickHouse client for the paginator. The cluster's certs
         // are issued for an internal hostname that doesn't match the one we
@@ -99,7 +100,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             // config, since we strip `inputs` from the persisted globals.
             this.hogInputsService,
             this.invocationResultsService.invocationResultsRowsService,
-            this.cyclotronJobQueue,
+            this.jobQueues,
             this.invocationResultsService.monitoringService,
             this.config.HOG_INVOCATION_RERUN_MAX_COUNT
         )
@@ -107,10 +108,11 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
         this.worker = new CyclotronV2Worker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: RERUN_QUEUE_NAME,
-            // Rerun jobs are heavy (each runs a full ClickHouse query) — pull
-            // them one at a time so a single replica can be deployed at high
-            // concurrency without overwhelming ClickHouse.
-            batchMaxSize: 1,
+            // Rerun jobs are heavy (each runs a full ClickHouse query) — the
+            // default of 1 pulls them one at a time so a single replica can be
+            // deployed at high concurrency without overwhelming ClickHouse.
+            // Tunable via CDP_RERUN_WORKER_BATCH_SIZE.
+            batchMaxSize: this.config.CDP_RERUN_WORKER_BATCH_SIZE,
             pollDelayMs: 1000,
         })
 
@@ -122,7 +124,8 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
     override async stop(): Promise<void> {
         this.isStopping = true
         await this.worker?.disconnect()
-        await this.cyclotronJobQueue.stopProducer()
+        await this.jobQueues.hog_function.stopProducer()
+        await this.jobQueues.hog_flow.stopProducer()
         await this.clickhouseClient?.close()
         await this.invocationResultsService.flush()
     }
@@ -146,8 +149,8 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
     }
 
     private async handleBatch(jobs: CyclotronV2DequeuedJob[]): Promise<void> {
-        // batchMaxSize=1, so this is effectively one job at a time. The loop
-        // exists for symmetry with other consumer base classes.
+        // Usually one job at a time (CDP_RERUN_WORKER_BATCH_SIZE defaults to 1),
+        // but the loop handles a larger batch if the env is tuned up.
         for (const job of jobs) {
             await this.handleJob(job)
         }

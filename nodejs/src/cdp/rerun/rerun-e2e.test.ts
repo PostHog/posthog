@@ -126,6 +126,8 @@ describe('CDP hog invocation rerun e2e', () => {
     let cyclotronWorker: CdpCyclotronWorker
     let rerunManager: RerunJobManager
     let rerunWorker: CdpRerunWorkerConsumer
+    let kafkaQueue: CyclotronJobQueueKafka
+    let postgresV2Queue: CyclotronJobQueuePostgresV2
     let nodeAssertPool: Pool
     let clickhouse: Clickhouse
 
@@ -165,7 +167,6 @@ describe('CDP hog invocation rerun e2e', () => {
         hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
         hub.CYCLOTRON_NODE_DATABASE_URL = NODE_DB_URL
         hub.HOG_INVOCATION_RESULTS_ENABLED = true
-        // Routing is hardcoded — hogflow always goes to postgres-v2.
 
         // Clean any stale rerun wrapper jobs from prior runs.
         nodeAssertPool = new Pool({ connectionString: NODE_DB_URL })
@@ -189,8 +190,8 @@ describe('CDP hog invocation rerun e2e', () => {
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
 
-        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub)
-        const postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+        kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub)
+        postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
         eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
             hogQueue: kafkaQueue,
@@ -298,7 +299,8 @@ describe('CDP hog invocation rerun e2e', () => {
         // ── 3. Rerun worker drains the wrapper job ────────────────────────────────
         rerunWorker = new CdpRerunWorkerConsumer(
             { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
-            createCdpConsumerDeps(hub, kafkaProducer)
+            createCdpConsumerDeps(hub, kafkaProducer),
+            { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
         )
         await rerunWorker.start()
 

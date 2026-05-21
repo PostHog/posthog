@@ -94,6 +94,9 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
+    // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
+    // Kept small by default — each job runs a full ClickHouse query per page.
+    CDP_RERUN_WORKER_BATCH_SIZE: number
     CDP_PREFILTERED_EVENTS_TOPIC: string
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
@@ -206,6 +209,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
+        // Small by default — rerun jobs are heavy (a full ClickHouse query per
+        // page), so a replica drains one wrapper job at a time unless tuned up.
+        CDP_RERUN_WORKER_BATCH_SIZE: 1,
         CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
