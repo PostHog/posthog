@@ -100,7 +100,6 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
         # For positive match operators, empty string can't match
         return _FALSE
 
-
     if operator in ("exact", "in"):
         return _TRUE if _matches_any(value, sn) else _FALSE
     if operator in ("is_not", "not_in"):
