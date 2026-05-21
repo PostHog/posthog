@@ -31,8 +31,11 @@
                     "type": "string"
                 },
                 "tags": {
-                    "description": "Comma-separated list of tags to filter by.",
-                    "type": "string"
+                    "description": "Tag names to filter by. Flags carrying at least one of these tags match.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "description": "Filter by flag type.\n\n* `boolean` - boolean\n* `multivariant` - multivariant\n* `experiment` - experiment\n* `remote_config` - remote_config",
