@@ -5,7 +5,7 @@ import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useState } from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
+import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
 import { NewSurvey } from '../constants'
 import { CopySurveyLink } from '../CopySurveyLink'
@@ -258,23 +259,16 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                             <p className="text-secondary">
                                 Share this link with the people you want to answer the survey.
                             </p>
-                            <div className="flex flex-col gap-1">
-                                <span className="text-muted text-xs">Share link</span>
-                                <CopySurveyLink
-                                    surveyId={survey.id}
-                                    enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
-                                />
-                            </div>
-                            <p className="text-xs text-muted">
-                                Responses are anonymous by default. Append <code>?distinct_id=...</code> to the URL to
-                                tie responses to a specific person.{' '}
-                                <Link
-                                    to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
-                                    target="_blank"
-                                >
-                                    Learn more
-                                </Link>
-                            </p>
+                            {survey.id && survey.id !== 'new' && (
+                                <div className="flex flex-col gap-1">
+                                    <span className="text-muted text-xs">Share link</span>
+                                    <CopySurveyLink
+                                        surveyId={survey.id}
+                                        enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                                    />
+                                </div>
+                            )}
+                            <HostedSurveyRespondentHint />
                         </div>
                     ) : hasConditions || hasAudienceConditions ? (
                         <>

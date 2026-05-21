@@ -1,12 +1,13 @@
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
+import { HostedSurveyRespondentHint } from '../../components/HostedSurveyRespondentHint'
 import { CopySurveyLink } from '../../CopySurveyLink'
 import { SurveyAppearancePreview } from '../../SurveyAppearancePreview'
 
@@ -44,16 +45,7 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
                 {isHostedSurvey ? (
                     <>
                         <p className="text-secondary">Share this link with the people you want to answer the survey.</p>
-                        <p className="text-muted text-sm">
-                            Responses are anonymous by default. Append <code>?distinct_id=...</code> to the URL to tie
-                            responses to a specific person.{' '}
-                            <Link
-                                to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
-                                target="_blank"
-                            >
-                                Learn more
-                            </Link>
-                        </p>
+                        <HostedSurveyRespondentHint className="text-muted text-sm" />
                     </>
                 ) : (
                     <>

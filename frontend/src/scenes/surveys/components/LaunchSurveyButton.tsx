@@ -4,7 +4,7 @@ import { ReactNode } from 'react'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { Link } from 'lib/lemon-ui/Link'
+import { HostedSurveyRespondentHint } from 'scenes/surveys/components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyConditionsList } from 'scenes/surveys/components/SurveyConditions'
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
@@ -52,16 +52,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                                                 enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
                                             />
                                         </div>
-                                        <div className="text-xs text-muted">
-                                            Responses are anonymous by default. Append <code>?distinct_id=...</code> to
-                                            the URL to tie responses to a specific person.{' '}
-                                            <Link
-                                                to="https://posthog.com/docs/surveys/creating-surveys#identifying-respondents-on-hosted-surveys"
-                                                target="_blank"
-                                            >
-                                                Learn more
-                                            </Link>
-                                        </div>
+                                        <HostedSurveyRespondentHint />
                                     </div>
                                 ) : conditionsSummary.length > 0 ? (
                                     <div className="text-sm">
