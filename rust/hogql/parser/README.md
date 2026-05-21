@@ -140,9 +140,22 @@ long-running, agent-friendly part.
 The agent loop that brings rust to behavioural parity with cpp. Long-running;
 the diagnostics produce concrete diffs the agent attacks one at a time.
 
-Before each iteration make sure both the cpp and rust parser binaries
-are up to date (`pip install ./common/hogql_parser`, `maturin develop
---release --manifest-path rust/hogql/parser/Cargo.toml`).
+**Before each iteration, rebuild both parser wheels from local source.**
+`uv pip install` / `pip install` will happily resolve to the published
+PyPI wheel and ignore the working tree, so a fresh `maturin develop`
+and a fresh `pip install ./common/hogql_parser` are non-negotiable —
+the diagnostics test what's installed, not what's on disk.
+
+```bash
+maturin develop --release --manifest-path rust/hogql/parser/Cargo.toml
+pip install --force-reinstall --no-deps ./common/hogql_parser
+```
+
+`maturin develop` writes the wheel into the active venv as editable;
+`--force-reinstall --no-deps` for the cpp wheel sidesteps pip's
+"already-satisfied" short-circuit when the in-tree version matches
+the PyPI pin. Skip these and the loop will silently chase divergences
+that have already been fixed in the working tree.
 
 1. **Generate a new divergence.** In priority order:
     + existing failing regression tests (highest signal);
