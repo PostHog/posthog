@@ -1,9 +1,10 @@
+import annotationPlugin from 'chartjs-plugin-annotation'
 import clsx from 'clsx'
 import { useMemo, useRef, useState } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 
-import { ScaleOptions, TooltipModel } from 'lib/Chart'
+import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -12,6 +13,21 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
+
+// Register once at module load. Chart.register is idempotent so re-registers (eg. by
+// AlertHistoryChart, which also uses the annotation plugin) are safe.
+Chart.register(annotationPlugin)
+
+export interface SparklineReferenceLine {
+    /** Y-axis value the dashed line is drawn at, in the same units as the series data. */
+    value: number
+    /** Color name from `vars.scss` (e.g. 'danger'). @default 'danger' */
+    color?: string
+    /** Optional label to anchor at the end of the line (shown only when provided). */
+    label?: string
+    /** Where to anchor the optional label. @default 'end' */
+    labelPosition?: 'start' | 'center' | 'end'
+}
 
 export interface SparklineTimeSeries {
     name: string
@@ -54,6 +70,8 @@ export interface SparklineProps {
     hideZerosInTooltip?: boolean
     /** Sort tooltip items by count (descending). @default false */
     sortTooltipByCount?: boolean
+    /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
+    referenceLines?: SparklineReferenceLine[]
 }
 
 export function Sparkline({
@@ -74,6 +92,7 @@ export function Sparkline({
     tooltipRowCutoff,
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
+    referenceLines,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -213,6 +232,40 @@ export function Sparkline({
                                 setTooltip({ ...tooltip } as TooltipModel<'bar'>)
                             },
                         },
+                        ...(referenceLines && referenceLines.length > 0
+                            ? {
+                                  annotation: {
+                                      annotations: Object.fromEntries(
+                                          referenceLines.map((line, i) => {
+                                              const lineColor = getColorVar(line.color || 'danger')
+                                              return [
+                                                  `referenceLine${i}`,
+                                                  {
+                                                      type: 'line',
+                                                      yMin: line.value,
+                                                      yMax: line.value,
+                                                      borderColor: lineColor,
+                                                      borderWidth: 1.5,
+                                                      borderDash: [5, 4],
+                                                      ...(line.label
+                                                          ? {
+                                                                label: {
+                                                                    display: true,
+                                                                    content: line.label,
+                                                                    position: line.labelPosition || 'end',
+                                                                    font: { size: 9 },
+                                                                    color: lineColor,
+                                                                    backgroundColor: 'transparent',
+                                                                },
+                                                            }
+                                                          : {}),
+                                                  },
+                                              ]
+                                          })
+                                      ),
+                                  },
+                              }
+                            : {}),
                     },
                     maintainAspectRatio: false,
                     interaction: {
@@ -223,7 +276,7 @@ export function Sparkline({
                 },
             }
         },
-        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type],
+        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type, referenceLines],
     })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0

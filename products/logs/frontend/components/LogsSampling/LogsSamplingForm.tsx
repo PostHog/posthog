@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { LemonInput, LemonSegmentedButton, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { dataColorVars } from 'lib/colors'
-import { Sparkline, SparklineTimeSeries } from 'lib/components/Sparkline'
+import { Sparkline, SparklineReferenceLine, SparklineTimeSeries } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -126,11 +126,20 @@ export function LogsSamplingForm(): JSX.Element {
         return kbPerSecond * 1000 * bucketSeconds
     }, [isRateLimit, bucketSeconds, samplingForm.rate_limit_amount, samplingForm.rate_limit_unit])
 
-    // y-axis runs 0..chartMax inside the sparkline container; clamp the line to that range so it stays visible.
-    const rateLimitLineTopPct =
-        rateLimitThresholdPerBucket != null && chartMax > 0
-            ? Math.max(0, Math.min(100, (1 - rateLimitThresholdPerBucket / chartMax) * 100))
-            : null
+    const rateLimitReferenceLines = useMemo<SparklineReferenceLine[] | undefined>(() => {
+        if (rateLimitThresholdPerBucket == null) {
+            return undefined
+        }
+        return [
+            {
+                value: rateLimitThresholdPerBucket,
+                color: 'danger',
+                label: `Rate limit (${samplingForm.rate_limit_amount.trim()} ${samplingForm.rate_limit_unit})`,
+                labelPosition: 'end',
+            },
+        ]
+    }, [rateLimitThresholdPerBucket, samplingForm.rate_limit_amount, samplingForm.rate_limit_unit])
+
     const rateLimitAboveChart =
         rateLimitThresholdPerBucket != null && chartMax > 0 && rateLimitThresholdPerBucket > chartMax
 
@@ -216,26 +225,13 @@ export function LogsSamplingForm(): JSX.Element {
                                 No logs match these filters in the last 24h
                             </div>
                         ) : (
-                            <>
-                                <Sparkline
-                                    data={series}
-                                    labels={labels}
-                                    className="w-full h-full"
-                                    maximumIndicator={false}
-                                />
-                                {rateLimitLineTopPct != null && (
-                                    <div
-                                        className="absolute left-2 right-2 border-t border-dashed border-danger pointer-events-none"
-                                        style={{ top: `${rateLimitLineTopPct}%` }}
-                                        aria-hidden
-                                    >
-                                        <span className="absolute -top-2.5 right-0 text-[10px] leading-none text-danger bg-bg-light px-1">
-                                            Rate limit ({samplingForm.rate_limit_amount.trim()}{' '}
-                                            {samplingForm.rate_limit_unit})
-                                        </span>
-                                    </div>
-                                )}
-                            </>
+                            <Sparkline
+                                data={series}
+                                labels={labels}
+                                className="w-full h-full"
+                                maximumIndicator={false}
+                                referenceLines={rateLimitReferenceLines}
+                            />
                         )}
                     </div>
                     {isRateLimit && rateLimitAboveChart ? (
