@@ -17,13 +17,14 @@ work identically in ``mcp_mode=tools`` (per-tool MCP) and ``mcp_mode=cli``
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from autoevals.llm import LLMClassifier
 from braintrust import Score
 from braintrust_core.score import Scorer
 
-from ee.hogai.eval.sandboxed.log_parser import LogParser
+from ee.hogai.eval.sandboxed.log_parser import LogParser, ToolCall
 
 __all__ = [
     "BINARY_CHOICE_SCORES",
@@ -90,6 +91,42 @@ def _last_successful_input(parser: LogParser | None, tool_name: str) -> dict[str
         return None
     raw = successful[-1].input
     return raw if isinstance(raw, dict) else None
+
+
+def _collect_session_ids(value: Any) -> set[str]:
+    if isinstance(value, dict):
+        session_ids: set[str] = set()
+        for key, nested in value.items():
+            if key in {"$session_id", "session_id"}:
+                if isinstance(nested, str):
+                    session_ids.add(nested)
+                elif isinstance(nested, list):
+                    session_ids.update(item for item in nested if isinstance(item, str))
+            session_ids.update(_collect_session_ids(nested))
+        return session_ids
+    if isinstance(value, list):
+        session_ids = set()
+        for item in value:
+            session_ids.update(_collect_session_ids(item))
+        return session_ids
+    return set()
+
+
+def _session_ids_from_output(raw_output: str) -> set[str]:
+    try:
+        decoded = json.loads(raw_output)
+    except json.JSONDecodeError:
+        return set()
+    return _collect_session_ids(decoded)
+
+
+def _session_ids_from_recordings_input(tool_input: dict[str, Any]) -> set[str]:
+    raw_session_ids = tool_input.get("session_ids")
+    if isinstance(raw_session_ids, str):
+        return {raw_session_ids}
+    if isinstance(raw_session_ids, list):
+        return {item for item in raw_session_ids if isinstance(item, str)}
+    return set()
 
 
 def extract_last_query_issues_list_input(output: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -330,7 +367,7 @@ You are comparing the ACTUAL arguments an agent passed to PostHog's `query-error
 
 Material fields when EXPECTED sets them:
 - `limit` — integer; treat as material when EXPECTED specifies a max or a range. The tool defaults `limit=1`; `limit > 5` without an explicit "show me many" prompt is wrong.
-- `verbosity` — one of `summary` / `stack` / `raw`. EXPECTED sets the value the agent should pick. `raw` should only be used when the prompt explicitly asks for raw / untruncated / full payload.
+- `verbosity` — one of `summary` / `stack` / `raw`. EXPECTED sets the value the agent should pick. The special EXPECTED value `summary_or_stack` means ACTUAL may omit verbosity (tool default), set `summary`, or set `stack`; `raw` is wrong unless the prompt asks for raw / untruncated / full payload.
 - `searchQuery` — substring/word overlap with EXPECTED is sufficient.
 - `filterGroup` — when EXPECTED uses a `searchQuery` and ACTUAL uses an equivalent property filter (or vice versa), that's also fine.
 - `dateRange.date_from` / `dateRange.date_to` — only material when EXPECTED sets them.
@@ -594,6 +631,24 @@ class IssueDrilldownOrder(Scorer):
             if recordings_pos < min_pred:
                 metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} ran before its prerequisite drill-down"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
+            recordings_call = self._first_successful_call(parser, SESSION_RECORDINGS_LIST_TOOL)
+            recordings_session_ids = (
+                _session_ids_from_recordings_input(recordings_call.input) if recordings_call is not None else set()
+            )
+            metadata["recordings_session_ids"] = sorted(recordings_session_ids)
+            if not recordings_session_ids:
+                metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} did not include session_ids from sampled events"
+                return Score(name=self._name(), score=0.0, metadata=metadata)
+            event_session_ids = self._event_session_ids_before(parser, recordings_pos)
+            metadata["event_session_ids"] = sorted(event_session_ids)
+            if not event_session_ids:
+                metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} output did not expose $session_id values"
+                return Score(name=self._name(), score=0.0, metadata=metadata)
+            unexpected_session_ids = recordings_session_ids - event_session_ids
+            if unexpected_session_ids:
+                metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} used session_ids not returned by sampled events"
+                metadata["unexpected_session_ids"] = sorted(unexpected_session_ids)
+                return Score(name=self._name(), score=0.0, metadata=metadata)
         elif forbids_recordings and recordings_pos is not None:
             metadata["reason"] = (
                 f"{SESSION_RECORDINGS_LIST_TOOL} was called for a prompt that did not ask for replay context"
@@ -609,3 +664,19 @@ class IssueDrilldownOrder(Scorer):
             if not call.is_error:
                 return call.position
         return None
+
+    @staticmethod
+    def _first_successful_call(parser: LogParser, tool_name: str) -> ToolCall | None:
+        for call in parser.get_tool_calls(tool_name):
+            if not call.is_error:
+                return call
+        return None
+
+    @staticmethod
+    def _event_session_ids_before(parser: LogParser, position: int) -> set[str]:
+        session_ids: set[str] = set()
+        for call in parser.get_tool_calls(QUERY_ISSUE_EVENTS_TOOL):
+            if call.is_error or call.position > position:
+                continue
+            session_ids.update(_session_ids_from_output(call.output))
+        return session_ids

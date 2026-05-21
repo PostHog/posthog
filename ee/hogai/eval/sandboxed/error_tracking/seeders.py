@@ -8,13 +8,11 @@ Owns the entire error-tracking surface for a per-case team:
     around to confuse the agent.
   * Creates three deterministic ``ErrorTrackingIssue`` PSQL rows with
     fresh UUIDs and matching ``ErrorTrackingIssueFingerprintV2`` rows.
-  * Writes the matching ``$exception`` events directly to ClickHouse via
-    ``create_event`` — which under ``settings.TEST=True`` (the default
-    when running under pytest, restored after ``data_setup``'s
-    ``override_settings(TEST=False)`` block exits) takes the ``sync_execute``
-    fast path instead of producing to Kafka. That makes the seed
-    self-contained — no Kafka consumer, no fingerprint-override
-    materialized view, no implicit dependency on the demo matrix.
+  * Writes the matching ``$exception`` events directly to ClickHouse so
+    concurrent setup hooks don't depend on the process-global ``settings.TEST``
+    value used by ``ClickhouseProducer``. That makes the seed self-contained —
+    no Kafka consumer, no fingerprint-override materialized view, no implicit
+    dependency on the demo matrix.
 
 Returned dict is merged into the task output under ``seed`` by
 ``base.py:task()`` so scorers reach it via ``output["seed"]``.
@@ -22,11 +20,19 @@ Returned dict is merged into the task output under ``seed`` by
 
 from __future__ import annotations
 
+import json
 import uuid
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Team
+from posthog.models.event.sql import INSERT_EVENT_SQL
+from posthog.models.utils import uuid7
+
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = logging.getLogger(__name__)
@@ -48,6 +54,7 @@ _EVAL_DISTINCT_IDS: tuple[str, ...] = (
 # Stable namespace so the same distinct_id always resolves to the same
 # synthetic person_id across cases. Keeps ``users`` aggregations realistic.
 _EVAL_PERSON_NAMESPACE = uuid.UUID("3f7c8b1e-2d3a-4f5b-8c7d-9e0f1a2b3c4d")
+_ZERO_CLICKHOUSE_TIMESTAMP = "1970-01-01 00:00:00.000000"
 
 
 def _person_id_for(distinct_id: str) -> str:
@@ -146,6 +153,43 @@ def _build_exception_properties(spec: dict[str, Any], issue_id: str) -> dict[str
     }
 
 
+def _insert_exception_event(
+    *,
+    team: Team,
+    distinct_id: str,
+    timestamp: datetime,
+    properties: dict[str, Any],
+) -> None:
+    timestamp_utc = timestamp.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S.%f")
+    sync_execute(
+        INSERT_EVENT_SQL(),
+        {
+            "uuid": str(uuid.uuid4()),
+            "event": "$exception",
+            "properties": json.dumps(properties),
+            "timestamp": timestamp_utc,
+            "team_id": team.id,
+            "distinct_id": distinct_id,
+            "elements_chain": "",
+            "created_at": timestamp_utc,
+            "person_id": _person_id_for(distinct_id),
+            "person_properties": "{}",
+            "person_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
+            "group0_properties": "{}",
+            "group1_properties": "{}",
+            "group2_properties": "{}",
+            "group3_properties": "{}",
+            "group4_properties": "{}",
+            "group0_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
+            "group1_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
+            "group2_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
+            "group3_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
+            "group4_created_at": _ZERO_CLICKHOUSE_TIMESTAMP,
+            "person_mode": "full",
+        },
+    )
+
+
 def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str, Any]:
     """Seed three deterministic error-tracking issues + events on the per-case team.
 
@@ -155,12 +199,6 @@ def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str,
     deterministic scorers can resolve a target name back to the concrete
     UUID the agent should have passed as ``issueId``.
     """
-    from posthog.models import Team
-    from posthog.models.event.util import create_event
-    from posthog.models.utils import uuid7
-
-    from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
-
     team = Team.objects.get(id=context.team_id)
     # Cascade kills any matching ``ErrorTrackingIssueFingerprintV2`` rows.
     # Hedgebox's demo seed creates rows here whose CH events never land in
@@ -188,14 +226,11 @@ def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str,
         for index, days_ago in enumerate(spec["days_ago"]):
             distinct_id = _EVAL_DISTINCT_IDS[index % len(_EVAL_DISTINCT_IDS)]
             timestamp = now - timedelta(days=days_ago, hours=index % 5)
-            create_event(
-                event_uuid=uuid.uuid4(),
-                event="$exception",
+            _insert_exception_event(
                 team=team,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 properties=_build_exception_properties(spec, issue_id),
-                person_id=uuid.UUID(_person_id_for(distinct_id)),
             )
 
         lookup.append({"id": issue_id, "name": spec["name"]})
