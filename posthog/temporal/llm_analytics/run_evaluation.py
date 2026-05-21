@@ -53,6 +53,8 @@ logger = structlog.get_logger(__name__)
 # Default model for LLM judge
 DEFAULT_JUDGE_MODEL = "gpt-5-mini"
 
+SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
+
 # Retry policy for LLM judge activity with exponential backoff to prevent amplifying load during outages
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -358,10 +360,10 @@ async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> 
         is_exhausted = inputs.threshold_pct >= 100
 
         if is_exhausted:
-            subject = "Your LLM analytics trial evaluations have been used up"
+            subject = "Your AI observability trial evaluations have been used up"
             template_name = "llm_analytics_trial_exhausted"
         else:
-            subject = f"You've used {inputs.threshold_pct}% of your LLM analytics trial evaluations"
+            subject = f"You've used {inputs.threshold_pct}% of your AI observability trial evaluations"
             template_name = "llm_analytics_trial_warning"
 
         message = EmailMessage(
@@ -405,8 +407,8 @@ class SendEvaluationDisabledEmailInputs:
 
 
 _STATUS_REASON_SUBJECTS = {
-    "model_not_allowed": "Your LLM analytics evaluation was disabled because its model isn't supported on the trial plan",
-    "provider_key_deleted": "Your LLM analytics evaluation was disabled because its provider API key was removed",
+    "model_not_allowed": "Your AI observability evaluation was disabled because its model isn't supported on the trial plan",
+    "provider_key_deleted": "Your AI observability evaluation was disabled because its provider API key was removed",
 }
 
 
@@ -1027,6 +1029,10 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             # can link back to the session recording that originated the trace.
             "$session_id": source_props.get("$session_id"),
         }
+
+        for property_name in SOURCE_AI_PROPERTIES_TO_COPY:
+            if source_props.get(property_name) is not None:
+                properties[property_name] = source_props[property_name]
 
         if result.get("skipped"):
             properties["$ai_evaluation_skipped"] = True

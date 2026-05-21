@@ -35,7 +35,7 @@ from posthog.hogql.property import action_to_expr, apply_path_cleaning, property
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -46,10 +46,12 @@ from posthog.hogql_queries.web_analytics.metrics import (
     WEB_ANALYTICS_QUERY_ERRORS,
 )
 from posthog.hogql_queries.web_analytics.traffic_type import get_traffic_category_expr, get_traffic_type_expr
-from posthog.models import Action, User
+from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import generate_cache_key, get_safe_cache
+
+from products.actions.backend.models.action import Action
 
 logger = structlog.get_logger(__name__)
 
@@ -82,6 +84,12 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         return user_access_control.assert_access_level_for_resource("web_analytics", "viewer")
 
     def calculate(self) -> WAR:
+        # Every web analytics query runner produces user-facing dashboard
+        # queries. Tag here so all downstream `sync_execute` calls (live and
+        # preagg paths) inherit product/feature and don't trip DEBUG-mode
+        # `UntaggedQueryError`.
+        tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
+
         query_kind = getattr(self.query, "kind", "Unknown")
         breakdown_value = getattr(self.query, "breakdownBy", None)
         breakdown_label = breakdown_value.value if breakdown_value is not None else "none"

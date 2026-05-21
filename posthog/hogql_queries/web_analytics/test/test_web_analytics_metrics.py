@@ -87,11 +87,11 @@ class TestWebAnalyticsMetrics(TestCase):
                 None,
                 {
                     "query_kind": "WebStatsTableQuery",
-                    "query_strategy": "stats_table_main",
+                    "query_strategy": "stats_table_simple_breakdown",
                     "breakdown": "Page",
                     "has_conversion_goal": "false",
                 },
-                "stats_table_main",
+                "stats_table_simple_breakdown",
             ),
             (
                 "overview",
@@ -113,11 +113,11 @@ class TestWebAnalyticsMetrics(TestCase):
                 MagicMock(),
                 {
                     "query_kind": "WebStatsTableQuery",
-                    "query_strategy": "stats_table_main",
+                    "query_strategy": "stats_table_channel_type",
                     "breakdown": "InitialChannelType",
                     "has_conversion_goal": "true",
                 },
-                "stats_table_main",
+                "stats_table_channel_type",
             ),
             (
                 "trends",
@@ -161,7 +161,7 @@ class TestWebAnalyticsMetrics(TestCase):
         runner = _make_runner(
             query_kind="WebStatsTableQuery",
             breakdown=WebStatsBreakdown.BROWSER,
-            query_strategy="stats_table_main",
+            query_strategy="stats_table_simple_breakdown",
         )
 
         with patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", side_effect=ValueError("boom")):
@@ -170,7 +170,7 @@ class TestWebAnalyticsMetrics(TestCase):
 
         error_filter = {
             "query_kind": "WebStatsTableQuery",
-            "query_strategy": "stats_table_main",
+            "query_strategy": "stats_table_simple_breakdown",
             "breakdown": "Browser",
             "error_type": "ValueError",
         }
@@ -178,7 +178,7 @@ class TestWebAnalyticsMetrics(TestCase):
 
         counter_filter = {
             "query_kind": "WebStatsTableQuery",
-            "query_strategy": "stats_table_main",
+            "query_strategy": "stats_table_simple_breakdown",
             "used_preaggregated": "unknown",
         }
         assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, counter_filter) == 1.0

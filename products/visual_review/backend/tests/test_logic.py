@@ -1353,6 +1353,87 @@ class TestQuarantineStamping:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestQuarantineIdentifier:
+    """Coverage for `logic.quarantine_identifier` — especially the new
+    `source_run_id` behavior (valid run is stored, foreign run is dropped)."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=88888, repo_full_name="org/test-source-run")
+
+    def _mk_run(self, repo: Repo, branch: str = "main") -> Run:
+        return Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            run_type=RunType.STORYBOOK,
+            branch=branch,
+            commit_sha="abc123",
+            status=RunStatus.COMPLETED,
+            completed_at=timezone.now(),
+        )
+
+    def test_stores_valid_source_run(self, repo, team, user):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        run = self._mk_run(repo)
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            source_run_id=run.id,
+        )
+        # Returned row points at the source run …
+        assert entry.source_run_id == run.id
+        # … and the persisted row agrees.
+        persisted = QuarantinedIdentifier.objects.get(id=entry.id)
+        assert persisted.source_run_id == run.id
+
+    def test_drops_source_run_from_another_team(self, repo, team, user):
+        """A `source_run_id` from a run that doesn't belong to this team/repo
+        is silently dropped — the quarantine still gets created, just without
+        the cross-team pointer."""
+        from posthog.models.team.team import Team
+
+        # Sibling team in the same org with its own repo + run.
+        other_team = Team.objects.create(organization=team.organization, name="other")
+        other_repo = logic.create_repo(team_id=other_team.id, repo_external_id=12121, repo_full_name="org/other-repo")
+        foreign_run = Run.objects.create(
+            team_id=other_team.id,
+            repo=other_repo,
+            run_type=RunType.STORYBOOK,
+            branch="main",
+            commit_sha="xyz789",
+            status=RunStatus.COMPLETED,
+            completed_at=timezone.now(),
+        )
+
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+            source_run_id=foreign_run.id,
+        )
+        assert entry.source_run_id is None
+
+    def test_omitting_source_run_leaves_it_null(self, repo, team, user):
+        entry = logic.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="flake",
+            run_type=RunType.STORYBOOK,
+            reason="non-deterministic",
+            user_id=user.id,
+            team_id=team.id,
+        )
+        assert entry.source_run_id is None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRecomputeRun:
     @pytest.fixture
     def repo(self, team):
@@ -1950,3 +2031,186 @@ class TestVerifyBaselineHashes:
         result = logic._verify_baseline_hashes(repo, {"snap-a": "v1.k1.deadbeef.fake"})
 
         assert result == {}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestApprovalComment:
+    """Tests for the post-approval PR comment summary."""
+
+    @pytest.fixture
+    def repo(self, team):
+        return Repo.objects.create(
+            team_id=team.id,
+            repo_external_id=66666,
+            repo_full_name="test-org/approval-repo",
+            enable_pr_comments=True,
+        )
+
+    @pytest.fixture
+    def run_with_snapshots(self, repo):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="deadbeef",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+            metadata={"github_comment_id": 9001, "baseline_commit_sha": "abc1234567"},
+        )
+
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Login/Form",
+            current_hash="curr_a",
+            baseline_hash="base_a",
+            result=SnapshotResult.CHANGED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Settings/Tab",
+            current_hash="curr_b",
+            baseline_hash="",
+            result=SnapshotResult.NEW,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Old/Component",
+            current_hash="",
+            baseline_hash="base_c",
+            result=SnapshotResult.REMOVED,
+        )
+
+        return run
+
+    def test_build_approval_comment_body_summarizes_changes(self, repo, run_with_snapshots):
+        approver = logic._Approver(label="alice", is_github_login=True)
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver)
+
+        assert "✅ **Visual changes approved** by @alice" in body
+        assert "abc1234" in body  # baseline SHA prefix
+        assert f"/visual_review/runs/{run_with_snapshots.id}" in body
+        assert "1 changed, 1 new, 1 removed." in body
+        assert "<img" not in body
+        assert "<table" not in body
+        assert "/api/visual_review/public/" not in body
+
+    def test_build_approval_comment_body_falls_back_to_a_reviewer(self, repo, run_with_snapshots):
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, None)
+
+        assert "by a reviewer" in body
+
+    def test_build_approval_comment_body_escapes_non_github_approver(self, repo, run_with_snapshots):
+        # email local-part / first_name fallbacks are user-controlled — must be escaped
+        approver = logic._Approver(label="alice[evil](http://attacker)", is_github_login=False)
+        body = logic._build_approval_comment_body(run_with_snapshots, repo, approver)
+
+        # No raw `@` mention (which would render as a GitHub user link)
+        assert "by @alice" not in body
+        # Markdown control chars in the label must be backslash-escaped
+        assert "\\[evil\\]" in body
+        assert "\\(http://attacker\\)" in body
+
+    def test_build_approval_comment_body_no_actionable_snapshots(self, repo):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="empty",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        approver = logic._Approver(label="bob", is_github_login=True)
+        body = logic._build_approval_comment_body(run, repo, approver)
+        assert "✅ **Visual changes approved**" in body
+        # No counts line when there's nothing to summarize
+        assert "changed" not in body
+        assert "new" not in body
+        assert "removed" not in body
+
+    def test_post_approval_comment_skips_when_pr_comments_disabled(self, repo, run_with_snapshots, mocker):
+        repo.enable_pr_comments = False
+        repo.save(update_fields=["enable_pr_comments"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_when_no_pr_number(self, repo, run_with_snapshots, mocker):
+        run_with_snapshots.pr_number = None
+        run_with_snapshots.save(update_fields=["pr_number"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_for_non_human_decision(self, repo, run_with_snapshots, mocker):
+        from products.visual_review.backend.facade.enums import ReviewDecision
+
+        run_with_snapshots.review_decision = ReviewDecision.AUTO_APPROVED
+        run_with_snapshots.save(update_fields=["review_decision"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_skips_when_no_existing_comment_id(self, repo, run_with_snapshots, mocker):
+        run_with_snapshots.metadata = {}
+        run_with_snapshots.save(update_fields=["metadata"])
+
+        spy = mocker.patch.object(logic, "_github_api_request")
+        logic._post_approval_comment(run_with_snapshots, repo)
+        spy.assert_not_called()
+
+    def test_post_approval_comment_patches_existing_comment(self, repo, run_with_snapshots, mocker):
+        class FakeResp:
+            status_code = 200
+            text = ""
+
+        spy = mocker.patch.object(logic, "_github_api_request", return_value=FakeResp())
+
+        logic._post_approval_comment(run_with_snapshots, repo)
+
+        spy.assert_called_once()
+        kwargs = spy.call_args.kwargs
+        assert kwargs["method"] == "PATCH"
+        assert kwargs["path"] == "issues/comments/9001"
+        assert "✅ **Visual changes approved**" in kwargs["json"]["body"]
+
+    def test_post_approval_comment_falls_back_to_post_on_404(self, repo, run_with_snapshots, mocker):
+        class PatchResp:
+            status_code = 404
+            text = "Not Found"
+
+        class PostResp:
+            status_code = 201
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"id": 9999}
+
+        spy = mocker.patch.object(logic, "_github_api_request", side_effect=[PatchResp(), PostResp()])
+
+        logic._post_approval_comment(run_with_snapshots, repo)
+
+        assert spy.call_count == 2
+        first_call = spy.call_args_list[0].kwargs
+        second_call = spy.call_args_list[1].kwargs
+        assert first_call["method"] == "PATCH"
+        assert second_call["method"] == "POST"
+        assert second_call["path"] == "issues/42/comments"
+
+        run_with_snapshots.refresh_from_db()
+        assert run_with_snapshots.metadata["github_comment_id"] == 9999
+
+    def test_post_approval_comment_swallows_exceptions(self, repo, run_with_snapshots, mocker):
+        mocker.patch.object(logic, "_github_api_request", side_effect=RuntimeError("boom"))
+        # Must not raise
+        logic._post_approval_comment(run_with_snapshots, repo)

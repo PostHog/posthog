@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::Level;
 
+use crate::billing::AggregatorMode;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
 
@@ -93,6 +95,42 @@ impl FromStr for BotFilterMode {
             _ => Err(format!(
                 "Invalid FLAGS_BOT_FILTER_MODE: '{s}'. Expected 'disabled', 'log_only', or 'enforced'"
             )),
+        }
+    }
+}
+
+/// Tristate selector for the in-process billing aggregator. Encoded as one
+/// enum so `(authoritative=true, enabled=false)` is unrepresentable — the
+/// previous two-boolean form allowed it and `server.rs` had to panic on it.
+/// See `AggregatorMode` for what each non-`Off` variant does at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregatorModeConfig {
+    Off,
+    Shadow,
+    Authoritative,
+}
+
+impl FromStr for AggregatorModeConfig {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Ok(AggregatorModeConfig::Off),
+            "shadow" => Ok(AggregatorModeConfig::Shadow),
+            "authoritative" => Ok(AggregatorModeConfig::Authoritative),
+            _ => Err(format!(
+                "Invalid FLAGS_BILLING_AGGREGATOR_MODE: '{s}'. Expected 'off', 'shadow', or 'authoritative'"
+            )),
+        }
+    }
+}
+
+impl AggregatorModeConfig {
+    pub fn into_runtime(self) -> Option<AggregatorMode> {
+        match self {
+            AggregatorModeConfig::Off => None,
+            AggregatorModeConfig::Shadow => Some(AggregatorMode::Shadow),
+            AggregatorModeConfig::Authoritative => Some(AggregatorMode::Authoritative),
         }
     }
 }
@@ -735,9 +773,13 @@ pub struct Config {
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
 
-    // Shadow-keyspace writer for reconciliation. Off by default.
-    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_ENABLED", default = "false")]
-    pub billing_aggregator_enabled: FlexBool,
+    // Selects the in-process billing aggregator mode. See `AggregatorModeConfig`.
+    // Defaults to `shadow` to match what's deployed in dev/prod-eu/prod-us today,
+    // so swapping the old `FLAGS_BILLING_AGGREGATOR_ENABLED=true` env var for
+    // unsetting it leaves runtime behavior unchanged. `default_test_config` keeps
+    // `Off` so tests that don't opt in don't start the aggregator.
+    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_MODE", default = "shadow")]
+    pub billing_aggregator_mode: AggregatorModeConfig,
 
     // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
     // rejects zero values at boot — see the module docs on
@@ -976,7 +1018,7 @@ impl Config {
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
-            billing_aggregator_enabled: FlexBool(false),
+            billing_aggregator_mode: AggregatorModeConfig::Off,
             billing_flush_interval_ms: 10_000,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1081,6 +1123,7 @@ pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_co
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn test_default_config() {
@@ -1122,6 +1165,7 @@ mod tests {
         // posture so a future env-var rename / refactor can't silently
         // flip it back to Enforced.
         assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
+        assert_eq!(config.billing_aggregator_mode, AggregatorModeConfig::Shadow);
     }
 
     #[test]
@@ -1181,6 +1225,40 @@ mod tests {
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
+        );
+    }
+
+    #[rstest]
+    #[case::off("off", AggregatorModeConfig::Off)]
+    #[case::shadow("shadow", AggregatorModeConfig::Shadow)]
+    #[case::authoritative("authoritative", AggregatorModeConfig::Authoritative)]
+    #[case::trim_and_lowercase("  SHADOW  ", AggregatorModeConfig::Shadow)]
+    fn aggregator_mode_config_parses_valid_values(
+        #[case] input: &str,
+        #[case] expected: AggregatorModeConfig,
+    ) {
+        assert_eq!(input.parse::<AggregatorModeConfig>().unwrap(), expected);
+    }
+
+    #[test]
+    fn aggregator_mode_config_rejects_invalid_value() {
+        let err = "yes".parse::<AggregatorModeConfig>().unwrap_err();
+        assert!(
+            err.contains("Invalid FLAGS_BILLING_AGGREGATOR_MODE"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn aggregator_mode_config_into_runtime_maps_correctly() {
+        assert_eq!(AggregatorModeConfig::Off.into_runtime(), None);
+        assert_eq!(
+            AggregatorModeConfig::Shadow.into_runtime(),
+            Some(AggregatorMode::Shadow)
+        );
+        assert_eq!(
+            AggregatorModeConfig::Authoritative.into_runtime(),
+            Some(AggregatorMode::Authoritative)
         );
     }
 

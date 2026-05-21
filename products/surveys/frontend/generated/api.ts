@@ -15,6 +15,7 @@ import type {
     PatchedSurveySerializerCreateUpdateOnlySchemaApi,
     SurveyApi,
     SurveyGlobalStatsResponseApi,
+    SurveyQuestionLabelsResponseApi,
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveyStatsResponseApi,
@@ -341,6 +342,23 @@ export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
 
 export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSurveysQuestionLabelsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/surveys/question_labels/`
+}
+
+/**
+ * Return a slim list of question labels for the team's surveys. Used by the frontend to resolve `$survey_response_<question_id>` property keys into human-readable question text without loading the full survey payload.
+ */
+export const surveysQuestionLabels = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SurveyQuestionLabelsResponseApi> => {
+    return apiMutator<SurveyQuestionLabelsResponseApi>(getSurveysQuestionLabelsUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -128,7 +128,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(map_id.clone()), // We set the map id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 

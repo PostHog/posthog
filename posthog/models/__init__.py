@@ -1,19 +1,21 @@
 # Need to skip autoimporting because this file is severely prone to circular imports errors
 # You should try and make them alphabetically sorted manually if possible
 # isort: skip_file
-
-from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
-
+from ..batch_exports.models import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportFileDownload,
+    BatchExportDestination,
+    BatchExportRun,
+    BatchExportOnDemand,
+)
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from products.data_warehouse.backend.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
-from .action import Action
-from .action.action_step import ActionStep
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
-from .alert import AlertConfiguration
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
@@ -112,9 +114,6 @@ __all__ = [
     "Approval",
     "ApprovalPolicy",
     "ChangeRequest",
-    "AlertConfiguration",
-    "Action",
-    "ActionStep",
     "ActivityLog",
     "Annotation",
     "AsyncDeletion",
@@ -123,7 +122,9 @@ __all__ = [
     "BatchExport",
     "BatchExportBackfill",
     "BatchExportDestination",
+    "BatchExportFileDownload",
     "BatchExportRun",
+    "BatchExportOnDemand",
     "BatchImport",
     "CIMDVerificationToken",
     "Cohort",

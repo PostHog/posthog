@@ -163,8 +163,8 @@ def test_debugger_can_load_different_sets_of_batch_exports(team):
     loaded = bedbg.load_batch_exports(name="test-batch-export-S3-False-False")
 
     assert len(loaded) == 1
-    assert bedbg.loaded_batch_exports == loaded
-    assert all(batch_export.name == "test-batch-export-S3-False-False" for batch_export in loaded)
+    assert bedbg.loaded_batch_exports == loaded  # type: ignore[comparison-overlap]
+    assert all(batch_export.name == "test-batch-export-S3-False-False" for batch_export in loaded)  # type: ignore[unreachable]
 
 
 def test_debugger_get_latest_run(team):

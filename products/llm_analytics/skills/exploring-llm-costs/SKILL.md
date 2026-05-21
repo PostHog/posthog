@@ -139,7 +139,7 @@ versions for the same provider. To avoid rot:
   added.
 - For anything not covered here (new cost categories, changes to
   pricing lookup, provider additions), run `posthog:docs-search` for
-  "calculating costs" or "llm analytics" first rather than trusting a
+  "calculating costs" or "AI observability" first rather than trusting a
   hardcoded rule in this file.
 - If you find this skill contradicting the UI, trust the UI and flag
   the skill for an update.
@@ -148,7 +148,7 @@ versions for the same provider. To avoid rot:
 
 - Always set a time range — cost queries without one scan the full events table
 - Always include `$ai_embedding` alongside `$ai_generation` when summing cost; embeddings are cheap per-call but add up at scale
-- Costs are written at ingestion (see [Calculating LLM costs](https://posthog.com/docs/llm-analytics/calculating-costs)) — if `$ai_total_cost_usd` is missing or zero, read `$ai_cost_model_source` first: `passthrough` means the SDK supplied costs; `custom` means custom token prices; `openrouter` / `manual` mean automatic lookup; missing means the model wasn't matched (unusual custom model, fine-tune). Grep: `countIf(properties.$ai_total_cost_usd IS NULL)` per `(model, source)`
+- Costs are written at ingestion (see [Calculating LLM costs](https://posthog.com/docs/ai-observability/calculating-costs)) — if `$ai_total_cost_usd` is missing or zero, read `$ai_cost_model_source` first: `passthrough` means the SDK supplied costs; `custom` means custom token prices; `openrouter` / `manual` mean automatic lookup; missing means the model wasn't matched (unusual custom model, fine-tune). Grep: `countIf(properties.$ai_total_cost_usd IS NULL)` per `(model, source)`
 - Custom pricing uses **per-token** prices, not per-million — if a custom-priced model looks ~1M× too expensive or too cheap, that's almost always the bug
 - Exclude errored calls from cost totals only when explicitly asked — providers still charge for many error modes, and including them gives the truthful bill
 - For per-user totals, exclude rows where `distinct_id = properties.$ai_trace_id` — some SDKs default distinct_id to the trace ID when no user is set

@@ -129,6 +129,12 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status."
         ),
+    prompt_name: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.'
+        ),
     search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
     status: zod
         .enum(['all', 'complete', 'draft', 'paused', 'running', 'stopped'])

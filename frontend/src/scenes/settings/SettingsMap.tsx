@@ -16,6 +16,7 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -139,12 +140,14 @@ import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefa
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
+import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -442,7 +445,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Accounts',
                 description: 'Select which group type represents an account in customer analytics.',
                 component: <CustomerAnalyticsAccountConfig />,
-                flag: ['CUSTOMER_ANALYTICS', 'POSTHOG_CSP'],
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
             },
         ],
@@ -576,6 +579,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['confidence', 'significance', 'p-value', 'false positive'],
             },
             {
+                id: 'environment-experiment-mde',
+                title: 'Default minimum detectable effect',
+                description:
+                    'The smallest effect size you want to detect with statistical significance. Lower values require more data and longer run times. Can be overridden per experiment.',
+                component: <DefaultMinimumDetectableEffect />,
+                keywords: ['mde', 'effect size', 'sensitivity', 'power', 'sample size'],
+            },
+            {
                 id: 'environment-experiment-recalculation-time',
                 title: 'Daily recalculation time',
                 description:
@@ -686,7 +697,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'environment',
         id: 'environment-llm-analytics',
-        title: 'LLM analytics',
+        title: 'AI observability',
         group: 'Products',
         flag: 'LLM_ANALYTICS_EVALUATIONS',
         settings: [
@@ -694,9 +705,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'llm-analytics-byok',
                 title: 'Bring Your Own Key (BYOK)',
                 description:
-                    'Add and manage provider API keys for LLM analytics features, including evaluations and playground.',
+                    'Add and manage provider API keys for AI observability features, including evaluations and playground.',
                 component: <LLMProviderKeysSettings />,
-                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
             },
         ],
@@ -1048,7 +1059,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: (
                     <>
                         AI product context
-                        <LemonTag type="success" className="ml-1 uppercase">
+                        <LemonTag type="highlight" size="small" className="ml-1">
                             New
                         </LemonTag>
                     </>
@@ -1378,6 +1389,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'PostHog Cloud uses static IP addresses for outbound traffic. Add these to your firewall allowlist if needed.',
                 component: <IPAllowListInfo />,
                 keywords: ['whitelist', 'firewall', 'allowlist', 'cidr', 'ip'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-secret-api-keys',
+        title: 'Project secret API keys',
+        flag: 'PROJECT_SECRET_API_KEYS',
+        settings: [
+            {
+                id: 'environment-secret-api-keys',
+                title: 'Project secret API keys',
+                description:
+                    'These keys allow access to a select set of API endpoints, intended to be accessed exclusively by your systems. Only give keys the permissions they need, and delete unused keys promptly.',
+                docsUrl: 'https://posthog.com/docs/api',
+                component: <ProjectSecretAPIKeys />,
+                keywords: ['token', 'api key', 'authentication', 'secret'],
             },
         ],
     },
@@ -1753,6 +1781,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
                 component: <SidebarAutoSuggestSetting />,
                 keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
+            },
+            {
+                id: 'mcp-hints',
+                title: 'MCP hints',
+                description:
+                    'After you take an action in PostHog (creating a feature flag, building a dashboard, etc.), show a small hint that the same action can be done from your IDE via the PostHog MCP. Rate-limited to once a week.',
+                component: <MCPHintsSetting />,
+                flag: [['MCP_HINTS', 'test']],
+                keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
             },
             {
                 id: 'hedgehog-mode',

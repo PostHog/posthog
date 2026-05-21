@@ -3,10 +3,144 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const AccountsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const AccountsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const accountsCreateBodyNameMax = 400
+
+export const accountsCreateBodyExternalIdMax = 400
+
+export const AccountsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(accountsCreateBodyNameMax).describe('Human-readable name of the account.'),
+    external_id: zod
+        .string()
+        .max(accountsCreateBodyExternalIdMax)
+        .nullish()
+        .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+    properties: zod
+        .object({
+            csm: zod
+                .object({
+                    id: zod.number(),
+                    email: zod.string(),
+                })
+                .nullish(),
+            account_executive: zod
+                .object({
+                    id: zod.number(),
+                    email: zod.string(),
+                })
+                .nullish(),
+            account_owner: zod
+                .object({
+                    id: zod.number(),
+                    email: zod.string(),
+                })
+                .nullish(),
+            stripe_customer_id: zod.string().nullish(),
+            hubspot_deal_id: zod.string().nullish(),
+            billing_id: zod.string().nullish(),
+            sfdc_id: zod.string().nullish(),
+            zendesk_id: zod.string().nullish(),
+        })
+        .nullish()
+        .describe(
+            'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+        ),
+})
+
+export const AccountsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AccountsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const accountsPartialUpdateBodyNameMax = 400
+
+export const accountsPartialUpdateBodyExternalIdMax = 400
+
+export const AccountsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(accountsPartialUpdateBodyNameMax).optional().describe('Human-readable name of the account.'),
+    external_id: zod
+        .string()
+        .max(accountsPartialUpdateBodyExternalIdMax)
+        .nullish()
+        .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+    properties: zod
+        .object({
+            csm: zod
+                .object({
+                    id: zod.number(),
+                    email: zod.string(),
+                })
+                .nullish(),
+            account_executive: zod
+                .object({
+                    id: zod.number(),
+                    email: zod.string(),
+                })
+                .nullish(),
+            account_owner: zod
+                .object({
+                    id: zod.number(),
+                    email: zod.string(),
+                })
+                .nullish(),
+            stripe_customer_id: zod.string().nullish(),
+            hubspot_deal_id: zod.string().nullish(),
+            billing_id: zod.string().nullish(),
+            sfdc_id: zod.string().nullish(),
+            zendesk_id: zod.string().nullish(),
+        })
+        .nullish()
+        .describe(
+            'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+        ),
+})
+
+export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 export const groupsTypesMetricsListPathGroupTypeIndexMin = -2147483648
 export const groupsTypesMetricsListPathGroupTypeIndexMax = 2147483647

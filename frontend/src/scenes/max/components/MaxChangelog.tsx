@@ -6,8 +6,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/settings/sidePanelSettingsLogic'
+import { urls } from 'scenes/urls'
 
 import { AlertEntry, ChangelogEntry, maxChangelogLogic } from '../maxChangelogLogic'
 
@@ -45,7 +44,6 @@ export function MaxChangelog(): JSX.Element | null {
     const alertsFlagEnabled = useFeatureFlag('POSTHOG_AI_ALERTS')
     const { entries, alerts, isOpen, hasUnread, hasAlerts, isVisible } = useValues(maxChangelogLogic)
     const { openChangelog, closeChangelog, dismissChangelog } = useActions(maxChangelogLogic)
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const displayedEntries = useMemo(() => entries.slice(0, 4), [entries])
     const hasMoreEntries = entries.length > 4
 
@@ -109,10 +107,8 @@ export function MaxChangelog(): JSX.Element | null {
                                     <LemonButton
                                         size="xsmall"
                                         type="tertiary"
-                                        onClick={() => {
-                                            closeChangelog()
-                                            openSettingsPanel({ sectionId: 'environment-max' })
-                                        }}
+                                        onClick={() => closeChangelog()}
+                                        to={urls.settings('environment-max')}
                                     >
                                         Show all
                                     </LemonButton>
