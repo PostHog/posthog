@@ -4,6 +4,7 @@ import { match } from 'ts-pattern'
 
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TabsPrimitiveContent } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -51,6 +52,10 @@ export function SessionRecordingContent(): JSX.Element {
         setPlay()
     }, [seekToTimestamp, recordingTimestamp, setPlay, isNotFound, sessionPlayerMetaDataLoading])
 
+    if (isNotFound) {
+        return <RecordingNotFoundForException />
+    }
+
     return (
         <div className="h-full flex flex-col">
             {isTimestampOutsideRecording && (
@@ -69,6 +74,20 @@ export function SessionRecordingContent(): JSX.Element {
                     withSidebar={false}
                 />
             </div>
+        </div>
+    )
+}
+
+export function RecordingNotFoundForException(): JSX.Element {
+    return (
+        <div className="flex justify-center w-full h-[300px] items-center">
+            <EmptyMessage
+                title="Recording not found"
+                description="This exception is attached to a session, but its recording could not be loaded. It may have been deleted, fallen outside the retention window, or never been captured."
+                buttonText="Troubleshooting guide"
+                buttonTo="https://posthog.com/docs/session-replay/troubleshooting#recording-not-found"
+                size="small"
+            />
         </div>
     )
 }
