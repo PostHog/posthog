@@ -192,16 +192,7 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
 def _dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
     """
     Triggers a `RemoteConfig` rebuild for each team after its recordings quota-limit state
-    transitions on `QUOTA_LIMITER_CACHE_KEY`. `RemoteConfig.build_config` reads that Redis
-    set at `posthog/models/remote_config.py` and bakes `quotaLimited` / `sessionRecording`
-    into the cached config JSON + CDN/hypercache mirrors, but no signal otherwise links
-    quota changes to a re-sync.
-
-    `countdown=35` leaves enough wall-clock time for the in-process
-    `cache_for(timedelta(seconds=30), background_refresh=True)` on `list_limited_team_attributes`
-    to expire on whichever worker picks up the task. A failed dispatch is logged but does
-    not abort the caller — Redis remains the data-plane source of truth, so a transient
-    CDN-sync hiccup must not roll back the quota-limit write.
+    transitions on `QUOTA_LIMITER_CACHE_KEY`.
     """
     from posthog.tasks.remote_config import update_team_remote_config
 
