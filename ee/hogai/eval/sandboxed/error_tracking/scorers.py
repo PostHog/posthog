@@ -69,6 +69,7 @@ BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
 
 _JUDGE_MODEL = "gpt-5.4"
 _SESSION_ID_TEXT_RE = re.compile(r"""["']?\$?session_id["']?\s*[:=]\s*["']?([^"',\s}\]]+)""")
+_TOON_NON_EMPTY_RESULTS_RE = re.compile(r"""(?m)^\s*results\[[1-9]\d*\]\{[^}]*\}:""")
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +154,10 @@ def _recordings_output_has_results(raw_output: str) -> bool:
     try:
         decoded = json.loads(raw_output)
     except json.JSONDecodeError:
-        return bool(re.search(r"""(?m)^\s*(?:id|session_id)\s*[:=]\s*["']?[^"',\s}\]]+""", raw_output))
+        return bool(
+            re.search(r"""(?m)^\s*(?:id|session_id)\s*[:=]\s*["']?[^"',\s}\]]+""", raw_output)
+            or _TOON_NON_EMPTY_RESULTS_RE.search(raw_output)
+        )
     return _has_recordings_result(decoded)
 
 

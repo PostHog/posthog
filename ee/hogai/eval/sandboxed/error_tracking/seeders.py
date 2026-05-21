@@ -98,7 +98,7 @@ _ISSUE_SPECS: tuple[dict[str, Any], ...] = (
         "url": "https://app.hedgebox.test/settings/team",
         "function": "submitInvite",
         "source": "https://app.hedgebox.test/static/js/team-settings.js",
-        "days_ago": (3, 7),
+        "days_ago": (1, 3),
         "seed_replay": True,
     },
     {
