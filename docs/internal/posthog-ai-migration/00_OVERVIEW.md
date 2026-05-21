@@ -79,7 +79,7 @@ Wins:
                     ▼
 ┌──────────────────────────────────────────────┐
 │ Sandbox: @posthog/agent + Claude/Codex       │
-│  - systemPrompt built by adapter at Run-start│
+│  - systemPrompt built by SSE relay at Run-start│
 │  - MCP servers:                              │
 │    - posthog-data (taxonomy, hogql, search)  │
 │    - posthog-notebook                        │
@@ -128,7 +128,7 @@ Concretely:
 | Conversation list + thread state | `maxLogic.tsx`, `maxThreadLogic.tsx`, `maxGlobalLogic.tsx` | EventSource SSE consumer keeps working; we just add a few new event-name cases (see `02_CORE.md` § 4) |
 | Thread + message dispatch | `Thread.tsx`, `MarkdownMessage.tsx`, `messages/MessageTemplate.tsx` | New dispatch path for MCP tool calls layered on top — see `03_RICH_UI.md` § 2 |
 | Tool-output renderers | `messages/VisualizationArtifactAnswer.tsx`, `NotebookArtifactAnswer.tsx`, `UIPayloadAnswer.tsx`, `ErrorTrackingIssueCard.tsx`, `ErrorTrackingFiltersSummary.tsx`, `MultiQuestionForm.tsx`, `RecordingsFiltersSummary.tsx`, `SessionSummarizationProgress.tsx`, `maxErrorTrackingWidgetLogic.ts` | Reused behind ~5–15-line adapters that pull props from raw MCP `rawInput`/output — see `03_RICH_UI.md` § 3 |
-| Approval flow | `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts` | Wired to ACP `permission_request` (hoisted by adapter) — see `02_CORE.md` § 5 and `03_RICH_UI.md` § 5 |
+| Approval flow | `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts` | Wired to ACP `permission_request` (hoisted by the SSE relay) — see `02_CORE.md` § 5 and `03_RICH_UI.md` § 5 |
 | Feedback + ticketing | `FeedbackPrompt.tsx`, `useFeedback.ts`, `TicketPrompt.tsx`, `ticketUtils.ts` | Orthogonal to runtime |
 | Input area + slash commands | `components/InputFormArea.tsx`, `QuestionInput.tsx`, `SidebarQuestionInput.tsx`, `components/SlashCommandAutocomplete.tsx`, `slash-commands.tsx` | UI unchanged; `/remember` becomes a no-op for sandbox runs (see `02_CORE.md` § 7) |
 | Thinking messages | `utils/thinkingMessages.ts` | Driven by ACP `_posthog/progress` notifications — see `03_RICH_UI.md` § 6 |
@@ -229,7 +229,7 @@ Spec-specific opens are at the bottom of each spec. Cross-spec:
 3. **Mode replacement.** What happens to "plan mode" specifically? Three candidates in `04_PROMPTS.md` § 4. Recommendation: ACP `permission_mode: 'plan'`. *Owner: AI.*
 4. **Slash command `/remember`.** Core memory is dropped. Does `/remember` become a no-op with a tooltip, or do we keep a degenerate path until a memory MCP server lands? *Owner: AI.* See `02_CORE.md` § 7.
 5. **Per-tool sub-flag granularity.** Per MCP server, or per tool inside a server? Per server is simpler; per tool gives finer rollout control. *Owner: AI.*
-6. **Telemetry continuity.** All existing LLM Analytics dashboards filter on conversation/event shapes that the LangGraph path emits. Confirm parity from the adapter side. *Owner: AI + LLM Analytics.*
+6. **Telemetry continuity.** All existing LLM Analytics dashboards filter on conversation/event shapes that the LangGraph path emits. Confirm parity from the relay side. *Owner: AI + LLM Analytics.*
 7. **Backfills.** See [`TODO.md`](./TODO.md) — billing context, anything else discovered during build.
 
 ---
@@ -239,23 +239,23 @@ Spec-specific opens are at the bottom of each spec. Cross-spec:
 | Term | Definition |
 |---|---|
 | **ACP** | Agent Connection Protocol. NDJSON-framed JSON-RPC between the agent-server and the underlying coding agent (Claude Code, Codex). The wire format the agent-server taps and broadcasts as cloud-agent SSE. |
-| **Adapter** (in this spec) | The Django module under `ee/hogai/sandbox/` that bridges `/conversations/*` (public) to the cloud-agent REST+SSE API. Owns conversation routing, event translation, message relay, context wrapping, system-prompt build. |
+| **SSE relay** (in this spec) | The Django module under `ee/hogai/sandbox/` (entry point: `sse_relay.py`) that bridges `/conversations/*` (public) to the cloud-agent REST+SSE API. Owns conversation routing, ACP passthrough + a handful of convenience events, context wrapping, system-prompt build. Stateless across requests. |
 | **Sandbox** | Ephemeral container running `@posthog/agent` + the underlying model. Provisioned per Task/Run by PostHog cloud. |
-| **agent-server** | HTTP server (`Twig/packages/agent/src/server/agent-server.ts`) running inside the sandbox. Frontend and Django adapter both talk to it only through PostHog cloud's relay. |
+| **agent-server** | HTTP server (`Twig/packages/agent/src/server/agent-server.ts`) running inside the sandbox. Frontend and Django SSE relay both talk to it only through PostHog cloud's relay. |
 | **MCP** | Model Context Protocol. Tools exposed to the agent as MCP servers. PostHog data tools become MCP servers. |
 | **Task** | Unit of work in cloud agents (cloud spec § 2.3). For PostHog AI, one Task per conversation. |
 | **Run** | A single execution of a Task. New Run = new sandbox session. Resume-after-terminal creates a new Run with `state.resume_from_run_id`. |
-| **`StoredLogEntry`** | Wire envelope around a single ACP notification: `{ type: 'notification', timestamp?, notification: { method?, params?, result?, error? } }`. The adapter passes most ACP frames through as `StoredLogEntry`s — see `02_CORE.md` § 4. |
+| **`StoredLogEntry`** | Wire envelope around a single ACP notification: `{ type: 'notification', timestamp?, notification: { method?, params?, result?, error? } }`. The SSE relay passes most ACP frames through as `StoredLogEntry`s — see `02_CORE.md` § 4. |
 | **`session/update`** | ACP notification carrying agent message chunks, tool calls, mode changes. Frontend dispatches off its `params.update.sessionUpdate` discriminator. |
 | **`_posthog/*` notification** | Custom ACP notification namespace from the agent-server. Examples: `_posthog/run_started`, `_posthog/turn_complete`, `_posthog/progress`. Cloud spec § 10.8. |
-| **systemPrompt** | The composed string passed via `clientConnection.newSession({ _meta: { systemPrompt } })`. Built by the adapter from `ee/hogai/chat_agent/prompts/` content. |
+| **systemPrompt** | The composed string passed via `clientConnection.newSession({ _meta: { systemPrompt } })`. Built by the SSE relay from `ee/hogai/chat_agent/prompts/` content. |
 
 ---
 
 ## 12. Out of scope
 
 - **Local↔cloud handoff** (Twig spec § 11). PostHog AI doesn't have a local mode.
-- **GitHub integration / PR creation.** The adapter creates Tasks with no repository; agent-server runs in "No Repository Mode" with `--createPr=false`.
+- **GitHub integration / PR creation.** The SSE relay creates Tasks with no repository; agent-server runs in "No Repository Mode" with `--createPr=false`.
 - **Sandbox environment CRUD UI.** Use the default sandbox environment for all PostHog AI runs.
 - **Conversation export / sharing.** Not part of this migration.
 - **A separate `scenes/posthog-ai/` directory.** We're not creating one — existing `scenes/max/` carries the new behavior behind the runtime flag.
