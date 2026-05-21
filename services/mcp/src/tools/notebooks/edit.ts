@@ -63,11 +63,7 @@ export const NotebookEditSchema = z
 
 type Params = z.infer<typeof NotebookEditSchema>
 
-/**
- * Counts subtrees within `tree` that deep-equal `target`. Stops descending into
- * a matched subtree (so a target that itself contains the same target nested
- * inside isn't double-counted), matching the replace semantics below.
- */
+/** Counts subtrees deep-equal to `target`; lets the handler reject bad inputs before mutating. */
 function countMatches(tree: unknown, target: unknown): number {
     let count = 0
     const walk = (node: unknown): void => {

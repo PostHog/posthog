@@ -2,16 +2,6 @@
  * Builds a permissive ProseMirror schema dynamically from a document so we
  * can parse it without maintaining a hand-rolled list of supported node and
  * mark types.
- *
- * The canonical schema for any product using TipTap/ProseMirror lives in
- * the frontend's extension config. Reproducing that schema in the MCP worker
- * would couple us to every frontend addition; instead we walk the doc JSON,
- * collect every node and mark type we encounter, and register a generic
- * spec for each. The result accepts `Node.fromJSON` round-trips and can
- * build `ReplaceStep` / `Slice` against block-shaped content, but it
- * deliberately doesn't validate content rules (e.g. `<table><row><cell>`
- * ordering) — the server doesn't either, and the canonical schema on each
- * peer is what gets enforced when steps are applied via `receiveTransaction`.
  */
 import { type MarkSpec, type NodeSpec, Schema } from 'prosemirror-model'
 
@@ -129,11 +119,10 @@ export function buildSchemaForDoc(doc: ProseMirrorNodeJSON | ProseMirrorNodeJSON
 
 /**
  * Pre-process a document JSON so it can be parsed by a schema that declares
- * a single `attrs` passthrough attribute. The wire format spreads node
- * attributes at the top level (`{ type: 'heading', attrs: { level: 1 } }`)
- * — our schema accepts an `attrs` attr of any shape, so we just leave the
- * original `attrs` object in place but pack it under our wrapper key. Marks
- * get the same treatment.
+ * a single `attrs` passthrough attribute. Our schema declares one `attrs`
+ * attribute that carries each node's original attrs object verbatim, so we
+ * wrap `{ level: 1 }` into `{ attrs: { level: 1 } }`. Marks get the same
+ * wrapping.
  */
 export function packDocAttrs(json: ProseMirrorNodeJSON): ProseMirrorNodeJSON {
     const out: ProseMirrorNodeJSON = { type: json.type }
