@@ -1,7 +1,8 @@
 import ssl
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from google.genai.errors import APIError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment

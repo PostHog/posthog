@@ -109,9 +109,7 @@ async def analyze_video_segment_activity(
                 model=f"models/{inputs.model_to_use}",
                 contents=[
                     types.Part(
-                        file_data=types.FileData(
-                            file_uri=uploaded_video.file_uri, mime_type=uploaded_video.mime_type
-                        ),
+                        file_data=types.FileData(file_uri=uploaded_video.file_uri, mime_type=uploaded_video.mime_type),
                         # Round, as Gemini doesn't work with nanoseconds
                         video_metadata=types.VideoMetadata(
                             start_offset=f"{round(segment.recording_start_time, 2)}s",

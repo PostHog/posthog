@@ -216,9 +216,13 @@ describe('sessionSummaryProgressLogic', () => {
 
         it('sets an error when the stream fails with an ApiError', async () => {
             const sessionId = freshId()
-            ;((api as any).recordings.summarizeStream as jest.Mock).mockRejectedValueOnce(
-                new ApiError('Bad gateway', 502)
-            )
+            // `jest.mock('lib/api')` auto-mocks `ApiError` — `new ApiError(...)` returns an instance
+            // whose prototype chain still satisfies `instanceof ApiError`, but the original
+            // constructor (which calls `super(message)`) is replaced with a no-op. Assign `message`
+            // manually so the logic's `err.message` read sees the value under test.
+            const apiError = new ApiError()
+            ;(apiError as any).message = 'Bad gateway'
+            ;((api as any).recordings.summarizeStream as jest.Mock).mockRejectedValueOnce(apiError)
 
             await expectLogic(logic, () => {
                 logic.actions.startSummarization(sessionId)
@@ -230,17 +234,13 @@ describe('sessionSummaryProgressLogic', () => {
 
         it('sets a generic error when the stream fails with an unexpected exception', async () => {
             const sessionId = freshId()
-            ;((api as any).recordings.summarizeStream as jest.Mock).mockRejectedValueOnce(
-                new Error('connection reset')
-            )
+            ;((api as any).recordings.summarizeStream as jest.Mock).mockRejectedValueOnce(new Error('connection reset'))
 
             await expectLogic(logic, () => {
                 logic.actions.startSummarization(sessionId)
             }).toFinishAllListeners()
 
-            expect(logic.values.errorBySessionId[sessionId]).toEqual(
-                expect.stringContaining('Something went wrong')
-            )
+            expect(logic.values.errorBySessionId[sessionId]).toEqual(expect.stringContaining('Something went wrong'))
             expect(logic.values.loadingBySessionId[sessionId]).toBe(false)
         })
 
@@ -248,9 +248,7 @@ describe('sessionSummaryProgressLogic', () => {
             jest.useFakeTimers()
             const sessionId = freshId()
             // Block the stream so the timeout wins the race.
-            ;((api as any).recordings.summarizeStream as jest.Mock).mockImplementationOnce(
-                () => new Promise(() => {})
-            )
+            ;((api as any).recordings.summarizeStream as jest.Mock).mockImplementationOnce(() => new Promise(() => {}))
 
             logic.actions.startSummarization(sessionId)
 

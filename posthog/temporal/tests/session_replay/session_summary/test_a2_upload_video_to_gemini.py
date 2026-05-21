@@ -1,7 +1,8 @@
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from google.genai.errors import ClientError, ServerError
 from temporalio.testing import ActivityEnvironment
 
@@ -179,7 +180,9 @@ async def test_polling_get_client_error_is_translated(gemini_redis):
     processing = _make_uploaded_file(state="PROCESSING")
     fake_client = MagicMock()
     fake_client.files.upload.return_value = processing
-    sdk_err = ClientError(code=400, response_json={"error": {"code": 400, "message": "Request contains an invalid argument."}})
+    sdk_err = ClientError(
+        code=400, response_json={"error": {"code": 400, "message": "Request contains an invalid argument."}}
+    )
     fake_client.files.get.side_effect = sdk_err
 
     with (

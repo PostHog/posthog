@@ -160,8 +160,7 @@ async def upload_video_to_gemini_activity(
                 # 400s during PROCESSING polling appear to be a transient Gemini-side race against
                 # the upload finalization. Let Temporal retry, but with session-scoped context.
                 raise RuntimeError(
-                    f"Gemini files.get failed during PROCESSING poll for session {inputs.session_id}: "
-                    f"ClientError: {e}"
+                    f"Gemini files.get failed during PROCESSING poll for session {inputs.session_id}: ClientError: {e}"
                 ) from e
             except ServerError as e:
                 # 5xx is clearly transient — same translation pattern for clean retry logs.
