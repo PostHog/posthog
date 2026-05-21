@@ -60,7 +60,8 @@ export function AccountsTabFilters(): JSX.Element {
             <LemonCheckbox
                 checked={allRolesUnassigned}
                 onChange={setAllRolesUnassigned}
-                label="Unassigned only"
+                label="Unassigned"
+                disabledReason={accountsLoading ? 'Loading…' : undefined}
                 data-attr="accounts-unassigned-filter"
             />
 
@@ -107,20 +108,13 @@ function RolePicker({
     dataAttr: string
 }): JSX.Element {
     return (
-        <div className="flex items-center gap-1" data-attr={dataAttr}>
-            <span className="text-sm text-muted">{label}:</span>
+        <div data-attr={dataAttr}>
             <MemberSelect
                 size="small"
                 type="secondary"
                 defaultLabel={`Any ${label}`}
-                value={typeof value === 'number' ? value : null}
+                value={value}
                 onChange={(user) => onChange(user ? user.id : null)}
-            />
-            <LemonCheckbox
-                checked={value === 'unassigned'}
-                onChange={(checked) => onChange(checked ? 'unassigned' : null)}
-                label="Unassigned"
-                size="small"
             />
         </div>
     )

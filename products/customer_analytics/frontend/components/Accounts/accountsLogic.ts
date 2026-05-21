@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,7 +12,7 @@ import type { accountsLogicType } from './accountsLogicType'
 
 export const ACCOUNTS_PAGE_SIZE = 50
 
-export type RoleFilterValue = number | 'unassigned' | null
+export type RoleFilterValue = number | null
 
 export interface AccountsLoadResult {
     count: number
@@ -76,7 +77,8 @@ export const accountsLogic = kea<accountsLogicType>([
         accounts: [
             EMPTY_RESULT,
             {
-                loadAccounts: async () => {
+                loadAccounts: async (_, breakpoint) => {
+                    await breakpoint(300)
                     const projectId = String(values.currentTeamId)
                     const params: Record<string, string | number | boolean> = {
                         limit: ACCOUNTS_PAGE_SIZE,
@@ -99,8 +101,10 @@ export const accountsLogic = kea<accountsLogicType>([
                     }
                     try {
                         const response = await accountsList(projectId, params)
+                        breakpoint()
                         return { count: response.count, results: response.results }
                     } catch (error) {
+                        posthog.captureException(error, { scope: 'accountsLogic.loadAccounts' })
                         lemonToast.error('Failed to load accounts')
                         throw error
                     }

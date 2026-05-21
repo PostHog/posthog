@@ -837,10 +837,13 @@ class TestAccountViewSet(APIBaseTest):
         assert [r["name"] for r in response.json()["results"]] == ["A"]
 
     def test_list_accounts_invalid_csm_value_is_ignored(self):
+        # Malformed user id should be a no-op (return both accounts), not "match nothing".
         self._create_account(name="A")
+        self._create_account(name="B", _properties={"csm": {"id": 7, "email": "b@x.com"}})
         response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=not-a-user")
         assert response.status_code == status.HTTP_200_OK
-        assert [r["name"] for r in response.json()["results"]] == ["A"]
+        names = sorted(r["name"] for r in response.json()["results"])
+        assert names == ["A", "B"]
 
     def test_list_accounts_ordering_by_name_asc(self):
         # Create in alphabetical order so default `-created_at` order is [Banana, Apple];
@@ -858,9 +861,12 @@ class TestAccountViewSet(APIBaseTest):
         assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
 
     def test_list_accounts_invalid_ordering_is_ignored(self):
-        self._create_account(name="A")
+        # Malformed ordering should fall back to default `-created_at` order.
+        self._create_account(name="Apple")
+        self._create_account(name="Banana")
         response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=robert');drop")
         assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
 
     def test_list_accounts_role_filter_respects_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization, name="other")

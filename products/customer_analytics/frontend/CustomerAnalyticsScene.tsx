@@ -124,6 +124,18 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
         })
     }
 
+    // When CSP is off, the accounts tab is removed from `tabs` above, so direct
+    // URL access (`/customer_analytics/accounts`) would render nothing. Render
+    // <AccountsTab/> standalone here so its FeaturePreviewSceneGate shows the opt-in.
+    const accountsUrlGateFallback = activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
+    const tabsContent = accountsUrlGateFallback ? (
+        <AccountsTab />
+    ) : tabs.length > 1 ? (
+        <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
+    ) : (
+        dashboardContent
+    )
+
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <SceneContent>
@@ -211,13 +223,7 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                         </>
                     }
                 />
-                {activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] ? (
-                    <AccountsTab />
-                ) : tabs.length > 1 ? (
-                    <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
-                ) : (
-                    dashboardContent
-                )}
+                {tabsContent}
             </SceneContent>
         </BindLogic>
     )

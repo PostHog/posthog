@@ -66,11 +66,9 @@ describe('accountsLogic', () => {
         expect(logic.values.allRolesUnassigned).toBe(true)
     })
 
-    it('setCsmFilter accepts a user id, unassigned, and null', () => {
+    it('setCsmFilter accepts a user id and null', () => {
         logic.actions.setCsmFilter(42)
         expect(logic.values.csmFilter).toBe(42)
-        logic.actions.setCsmFilter('unassigned')
-        expect(logic.values.csmFilter).toBe('unassigned')
         logic.actions.setCsmFilter(null)
         expect(logic.values.csmFilter).toBeNull()
     })
@@ -90,7 +88,7 @@ describe('accountsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setCsmFilter(7)
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setAccountExecutiveFilter('unassigned')
+        logic.actions.setAccountExecutiveFilter(9)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockAccountsList).toHaveBeenLastCalledWith(
@@ -98,7 +96,7 @@ describe('accountsLogic', () => {
             expect.objectContaining({
                 all_roles_unassigned: true,
                 csm: '7',
-                account_executive: 'unassigned',
+                account_executive: '9',
                 limit: ACCOUNTS_PAGE_SIZE,
                 offset: 0,
             })

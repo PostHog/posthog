@@ -92,6 +92,8 @@ export const Empty: Story = {
     ],
 }
 
+// CUSTOMER_ANALYTICS must stay enabled (the outer scene gate) so we hit the inner
+// CSP-only gate; dropping the outer flag would render the parent opt-in instead.
 export const FeatureGateOff: Story = {
     render: () => <App />,
     parameters: {
