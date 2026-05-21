@@ -255,10 +255,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                 <div className="space-y-2">
                     <SdkVersionWarnings warnings={surveyWarnings} />
                     {isHostedSurvey ? (
-                        <div className="flex flex-col gap-2">
-                            <p className="text-secondary">
-                                Share this link with the people you want to answer the survey.
-                            </p>
+                        <div className="flex flex-col gap-3">
                             {survey.id && survey.id !== 'new' && (
                                 <div className="flex flex-col gap-1">
                                     <span className="text-muted text-xs">Share link</span>

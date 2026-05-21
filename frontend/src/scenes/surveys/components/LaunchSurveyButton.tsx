@@ -41,10 +41,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                             <div className="flex flex-col gap-3">
                                 <SdkVersionWarnings warnings={surveyWarnings} />
                                 {isHostedSurvey ? (
-                                    <div className="flex flex-col gap-2 text-sm">
-                                        <div className="text-secondary">
-                                            Share this link with the people you want to answer the survey.
-                                        </div>
+                                    <div className="flex flex-col gap-3 text-sm">
                                         <div className="flex flex-col gap-1">
                                             <div className="text-muted text-xs">Share link</div>
                                             <CopySurveyLink

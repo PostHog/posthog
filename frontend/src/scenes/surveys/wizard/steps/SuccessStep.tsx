@@ -43,10 +43,7 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
             <div className="space-y-2">
                 <h1 className="text-2xl font-semibold">Your survey is live!</h1>
                 {isHostedSurvey ? (
-                    <>
-                        <p className="text-secondary">Share this link with the people you want to answer the survey.</p>
-                        <HostedSurveyRespondentHint className="text-muted text-sm" />
-                    </>
+                    <p className="text-secondary">Copy the link below and share it to start collecting responses.</p>
                 ) : (
                     <>
                         <p className="text-secondary">
@@ -58,11 +55,14 @@ export function SuccessStep({ survey }: SuccessStepProps): JSX.Element {
             </div>
 
             {isHostedSurvey && (
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-4">
                     <CopySurveyLink
                         surveyId={survey.id}
                         enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
                     />
+                    <div className="max-w-xl text-left">
+                        <HostedSurveyRespondentHint className="text-sm" />
+                    </div>
                 </div>
             )}
 
