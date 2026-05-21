@@ -324,7 +324,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             None,
         )
         if chosen is None:
-            raise ValueError(f"Resource {inputs.schema_name!r} not found in manifest")
+            raise ValueError(f"Resource {inputs.schema_name!r} not found in config")
 
         single_resource_manifest = cast(
             RESTAPIConfig,
