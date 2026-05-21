@@ -2452,6 +2452,8 @@ export namespace Schemas {
       aggregationPropertyType?: AggregationPropertyType1 | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
+      /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
+      cohortLabelStartIndex?: number | null;
       cumulative?: boolean | null;
       /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
