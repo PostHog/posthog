@@ -37,8 +37,12 @@ export type CompiledSamplingRule = {
         latencyMsGt: number | null
         attributePredicates: { key: string; op: string; value?: string }[]
     } | null
-    /** Set for rate_limit rules with valid config; ingestion uses Redis token bucket (logs/sec). */
-    rateLimit: { refillPerSecond: number; poolMax: number } | null
+    /**
+     * Set for rate_limit rules with valid config. Token-bucket on Redis; `costUnit` controls
+     * whether each record consumes one token (`'records'`) or its own `bytes_uncompressed`
+     * (`'bytes'`). `refillPerSecond` and `poolMax` are expressed in the matching unit.
+     */
+    rateLimit: { refillPerSecond: number; poolMax: number; costUnit: 'records' | 'bytes' } | null
 }
 
 export type CompiledRuleSet = {

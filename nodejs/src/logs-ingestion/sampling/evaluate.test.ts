@@ -172,7 +172,7 @@ describe('evaluateLogRecord', () => {
             },
         ])
         expect(rs.hasRateLimitRules).toBe(true)
-        expect(rs.rules[0]?.rateLimit).toEqual({ refillPerSecond: 100, poolMax: 300 })
+        expect(rs.rules[0]?.rateLimit).toEqual({ refillPerSecond: 100, poolMax: 300, costUnit: 'records' })
     })
 
     it('classifySamplingRecord defers to rate_limit when first matching rule', () => {

@@ -100,6 +100,72 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert body["config"]["logs_per_second"] == 5000
         assert body["config"]["burst_logs"] == 15000
 
+    def test_create_rate_limit_kb_success(self):
+        # KB-mode is the new shape: cost-per-record is the row's bytes_uncompressed,
+        # matching how billing measures ingested bytes.
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                name="Cap api by bytes",
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={"kb_per_second": 500, "burst_kb": 1500},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["config"]["kb_per_second"] == 500
+        assert body["config"]["burst_kb"] == 1500
+
+    def test_create_rate_limit_rejects_both_modes_set(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={"logs_per_second": 100, "kb_per_second": 100},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_create_rate_limit_rejects_neither_mode_set(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_create_rate_limit_rejects_kb_per_second_out_of_range(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={"kb_per_second": 0},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_create_rate_limit_rejects_burst_kb_below_kb_per_second(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(
+                rule_type="rate_limit",
+                scope_service="payment-api",
+                config={"kb_per_second": 500, "burst_kb": 100},
+            ),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
     def test_create_path_drop_with_valid_filter_group(self):
         # The drop-rules UI writes the inner group wrapped in an outer AND envelope.
         filter_group = {
