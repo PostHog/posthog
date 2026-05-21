@@ -5501,6 +5501,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Reorder Activity Test",
                 "feature_flag_key": "reorder-activity-test",
                 "metrics": [
@@ -5574,6 +5575,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
+                "allow_unknown_events": True,
                 "name": "Combined PATCH Activity Test",
                 "feature_flag_key": "combined-patch-activity",
                 "metrics": [
@@ -5635,6 +5637,101 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(len(ordering_changes), 1, "User-supplied reorder must be logged once")
         self.assertEqual(ordering_changes[0]["before"], ["combined-inline-uuid"])
         self.assertEqual(ordering_changes[0]["after"], ["combined-saved-uuid", "combined-inline-uuid"])
+
+    @parameterized.expand(
+        [
+            ("primary", "primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"),
+            ("secondary", "secondary_metrics_ordered_uuids", "primary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_bulk_remove_shared_metrics_does_not_log_ordering_change(
+        self, metric_type: str, ordering_field: str, other_ordering_field: str
+    ):
+        """Bulk-remove via the reorder dialog (saved_metrics_ids=[] + ordering=[]) must not log a reorder.
+
+        The frontend sends the now-empty ordering array alongside the empty
+        saved_metrics_ids on bulk remove. That mirrors auto-sync, so the ordering
+        write is bookkeeping and must be muted. Only the per-link `saved_metric_config`
+        deleted entries should appear.
+        """
+        saved_metric_uuids = ["bulk-remove-uuid-1", "bulk-remove-uuid-2"]
+        saved_metric_ids: list[int] = []
+        for index, uuid in enumerate(saved_metric_uuids):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+                {
+                    "name": f"Bulk Remove Metric {index + 1}",
+                    "query": {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": uuid,
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            saved_metric_ids.append(response.json()["id"])
+
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": f"Bulk Remove Activity Test ({metric_type})",
+                "feature_flag_key": f"bulk-remove-activity-{metric_type}",
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": metric_type}} for saved_metric_id in saved_metric_ids
+                ],
+                ordering_field: saved_metric_uuids,
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        # Mirrors the curl payload from the reorder dialog: clear inline metrics,
+        # clear the ordering array, and clear saved_metrics_ids in the same PATCH.
+        inline_metrics_field = "metrics" if metric_type == "primary" else "metrics_secondary"
+        remove_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                inline_metrics_field: [],
+                ordering_field: [],
+                "saved_metrics_ids": [],
+            },
+            format="json",
+        )
+        self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(getattr(experiment, ordering_field) or [], [])
+
+        # Two new logs expected: one saved_metric_config deleted per removed link.
+        new_logs = list(
+            ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").order_by("created_at")
+        )
+        added = new_logs[logs_before:]
+        self.assertEqual(len(added), 2, "Two saved_metric_config deleted entries expected")
+        for log in added:
+            assert log.detail is not None
+            self.assertEqual(log.activity, "deleted")
+            self.assertEqual(log.detail["type"], "saved_metric_config")
+
+        # No ordering change should be logged on any entry (existing or new).
+        ordering_changes = [
+            change
+            for log in ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
+            if log.detail
+            for change in (log.detail.get("changes") or [])
+            if change.get("field") in (ordering_field, other_ordering_field)
+        ]
+        self.assertEqual(
+            ordering_changes,
+            [],
+            "Bulk-remove must not log a primary/secondary ordering change",
+        )
 
     def test_cannot_add_saved_metric_from_different_team(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")

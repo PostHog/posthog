@@ -2564,12 +2564,16 @@ class ExperimentService:
     ) -> None:
         """Sync ordering arrays with saved metric changes during update.
 
-        When a saved metric is added or removed and the user did not also supply
-        an explicit ordering in the same PATCH, the auto-synced ordering write is
-        persisted via a muted ``experiment.save(update_fields=...)`` so the add/remove
-        is the only thing logged. If the user *did* supply an explicit ordering, the
-        sync is merged into ``update_data`` and flows through the normal
-        ``experiment.save()`` path so the reorder is logged.
+        When a saved metric is added or removed, the ordering arrays are kept in
+        sync. The classification rule for the resulting write is:
+
+        - If the user did not supply the ordering field, or supplied a value that
+          equals what auto-sync would have produced, treat the write as bookkeeping
+          and persist it via a muted ``experiment.save(update_fields=...)`` so only
+          the add/remove appears in the activity log.
+        - Otherwise the user layered an explicit reorder on top of the add/remove.
+          Merge their order with the add/remove side effects and let the value flow
+          through the normal ``experiment.save()`` so the reorder is logged.
         """
         if saved_metrics_data is None:
             return
@@ -2600,42 +2604,54 @@ class ExperimentService:
         added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
         removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
 
-        # Fields whose new value is purely a side effect of add/remove (user did not
-        # supply them in this PATCH) — save these via a muted save to avoid logging
-        # a spurious "reordered metrics" entry alongside the add/remove entry.
+        # Fields whose new value is purely a side effect of add/remove — save these
+        # via a muted save to avoid logging a spurious "reordered metrics" entry
+        # alongside the add/remove entry.
         auto_synced_fields: list[str] = []
 
-        if added_primary or removed_primary:
-            user_supplied = "primary_metrics_ordered_uuids" in update_data
-            if user_supplied:
-                current_ordering = list(update_data["primary_metrics_ordered_uuids"] or [])
+        def resolve_ordering(
+            field: str,
+            base_ordering: list[str],
+            added: set[str],
+            removed: set[str],
+        ) -> None:
+            auto_sync_result = [u for u in base_ordering if u not in removed]
+            for uuid in added:
+                if uuid not in auto_sync_result:
+                    auto_sync_result.append(uuid)
+
+            user_supplied = field in update_data
+            supplied_value = list(update_data.get(field) or []) if user_supplied else None
+
+            if user_supplied and supplied_value != auto_sync_result:
+                # Real user reorder layered on top of the add/remove. Fold in the
+                # add/remove side effects so we don't lose newly-added UUIDs or
+                # retain newly-removed ones, but keep the user's chosen order.
+                merged = [u for u in supplied_value or [] if u not in removed]
+                for uuid in added:
+                    if uuid not in merged:
+                        merged.append(uuid)
+                update_data[field] = merged
+                # leave it to flow through the normal save() — logged as reorder
             else:
-                current_ordering = list(experiment.primary_metrics_ordered_uuids or [])
+                update_data[field] = auto_sync_result
+                auto_synced_fields.append(field)
 
-            current_ordering = [u for u in current_ordering if u not in removed_primary]
-            for uuid in added_primary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-
-            update_data["primary_metrics_ordered_uuids"] = current_ordering
-            if not user_supplied:
-                auto_synced_fields.append("primary_metrics_ordered_uuids")
+        if added_primary or removed_primary:
+            resolve_ordering(
+                "primary_metrics_ordered_uuids",
+                list(experiment.primary_metrics_ordered_uuids or []),
+                added_primary,
+                removed_primary,
+            )
 
         if added_secondary or removed_secondary:
-            user_supplied = "secondary_metrics_ordered_uuids" in update_data
-            if user_supplied:
-                current_ordering = list(update_data["secondary_metrics_ordered_uuids"] or [])
-            else:
-                current_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
-
-            current_ordering = [u for u in current_ordering if u not in removed_secondary]
-            for uuid in added_secondary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-
-            update_data["secondary_metrics_ordered_uuids"] = current_ordering
-            if not user_supplied:
-                auto_synced_fields.append("secondary_metrics_ordered_uuids")
+            resolve_ordering(
+                "secondary_metrics_ordered_uuids",
+                list(experiment.secondary_metrics_ordered_uuids or []),
+                added_secondary,
+                removed_secondary,
+            )
 
         # Persist auto-synced ordering via a muted save so the add/remove of the
         # saved metric is the only activity log entry. The user-initiated reorder
