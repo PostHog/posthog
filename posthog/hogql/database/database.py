@@ -1200,9 +1200,7 @@ class Database(BaseModel):
                     if is_managed_warehouse_table:
                         # Names like "schema.table" — nest the chain so queries can
                         # reference them via dotted paths and `database.get_table` resolves them.
-                        managed_warehouse_chain = (
-                            table.name.split(".") if "." in table.name else [table.name]
-                        )
+                        managed_warehouse_chain = table.name.split(".") if "." in table.name else [table.name]
                         managed_warehouse_tables.add_child(
                             TableNode.create_nested_for_chain(managed_warehouse_chain, s3_table)
                         )

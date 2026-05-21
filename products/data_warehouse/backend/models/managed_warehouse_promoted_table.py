@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from django.db import models
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 
-class ManagedWarehousePromotedTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class ManagedWarehousePromotedTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, TeamScopedRootMixin):
     """A table in a customer's managed DuckLake warehouse that has been promoted
     for querying within PostHog.
 
