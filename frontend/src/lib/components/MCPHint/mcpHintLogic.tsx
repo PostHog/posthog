@@ -10,20 +10,20 @@ import { UserType } from '~/types'
 
 import type { mcpHintLogicType } from './mcpHintLogicType'
 import { MCPHintToast } from './MCPHintToast'
-import type { SurfaceKey } from './prompts'
+import type { SurfaceKey, SurfacePromptContext } from './prompts'
 
 // A full week between hints, regardless of surface — these are promotional,
 // so we err heavily on the side of not overloading people.
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000
 
-export function tryShowMCPHint(surfaceKey: SurfaceKey): void {
+export function tryShowMCPHint(surfaceKey: SurfaceKey, context?: SurfacePromptContext): void {
     try {
         const mounted = mcpHintLogic.findMounted()
         if (!mounted?.values.featureEnabled) {
             return
         }
 
-        mounted.actions.tryShowHint(surfaceKey)
+        mounted.actions.tryShowHint(surfaceKey, context)
     } catch (error) {
         console.warn('[mcpHint] dispatch failed; host listener will continue', { surfaceKey, error })
     }
@@ -36,7 +36,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         actions: [userLogic, ['updateUser'], eventUsageLogic, ['reportMCPHintShown', 'reportMCPHintDismissed']],
     })),
     actions({
-        tryShowHint: (surfaceKey: SurfaceKey) => ({ surfaceKey }),
+        tryShowHint: (surfaceKey: SurfaceKey, context?: SurfacePromptContext) => ({ surfaceKey, context }),
         recordShown: (now: number) => ({ now }),
         dismissSurface: (surfaceKey: SurfaceKey) => ({ surfaceKey }),
         dismissAll: true,
@@ -80,7 +80,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        tryShowHint: ({ surfaceKey }) => {
+        tryShowHint: ({ surfaceKey, context }) => {
             const now = Date.now()
             const sinceLast = values.lastShownAt ? now - values.lastShownAt : Infinity
             const cooldownActive = values.lastShownAt !== null && sinceLast < COOLDOWN_MS
@@ -90,7 +90,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             }
 
             try {
-                toast.info(<MCPHintToast surfaceKey={surfaceKey} />, {
+                toast.info(<MCPHintToast surfaceKey={surfaceKey} context={context} />, {
                     toastId: `mcp-hint-${surfaceKey}-${now}`,
                     autoClose: false,
                     closeOnClick: false,

@@ -1826,7 +1826,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
-            tryShowMCPHint(props.id === 'new' ? 'feature_flags.create' : 'feature_flags.update')
+            tryShowMCPHint(props.id === 'new' ? 'feature_flags.create' : 'feature_flags.update', {
+                entityName: featureFlag.key,
+            })
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))

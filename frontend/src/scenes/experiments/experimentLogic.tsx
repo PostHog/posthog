@@ -1420,7 +1420,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
-                tryShowMCPHint('experiments.launch')
+                tryShowMCPHint('experiments.launch', {
+                    entityName: values.experiment?.feature_flag_key || values.experiment?.name,
+                })
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')
             } finally {

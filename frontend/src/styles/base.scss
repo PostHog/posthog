@@ -2094,6 +2094,20 @@
     );
 }
 
+// Dark-mode rainbow uses lighter shades — the default deep blues/reds drop below
+// readable contrast against dark surfaces (e.g. inside toasts and command blocks).
+[theme='dark'] {
+    --rainbow-gradient: linear-gradient(
+        90deg,
+        #5b8def 0%,
+        #7aa6ff 24%,
+        #ff7a59 47%,
+        #ffa170 66%,
+        #ffc55c 83%,
+        #5b8def 100%
+    );
+}
+
 .rainbow-text,
 .rainbow-text-fading {
     color: transparent;
