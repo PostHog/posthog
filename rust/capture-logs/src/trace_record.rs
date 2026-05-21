@@ -82,6 +82,13 @@ pub fn compute_kafka_trace_row_bytes(row: &KafkaTraceRow) -> i64 {
 }
 
 impl KafkaTraceRow {
+    /// Set `bytes_uncompressed` from the row's variable-length content. Consuming
+    /// builder; the `mut self` is encapsulated and never escapes.
+    fn with_computed_bytes(mut self) -> Self {
+        self.bytes_uncompressed = Some(compute_kafka_trace_row_bytes(&self));
+        self
+    }
+
     pub fn new(
         span: Span,
         resource: Option<Resource>,
@@ -192,7 +199,7 @@ impl KafkaTraceRow {
             .map(|s| s.message.clone())
             .unwrap_or_default();
 
-        let partial = Self {
+        let row = Self {
             uuid: Uuid::now_v7().to_string(),
             trace_id,
             span_id,
@@ -216,12 +223,8 @@ impl KafkaTraceRow {
             status_code,
             status_message,
             bytes_uncompressed: None,
-        };
-        let bytes_uncompressed = Some(compute_kafka_trace_row_bytes(&partial));
-        let row = Self {
-            bytes_uncompressed,
-            ..partial
-        };
+        }
+        .with_computed_bytes();
         debug!("trace span: {:?}", row);
 
         Ok((row, was_overridden))

@@ -65,6 +65,13 @@ pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
 }
 
 impl KafkaLogRow {
+    /// Set `bytes_uncompressed` from the row's variable-length content. Consuming
+    /// builder; the `mut self` is encapsulated and never escapes.
+    pub(crate) fn with_computed_bytes(mut self) -> Self {
+        self.bytes_uncompressed = Some(compute_kafka_log_row_bytes(&self));
+        self
+    }
+
     pub fn new(
         record: LogRecord,
         resource: Option<Resource>,
@@ -138,7 +145,7 @@ impl KafkaLogRow {
 
         let observed_timestamp = Utc::now();
 
-        let partial = Self {
+        let log_row = Self {
             uuid: Uuid::now_v7().to_string(),
             trace_id: BASE64_STANDARD.encode(trace_id),
             span_id: BASE64_STANDARD.encode(span_id),
@@ -154,12 +161,8 @@ impl KafkaLogRow {
             service_name,
             attributes,
             bytes_uncompressed: None,
-        };
-        let bytes_uncompressed = Some(compute_kafka_log_row_bytes(&partial));
-        let log_row = Self {
-            bytes_uncompressed,
-            ..partial
-        };
+        }
+        .with_computed_bytes();
         debug!("log: {:?}", log_row);
 
         Ok((log_row, was_overridden))
