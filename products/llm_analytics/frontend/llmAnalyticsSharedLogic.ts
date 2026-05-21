@@ -341,7 +341,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             // Cluster list and detail both honor the same `filters` / `filter_test_accounts`
             // params so deep links from generations/traces tabs carry their filter set through.
             [urls.llmAnalyticsClusters()]: (_, searchParams) => applyNonDashboard(searchParams),
-            '/llm-analytics/clusters/:runId': (_, searchParams) => applyNonDashboard(searchParams),
+            '/ai-observability/clusters/:runId': (_, searchParams) => applyNonDashboard(searchParams),
             [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: (_, searchParams) => applyNonDashboard(searchParams),
         }
     }),

@@ -70,7 +70,7 @@ const MOCK_PRODUCT_RECENTS = [
         path: 'LLM analytics',
         type: 'llm_analytics',
         ref: 'llm_analytics',
-        href: '/project/2/llm-analytics',
+        href: '/project/2/ai-observability',
         last_viewed_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
     },
     {

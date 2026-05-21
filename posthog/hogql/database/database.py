@@ -133,6 +133,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
 )
+from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -286,6 +287,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "error_tracking_fingerprint_issue_state": TableNode(
                         name="error_tracking_fingerprint_issue_state",
                         table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
+                    "web_overview_preaggregated": TableNode(
+                        name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
                     ),
                 },
             ),

@@ -253,6 +253,60 @@ class TestPrConcurrencyCheck:
         assert "github.run_id" in issue.message
         assert "github.ref" in issue.message
 
+    def test_passes_with_job_level_concurrency_on_all_jobs(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "ci-foo.yml",
+            """
+            name: CI Foo
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                concurrency:
+                  group: build-${{ github.head_ref || github.ref }}
+                  cancel-in-progress: true
+                steps:
+                  - run: echo ok
+              test:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                concurrency:
+                  group: test-${{ github.head_ref || github.ref }}
+                  cancel-in-progress: true
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_with_partial_job_level_concurrency(self, tmp_path: Path) -> None:
+        """Workflows managing concurrency at job-level for some (heavy) jobs pass."""
+        _write(
+            tmp_path,
+            "ci-foo.yml",
+            """
+            name: CI Foo
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                concurrency:
+                  group: build-${{ github.head_ref || github.ref }}
+                  cancel-in-progress: true
+                steps:
+                  - run: echo ok
+              lightweight:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: echo ok
+            """,
+        )
+        assert PrConcurrencyCheck().run(_read_all(tmp_path)).issues == []
+
     def test_skips_non_ci_prefix(self, tmp_path: Path) -> None:
         _write(
             tmp_path,

@@ -55,7 +55,7 @@ interface ResolvedStyle {
 
 const VARIANT_DEFAULTS: Record<ReferenceLineVariant, ResolvedStyle> = {
     goal: { color: 'rgba(0, 0, 0, 0.4)', stroke: 'dashed', width: 2 },
-    alert: { color: 'var(--danger)', stroke: 'dashed', width: 2 },
+    alert: { color: '#db3707', stroke: 'dashed', width: 2 },
     marker: { color: 'rgba(0, 0, 0, 0.5)', stroke: 'solid', width: 1 },
 }
 

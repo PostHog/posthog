@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import errno
 import subprocess
@@ -60,6 +61,38 @@ class TestDevboxConfig:
             "git_email": "test-user@example.com",
             "dotfiles_uri": "https://github.com/user/dotfiles",
         }
+
+    def test_clear_dotfiles_uri_removes_only_dotfiles(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "test-user@example.com")
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
+
+        devbox_config.clear_dotfiles_uri()
+
+        config = devbox_config.load_config()
+        assert config == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+        }
+
+    def test_clear_dotfiles_uri_is_noop_when_unset(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "test-user@example.com")
+
+        devbox_config.clear_dotfiles_uri()
+
+        config = devbox_config.load_config()
+        assert config == {
+            "git_name": "PostHog Engineer",
+            "git_email": "test-user@example.com",
+        }
+
+    def test_clear_git_identity_leaves_dotfiles_intact(self, devbox_config_path: Path) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "test-user@example.com")
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
+
+        devbox_config.clear_git_identity()
+
+        config = devbox_config.load_config()
+        assert config == {"dotfiles_uri": "https://github.com/user/dotfiles"}
 
 
 class TestUserSecrets:
@@ -1069,6 +1102,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda: calls.append("reachable"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: calls.append("install"))
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: calls.append("login"))
+        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_ssh",
@@ -1082,7 +1116,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_git_signing",
-            lambda configure_git_signing: calls.append(f"signing:{configure_git_signing}"),
+            lambda configure_git_signing, **kw: calls.append(f"signing:{configure_git_signing}"),
         )
         monkeypatch.setattr(
             devbox_cli,
@@ -1092,7 +1126,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "maybe_configure_claude_secret",
-            lambda configure_claude: calls.append(f"claude:{configure_claude}"),
+            lambda configure_claude, **kw: calls.append(f"claude:{configure_claude}"),
         )
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: calls.append("summary"))
 
@@ -1134,6 +1168,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: "/tmp/resolved.sock")
+        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
@@ -1163,10 +1198,11 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
+        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(devbox_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
 
@@ -1184,7 +1220,7 @@ class TestDevboxCommands:
             "git_email": "coder@example.com",
         }
 
-    def test_devbox_setup_skips_git_identity_when_already_saved(
+    def test_devbox_setup_renders_compact_status_for_saved_settings(
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
@@ -1197,16 +1233,19 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_authenticated", lambda: None)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
+        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
         monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda configure_ssh, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
 
         result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
 
         assert result.exit_code == 0
-        assert "Using saved Git identity: Existing User <existing@example.com>" in result.output
+        assert "Currently configured:" in result.output
+        assert "Git identity" in result.output
+        assert "Existing User <existing@example.com>" in result.output
 
     def test_devbox_start_creates_workspace_with_default_name(
         self,
@@ -1418,6 +1457,289 @@ class TestDevboxCommands:
         assert result.exit_code == 1
         assert "Local port 8010 is already in use." in result.output
         assert "hogli devbox:forward --port 8011" in result.output
+
+
+@pytest.fixture
+def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
+    for name in (
+        "ensure_tailscale_connected",
+        "ensure_tailscale_routes_accepted",
+        "ensure_coder_reachable",
+        "ensure_coder_authenticated",
+    ):
+        monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
+    monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
+    monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
+    monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+    monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: True)
+
+
+@pytest.fixture
+def stub_config_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the runtime guards that ``devbox:config:*`` commands call before doing work."""
+    monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+    monkeypatch.setattr(devbox_cli, "_ensure_user_secrets_supported", lambda: None)
+    monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+    monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
+
+
+class TestDevboxConfigCommands:
+    """Cover the ``devbox:config:show`` and ``devbox:config:rm`` commands."""
+
+    def test_show_reports_when_nothing_configured(
+        self,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        result = runner.invoke(cli, ["devbox:config:show"])
+
+        assert result.exit_code == 0
+        assert "Nothing configured yet" in result.output
+
+    def test_show_renders_saved_settings(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config_path.write_text(
+            json.dumps(
+                {
+                    "git_name": "PostHog Engineer",
+                    "git_email": "engineer@example.com",
+                    "dotfiles_uri": "https://github.com/user/dotfiles",
+                }
+            )
+        )
+        monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [{"name": coder.GIT_SIGNING_KEY_SECRET}])
+
+        result = runner.invoke(cli, ["devbox:config:show"])
+
+        assert result.exit_code == 0
+        assert "Currently configured:" in result.output
+        assert "PostHog Engineer <engineer@example.com>" in result.output
+        assert "https://github.com/user/dotfiles" in result.output
+        assert "Git signing" in result.output
+
+    def test_rm_dotfiles_clears_config_and_pushes_empty_param_to_existing_workspaces(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
+        monkeypatch.setattr(
+            devbox_cli,
+            "list_user_workspaces",
+            lambda: [{"name": "devbox-test-user"}, {"name": "devbox-test-user-mobile"}],
+        )
+        param_pushes: list[tuple[str, dict[str, str]]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "update_workspace_parameters",
+            lambda name, params: param_pushes.append((name, params)),
+        )
+
+        result = runner.invoke(cli, ["devbox:config:rm", "dotfiles"])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.load_config() == {}
+        assert param_pushes == [
+            ("devbox-test-user", {coder.DOTFILES_URI_PARAMETER: ""}),
+            ("devbox-test-user-mobile", {coder.DOTFILES_URI_PARAMETER: ""}),
+        ]
+        assert "Cleared saved dotfiles repo" in result.output
+        assert "Restart any running devbox" in result.output
+
+    def test_rm_git_identity_clears_only_identity_keys(
+        self,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config.save_git_identity("PostHog Engineer", "engineer@example.com")
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
+
+        result = runner.invoke(cli, ["devbox:config:rm", "git-identity"])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.load_config() == {"dotfiles_uri": "https://github.com/user/dotfiles"}
+        assert "Cleared saved Git identity" in result.output
+
+    @pytest.mark.parametrize(
+        "key,expected_secret",
+        [
+            ("git-signing", coder.GIT_SIGNING_KEY_SECRET),
+            ("claude", coder.CLAUDE_CODE_OAUTH_ENV),
+        ],
+        ids=["git-signing", "claude"],
+    )
+    def test_rm_secret_keys_delete_the_right_coder_secret(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        stub_config_runtime: None,
+        key: str,
+        expected_secret: str,
+    ) -> None:
+        deleted: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
+        )
+
+        result = runner.invoke(cli, ["devbox:config:rm", key])
+
+        assert result.exit_code == 0, result.output
+        assert deleted == [expected_secret]
+
+    def test_rm_multiple_keys_clears_each(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config.save_git_identity("Eng", "eng@example.com")
+        devbox_config.save_dotfiles_uri("https://x/y")
+        deleted: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
+        )
+
+        result = runner.invoke(cli, ["devbox:config:rm", "git-identity", "claude"])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.load_config() == {"dotfiles_uri": "https://x/y"}
+        assert deleted == [coder.CLAUDE_CODE_OAUTH_ENV]
+
+    def test_rm_all_clears_every_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        devbox_config.save_git_identity("Eng", "eng@example.com")
+        devbox_config.save_dotfiles_uri("https://x/y")
+        deleted: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
+        )
+
+        result = runner.invoke(cli, ["devbox:config:rm", "--all"])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.load_config() == {}
+        assert deleted == [coder.GIT_SIGNING_KEY_SECRET, coder.CLAUDE_CODE_OAUTH_ENV]
+
+    def test_rm_with_no_args_fails_with_valid_keys_hint(self, stub_config_runtime: None) -> None:
+        result = runner.invoke(cli, ["devbox:config:rm"])
+
+        assert result.exit_code != 0
+        assert "git-identity" in result.output
+        assert "git-signing" in result.output
+        assert "dotfiles" in result.output
+        assert "claude" in result.output
+
+    def test_rm_with_unknown_key_fails_with_valid_keys_hint(self, stub_config_runtime: None) -> None:
+        result = runner.invoke(cli, ["devbox:config:rm", "bogus"])
+
+        assert result.exit_code != 0
+        assert "Unknown key" in result.output
+        assert "bogus" in result.output
+
+    def test_rm_rejects_all_combined_with_positional_keys(self, stub_config_runtime: None) -> None:
+        result = runner.invoke(cli, ["devbox:config:rm", "--all", "dotfiles"])
+
+        assert result.exit_code != 0
+        assert "--all" in result.output
+
+    def test_rm_is_idempotent_for_already_empty_local_state(
+        self,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        # No config file written and no secrets stubbed -- clearing should still succeed.
+        result = runner.invoke(cli, ["devbox:config:rm", "dotfiles"])
+
+        assert result.exit_code == 0, result.output
+        assert "Nothing to clear: dotfiles was not set." in result.output
+        # When nothing actually fired, the restart hint is misleading -- suppress it.
+        assert "Restart any running devbox" not in result.output
+
+    def test_rm_prints_restart_hint_only_when_something_actually_cleared(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        stub_config_runtime: None,
+    ) -> None:
+        # Only dotfiles is set; the secret deletions report nothing-to-do.
+        devbox_config.save_dotfiles_uri("https://github.com/user/dotfiles")
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: subprocess.CompletedProcess(["coder"], 1, "", "not found"),
+        )
+
+        result = runner.invoke(cli, ["devbox:config:rm", "--all"])
+
+        assert result.exit_code == 0, result.output
+        # dotfiles fired -> hint present; the no-op secret deletions don't suppress it.
+        assert "Cleared saved dotfiles repo" in result.output
+        assert "Nothing to delete:" in result.output
+        assert "Restart any running devbox" in result.output
+
+
+class TestDevboxSetupGate:
+    """Cover the Y/n gate at the top of ``hogli devbox:setup``."""
+
+    def test_gate_bypassed_when_explicit_configure_flag_passed(
+        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    ) -> None:
+        gate_calls: list[None] = []
+        monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: gate_calls.append(None) or True)
+
+        result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
+
+        assert result.exit_code == 0
+        assert gate_calls == []
+
+    def test_gate_shown_when_no_flags_and_aborts_on_no(
+        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "_confirm_run_setup", lambda: False)
+        configure_calls: list[str] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "maybe_configure_git_identity",
+            lambda *a, **kw: configure_calls.append("git"),
+        )
+
+        result = runner.invoke(cli, ["devbox:setup"])
+
+        assert result.exit_code == 0
+        assert configure_calls == []
+        assert "Aborted" in result.output
+
+    def test_gate_helper_returns_true_when_stdin_is_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli.sys.stdin, "isatty", lambda: False)
+        monkeypatch.setattr(
+            devbox_cli.click,
+            "confirm",
+            lambda *a, **kw: pytest.fail("click.confirm must not be called when stdin is not a TTY"),
+        )
+
+        assert devbox_cli._confirm_run_setup() is True
 
 
 class TestStartExistingWorkspace:
@@ -1804,15 +2126,21 @@ class TestSetupClaudeSecret:
         devbox_cli.maybe_configure_claude_secret(None)
         assert any("older than 2.33" in line for line in echoed)
 
-    def test_skips_when_secret_already_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_skips_silently_when_secret_already_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The compact status block at the top of devbox_setup now owns the
+        # "Claude token: configured" line, so this helper returns silently on
+        # the already-set path rather than re-stating the same info.
         monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
         monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: True)
 
+        upserts: list[tuple[str, str]] = []
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", lambda name, value, **kw: upserts.append((name, value)))
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
         devbox_cli.maybe_configure_claude_secret(None)
-        assert any("already set as a Coder user secret" in line for line in echoed)
+        assert upserts == []
+        assert echoed == []
 
     def test_skip_flag_short_circuits(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
@@ -2206,12 +2534,36 @@ class TestResolveLocalIdentityAgent:
 
 
 class TestConfigSshArgs:
-    """Test the `coder config-ssh` arg assembly."""
+    """Test the `coder config-ssh` argument builder.
 
-    def test_omits_identity_agent_when_socket_missing(self) -> None:
+    Two encoding layers in play, both have to round-trip:
+
+    1. ``coder config-ssh --ssh-option`` is a cobra ``StringSlice``, so each
+       value is CSV-parsed before coder uses it. A bare ``"`` in a non-quoted
+       CSV field crashes coder's parser; the encoder wraps any value with
+       quotes/commas so it survives.
+    2. ``~/.ssh/config`` itself: an unquoted ``IdentityAgent`` path with
+       spaces (1Password's ``~/Library/Group Containers/...``) makes ``ssh``
+       reject the config with "extra arguments at end of line."
+
+    The tests below assert the CSV-encoded value coder receives *and* the
+    SSH form it decodes back to.
+    """
+
+    _SOCKET_WITH_SPACES = "/Users/me/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+
+    @staticmethod
+    def _ssh_option_values(args: list[str]) -> list[str]:
+        return [args[i + 1] for i, a in enumerate(args) if a == "--ssh-option"]
+
+    @staticmethod
+    def _csv_decode(field: str) -> str:
+        return next(csv.reader([field]))[0]
+
+    def test_omits_identity_agent_when_socket_is_none(self) -> None:
         args = coder._config_ssh_args(identity_agent_socket=None)
-        assert "ForwardAgent yes" in args
-        assert not any("IdentityAgent" in a for a in args)
+        decoded = [self._csv_decode(v) for v in self._ssh_option_values(args)]
+        assert decoded == ["ForwardAgent yes"]
 
     @pytest.mark.parametrize(
         "socket",
@@ -2222,10 +2574,37 @@ class TestConfigSshArgs:
             "/Users/me/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
             "/tmp/agent.sock",
         ],
+        ids=["spaces", "no-spaces"],
     )
-    def test_quotes_identity_agent_socket(self, socket: str) -> None:
+    def test_identity_agent_socket_roundtrips_to_quoted_ssh_form(self, socket: str) -> None:
         args = coder._config_ssh_args(identity_agent_socket=socket)
-        assert f'IdentityAgent "{socket}"' in args
+        identity_option = next(v for v in self._ssh_option_values(args) if "IdentityAgent" in v)
+        # After coder CSV-decodes it, ~/.ssh/config gets the SSH form -- an
+        # IdentityAgent line with a quoted path. The quotes are what ssh needs
+        # when the socket contains spaces; CSV encoding is what coder needs to
+        # accept those quotes.
+        assert self._csv_decode(identity_option) == f'IdentityAgent "{socket}"'
+
+
+class TestEncodeSshOption:
+    """Direct tests for the CSV-encoding helper backing `--ssh-option` values."""
+
+    def test_plain_value_passes_through_unchanged(self) -> None:
+        # QUOTE_MINIMAL only wraps fields that need it -- a plain option
+        # should land as the literal string coder writes to the config.
+        assert coder._encode_ssh_option("ForwardAgent yes") == "ForwardAgent yes"
+
+    def test_value_with_embedded_quotes_is_csv_quoted_and_roundtrips(self) -> None:
+        encoded = coder._encode_ssh_option('IdentityAgent "/path with space/sock"')
+        # CSV-encoded: outer wrap + doubled internal quotes.
+        assert encoded == '"IdentityAgent ""/path with space/sock"""'
+        # And it round-trips through Go's CSV parser (which Python's csv module mirrors).
+        assert next(csv.reader([encoded]))[0] == 'IdentityAgent "/path with space/sock"'
+
+    def test_value_with_commas_is_csv_quoted(self) -> None:
+        # Defensive: any SSH option containing the CSV delimiter must be quoted.
+        encoded = coder._encode_ssh_option("ProxyCommand a,b")
+        assert next(csv.reader([encoded]))[0] == "ProxyCommand a,b"
 
 
 class TestSetupGitSigning:
