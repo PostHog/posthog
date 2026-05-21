@@ -29,7 +29,6 @@ class BillingMCPViewset(TeamAndOrgViewSetMixin, GenericViewSet):
     """
 
     scope_object = "billing"
-    param_derived_from_user_current_team = "team_id"
 
     def _get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
