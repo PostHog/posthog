@@ -27,7 +27,7 @@ from posthog.schema import (
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.models.instance_setting import set_instance_setting
-from posthog.tasks.alerts.checks import check_alert
+from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
@@ -37,7 +37,7 @@ FROZEN_TIME = dateutil.parser.parse("2024-06-04T08:55:00.000Z")
 
 @freeze_time(FROZEN_TIME)
 @patch("posthog.tasks.alerts.utils.send_notifications_for_errors")
-@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
+@patch("posthog.tasks.alerts.utils.send_notifications_for_breaches")
 class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMixin):
     def setUp(self) -> None:
         super().setUp()
@@ -125,7 +125,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert["last_notified_at"] is None
         assert alert["next_check_at"] is None
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -176,7 +176,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             )
             flush_persons_and_events()
 
-        check_alert(alert["id"])
+        run_alert_check(alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -261,7 +261,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -277,7 +277,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -351,7 +351,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         # alert should fire as overall we had *decrease* in events (-1 or -50%) week over week
         # check absolute alert
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -374,7 +374,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         )
 
         # check percentage alert
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -454,7 +454,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         # alert should fire as overall we had *increase* in events of just (1 or 100%) week over week
         # alert required at least 2
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -470,7 +470,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -549,7 +549,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had decrease in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -571,7 +571,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             idempotency_key=ANY,
         )
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -650,7 +650,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had decrease in events of (1 or 50%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -672,7 +672,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             idempotency_key=ANY,
         )
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -757,7 +757,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert shouldn't fire as increase was only of 2 or 200%
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -772,7 +772,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -850,7 +850,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert shouldn't fire as increase was only of 2 or 200%
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -865,7 +865,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -957,7 +957,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -973,7 +973,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1085,7 +1085,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1101,7 +1101,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1213,7 +1213,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1229,7 +1229,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1342,7 +1342,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1358,7 +1358,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1459,7 +1459,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -1475,7 +1475,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -1559,7 +1559,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -1575,7 +1575,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -1669,7 +1669,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1691,7 +1691,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             idempotency_key=ANY,
         )
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1789,7 +1789,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             flush_persons_and_events()
 
         # alert should fire as we had *increase* in events of (2 or 200%) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -1807,7 +1807,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -1870,7 +1870,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 0 events
 
         # alert should fire as we had *increase* in events of (infinity) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1894,7 +1894,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             idempotency_key=ANY,
         )
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -1963,7 +1963,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # set previous to previous interval (last to last week) to have 0 events
 
         # alert should fire as we had *decrease* in events of (infinity) week over week
-        check_alert(absolute_alert["id"])
+        run_alert_check(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
         assert updated_alert.state == AlertState.NOT_FIRING
@@ -1979,7 +1979,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
 
-        check_alert(percentage_alert["id"])
+        run_alert_check(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
         assert updated_alert.state == AlertState.FIRING
@@ -2031,7 +2031,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # Check at 08:05 - checks increase from 06:00-06:59 (0) to 07:00-07:59 (2)
         # Increase = 2 - 0 = 2 (breaches upper threshold of 1)
         with freeze_time(dateutil.parser.parse("2024-06-04T08:05:00.000Z")):
-            check_alert(alert["id"])
+            run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
             assert mock_calculate.call_count == 1
@@ -2054,7 +2054,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # Check at 09:05 - checks increase from 07:00-07:59 (2) to 08:00-08:59 (1)
         # Increase = 1 - 2 = -1 (decrease, no breach)
         with freeze_time(dateutil.parser.parse("2024-06-04T09:05:00.000Z")):
-            check_alert(alert["id"])
+            run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
             assert mock_calculate.call_count == 1
@@ -2096,7 +2096,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # Check at 08:05 - checks decrease from 06:00-06:59 (0) to 07:00-07:59 (2)
         # It's increase, do not trigger an alarm
         with freeze_time(dateutil.parser.parse("2024-06-04T08:05:00.000Z")):
-            check_alert(alert["id"])
+            run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
             assert mock_calculate.call_count == 1
@@ -2119,7 +2119,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         # Check at 09:05 - checks decrease from 07:00-07:59 (2) to 08:00-08:59 (0)
         # It's decrease by 2, trigger an alarm
         with freeze_time(dateutil.parser.parse("2024-06-04T09:05:00.000Z")):
-            check_alert(alert["id"])
+            run_alert_check(alert["id"])
 
             # Verify execution mode is CALCULATE_BLOCKING_ALWAYS
             assert mock_calculate.call_count == 1
