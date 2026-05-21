@@ -53,15 +53,6 @@ class DuckgresBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
     ) -> None:
-        if error_response is None:
-            await DuckgresBatchQueue.update_status(
-                conn,
-                batch_id=batch_id,
-                job_state=job_state,
-                attempt=attempt,
-            )
-            return
-
         await DuckgresBatchQueue.update_status(
             conn,
             batch_id=batch_id,

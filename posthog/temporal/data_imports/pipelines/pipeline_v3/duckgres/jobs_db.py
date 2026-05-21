@@ -11,6 +11,8 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db 
     PARTITION_PRUNING_INTERVAL,
     STATUS_VIEW as DELTA_STATUS_VIEW,
     PendingBatch,
+    pending_batch_select_columns,
+    unlock_advisory_locks,
 )
 
 DUCKGRES_STATUS_TABLE = "sourcebatchduckgresstatus"
@@ -37,13 +39,7 @@ class DuckgresBatchQueue:
                 f"""
                 WITH candidates AS MATERIALIZED (
                     SELECT
-                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                        b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
-                        COALESCE(dgs.attempt, 0) AS latest_attempt,
-                        b.created_at
+                        {pending_batch_select_columns("dgs")}
                     FROM {BATCH_TABLE} b
                     JOIN {DELTA_STATUS_VIEW} ds ON b.id = ds.batch_id
                     LEFT JOIN {DUCKGRES_STATUS_VIEW} dgs ON b.id = dgs.batch_id
@@ -217,13 +213,7 @@ class DuckgresBatchQueue:
                 f"""
                 WITH candidates AS MATERIALIZED (
                     SELECT
-                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-                        b.cumulative_row_count, b.resource_name, b.is_resume,
-                        b.is_first_ever_sync, b.metadata,
-                        COALESCE(dgs.attempt, 0) AS latest_attempt,
-                        b.created_at
+                        {pending_batch_select_columns("dgs")}
                     FROM {BATCH_TABLE} b
                     JOIN {DUCKGRES_STATUS_VIEW} dgs ON b.id = dgs.batch_id
                     WHERE
@@ -252,8 +242,4 @@ class DuckgresBatchQueue:
         *,
         batches: list[PendingBatch],
     ) -> None:
-        for batch in batches:
-            await conn.execute(
-                "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
-                {"ns": DUCKGRES_ADVISORY_LOCK_NAMESPACE, "key": f"{batch.team_id}:{batch.schema_id}"},
-            )
+        await unlock_advisory_locks(conn, batches=batches, namespace=DUCKGRES_ADVISORY_LOCK_NAMESPACE)

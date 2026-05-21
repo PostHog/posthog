@@ -54,6 +54,30 @@ def _make_consumer(max_attempts: int = 3, **kwargs) -> DuckgresBatchConsumer:
 
 class TestDuckgresProcessSingle:
     @pytest.mark.asyncio
+    async def test_adapter_forwards_empty_error_response_explicitly(self):
+        consumer = _make_consumer()
+        update_status_calls: list[dict[str, Any]] = []
+
+        async def track_status(conn, **kwargs):
+            update_status_calls.append(kwargs)
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
+                side_effect=track_status,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.has_applied",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            await consumer._process_single(_make_batch(is_final_batch=True))
+
+        assert update_status_calls[0]["error_response"] is None
+        assert update_status_calls[1]["error_response"] is None
+
+    @pytest.mark.asyncio
     async def test_success_updates_status_and_marks_applied(self):
         consumer = _make_consumer()
         states: list[str] = []

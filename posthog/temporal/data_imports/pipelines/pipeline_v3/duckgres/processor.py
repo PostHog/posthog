@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import psycopg
 import structlog
@@ -15,6 +16,21 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
+
+DUCKGRES_APPLY_TABLE = "_posthog_source_batch_duckgres_apply"
+
+
+@dataclass(frozen=True)
+class DuckgresColumn:
+    name: str
+    type_sql: str
+
+
+@dataclass(frozen=True)
+class BatchApplyOperation:
+    kind: Literal["replace", "create", "insert", "merge"]
+    ensure_target_columns: bool = False
+    primary_keys: list[str] | None = None
 
 
 def process_batch(batch: PendingBatch) -> None:
@@ -55,9 +71,27 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
     if batch.sync_type == "cdc":
         raise ValueError("Duckgres batch sink does not support CDC batches yet")
 
-    columns = _read_parquet_columns(conn, batch.s3_path)
+    _ensure_duckgres_apply_table(conn, duckgres_schema)
+    if _has_duckgres_batch_applied(conn, duckgres_schema, batch=batch):
+        logger.info(
+            "duckgres_batch_already_applied",
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            run_uuid=batch.run_uuid,
+            batch_index=batch.batch_index,
+        )
+        return
 
-    if _should_replace_table(batch):
+    parquet_schema = _read_parquet_schema(conn, batch.s3_path)
+    columns = [column.name for column in parquet_schema]
+    operation = _plan_batch_operation(
+        conn,
+        batch,
+        duckgres_schema=duckgres_schema,
+        duckgres_table=duckgres_table,
+    )
+
+    if operation.kind == "replace":
         logger.info(
             "duckgres_replacing_table_from_batch",
             team_id=batch.team_id,
@@ -65,29 +99,20 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
             batch_index=batch.batch_index,
             table=duckgres_table,
         )
-        _replace_table(conn, duckgres_schema, duckgres_table, batch.s3_path)
+
+    with conn.transaction():
+        if operation.ensure_target_columns:
+            _ensure_target_columns(conn, duckgres_schema, duckgres_table, parquet_schema)
+        _apply_batch_operation(
+            conn,
+            operation,
+            duckgres_schema=duckgres_schema,
+            duckgres_table=duckgres_table,
+            s3_path=batch.s3_path,
+            columns=columns,
+        )
+        _mark_duckgres_batch_applied(conn, duckgres_schema, batch=batch)
         return
-
-    if not _table_exists(conn, duckgres_schema, duckgres_table):
-        _create_table_from_parquet(conn, duckgres_schema, duckgres_table, batch.s3_path)
-        return
-
-    if batch.sync_type == "incremental":
-        if batch.is_first_ever_sync:
-            _insert_batch(conn, duckgres_schema, duckgres_table, batch.s3_path)
-            return
-
-        primary_keys = _primary_keys(batch)
-        if not primary_keys:
-            raise ValueError("Duckgres incremental batches require primary keys")
-        _merge_batch(conn, duckgres_schema, duckgres_table, batch.s3_path, columns, primary_keys)
-        return
-
-    if batch.sync_type in ("full_refresh", "append"):
-        _insert_batch(conn, duckgres_schema, duckgres_table, batch.s3_path)
-        return
-
-    raise ValueError(f"Unsupported Duckgres sync type: {batch.sync_type}")
 
 
 def _duckgres_schema_name(team_id: int) -> str:
@@ -106,7 +131,41 @@ def _duckgres_table_name(schema: ExternalDataSchema) -> str:
 
 
 def _should_replace_table(batch: PendingBatch) -> bool:
-    return batch.batch_index == 0 and not batch.is_resume and batch.sync_type in ("full_refresh", "incremental")
+    if batch.batch_index != 0 or batch.is_resume:
+        return False
+    if batch.sync_type == "full_refresh":
+        return True
+    if batch.sync_type == "incremental":
+        return batch.is_first_ever_sync
+    return False
+
+
+def _plan_batch_operation(
+    conn: psycopg.Connection[Any],
+    batch: PendingBatch,
+    *,
+    duckgres_schema: str,
+    duckgres_table: str,
+) -> BatchApplyOperation:
+    if _should_replace_table(batch):
+        return BatchApplyOperation(kind="replace")
+
+    if not _table_exists(conn, duckgres_schema, duckgres_table):
+        return BatchApplyOperation(kind="create")
+
+    if batch.sync_type == "incremental":
+        if batch.is_first_ever_sync:
+            return BatchApplyOperation(kind="insert", ensure_target_columns=True)
+
+        primary_keys = _primary_keys(batch)
+        if not primary_keys:
+            raise ValueError("Duckgres incremental batches require primary keys")
+        return BatchApplyOperation(kind="merge", ensure_target_columns=True, primary_keys=primary_keys)
+
+    if batch.sync_type in ("full_refresh", "append"):
+        return BatchApplyOperation(kind="insert", ensure_target_columns=True)
+
+    raise ValueError(f"Unsupported Duckgres sync type: {batch.sync_type}")
 
 
 def _table_exists(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str) -> bool:
@@ -145,19 +204,145 @@ def _create_table_from_parquet(
     )
 
 
-def _read_parquet_columns(conn: psycopg.Connection[Any], s3_path: str) -> list[str]:
-    cursor = conn.execute("SELECT * FROM read_parquet(%s) LIMIT 0", [s3_path])
-    description = cursor.description
-    if not description:
-        raise ValueError("Duckgres could not read parquet column metadata")
-    return [column.name for column in description]
-
-
-def _insert_batch(conn: psycopg.Connection[Any], duckgres_schema: str, duckgres_table: str, s3_path: str) -> None:
+def _ensure_duckgres_apply_table(conn: psycopg.Connection[Any], duckgres_schema: str) -> None:
     conn.execute(
-        sql.SQL("INSERT INTO {}.{} SELECT * FROM read_parquet(%s)").format(
+        sql.SQL(
+            """
+            CREATE TABLE IF NOT EXISTS {}.{} (
+                schema_id VARCHAR NOT NULL,
+                run_uuid VARCHAR NOT NULL,
+                batch_index BIGINT NOT NULL,
+                batch_id VARCHAR NOT NULL,
+                applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                PRIMARY KEY (schema_id, run_uuid, batch_index)
+            )
+            """
+        ).format(
+            sql.Identifier(duckgres_schema),
+            sql.Identifier(DUCKGRES_APPLY_TABLE),
+        )
+    )
+
+
+def _has_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema: str, *, batch: PendingBatch) -> bool:
+    cursor = conn.execute(
+        sql.SQL(
+            """
+            SELECT 1
+            FROM {}.{}
+            WHERE schema_id = %s
+                AND run_uuid = %s
+                AND batch_index = %s
+            LIMIT 1
+            """
+        ).format(
+            sql.Identifier(duckgres_schema),
+            sql.Identifier(DUCKGRES_APPLY_TABLE),
+        ),
+        [batch.schema_id, batch.run_uuid, batch.batch_index],
+    )
+    return cursor.fetchone() is not None
+
+
+def _mark_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema: str, *, batch: PendingBatch) -> None:
+    conn.execute(
+        sql.SQL(
+            """
+            INSERT INTO {}.{} (schema_id, run_uuid, batch_index, batch_id)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (schema_id, run_uuid, batch_index) DO NOTHING
+            """
+        ).format(
+            sql.Identifier(duckgres_schema),
+            sql.Identifier(DUCKGRES_APPLY_TABLE),
+        ),
+        [batch.schema_id, batch.run_uuid, batch.batch_index, batch.id],
+    )
+
+
+def _read_parquet_columns(conn: psycopg.Connection[Any], s3_path: str) -> list[str]:
+    return [column.name for column in _read_parquet_schema(conn, s3_path)]
+
+
+def _read_parquet_schema(conn: psycopg.Connection[Any], s3_path: str) -> list[DuckgresColumn]:
+    cursor = conn.execute("DESCRIBE SELECT * FROM read_parquet(%s) LIMIT 0", [s3_path])
+    rows = cursor.fetchall()
+    if not rows:
+        raise ValueError("Duckgres could not read parquet column metadata")
+    return [DuckgresColumn(name=str(row[0]), type_sql=str(row[1])) for row in rows]
+
+
+def _ensure_target_columns(
+    conn: psycopg.Connection[Any],
+    duckgres_schema: str,
+    duckgres_table: str,
+    parquet_schema: list[DuckgresColumn],
+) -> None:
+    cursor = conn.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = %s
+            AND table_name = %s
+        """,
+        [duckgres_schema, duckgres_table],
+    )
+    existing_columns = {str(row[0]) for row in cursor.fetchall()}
+
+    for column in parquet_schema:
+        if column.name in existing_columns:
+            continue
+        conn.execute(
+            sql.SQL("ALTER TABLE {}.{} ADD COLUMN {} {}").format(
+                sql.Identifier(duckgres_schema),
+                sql.Identifier(duckgres_table),
+                sql.Identifier(column.name),
+                sql.SQL(column.type_sql),
+            )
+        )
+
+
+def _apply_batch_operation(
+    conn: psycopg.Connection[Any],
+    operation: BatchApplyOperation,
+    *,
+    duckgres_schema: str,
+    duckgres_table: str,
+    s3_path: str,
+    columns: list[str],
+) -> None:
+    if operation.kind == "replace":
+        _replace_table(conn, duckgres_schema, duckgres_table, s3_path)
+        return
+    if operation.kind == "create":
+        _create_table_from_parquet(conn, duckgres_schema, duckgres_table, s3_path)
+        return
+    if operation.kind == "insert":
+        _insert_batch(conn, duckgres_schema, duckgres_table, s3_path, columns)
+        return
+    if operation.kind == "merge":
+        if operation.primary_keys is None:
+            raise ValueError("Duckgres merge operation requires primary keys")
+        _merge_batch(conn, duckgres_schema, duckgres_table, s3_path, columns, operation.primary_keys)
+        return
+    raise ValueError(f"Unsupported Duckgres apply operation: {operation.kind}")
+
+
+def _insert_batch(
+    conn: psycopg.Connection[Any],
+    duckgres_schema: str,
+    duckgres_table: str,
+    s3_path: str,
+    columns: list[str],
+) -> None:
+    insert_columns = sql.SQL(", ").join(sql.Identifier(column) for column in columns)
+    select_columns = sql.SQL(", ").join(sql.SQL("source.{}").format(sql.Identifier(column)) for column in columns)
+    conn.execute(
+        sql.SQL("INSERT INTO {}.{} ({}) SELECT {} FROM read_parquet(%s) AS source").format(
             sql.Identifier(duckgres_schema),
             sql.Identifier(duckgres_table),
+            insert_columns,
+            select_columns,
         ),
         [s3_path],
     )
