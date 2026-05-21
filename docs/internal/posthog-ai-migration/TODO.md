@@ -97,7 +97,7 @@ Today's LangGraph stack gates `web_search` behind "no Bedrock primary" — `tool
 
 ### What needs to land
 
-At Run-create, the SSE relay inspects the LLM gateway routing for the user's team and:
+At Run-create, the `POST /sandbox/` handler inspects the LLM gateway routing for the user's team and:
 
 1. **Bedrock route** — explicitly disable `web_search` on the Claude Code SDK invocation (the SDK accepts a tools allowlist/denylist; pass the denial for `WebSearch`).
 2. **Anthropic route** — leave `web_search` enabled (the default).

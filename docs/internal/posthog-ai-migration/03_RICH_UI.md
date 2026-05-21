@@ -5,7 +5,7 @@ This spec covers the frontend slice of the migration. The premise (locked by `00
 You are also reading this because the wire format is now ACP frames carried inside `StoredLogEntry` envelopes (see `02_CORE.md` § 4 — sketched in `00_OVERVIEW.md` § 5 / § 7 until the full doc lands). What flows in is:
 
 - `session/update` notifications with `params.update.sessionUpdate === 'tool_call' | 'tool_call_update'`. The frontend dispatches off these, mirroring `Twig/apps/code/.../cloudToolChanges.ts`.
-- `permission_request` events the SSE relay hoists out of upstream agent-server JSON-RPC requests.
+- `permission_request` events the cloud-agent SSE hoists out of upstream agent-server JSON-RPC requests.
 - `_posthog/progress`, `_posthog/run_started`, `_posthog/turn_complete` for thinking messages, run boundaries, stop reasons.
 - `session/update` with `sessionUpdate === 'agent_message_chunk' | 'agent_thought_chunk'` for streamed assistant text (kept folded into `AssistantMessage` shape on the wire — frontend keeps treating them as today).
 
@@ -74,7 +74,7 @@ That's it. Most tools have no `ui_payload` entry and only ever render through th
 
 ### 2.1 Incoming shapes — sandboxStreamLogic output
 
-The SSE relay (`02_CORE.md` § 4) passes ACP frames through raw, wrapped in a `StoredLogEntry` envelope. The merging from `tool_call` + N × `tool_call_update` into one coherent record happens **client-side** in `sandboxStreamLogic.ts` (`02_CORE.md` § 6). That module exposes `ToolInvocation` records — the input to this spec's registry — keyed by `toolCallId`:
+The cloud-agent SSE (`02_CORE.md` § 4) passes ACP frames through raw, wrapped in a `StoredLogEntry` envelope. The merging from `tool_call` + N × `tool_call_update` into one coherent record happens **client-side** in `sandboxStreamLogic.ts` (`02_CORE.md` § 6). That module exposes `ToolInvocation` records — the input to this spec's registry — keyed by `toolCallId`:
 
 ```ts
 interface ToolInvocation {
@@ -360,7 +360,7 @@ Two tools intentionally don't appear: `read_billing_tool` (billing context is dr
 
 ### 5.1 permission_request → DangerousOperationApprovalCard
 
-ACP raises a JSON-RPC _request_ (not notification) when a tool wants permission. The cloud-agent SSE relay surfaces this as a discrete `permission_request` event (one of the four convenience events the SSE relay hoists alongside the raw `acp` stream — see `02_CORE.md` § 4.1). `sandboxStreamLogic.ingestPermissionRequest` consumes it, persists the request as a `PendingApproval` row (existing model, slight schema extension to carry `options[]`), and exposes it as `pendingPermissionRequest` for `maxThreadLogic` to merge into the existing `pendingApprovalsData` keyed by `proposal_id`.
+ACP raises a JSON-RPC _request_ (not notification) when a tool wants permission. The cloud-agent cloud-agent SSE surfaces this as a discrete `permission_request` event (one of the four convenience events the cloud-agent SSE hoists alongside the raw `acp` stream — see `02_CORE.md` § 4.1). `sandboxStreamLogic.ingestPermissionRequest` consumes it, persists the request as a `PendingApproval` row (existing model, slight schema extension to carry `options[]`), and exposes it as `pendingPermissionRequest` for `maxThreadLogic` to merge into the existing `pendingApprovalsData` keyed by `proposal_id`.
 
 For each `ToolInvocation` whose `toolCallId` matches an active `PermissionRequestRecord`, `Thread.tsx` (existing code path) renders a `DangerousOperationApprovalCard` next to the tool card. That part of the existing flow stays — the only new work is populating `pendingApprovalsData` from the new event.
 
@@ -397,7 +397,7 @@ Today the user can interrupt a streaming reply via a Stop button in the input ar
 
 ### 6.1 \_posthog/progress → thinkingMessages
 
-`_posthog/progress` notifications carry `{ category, message, eventGroupId, payload? }`. The SSE relay passes them through as `event: acp` frames; `sandboxStreamLogic` captures the latest one as `currentProgress` state and exposes a selector via `maxThreadLogic`.
+`_posthog/progress` notifications carry `{ category, message, eventGroupId, payload? }`. The cloud-agent SSE passes them through as `event: acp` frames; `sandboxStreamLogic` captures the latest one as `currentProgress` state and exposes a selector via `maxThreadLogic`.
 
 `Thread.tsx` already renders thinking copy when `threadLoading && isLastInGroup` and an assistant turn has no text yet — `getRandomThinkingMessage()` returns a verb like "Pondering…". Replace that with: if `currentProgress?.message` is set, render that string; otherwise fall back to `getRandomThinkingMessage()`. Tiny diff — one ternary inside `MessageGroupSkeleton` / the placeholder.
 
@@ -415,7 +415,7 @@ The fallback renderer uses the same header — that's where the per-tool `displa
 
 ### 7.1 \_posthog/run_started
 
-Emitted once per Run by the agent-server. The SSE relay passes it through. The only UI behavior is to invalidate any in-flight "Starting…" thinking message; nothing renders directly. Useful for telemetry (Phase 5 metric: time-to-first-token).
+Emitted once per Run by the agent-server. The cloud-agent SSE passes it through. The only UI behavior is to invalidate any in-flight "Starting…" thinking message; nothing renders directly. Useful for telemetry (Phase 5 metric: time-to-first-token).
 
 ### 7.2 \_posthog/turn_complete
 
@@ -560,7 +560,7 @@ All originally-tracked questions have been resolved during planning. The bullets
 
 **Resolved cross-spec:**
 
-- **#1 — Adapter envelope vs raw frames.** SSE relay forwards raw ACP frames (`02_CORE.md` § 4.1); `sandboxStreamLogic` (`02_CORE.md` § 6.2) merges `tool_call` + N `tool_call_update` into one `ToolInvocation` record on the frontend.
+- **#1 — Adapter envelope vs raw frames.** cloud-agent SSE forwards raw ACP frames (`02_CORE.md` § 4.1); `sandboxStreamLogic` (`02_CORE.md` § 6.2) merges `tool_call` + N `tool_call_update` into one `ToolInvocation` record on the frontend.
 - **#10 — `mcp_tool_call` envelope.** Dedicated `event: acp` SSE event (`02_CORE.md` § 4.1); `message` stays LangGraph-only.
 
 **Resolved decisions:**
