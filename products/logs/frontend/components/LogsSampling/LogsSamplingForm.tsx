@@ -231,6 +231,7 @@ export function LogsSamplingForm(): JSX.Element {
                                 className="w-full h-full"
                                 maximumIndicator={false}
                                 referenceLines={rateLimitReferenceLines}
+                                renderTooltipValue={previewMetric === 'bytes' ? formatBytes : undefined}
                             />
                         )}
                     </div>

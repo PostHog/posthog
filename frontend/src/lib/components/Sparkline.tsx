@@ -72,6 +72,8 @@ export interface SparklineProps {
     sortTooltipByCount?: boolean
     /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
     referenceLines?: SparklineReferenceLine[]
+    /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
+    renderTooltipValue?: (value: number) => string
 }
 
 export function Sparkline({
@@ -93,6 +95,7 @@ export function Sparkline({
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
     referenceLines,
+    renderTooltipValue,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -411,7 +414,7 @@ export function Sparkline({
                                 .filter((item) => !hideZerosInTooltip || item.count > 0)
                                 .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
                             renderSeries={(value) => value}
-                            renderCount={(count) => humanFriendlyNumber(count)}
+                            renderCount={(count) => (renderTooltipValue ?? humanFriendlyNumber)(count)}
                             rowCutoff={tooltipRowCutoff}
                         />
                     }
