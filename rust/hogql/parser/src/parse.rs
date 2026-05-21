@@ -13,7 +13,7 @@
 
 use serde_json::Value;
 
-use crate::emit;
+use crate::emit::{self, Emitter, JsonEmitter};
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, Token, TokenKind};
 
@@ -240,6 +240,12 @@ pub(crate) struct Parser<'a> {
     /// once at construction so the hot wrap_pos path stays O(log n) via the
     /// line-starts binary search.
     pub(crate) is_ascii_src: bool,
+    /// AST node builder. Routes every node/position construction through
+    /// the `Emitter` trait so we can swap `JsonEmitter` (current default,
+    /// kept for the WASM build) for `PyEmitter` (constructs Python ast.*
+    /// objects directly, avoiding the `serde_json::Value` intermediate
+    /// tree). See `crate::emit`.
+    pub(crate) emit: JsonEmitter,
 }
 
 impl<'a> Parser<'a> {
@@ -274,6 +280,7 @@ impl<'a> Parser<'a> {
             line_starts,
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
+            emit: JsonEmitter,
         })
     }
 
@@ -387,7 +394,7 @@ impl<'a> Parser<'a> {
         // `byte_to_char_index` binary search and the line-slice chars
         // count entirely.
         if self.is_ascii_src {
-            return emit::position(line, byte_col, byte_offset);
+            return self.emit.position(line, byte_col, byte_offset);
         }
         let char_offset = self.byte_to_char_index(byte_offset);
         // Column needs to be characters-in-line, not bytes-in-line. For
@@ -398,7 +405,7 @@ impl<'a> Parser<'a> {
         } else {
             self.src[line_start_byte..byte_offset].chars().count() as u32
         };
-        emit::position(line, column, char_offset)
+        self.emit.position(line, column, char_offset)
     }
 
     /// Convert a byte offset into the source into a character (Unicode
@@ -433,7 +440,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn wrap_pos(&self, value: Value, start: usize) -> Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(self.last_consumed_end);
-        emit::with_pos(value, s, e)
+        self.emit.with_pos(value, s, e)
     }
 
     /// Variant of [`Self::wrap_pos`] that takes an explicit end offset —
@@ -442,7 +449,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn wrap_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(end);
-        emit::with_pos(value, s, e)
+        self.emit.with_pos(value, s, e)
     }
 
     /// Like [`Self::wrap_pos_to`] but overrides any existing `start` /
@@ -453,7 +460,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn replace_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
         let s = self.pos_obj(start);
         let e = self.pos_obj(end);
-        emit::replace_pos(value, s, e)
+        self.emit.replace_pos(value, s, e)
     }
 
     /// Snapshot the parser cursor + per-call context so a failed

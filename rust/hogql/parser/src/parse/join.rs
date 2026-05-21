@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use super::{
     chain_join, check_alias_not_reserved, identifier_text, kw_valid_as_identifier, Parser,
 };
-use crate::emit;
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
@@ -511,7 +511,7 @@ impl<'a> Parser<'a> {
             let expr = if exprs.len() == 1 {
                 exprs.into_iter().next().unwrap()
             } else {
-                emit::tuple_(exprs)
+                self.emit.tuple_(exprs)
             };
             return Ok(Some(self.wrap_pos(
                 json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "USING"}),
@@ -839,7 +839,7 @@ impl<'a> Parser<'a> {
             // `addPositionInfo` — only the wrapping JoinExpr carries the
             // span. Emit position-less here too so the deserialised
             // Field's `start` / `end` stay `None`, matching cpp.
-            return Ok(emit::no_pos(json!({
+            return Ok(self.emit.no_pos(json!({
                 "node": "Field",
                 "chain": [name],
                 "__rust_table_args": args,
@@ -865,7 +865,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Ok(self.wrap_pos(emit::field(chain), tab_start))
+        Ok(self.wrap_pos(self.emit.field(chain), tab_start))
     }
 
     /// `parse_table_expr` arm: TableExprSubquery, `LPAREN selectSetStmt RPAREN`.
@@ -1311,7 +1311,7 @@ impl<'a> Parser<'a> {
             // exists only inside PIVOT/UNPIVOT, so every call to this
             // function lands in one of those slots and the Tuple
             // emission must be position-less to match.
-            return Ok(emit::tuple_(exprs));
+            return Ok(self.emit.tuple_(exprs));
         }
         let stop = if in_separated {
             self.find_pivot_in_separator()
@@ -1334,7 +1334,7 @@ impl<'a> Parser<'a> {
             {
                 let t = self.bump()?;
                 let name = identifier_text(self.text(t), t.kind);
-                return Ok(self.wrap_pos(emit::field(vec![Value::String(name)]), op_start));
+                return Ok(self.wrap_pos(self.emit.field(vec![Value::String(name)]), op_start));
             }
         }
         let prev = std::mem::replace(&mut self.pivot_in_stop, stop);

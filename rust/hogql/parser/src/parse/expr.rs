@@ -18,7 +18,7 @@ use super::{
     unquote_single_string, Parser, BP_ADDITIVE, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS,
     BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
 };
-use crate::emit;
+use crate::emit::{self, Emitter};
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, Token, TokenKind};
 
@@ -201,20 +201,22 @@ impl<'a> Parser<'a> {
                         // "-Infinity" (no NaN fallback reachable here).
                         self.bump()?;
                         self.bump()?;
-                        return Ok(emit::constant_special_number("-Infinity"));
+                        return Ok(self.emit.constant_special_number("-Infinity"));
                     }
                     TokenKind::Keyword(Kw::Nan) => {
                         // -NaN is still NaN — match the C++ behaviour of
                         // emitting "NaN".
                         self.bump()?;
                         self.bump()?;
-                        return Ok(emit::constant_special_number("NaN"));
+                        return Ok(self.emit.constant_special_number("NaN"));
                     }
                     _ => {}
                 }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(BP_UNARY_MINUS)?;
-                Ok(emit::arith(emit::constant(Value::from(0)), "-", rhs))
+                Ok(self
+                    .emit
+                    .arith(self.emit.constant(Value::from(0)), "-", rhs))
             }
             TokenKind::Plus => {
                 // `+` is only a sign on a `numberLiteral` per grammar
@@ -242,12 +244,12 @@ impl<'a> Parser<'a> {
                         // `+infinity` → "infinity" — both → "Infinity".
                         self.bump()?;
                         self.bump()?;
-                        Ok(emit::constant_special_number("Infinity"))
+                        Ok(self.emit.constant_special_number("Infinity"))
                     }
                     TokenKind::Keyword(Kw::Nan) => {
                         self.bump()?;
                         self.bump()?;
-                        Ok(emit::constant_special_number("NaN"))
+                        Ok(self.emit.constant_special_number("NaN"))
                     }
                     _ => Err(self.err("unary `+` only applies to a number literal")),
                 }
@@ -277,7 +279,7 @@ impl<'a> Parser<'a> {
                 {
                     self.bump()?; // NOT
                     let rhs = self.parse_expr_bp(BP_NOT)?;
-                    return Ok(emit::not_(rhs));
+                    return Ok(self.emit.not_(rhs));
                 }
                 if self.peek_next() == TokenKind::LParen {
                     return self.parse_ident_lead();
@@ -463,7 +465,7 @@ impl<'a> Parser<'a> {
                 }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(BP_NOT)?;
-                Ok(emit::not_(rhs))
+                Ok(self.emit.not_(rhs))
             }
             _ => {
                 // `<Tag ...>` — HogQLX tag in column position (cpp's
@@ -498,9 +500,9 @@ impl<'a> Parser<'a> {
             }
             TokenKind::String => {
                 self.bump()?;
-                Ok(emit::constant(Value::String(unquote_single_string(
-                    self.text(tok),
-                ))))
+                Ok(self
+                    .emit
+                    .constant(Value::String(unquote_single_string(self.text(tok)))))
             }
             TokenKind::TemplateString => {
                 // Lexer captured the whole `f'…'` or `F'…'` span. The
@@ -543,15 +545,15 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Keyword(Kw::True) => {
                 self.bump()?;
-                Ok(emit::constant(Value::Bool(true)))
+                Ok(self.emit.constant(Value::Bool(true)))
             }
             TokenKind::Keyword(Kw::False) => {
                 self.bump()?;
-                Ok(emit::constant(Value::Bool(false)))
+                Ok(self.emit.constant(Value::Bool(false)))
             }
             TokenKind::Keyword(Kw::Null) => {
                 self.bump()?;
-                Ok(emit::constant(Value::Null))
+                Ok(self.emit.constant(Value::Null))
             }
             TokenKind::Keyword(Kw::Inf) => {
                 // cpp 1.3.45's `VISIT(NumberLiteral)` maps both `inf`
@@ -560,11 +562,11 @@ impl<'a> Parser<'a> {
                 // collapsed bare `infinity` to NaN — that's been fixed
                 // upstream, so unsigned INF is unconditionally Infinity.)
                 self.bump()?;
-                Ok(emit::constant_special_number("Infinity"))
+                Ok(self.emit.constant_special_number("Infinity"))
             }
             TokenKind::Keyword(Kw::Nan) => {
                 self.bump()?;
-                Ok(emit::constant_special_number("NaN"))
+                Ok(self.emit.constant_special_number("NaN"))
             }
 
             // CASE/CAST/TRY_CAST/INTERVAL/LAMBDA — special grammar
@@ -814,7 +816,9 @@ impl<'a> Parser<'a> {
             if let Some(d) = else_branch {
                 flat.push(d);
             }
-            let else_arg = flat.pop().unwrap_or_else(|| emit::constant(Value::Null));
+            let else_arg = flat
+                .pop()
+                .unwrap_or_else(|| self.emit.constant(Value::Null));
             let mut whens_arr: Vec<Value> = Vec::new();
             let mut thens_arr: Vec<Value> = Vec::new();
             for (i, col) in flat.into_iter().enumerate() {
@@ -824,12 +828,12 @@ impl<'a> Parser<'a> {
                     thens_arr.push(col);
                 }
             }
-            return Ok(emit::call(
+            return Ok(self.emit.call(
                 "transform",
                 vec![
                     scrut,
-                    emit::array_(whens_arr),
-                    emit::array_(thens_arr),
+                    self.emit.array_(whens_arr),
+                    self.emit.array_(thens_arr),
                     else_arg,
                 ],
             ));
@@ -852,9 +856,9 @@ impl<'a> Parser<'a> {
             columns.push(d);
         }
         if columns.len() == 3 {
-            Ok(emit::call("if", columns))
+            Ok(self.emit.call("if", columns))
         } else {
-            Ok(emit::call("multiIf", columns))
+            Ok(self.emit.call("multiIf", columns))
         }
     }
 
@@ -879,9 +883,9 @@ impl<'a> Parser<'a> {
         let type_name = self.parse_type_expr()?;
         self.expect(TokenKind::RParen, ")")?;
         if is_try {
-            Ok(emit::try_cast(expr, &type_name))
+            Ok(self.emit.try_cast(expr, &type_name))
         } else {
-            Ok(emit::type_cast(expr, &type_name))
+            Ok(self.emit.type_cast(expr, &type_name))
         }
     }
 
@@ -1015,10 +1019,9 @@ impl<'a> Parser<'a> {
                 let unit_name = interval_call_name_case_sensitive(unit);
                 if let Some(unit_name) = unit_name {
                     self.bump()?;
-                    return Ok(emit::call(
-                        unit_name,
-                        vec![emit::constant(Value::from(count))],
-                    ));
+                    return Ok(self
+                        .emit
+                        .call(unit_name, vec![self.emit.constant(Value::from(count))]));
                 }
                 // Unit not lowercase / not recognised — cpp errors
                 // here even though the count was valid.
@@ -1075,7 +1078,7 @@ impl<'a> Parser<'a> {
                 )))
             }
         };
-        Ok(emit::call(unit_name, vec![expr]))
+        Ok(self.emit.call(unit_name, vec![expr]))
     }
 
     /// Is `peek_next` a recognised INTERVAL unit keyword? Used by
@@ -1170,7 +1173,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::RParen, ")")?;
         // Args order matches the C++ visitor: expr first, then the trim
         // substring.
-        Ok(emit::call(name, vec![expr, str_value]))
+        Ok(self.emit.call(name, vec![expr, str_value]))
     }
 
     /// `lambda IDENT (, IDENT)* : body`. The body admits a bare-list
@@ -1205,7 +1208,7 @@ impl<'a> Parser<'a> {
         } else {
             self.parse_lambda_body()?
         };
-        Ok(emit::lambda(params, body))
+        Ok(self.emit.lambda(params, body))
     }
 
     /// `COLUMNS('regex')` / `COLUMNS(expr, …)` / `COLUMNS(*)` with optional
@@ -1220,145 +1223,146 @@ impl<'a> Parser<'a> {
         //   2. `*` [EXCLUDE (...)] [REPLACE (...)]
         //   3. `ident DOT *` [EXCLUDE (...)] [REPLACE (...)]
         //   4. `expr_list` → ColumnsList
-        let result =
-            if matches!(self.peek(), TokenKind::String) && self.peek_next() == TokenKind::RParen {
-                let str_tok = self.bump()?;
-                let s = unquote_single_string(self.text(str_tok));
-                emit::columns_expr(Some(s), None, false, None, None)
-            } else if self.peek() == TokenKind::Asterisk
-                && matches!(
-                    self.peek_next(),
-                    TokenKind::Keyword(Kw::Exclude) | TokenKind::Keyword(Kw::Replace)
-                )
-            {
-                let asterisk_pos = self.peek0.start;
-                self.bump()?;
-                let (exclude, replace) = self.parse_columns_decorators()?;
-                // ANTLR resolves `COLUMNS(* …)` against five alternatives in
-                // declared order. The interesting split:
-                //
-                //   `COLUMNS(* EXCLUDE …)` only
-                //     → matches `ColumnExprColumnsList` first because
-                //       `ColumnExprAsterisk` admits a trailing EXCLUDE
-                //       (line 288 of HogQLParser.g4). cpp wraps the asterisk
-                //       columns-expr inside an outer `ColumnsExpr(columns=…)`.
-                //
-                //   `COLUMNS(* REPLACE …)`
-                //   `COLUMNS(* EXCLUDE … REPLACE …)`
-                //     → list path can't match (REPLACE isn't a valid trailing
-                //       decoration on `ColumnExprAsterisk`), so ANTLR falls
-                //       through to the specialised `ColumnExprColumnsReplace`
-                //       / `…ExcludeReplace` rule, which returns the
-                //       UNWRAPPED `ColumnsExpr(all_columns=True, …)` shape.
-                //
-                // Mirror that split here.
-                if replace.is_some() {
-                    emit::columns_expr(None, None, true, exclude, replace)
-                } else {
-                    // cpp's `ColumnExprAsterisk` ctx covers `*` plus the
-                    // optional `EXCLUDE(...)` trailer. Wrap the inner
-                    // ColumnsExpr from the `*` position so it carries the
-                    // span before the outer columns_list_from_first picks
-                    // it up as `columns[0]`.
-                    let inner = self.wrap_pos(
-                        emit::columns_expr(None, None, true, exclude, None),
-                        asterisk_pos,
-                    );
-                    self.columns_list_from_first(inner)?
-                }
+        let result = if matches!(self.peek(), TokenKind::String)
+            && self.peek_next() == TokenKind::RParen
+        {
+            let str_tok = self.bump()?;
+            let s = unquote_single_string(self.text(str_tok));
+            self.emit.columns_expr(Some(s), None, false, None, None)
+        } else if self.peek() == TokenKind::Asterisk
+            && matches!(
+                self.peek_next(),
+                TokenKind::Keyword(Kw::Exclude) | TokenKind::Keyword(Kw::Replace)
+            )
+        {
+            let asterisk_pos = self.peek0.start;
+            self.bump()?;
+            let (exclude, replace) = self.parse_columns_decorators()?;
+            // ANTLR resolves `COLUMNS(* …)` against five alternatives in
+            // declared order. The interesting split:
+            //
+            //   `COLUMNS(* EXCLUDE …)` only
+            //     → matches `ColumnExprColumnsList` first because
+            //       `ColumnExprAsterisk` admits a trailing EXCLUDE
+            //       (line 288 of HogQLParser.g4). cpp wraps the asterisk
+            //       columns-expr inside an outer `ColumnsExpr(columns=…)`.
+            //
+            //   `COLUMNS(* REPLACE …)`
+            //   `COLUMNS(* EXCLUDE … REPLACE …)`
+            //     → list path can't match (REPLACE isn't a valid trailing
+            //       decoration on `ColumnExprAsterisk`), so ANTLR falls
+            //       through to the specialised `ColumnExprColumnsReplace`
+            //       / `…ExcludeReplace` rule, which returns the
+            //       UNWRAPPED `ColumnsExpr(all_columns=True, …)` shape.
+            //
+            // Mirror that split here.
+            if replace.is_some() {
+                self.emit.columns_expr(None, None, true, exclude, replace)
             } else {
-                // Could be `ident . *` or an expression list.
-                // Peek for the qualified-asterisk pattern: IDENT DOT ASTERISK.
-                if matches!(
-                    self.peek(),
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                ) && self.peek_next() == TokenKind::Dot
-                {
-                    // Try to consume `IDENT.*` (or longer dotted chain ending in `*`).
-                    let saved_pos = self.peek0.start;
-                    let mut chain: Vec<String> = Vec::new();
-                    let mut probe = Lexer::with_pos(self.src, saved_pos);
-                    let first = probe.next_token()?;
-                    chain.push(identifier_text(
-                        &self.src[first.start..first.end],
-                        first.kind,
-                    ));
-                    let mut ok = true;
-                    let mut saw_star = false;
-                    loop {
-                        let dot = probe.next_token()?;
-                        if dot.kind != TokenKind::Dot {
-                            ok = false;
-                            break;
-                        }
-                        let nxt = probe.next_token()?;
-                        if nxt.kind == TokenKind::Asterisk {
-                            saw_star = true;
-                            break;
-                        }
-                        if matches!(
-                            nxt.kind,
-                            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                        ) {
-                            chain.push(identifier_text(&self.src[nxt.start..nxt.end], nxt.kind));
-                        } else {
-                            ok = false;
-                            break;
-                        }
+                // cpp's `ColumnExprAsterisk` ctx covers `*` plus the
+                // optional `EXCLUDE(...)` trailer. Wrap the inner
+                // ColumnsExpr from the `*` position so it carries the
+                // span before the outer columns_list_from_first picks
+                // it up as `columns[0]`.
+                let inner = self.wrap_pos(
+                    self.emit.columns_expr(None, None, true, exclude, None),
+                    asterisk_pos,
+                );
+                self.columns_list_from_first(inner)?
+            }
+        } else {
+            // Could be `ident . *` or an expression list.
+            // Peek for the qualified-asterisk pattern: IDENT DOT ASTERISK.
+            if matches!(
+                self.peek(),
+                TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+            ) && self.peek_next() == TokenKind::Dot
+            {
+                // Try to consume `IDENT.*` (or longer dotted chain ending in `*`).
+                let saved_pos = self.peek0.start;
+                let mut chain: Vec<String> = Vec::new();
+                let mut probe = Lexer::with_pos(self.src, saved_pos);
+                let first = probe.next_token()?;
+                chain.push(identifier_text(
+                    &self.src[first.start..first.end],
+                    first.kind,
+                ));
+                let mut ok = true;
+                let mut saw_star = false;
+                loop {
+                    let dot = probe.next_token()?;
+                    if dot.kind != TokenKind::Dot {
+                        ok = false;
+                        break;
                     }
-                    if ok && saw_star {
-                        // Capture the end of the `*` token before committing
-                        // the cursor — we want the Field span to cover the
-                        // qualified asterisk (`table.*`), matching cpp's
-                        // `ColumnExprColumnsQualifiedAll` ctx span.
-                        let asterisk_end = probe.pos();
-                        // Commit the qualified-asterisk consumption.
-                        self.set_lexer_pos(probe.pos())?;
-                        let (exclude, replace) = self.parse_columns_decorators()?;
-                        let mut chain_values: Vec<Value> =
-                            chain.into_iter().map(Value::String).collect();
-                        chain_values.push(Value::String("*".into()));
-                        let qualified_field =
-                            self.wrap_pos_to(emit::field(chain_values), saved_pos, asterisk_end);
-                        // Four C++-visitor shapes, all reachable here:
-                        //   QualifiedAll:           ColumnsExpr(columns=[Field(table.*)])
-                        //   QualifiedExclude:       ColumnsExpr(columns=[ColumnsExpr(all_columns=True, exclude=...)])
-                        //   QualifiedReplace:       ColumnsExpr(all_columns=True, replace=...)  // qualifier dropped
-                        //   QualifiedExcludeReplace: ColumnsExpr(all_columns=True, exclude=..., replace=...)  // qualifier dropped
-                        match (exclude, replace) {
-                            (None, None) => self.columns_list_from_first(qualified_field)?,
-                            (Some(ex), None) => {
-                                // cpp's `ColumnExprColumnsQualifiedExclude`
-                                // ctx covers `IDENT.* EXCLUDE(...)`; the
-                                // inner ColumnsExpr inherits that span.
-                                // Wrap before passing to the outer list.
-                                let inner = self.wrap_pos(
-                                    emit::columns_expr(None, None, true, Some(ex), None),
-                                    saved_pos,
-                                );
-                                self.columns_list_from_first(inner)?
-                            }
-                            (ex, repl @ Some(_)) => {
-                                // cpp's `ColumnExprColumnsQualifiedReplace` /
-                                // `…QualifiedExcludeReplace` ctx covers the
-                                // full `COLUMNS LPAREN IDENT.* [EXCLUDE(...)]
-                                // REPLACE(...) RPAREN`. The outer
-                                // `parse_expr_bp` wrap captures positions
-                                // from the COLUMNS keyword, so emit the
-                                // ColumnsExpr without a local wrap and let
-                                // that outer wrap stamp the span.
-                                emit::columns_expr(None, None, true, ex, repl)
-                            }
-                        }
+                    let nxt = probe.next_token()?;
+                    if nxt.kind == TokenKind::Asterisk {
+                        saw_star = true;
+                        break;
+                    }
+                    if matches!(
+                        nxt.kind,
+                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+                    ) {
+                        chain.push(identifier_text(&self.src[nxt.start..nxt.end], nxt.kind));
                     } else {
-                        let list = self.parse_arg_list(TokenKind::RParen)?;
-                        emit::columns_expr(None, Some(list), false, None, None)
+                        ok = false;
+                        break;
+                    }
+                }
+                if ok && saw_star {
+                    // Capture the end of the `*` token before committing
+                    // the cursor — we want the Field span to cover the
+                    // qualified asterisk (`table.*`), matching cpp's
+                    // `ColumnExprColumnsQualifiedAll` ctx span.
+                    let asterisk_end = probe.pos();
+                    // Commit the qualified-asterisk consumption.
+                    self.set_lexer_pos(probe.pos())?;
+                    let (exclude, replace) = self.parse_columns_decorators()?;
+                    let mut chain_values: Vec<Value> =
+                        chain.into_iter().map(Value::String).collect();
+                    chain_values.push(Value::String("*".into()));
+                    let qualified_field =
+                        self.wrap_pos_to(self.emit.field(chain_values), saved_pos, asterisk_end);
+                    // Four C++-visitor shapes, all reachable here:
+                    //   QualifiedAll:           ColumnsExpr(columns=[Field(table.*)])
+                    //   QualifiedExclude:       ColumnsExpr(columns=[ColumnsExpr(all_columns=True, exclude=...)])
+                    //   QualifiedReplace:       ColumnsExpr(all_columns=True, replace=...)  // qualifier dropped
+                    //   QualifiedExcludeReplace: ColumnsExpr(all_columns=True, exclude=..., replace=...)  // qualifier dropped
+                    match (exclude, replace) {
+                        (None, None) => self.columns_list_from_first(qualified_field)?,
+                        (Some(ex), None) => {
+                            // cpp's `ColumnExprColumnsQualifiedExclude`
+                            // ctx covers `IDENT.* EXCLUDE(...)`; the
+                            // inner ColumnsExpr inherits that span.
+                            // Wrap before passing to the outer list.
+                            let inner = self.wrap_pos(
+                                self.emit.columns_expr(None, None, true, Some(ex), None),
+                                saved_pos,
+                            );
+                            self.columns_list_from_first(inner)?
+                        }
+                        (ex, repl @ Some(_)) => {
+                            // cpp's `ColumnExprColumnsQualifiedReplace` /
+                            // `…QualifiedExcludeReplace` ctx covers the
+                            // full `COLUMNS LPAREN IDENT.* [EXCLUDE(...)]
+                            // REPLACE(...) RPAREN`. The outer
+                            // `parse_expr_bp` wrap captures positions
+                            // from the COLUMNS keyword, so emit the
+                            // ColumnsExpr without a local wrap and let
+                            // that outer wrap stamp the span.
+                            self.emit.columns_expr(None, None, true, ex, repl)
+                        }
                     }
                 } else {
                     let list = self.parse_arg_list(TokenKind::RParen)?;
-                    emit::columns_expr(None, Some(list), false, None, None)
+                    self.emit.columns_expr(None, Some(list), false, None, None)
                 }
-            };
+            } else {
+                let list = self.parse_arg_list(TokenKind::RParen)?;
+                self.emit.columns_expr(None, Some(list), false, None, None)
+            }
+        };
         self.expect(TokenKind::RParen, ")")?;
         Ok(result)
     }
@@ -1374,13 +1378,9 @@ impl<'a> Parser<'a> {
     /// collect the rest as `ColumnExprColumnsList`.
     fn columns_list_from_first(&mut self, first: Value) -> Result<Value, ParseError> {
         if self.peek() == TokenKind::RParen {
-            return Ok(emit::columns_expr(
-                None,
-                Some(vec![first]),
-                false,
-                None,
-                None,
-            ));
+            return Ok(self
+                .emit
+                .columns_expr(None, Some(vec![first]), false, None, None));
         }
         let cont_start = self.peek0.start;
         let first = self.pratt_continue_with_lhs(first, 0, cont_start)?;
@@ -1391,7 +1391,7 @@ impl<'a> Parser<'a> {
             }
             list.push(self.parse_expr_bp(0)?);
         }
-        Ok(emit::columns_expr(None, Some(list), false, None, None))
+        Ok(self.emit.columns_expr(None, Some(list), false, None, None))
     }
 
     fn parse_columns_decorators(&mut self) -> Result<ColumnsDecorators, ParseError> {
@@ -1520,7 +1520,7 @@ impl<'a> Parser<'a> {
             && self.peek_next() == TokenKind::LParen
         {
             let inner = self.parse_columns_expr()?;
-            return Ok(emit::spread_expr(inner));
+            return Ok(self.emit.spread_expr(inner));
         }
         // `ColumnExprAsterisk` (grammar line 289) admits ONLY an
         // optional trailing EXCLUDE on a bare `*`. `REPLACE` after `*`
@@ -1540,9 +1540,9 @@ impl<'a> Parser<'a> {
             ));
         }
         if exclude.is_none() && replace.is_none() {
-            Ok(emit::field(vec![Value::String("*".into())]))
+            Ok(self.emit.field(vec![Value::String("*".into())]))
         } else {
-            Ok(emit::columns_expr(None, None, true, exclude, replace))
+            Ok(self.emit.columns_expr(None, None, true, exclude, replace))
         }
     }
 
@@ -1567,7 +1567,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::LBrace, "{")?;
         if self.peek() == TokenKind::RBrace {
             self.bump()?;
-            return Ok(self.wrap_pos(emit::dict_(vec![]), brace_start));
+            return Ok(self.wrap_pos(self.emit.dict_(vec![]), brace_start));
         }
         let first = self.parse_expr_bp(0)?;
         if self.eat(TokenKind::Colon)? {
@@ -1583,10 +1583,10 @@ impl<'a> Parser<'a> {
                 items.push((k, v));
             }
             self.expect(TokenKind::RBrace, "}")?;
-            Ok(self.wrap_pos(emit::dict_(items), brace_start))
+            Ok(self.wrap_pos(self.emit.dict_(items), brace_start))
         } else {
             self.expect(TokenKind::RBrace, "}")?;
-            Ok(self.wrap_pos(emit::placeholder(first), brace_start))
+            Ok(self.wrap_pos(self.emit.placeholder(first), brace_start))
         }
     }
 
@@ -1595,7 +1595,7 @@ impl<'a> Parser<'a> {
         let name = identifier_text(self.text(ident), ident.kind);
         self.expect(TokenKind::Arrow, "->")?;
         let body = self.parse_lambda_body()?;
-        Ok(emit::lambda(vec![name], body))
+        Ok(self.emit.lambda(vec![name], body))
     }
 
     /// Lambda body — either a single expression (`(x) -> expr`) or a
@@ -1660,7 +1660,7 @@ impl<'a> Parser<'a> {
                     // Confirmed; commit the consumption.
                     self.set_lexer_pos(probe.pos())?;
                     let body = self.parse_lambda_body()?;
-                    return Ok(Some(emit::lambda(names, body)));
+                    return Ok(Some(self.emit.lambda(names, body)));
                 }
                 TokenKind::Comma => {
                     // Peek past the comma to handle the trailing-comma
@@ -1671,7 +1671,7 @@ impl<'a> Parser<'a> {
                         TokenKind::Arrow => {
                             self.set_lexer_pos(probe.pos())?;
                             let body = self.parse_lambda_body()?;
-                            return Ok(Some(emit::lambda(names, body)));
+                            return Ok(Some(self.emit.lambda(names, body)));
                         }
                         k if is_ident_kind(k) => {
                             names.push(identifier_text(
@@ -1736,7 +1736,7 @@ impl<'a> Parser<'a> {
             if arrow.kind == TokenKind::Arrow {
                 self.set_lexer_pos(probe.pos())?;
                 let body = self.parse_lambda_body()?;
-                return Ok(emit::lambda(names, body));
+                return Ok(self.emit.lambda(names, body));
             }
         }
         // Not a lambda — fall through to the normal paren/tuple parse.
@@ -1938,7 +1938,7 @@ impl<'a> Parser<'a> {
                 }
             }
             self.expect(TokenKind::RParen, ")")?;
-            Ok(emit::tuple_(exprs))
+            Ok(self.emit.tuple_(exprs))
         } else {
             self.expect(TokenKind::RParen, ")")?;
             Ok(first)
@@ -2380,7 +2380,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect(TokenKind::RBracket, "]")?;
-        Ok(emit::array_(exprs))
+        Ok(self.emit.array_(exprs))
     }
 
     /// Identifier-led primary: either a function call (`IDENT (args)`) or
@@ -2406,7 +2406,7 @@ impl<'a> Parser<'a> {
             // `addPositionInfo`, so NamedArgument has no `start`/`end`.
             // Mark via `no_pos` so the outer `parse_expr_bp` pratt-loop
             // wrap leaves it bare.
-            return Ok(emit::named_argument(&name, value));
+            return Ok(self.emit.named_argument(&name, value));
         }
 
         // Statement-RHS guard: `f (x) := y` is `f` (an exprStmt) then
@@ -2554,7 +2554,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(TokenKind::RParen, ")")?;
-                return Ok(emit::call_full(
+                return Ok(self.emit.call_full(
                     &name,
                     Some(first_args),
                     vec![],
@@ -2576,7 +2576,7 @@ impl<'a> Parser<'a> {
             // Single-paren call. `filter_expr_for_window` was consumed
             // by the window-function probe above; re-use it so we don't
             // double-parse the FILTER.
-            return Ok(emit::call_full(
+            return Ok(self.emit.call_full(
                 &name,
                 None,
                 first_args,
@@ -2630,9 +2630,9 @@ impl<'a> Parser<'a> {
         // exclude=[…])`, NOT a Field chain).
         if ended_with_star && matches!(self.peek(), TokenKind::Keyword(Kw::Exclude)) {
             let (exclude, _) = self.parse_columns_decorators()?;
-            return Ok(emit::columns_expr(None, None, true, exclude, None));
+            return Ok(self.emit.columns_expr(None, None, true, exclude, None));
         }
-        Ok(emit::field(chain))
+        Ok(self.emit.field(chain))
     }
 
     /// Parse a function-call argument list with the grammar's
@@ -2776,7 +2776,7 @@ impl<'a> Parser<'a> {
             }
             return Ok(Value::Object(obj));
         }
-        Ok(emit::call_full(
+        Ok(self.emit.call_full(
             name,
             Some(params),
             args,
@@ -2928,7 +2928,7 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            out.push(self.wrap_pos(emit::order_expr(expr, order, with_fill), order_start));
+            out.push(self.wrap_pos(self.emit.order_expr(expr, order, with_fill), order_start));
             if !self.eat(TokenKind::Comma)? {
                 break;
             }
@@ -3841,7 +3841,7 @@ impl<'a> Parser<'a> {
             let name = identifier_text(self.text(name_tok), name_tok.kind);
             self.bump()?; // consume `:=`
             let value = self.parse_expr_bp(0)?;
-            return Ok(emit::named_argument(&name, value));
+            return Ok(self.emit.named_argument(&name, value));
         }
         // A function-call argument is either a selectSetStmt (cpp's
         // ColumnExprCallSelect) or a regular columnExpr. The grammar
@@ -3945,7 +3945,7 @@ impl<'a> Parser<'a> {
                         Some(self.parse_expr_bp(0)?)
                     };
                     self.expect(TokenKind::RBracket, "]")?;
-                    return Ok(emit::array_slice(lhs, None, end));
+                    return Ok(self.emit.array_slice(lhs, None, end));
                 }
                 let first = self.parse_expr_bp(0)?;
                 if self.eat(TokenKind::Colon)? {
@@ -3955,10 +3955,10 @@ impl<'a> Parser<'a> {
                         Some(self.parse_expr_bp(0)?)
                     };
                     self.expect(TokenKind::RBracket, "]")?;
-                    return Ok(emit::array_slice(lhs, Some(first), end));
+                    return Ok(self.emit.array_slice(lhs, Some(first), end));
                 }
                 self.expect(TokenKind::RBracket, "]")?;
-                Ok(emit::array_access(lhs, first, false))
+                Ok(self.emit.array_access(lhs, first, false))
             }
             TokenKind::DoubleColon => {
                 self.bump()?;
@@ -4005,7 +4005,7 @@ impl<'a> Parser<'a> {
                 } else {
                     name
                 };
-                Ok(emit::type_cast(lhs, &full))
+                Ok(self.emit.type_cast(lhs, &full))
             }
             TokenKind::Dot => {
                 self.bump()?;
@@ -4026,13 +4026,13 @@ impl<'a> Parser<'a> {
                         let n: i64 = text.parse().map_err(|_| {
                             self.err(format!("expected integer after '.', got {:?}", text))
                         })?;
-                        Ok(emit::tuple_access(lhs, n, false))
+                        Ok(self.emit.tuple_access(lhs, n, false))
                     }
                     TokenKind::Ident | TokenKind::QuotedIdent => {
                         let name = identifier_text(self.text(part), part.kind);
-                        Ok(emit::array_access(
+                        Ok(self.emit.array_access(
                             lhs,
-                            emit::constant(Value::String(name)),
+                            self.emit.constant(Value::String(name)),
                             false,
                         ))
                     }
@@ -4045,9 +4045,9 @@ impl<'a> Parser<'a> {
                     // `ArrayAccess(a, "null")`.
                     TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         let name = identifier_text(self.text(part), part.kind);
-                        Ok(emit::array_access(
+                        Ok(self.emit.array_access(
                             lhs,
-                            emit::constant(Value::String(name)),
+                            self.emit.constant(Value::String(name)),
                             false,
                         ))
                     }
@@ -4064,7 +4064,7 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     let property = self.parse_expr_bp(0)?;
                     self.expect(TokenKind::RBracket, "]")?;
-                    return Ok(emit::array_access(lhs, property, true));
+                    return Ok(self.emit.array_access(lhs, property, true));
                 }
                 let part = self.bump()?;
                 match part.kind {
@@ -4080,21 +4080,21 @@ impl<'a> Parser<'a> {
                         let n: i64 = text.parse().map_err(|_| {
                             self.err(format!("expected integer after '?.', got {:?}", text))
                         })?;
-                        Ok(emit::tuple_access(lhs, n, true))
+                        Ok(self.emit.tuple_access(lhs, n, true))
                     }
                     TokenKind::Ident | TokenKind::QuotedIdent => {
                         let name = identifier_text(self.text(part), part.kind);
-                        Ok(emit::array_access(
+                        Ok(self.emit.array_access(
                             lhs,
-                            emit::constant(Value::String(name)),
+                            self.emit.constant(Value::String(name)),
                             true,
                         ))
                     }
                     TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         let name = identifier_text(self.text(part), part.kind);
-                        Ok(emit::array_access(
+                        Ok(self.emit.array_access(
                             lhs,
-                            emit::constant(Value::String(name)),
+                            self.emit.constant(Value::String(name)),
                             true,
                         ))
                     }
@@ -4237,12 +4237,12 @@ impl<'a> Parser<'a> {
                     // but blocks a second IS NOT DISTINCT FROM.
                     let rhs = self.parse_expr_bp(BP_IS_DISTINCT_FROM + 1)?;
                     let prev = lhs.take();
-                    *lhs = emit::is_distinct_from(prev, rhs, negated);
+                    *lhs = self.emit.is_distinct_from(prev, rhs, negated);
                     return Ok(Some(true));
                 }
                 self.expect_kw(Kw::Null, "NULL")?;
                 let prev = lhs.take();
-                *lhs = emit::compare_is_null(prev, negated);
+                *lhs = self.emit.compare_is_null(prev, negated);
                 Ok(Some(true))
             }
             // `NOT BETWEEN ...` / `NOT IN ...` / `NOT LIKE ...` / `NOT ILIKE ...`
@@ -4263,9 +4263,12 @@ impl<'a> Parser<'a> {
                     // unconditionally — match that. Use `high.end` (not `last_consumed_end`) — see
                     // the BETWEEN arm below for the rationale.
                     let high_end = high.get("end").cloned();
-                    let between_inner = emit::between(prev, low, high, true);
+                    let between_inner = self.emit.between(prev, low, high, true);
                     let mut between = match high_end {
-                        Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
+                        Some(end) => {
+                            self.emit
+                                .with_pos(between_inner, self.pos_obj(lhs_start), end)
+                        }
                         None => self.wrap_pos(between_inner, lhs_start),
                     };
                     for hoist in hoisted {
@@ -4284,7 +4287,7 @@ impl<'a> Parser<'a> {
                     let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                     let op = if cohort { "not in cohort" } else { "not in" };
                     let prev = lhs.take();
-                    *lhs = emit::compare(prev, op, rhs);
+                    *lhs = self.emit.compare(prev, op, rhs);
                     Ok(Some(true))
                 }
                 TokenKind::Keyword(Kw::Like) => {
@@ -4295,7 +4298,7 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                     let prev = lhs.take();
-                    *lhs = emit::compare(prev, "not like", rhs);
+                    *lhs = self.emit.compare(prev, "not like", rhs);
                     Ok(Some(true))
                 }
                 TokenKind::Keyword(Kw::Ilike) => {
@@ -4306,7 +4309,7 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                     let prev = lhs.take();
-                    *lhs = emit::compare(prev, "not ilike", rhs);
+                    *lhs = self.emit.compare(prev, "not ilike", rhs);
                     Ok(Some(true))
                 }
                 _ => Ok(None),
@@ -4324,9 +4327,11 @@ impl<'a> Parser<'a> {
                 // it back out (`BetweenHoist::Between`), `last_consumed_end` is past the high we'll
                 // actually use; mirror cpp's per-ctx span by reading the end off `high` directly.
                 let high_end = high.get("end").cloned();
-                let between_inner = emit::between(prev, low, high, false);
+                let between_inner = self.emit.between(prev, low, high, false);
                 let mut between = match high_end {
-                    Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
+                    Some(end) => self
+                        .emit
+                        .with_pos(between_inner, self.pos_obj(lhs_start), end),
                     None => self.wrap_pos(between_inner, lhs_start),
                 };
                 for hoist in hoisted {
@@ -4351,7 +4356,7 @@ impl<'a> Parser<'a> {
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                 let op = if cohort { "in cohort" } else { "in" };
                 let prev = lhs.take();
-                *lhs = emit::compare(prev, op, rhs);
+                *lhs = self.emit.compare(prev, op, rhs);
                 Ok(Some(true))
             }
             TokenKind::Keyword(Kw::Like) => {
@@ -4361,7 +4366,7 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                 let prev = lhs.take();
-                *lhs = emit::compare(prev, "like", rhs);
+                *lhs = self.emit.compare(prev, "like", rhs);
                 Ok(Some(true))
             }
             TokenKind::Keyword(Kw::Ilike) => {
@@ -4371,7 +4376,7 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
                 let prev = lhs.take();
-                *lhs = emit::compare(prev, "ilike", rhs);
+                *lhs = self.emit.compare(prev, "ilike", rhs);
                 Ok(Some(true))
             }
             // `e IGNORE NULLS` is a postfix that the C++ visitor drops
@@ -4383,7 +4388,7 @@ impl<'a> Parser<'a> {
                 }
                 self.bump()?;
                 self.bump()?;
-                *lhs = emit::ignore_nulls(lhs.take());
+                *lhs = self.emit.ignore_nulls(lhs.take());
                 Ok(Some(true))
             }
 
@@ -4397,7 +4402,7 @@ impl<'a> Parser<'a> {
                 self.expect(TokenKind::Colon, ":")?;
                 let else_branch = self.parse_expr_bp(BP_TERNARY)?;
                 let prev = lhs.take();
-                *lhs = emit::call("if", vec![prev, then_branch, else_branch]);
+                *lhs = self.emit.call("if", vec![prev, then_branch, else_branch]);
                 Ok(Some(true))
             }
             // `AS alias`
@@ -4484,7 +4489,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 let prev = lhs.take();
-                *lhs = emit::alias(prev, &name);
+                *lhs = self.emit.alias(prev, &name);
                 Ok(Some(true))
             }
             _ => Ok(None),

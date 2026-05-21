@@ -15,7 +15,7 @@ use super::{
     check_alias_not_reserved, format_set_op, identifier_text, inject_ctes_into_select,
     kw_allowed_as_implicit_alias, merge_select_decorators, Parser, BP_MULT,
 };
-use crate::emit;
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
@@ -525,7 +525,7 @@ impl<'a> Parser<'a> {
                 let item_end = self.last_consumed_end;
                 // Implicit alias: `[…] alias` without AS.
                 let aliased = if let Some(name) = self.try_consume_implicit_alias()? {
-                    emit::alias(expr, &name)
+                    self.emit.alias(expr, &name)
                 } else {
                     expr
                 };
@@ -1151,7 +1151,7 @@ impl<'a> Parser<'a> {
         let trial = (|p: &mut Self| -> Result<Option<Value>, ParseError> {
             p.bump()?; // %
             let rhs = p.parse_expr_bp(BP_MULT + 1)?;
-            let combined = emit::arith(lhs.clone(), "%", rhs);
+            let combined = p.emit.arith(lhs.clone(), "%", rhs);
             // Extend the whole columnExpr (BP=0) — cpp parses the
             // LIMIT body greedily, so a lower-precedence tail
             // (`% 2 + 3`, `% 2 AND 3`) stays part of the modulo body.
@@ -1613,7 +1613,7 @@ impl<'a> Parser<'a> {
                 // (`IDENT COLON columnExpr`) spans from the alias ident
                 // through the value expression. Wrap so the column's
                 // `start` / `end` match cpp's `addPositionInfo`.
-                cols.push(self.wrap_pos(emit::alias(expr, &name), col_start));
+                cols.push(self.wrap_pos(self.emit.alias(expr, &name), col_start));
             } else {
                 let expr = self.parse_expr_bp(0)?;
                 // Implicit alias: a trailing identifier (or one of the
@@ -1635,7 +1635,7 @@ impl<'a> Parser<'a> {
                     // expression through the alias identifier — wrap
                     // with the column's running start so the Alias
                     // carries the cpp span.
-                    self.wrap_pos(emit::alias(expr, &name), col_start)
+                    self.wrap_pos(self.emit.alias(expr, &name), col_start)
                 } else {
                     expr
                 };

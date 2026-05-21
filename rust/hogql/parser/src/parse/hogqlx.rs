@@ -27,7 +27,7 @@
 use serde_json::{json, Value};
 
 use super::{identifier_text, unquote_single_string, Parser};
-use crate::emit;
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::TokenKind;
 
@@ -152,14 +152,15 @@ impl<'a> Parser<'a> {
             return Ok(json!({
                 "node": "HogQLXAttribute",
                 "name": name,
-                "value": emit::constant(Value::Bool(true)),
+                "value": self.emit.constant(Value::Bool(true)),
             }));
         }
         self.bump()?; // `=`
         let value = match self.peek() {
             TokenKind::String => {
                 let t = self.bump()?;
-                emit::constant(Value::String(unquote_single_string(self.text(t))))
+                self.emit
+                    .constant(Value::String(unquote_single_string(self.text(t))))
             }
             TokenKind::LBrace => {
                 self.bump()?;
@@ -203,7 +204,7 @@ impl<'a> Parser<'a> {
                 && text.bytes().all(|b| b.is_ascii_whitespace())
                 && text.bytes().any(|b| b == b'\n' || b == b'\r');
             if !text.is_empty() && !drop_for_newline_ws {
-                children.push(emit::constant(Value::String(text)));
+                children.push(self.emit.constant(Value::String(text)));
             }
             match self.peek() {
                 TokenKind::LtSlash => return Ok(children),

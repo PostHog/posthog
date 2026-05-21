@@ -29,7 +29,7 @@
 use serde_json::{json, Value};
 
 use super::{identifier_text, kw_valid_as_identifier, Parser};
-use crate::emit;
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
@@ -286,7 +286,10 @@ impl<'a> Parser<'a> {
                     self.restore(cp)?;
                     if self.peek() == TokenKind::Asterisk {
                         self.bump()?;
-                        obj.insert("expr".into(), emit::field(vec![Value::String("*".into())]));
+                        obj.insert(
+                            "expr".into(),
+                            self.emit.field(vec![Value::String("*".into())]),
+                        );
                     } else if matches!(
                         self.peek(),
                         TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
@@ -304,7 +307,7 @@ impl<'a> Parser<'a> {
                         // shape).
                         let t = self.bump()?;
                         let name = identifier_text(self.text(t), t.kind);
-                        obj.insert("expr".into(), emit::field(vec![Value::String(name)]));
+                        obj.insert("expr".into(), self.emit.field(vec![Value::String(name)]));
                     } else {
                         obj.insert("expr".into(), Value::Null);
                     }
@@ -799,7 +802,7 @@ impl<'a> Parser<'a> {
                 let _ = self.eat(TokenKind::Semicolon)?;
                 return Ok(json!({
                     "node": "VariableAssignment",
-                    "left": emit::named_argument(&name, right),
+                    "left": self.emit.named_argument(&name, right),
                     "right": outer_right,
                 }));
             }
