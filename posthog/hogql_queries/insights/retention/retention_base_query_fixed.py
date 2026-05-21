@@ -579,10 +579,17 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         return event_filters
 
     def _is_valid_start_interval_expr(self, start_event_timestamps_field: str = "start_event_timestamps") -> ast.Expr:
+        start_event_timestamps = ast.Field(chain=[start_event_timestamps_field])
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            return parse_expr(f"{start_event_timestamps_field}[1] = interval_date")
+            return parse_expr(
+                "{start_event_timestamps}[1] = interval_date",
+                {"start_event_timestamps": start_event_timestamps},
+            )
 
-        return parse_expr(f"has({start_event_timestamps_field}, interval_date)")
+        return parse_expr(
+            "has({start_event_timestamps}, interval_date)",
+            {"start_event_timestamps": start_event_timestamps},
+        )
 
     def _is_first_interval_after_start_event_expr(self) -> ast.Expr:
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
