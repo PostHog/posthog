@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
@@ -19,33 +19,24 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const savedValue = defaultMinimumDetectableEffect
     const [localValue, setLocalValue] = useState<number | null>(null)
 
-    /**
-     * this is saved on change, so we need to debounce.
-     */
     const debouncedUpdate = useDebouncedCallback((value: number) => {
         updateExperimentsConfig({ default_minimum_detectable_effect: value })
         setLocalValue(null)
     }, 500)
 
-    // Reset local value when saved value changes from server
-    useEffect(() => {
-        setLocalValue(null)
-    }, [savedValue])
-
     if (!experimentsConfig) {
         return <LemonSkeleton className="h-10 w-full" />
     }
-
-    const displayValue = localValue ?? savedValue
 
     const handleChange = (value: number): void => {
         const clampedValue = Math.max(1, Math.min(100, Math.round(value)))
         setLocalValue(clampedValue)
         debouncedUpdate(clampedValue)
     }
+
+    const displayValue = localValue ?? defaultMinimumDetectableEffect
 
     return (
         <div className="flex items-center gap-3 max-w-165">
