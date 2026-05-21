@@ -212,3 +212,4 @@ products/signals/backend/github_issues/
 # posthog/hogql/scripts/log_corpus_diagnostic.py — contains
 # redacted production queries; not for git).
 posthog/hogql/scripts/.local/
+dump.rdb
