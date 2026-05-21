@@ -14,7 +14,7 @@ def noop_reverse(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1166_oauth_impersonated_by"),
+        ("posthog", "1167_remove_alertconfiguration_is_calculating"),
     ]
 
     operations = [
