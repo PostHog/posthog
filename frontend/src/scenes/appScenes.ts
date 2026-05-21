@@ -109,7 +109,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Exports]: () => import('./exports/ExportsScene'),
     [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
     [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),
-    [Scene.SubscriptionForm]: () => import('./subscriptions/SubscriptionFormScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),

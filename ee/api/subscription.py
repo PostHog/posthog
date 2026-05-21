@@ -536,27 +536,28 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return str(request.user.distinct_id)
         return f"team_{self.context.get('team_id')}"
 
-    def _capture_subscription_created(self, instance: Subscription) -> None:
-        # Adoption telemetry: fires on every create (enabled or not) so we can see what
-        # kind of subscription users build. Distinct from the slo_operation block below,
-        # which only tracks the delivery-workflow trigger for enabled subscriptions.
+    def _capture_subscription_event(self, instance: Subscription, event: str) -> None:
+        # Adoption telemetry, split by `content_type` (AI vs insight vs dashboard). Fires on every
+        # create/update regardless of enabled state — distinct from the slo_operation block, which
+        # only tracks the delivery-workflow trigger for enabled subscriptions.
         try:
             posthoganalytics.capture(
                 distinct_id=self._caller_distinct_id(),
-                event="subscription_created",
+                event=event,
                 properties={
                     "subscription_id": instance.id,
                     "team_id": instance.team_id,
                     "content_type": instance.content_type,
                     "target_type": instance.target_type,
                     "frequency": instance.frequency,
+                    "interval": instance.interval,
                     "enabled": instance.enabled,
                     "summary_enabled": instance.summary_enabled,
                 },
                 groups=groups(None, instance.team),
             )
         except Exception:
-            # Telemetry must never poison the create path.
+            # Telemetry must never poison the create/update path.
             pass
 
     def _capture_summary_cap_hit(self, organization, active_count: int, limit: int) -> None:
@@ -688,7 +689,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        self._capture_subscription_created(instance)
+        self._capture_subscription_event(instance, "subscription_created")
 
         # Skip the workflow trigger when the new subscription is created in a disabled
         # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
@@ -776,6 +777,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         instance = super().update(instance, validated_data)
         _invalidate_summary_quota_cache(instance.team.organization_id)
+        self._capture_subscription_event(instance, "subscription_updated")
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)

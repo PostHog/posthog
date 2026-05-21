@@ -20,6 +20,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.text_sanitization import strip_llm_framing_markers
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -41,6 +42,9 @@ logger = structlog.get_logger(__name__)
 # is the ultimate cap; these prevent a single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
 _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
+# Backstop length cap on a single step's formatted results before they enter the synthesis
+# prompt. The executor already truncates; this is defense-in-depth against a giant value.
+_QUERY_RESULT_MAX_CHARS = 50_000
 
 # Per-step query-fix budget. The planner LLM occasionally emits HogQL that fails
 # to parse or resolve; rather than dropping the step's data, we feed the error
@@ -122,9 +126,20 @@ def generate_ai_report(
     try:
         # Runs inside a `database_sync_to_async(thread_sensitive=False)` worker thread,
         # which has no running event loop — so `asyncio.run` is safe here.
-        rendered_results = asyncio.run(_arun_plan(spec, team, user, ai_config, trace_correlation_id))
+        rendered_results, failed_count = asyncio.run(_arun_plan(spec, team, user, ai_config, trace_correlation_id))
     except Exception as exc:
         raise AiReportStageError("query", exc) from exc
+
+    if failed_count:
+        # A degraded report still ships (graceful degradation), so it is NOT a hard failure and
+        # won't surface in the delivery-failure SLO. Emit a distinct, queryable signal so the
+        # degraded-delivery rate can be tracked and alerted on separately from hard failures.
+        logger.warning(
+            "ai_report.delivered_degraded",
+            trace_correlation_id=trace_correlation_id,
+            failed_steps=failed_count,
+            total_steps=len(spec.plan.steps),
+        )
 
     model_name = resolve_ai_model(ai_config, "model", DEFAULT_SYNTHESIS_MODEL)
     posthog_properties: dict[str, Union[str, int]] = {
@@ -176,12 +191,12 @@ async def _arun_plan(
     user: User,
     ai_config: Optional[dict],
     trace_correlation_id: Optional[Union[int, str]],
-) -> list[str]:
+) -> tuple[list[str], int]:
     # Pass `user` so executor-internal permission checks and tracing match other
     # call sites (see `ee/hogai/context/insight/query_executor.py` callers in master).
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
 
-    async def run_step(step: QueryPlanStep) -> str:
+    async def run_step(step: QueryPlanStep) -> tuple[str, bool]:
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
 
@@ -193,7 +208,12 @@ async def _arun_plan(
                     executor.arun_and_format_query(query),
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
-                return f"### {step.description}\n\n{formatted}"
+                # Result VALUES are attacker-influenceable: anyone with a public project token can
+                # ingest events with crafted property values. Strip LLM framing markers so a poisoned
+                # value can't break out of the <query_results> envelope into instruction-shaped text.
+                # The shared executor doesn't sanitize — that's the consumer's job at the LLM boundary.
+                safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
+                return (f"### {step.description}\n\n{safe_formatted}", True)
             except Exception as exc:
                 last_exc = exc
                 if attempt >= _MAX_QUERY_FIX_RETRIES or not _is_retryable_query_error(exc):
@@ -233,9 +253,12 @@ async def _arun_plan(
         # team-scoped identifiers (cluster URL, table names) that shouldn't ship
         # into the synthesis prompt (and thus into the rendered report).
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        return f"### {step.description}\n\n_Query failed: {type_name}_"
+        return (f"### {step.description}\n\n_Query failed: {type_name}_", False)
 
-    return await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+    step_results: list[tuple[str, bool]] = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
+    rendered = [text for text, _ in step_results]
+    failed_count = sum(1 for _, ok in step_results if not ok)
+    return rendered, failed_count
 
 
 def _is_retryable_query_error(exc: BaseException) -> bool:

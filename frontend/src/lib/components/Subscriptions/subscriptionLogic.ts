@@ -2,6 +2,7 @@ import { actions, events, kea, key, listeners, path, props, reducers } from 'kea
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -73,6 +74,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
+        selectAiExamplePrompt: (prompt: string, label: string) => ({ prompt, label }),
     }),
 
     reducers({
@@ -200,6 +202,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        selectAiExamplePrompt: ({ prompt, label }) => {
+            posthog.capture('subscription_ai_example_prompt_selected', { label })
+            actions.setSubscriptionValue('prompt', prompt)
+        },
         submitSubscriptionFailure: ({ error }) => {
             // Kea-forms emits this when client validation fails; fields already show errors.
             if (error instanceof Error && error.message === 'Validation Failed') {

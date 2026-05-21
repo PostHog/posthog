@@ -150,6 +150,41 @@ class TestGenerateAISubscriptionMarkdown(APIBaseTest):
         assert out == "final"
         llm.invoke.assert_called_once()
 
+    @patch("ee.hogai.ai_reports.logger")
+    @patch("ee.hogai.ai_reports.MaxChatOpenAI")
+    @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
+    @patch("ee.hogai.ai_reports.build_enriched_prompt")
+    def test_emits_delivered_degraded_signal_when_a_step_fails(
+        self, mock_build, mock_executor_cls, mock_llm_cls, mock_logger
+    ):
+        sub = self._make_ai_sub()
+        mock_build.return_value = EnrichedPromptSpec(
+            cleaned_prompt="prompt",
+            context_blob="ctx",
+            plan=QueryPlan(
+                overall_intent="x",
+                steps=[
+                    QueryPlanStep(description="step a", query_type="hogql", hogql="SELECT 1"),
+                    QueryPlanStep(description="step b", query_type="hogql", hogql="BAD SQL"),
+                ],
+            ),
+        )
+        executor = MagicMock()
+        executor.arun_and_format_query = AsyncMock(side_effect=[("ok", False), Exception("syntax")])
+        mock_executor_cls.return_value = executor
+        llm = MagicMock()
+        llm.invoke.return_value = MagicMock(content="final")
+        mock_llm_cls.return_value = llm
+
+        generate_ai_subscription_markdown(sub)
+
+        degraded = [
+            c for c in mock_logger.warning.call_args_list if c.args and c.args[0] == "ai_report.delivered_degraded"
+        ]
+        assert len(degraded) == 1
+        assert degraded[0].kwargs["failed_steps"] == 1
+        assert degraded[0].kwargs["total_steps"] == 2
+
     @patch("ee.hogai.ai_reports.MaxChatOpenAI")
     @patch("ee.hogai.ai_reports.AssistantQueryExecutor")
     @patch("ee.hogai.ai_reports.build_enriched_prompt")

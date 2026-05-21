@@ -513,12 +513,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'inbox',
         description: 'View subscription details and delivery history for this project.',
     },
-    [Scene.SubscriptionForm]: {
-        projectBased: true,
-        name: 'New subscription',
-        iconType: 'inbox',
-        description: 'Create or edit a parent-less subscription (AI-prompt deliveries).',
-    },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -916,8 +910,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     // otherwise the wildcard captures "new" / "<id>/edit" and mounts the detail
     // scene → 404 "Subscription not found" with a removeChild reconciliation
     // error from the racing mounts.
-    [urls.subscriptionNew()]: [Scene.SubscriptionForm, 'subscriptionNew'],
-    [urls.subscriptionEdit(':subscriptionId')]: [Scene.SubscriptionForm, 'subscriptionEdit'],
+    [urls.subscriptionNew()]: [Scene.Subscriptions, 'subscriptionNew'],
+    [urls.subscriptionEdit(':subscriptionId')]: [Scene.Subscriptions, 'subscriptionEdit'],
     [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],

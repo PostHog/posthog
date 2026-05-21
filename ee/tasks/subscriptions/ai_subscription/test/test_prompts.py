@@ -22,6 +22,8 @@ class TestPlanGenerationPromptGuardrails:
             ("conditional aggregation hint", "`countIf(cond)`"),
             ("week-over-week reference pattern", "USE THIS PATTERN INSTEAD OF NESTED CTES"),
             ("top-events reference pattern", "Top events in the last 7 days"),
+            ("no-JOIN ban", "Do NOT use JOINs of any kind"),
+            ("no-data-from-context guidance", "Events with no data: do NOT write a query"),
         ]
     )
     def test_guardrail_present(self, _name: str, fragment: str) -> None:
@@ -36,3 +38,14 @@ class TestSynthesisPromptShape:
     def test_placeholders_are_in_human_message_not_system(self) -> None:
         assert "{{{" not in AI_SUBSCRIPTION_SYNTHESIS_PROMPT
         assert "{{" not in AI_SUBSCRIPTION_SYNTHESIS_PROMPT
+
+    @parameterized.expand(
+        [
+            ("anti-hallucination", "Never invent or list event names"),
+            ("no conversational sign-offs", "one-way scheduled email"),
+        ]
+    )
+    def test_synthesis_guardrail_present(self, _name: str, fragment: str) -> None:
+        assert fragment in AI_SUBSCRIPTION_SYNTHESIS_PROMPT, (
+            f"Synthesis prompt is missing guardrail fragment: {fragment!r}"
+        )

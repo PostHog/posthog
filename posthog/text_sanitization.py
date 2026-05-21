@@ -67,9 +67,14 @@ def sanitize_user_text(value: str | None, max_len: int) -> str:
     return cleaned
 
 
-def sanitize_core_memory_text(value: str | None, max_len: int = CORE_MEMORY_MAX_LEN) -> str:
-    """Sanitize core memory facts. Preserves newlines so each fact stays on its own line,
-    but strips structural LLM markers so the memory cannot escape its `<core_memory>` wrapper."""
+def strip_llm_framing_markers(value: str | None, max_len: int) -> str:
+    """Strip invisible characters and structural LLM framing tags (e.g. `</query_results>`,
+    `<system>`) while PRESERVING newlines and markdown layout. Use for already-formatted content —
+    query results, core-memory facts — that must keep its structure but must not be able to break
+    out of its framing envelope and inject instruction-shaped content into an LLM prompt.
+
+    Contrast with `sanitize_user_text`, which also collapses newlines and strips all tags: right for
+    short single-line values (names, labels) but destructive to a formatted block like a table."""
     if not value:
         return ""
     cleaned = _strip_invisible(value)
@@ -81,3 +86,9 @@ def sanitize_core_memory_text(value: str | None, max_len: int = CORE_MEMORY_MAX_
     if len(cleaned) > max_len:
         cleaned = cleaned[:max_len].rstrip()
     return cleaned
+
+
+def sanitize_core_memory_text(value: str | None, max_len: int = CORE_MEMORY_MAX_LEN) -> str:
+    """Sanitize core memory facts. Preserves newlines so each fact stays on its own line,
+    but strips structural LLM markers so the memory cannot escape its `<core_memory>` wrapper."""
+    return strip_llm_framing_markers(value, max_len)

@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { EditSubscription } from 'lib/components/Subscriptions/views/EditSubscription'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -105,6 +106,7 @@ export function SubscriptionsScene(): JSX.Element {
         currentTab,
         subscriptionsSorting,
         targetTypeFilter,
+        subscriptionModalId,
     } = useValues(subscriptionsSceneLogic)
     const { setCurrentTab, setSubscriptionsSorting } = useActions(subscriptionsSceneLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
@@ -197,6 +199,15 @@ export function SubscriptionsScene(): JSX.Element {
                     )}
                 </div>
             </PayGateMini>
+            {subscriptionModalId !== null && (
+                <LemonModal isOpen onClose={() => router.actions.push(urls.subscriptions())} simple={false} width={650}>
+                    <EditSubscription
+                        id={subscriptionModalId}
+                        onCancel={() => router.actions.push(urls.subscriptions())}
+                        onDelete={() => router.actions.push(urls.subscriptions())}
+                    />
+                </LemonModal>
+            )}
         </SceneContent>
     )
 }

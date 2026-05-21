@@ -18,7 +18,7 @@ from ee.tasks.subscriptions.slack_subscriptions import UTM_TAGS_BASE, get_slack_
 logger = structlog.get_logger(__name__)
 
 
-_MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False})
+_MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False}).enable("table")
 _SLACK_CONVERTER = SlackMarkdownConverter()
 
 # Defense-in-depth on top of `html=False` in markdown-it: explicitly allow only the

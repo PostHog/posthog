@@ -196,4 +196,26 @@ describe('subscriptionsSceneLogic', () => {
             expect(params.get('target_type')).toBe('slack')
         })
     })
+
+    describe('modal routing', () => {
+        it('opens the modal on /subscriptions/new and closes when navigating back to the list', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.subscriptionNew())
+            }).toMatchValues({ subscriptionModalId: 'new' })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.subscriptions())
+            }).toMatchValues({ subscriptionModalId: null })
+        })
+
+        it('opens the modal with the subscription id on /subscriptions/:id/edit', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.subscriptionEdit('42'))
+            }).toMatchValues({ subscriptionModalId: 42 })
+        })
+    })
 })

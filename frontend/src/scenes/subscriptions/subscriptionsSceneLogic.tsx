@@ -210,6 +210,7 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         setSubscriptionsSorting: (sorting: Sorting | null) => ({ sorting }),
         setTargetTypeFilter: (targetType: SubscriptionsListTargetType | null) => ({ targetType }),
         applySubscriptionsQueryFromUrl: (query: SubscriptionsQueryFromUrl) => ({ query }),
+        setSubscriptionModalId: (id: number | 'new' | null) => ({ id }),
         deleteSubscriptionSuccess: true,
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
@@ -266,6 +267,14 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             {
                 setTargetTypeFilter: (_, { targetType }) => targetType,
                 applySubscriptionsQueryFromUrl: (_, { query }) => query.targetTypeFilter,
+            },
+        ],
+        // Drives the create/edit modal that now renders OVER the list (route-driven), so the
+        // list stays painted behind it instead of swapping to a separate scene. `null` = closed.
+        subscriptionModalId: [
+            null as number | 'new' | null,
+            {
+                setSubscriptionModalId: (_, { id }) => id,
             },
         ],
         /**
@@ -432,7 +441,17 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({
+        [urls.subscriptionNew()]: () => {
+            actions.setSubscriptionModalId('new')
+        },
+        [urls.subscriptionEdit(':subscriptionId')]: ({ subscriptionId }) => {
+            const editingId = Number(subscriptionId)
+            actions.setSubscriptionModalId(Number.isFinite(editingId) ? editingId : 'new')
+        },
         [urls.subscriptions()]: (_, searchParams) => {
+            if (values.subscriptionModalId !== null) {
+                actions.setSubscriptionModalId(null)
+            }
             const parsed = parseSubscriptionsSearchParams(searchParams)
             const listState = {
                 currentTab: values.currentTab,

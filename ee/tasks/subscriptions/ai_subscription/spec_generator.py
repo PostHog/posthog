@@ -1,6 +1,8 @@
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Optional, Union
+
+from django.db.models import F, Q
 
 import structlog
 
@@ -8,7 +10,8 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyQuery
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team, User
+from posthog.models import EventDefinition, PropertyDefinition, Team, User
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.subscription import Subscription
 from posthog.text_sanitization import sanitize_core_memory_text, sanitize_user_text
 
@@ -21,6 +24,10 @@ logger = structlog.get_logger(__name__)
 
 PROMPT_MAX_LENGTH = 4000
 EVENT_NAMES_SAMPLE_LIMIT = 20
+# Cap on the "events defined but receiving no data" list injected into context. Bounds both the
+# Postgres scan and the context size — a noisy taxonomy can have hundreds of dormant definitions.
+NO_DATA_EVENT_NAMES_LIMIT = 25
+PERSON_PROPERTY_NAMES_LIMIT = 30
 EVENT_NAME_MAX_LENGTH = 120
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1-mini"
@@ -94,6 +101,46 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     return [name for name in sanitized if name]
 
 
+def _no_data_event_names(team: Team, window_days: int, limit: int) -> list[str]:
+    # Ground truth for "events with no data" lives in the event-definitions taxonomy, not the events
+    # table (which only contains events that fired). An event whose `last_seen_at` predates the window —
+    # or was never seen — had no data in it. `last_seen_at` is maintained on ingestion so it can lag
+    # slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a plausible
+    # list of dormant events from its general knowledge of PostHog event names.
+    cutoff = datetime.now(tz=UTC) - timedelta(days=window_days)
+    names = (
+        EventDefinition.objects.filter(team_id=team.pk)
+        .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff))
+        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+        .values_list("name", flat=True)[:limit]
+    )
+    sanitized = (sanitize_user_text(name, EVENT_NAME_MAX_LENGTH) for name in names)
+    return [name for name in sanitized if name]
+
+
+def _person_property_names(team: Team, limit: int) -> list[str]:
+    names = (
+        PropertyDefinition.objects.filter(team_id=team.pk, type=PropertyDefinition.Type.PERSON)
+        .order_by("name")
+        .values_list("name", flat=True)[:limit]
+    )
+    sanitized = (sanitize_user_text(name, EVENT_NAME_MAX_LENGTH) for name in names)
+    return [name for name in sanitized if name]
+
+
+def _group_type_labels(team: Team) -> list[str]:
+    # Map each configured group type to its HogQL virtual-join path (group_0..group_4) so the planner
+    # knows what `group_<index>` means for this project (e.g. group_0 = organization). These are joined
+    # by the engine automatically when referenced — the planner never writes a JOIN.
+    labels: list[str] = []
+    for gt in get_group_types_for_project(team.project_id or team.pk):
+        name = sanitize_user_text(gt.get("group_type", ""), EVENT_NAME_MAX_LENGTH)
+        index = gt.get("group_type_index")
+        if name and index is not None:
+            labels.append(f"group_{index} = {name}")
+    return labels
+
+
 def build_context_blob(team: Team, window_days: int) -> str:
     event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
     now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
@@ -114,6 +161,26 @@ def build_context_blob(team: Team, window_days: int) -> str:
         lines.append("- Top events: " + ", ".join(event_names))
     else:
         lines.append("- Top events: (none recorded yet)")
+
+    no_data_events = _no_data_event_names(team, window_days, NO_DATA_EVENT_NAMES_LIMIT)
+    if no_data_events:
+        lines.append(
+            f"- Events defined but with no data in the last {window_days} day(s): " + ", ".join(no_data_events)
+        )
+
+    person_properties = _person_property_names(team, PERSON_PROPERTY_NAMES_LIMIT)
+    if person_properties:
+        lines.append(
+            "- Person properties (reference as person.properties.<name>, no JOIN needed): "
+            + ", ".join(person_properties)
+        )
+
+    group_labels = _group_type_labels(team)
+    if group_labels:
+        lines.append(
+            "- Group/account types (reference as group_<index>.properties.<name>, no JOIN needed): "
+            + ", ".join(group_labels)
+        )
     return "\n".join(lines)
 
 

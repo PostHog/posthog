@@ -61,16 +61,16 @@ const AI_PROMPT_EXAMPLES: { label: string; prompt: string }[] = [
         prompt: 'Top 5 events by volume in the last 7 days, with counts and unique users for each.',
     },
     {
-        label: 'Daily pageviews',
-        prompt: 'Daily count of $pageview events for the last 14 days. Call out any day that spiked above 50% of the surrounding average.',
-    },
-    {
         label: 'Week-over-week growth',
         prompt: 'For the top 10 events by volume, compare this week vs last week and rank by growth rate. Flag any event that more than doubled or halved.',
     },
     {
-        label: 'Peak hours',
-        prompt: 'Hourly distribution of $pageview events in the last 7 days. Identify the busiest 2-hour window and how it compares to the quietest.',
+        label: 'Weekly health check',
+        prompt: 'Weekly health check: total event volume and unique active users in the last 7 days, and how each compares to the previous 7 days.',
+    },
+    {
+        label: 'Tracking gaps',
+        prompt: 'Which events we normally track received no data in the last 7 days? List them so I can catch broken instrumentation.',
     },
 ]
 import { subscriptionsLogic } from '../subscriptionsLogic'
@@ -332,23 +332,33 @@ export function EditSubscription({
                                         maxLength={AI_PROMPT_CHAR_LIMIT}
                                     />
                                 </LemonField>
-                                <div className="flex flex-col gap-1">
-                                    <span className="text-xs text-secondary">Try one of these prompts:</span>
-                                    <div className="flex flex-wrap gap-1">
-                                        {AI_PROMPT_EXAMPLES.map((example) => (
-                                            <LemonButton
-                                                key={example.label}
-                                                size="xsmall"
-                                                type="secondary"
-                                                onClick={() =>
-                                                    logic.actions.setSubscriptionValue('prompt', example.prompt)
-                                                }
-                                            >
-                                                {example.label}
-                                            </LemonButton>
-                                        ))}
+                                {/*
+                                 * Starter chips replace the whole prompt, so only offer them while the field is
+                                 * empty. Once the user has typed anything, hide them — a stray click would
+                                 * otherwise wipe a prompt in progress with no undo.
+                                 */}
+                                {!subscription.prompt?.trim() && (
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-xs text-secondary">Try one of these prompts:</span>
+                                        <div className="flex flex-wrap gap-1">
+                                            {AI_PROMPT_EXAMPLES.map((example) => (
+                                                <LemonButton
+                                                    key={example.label}
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    onClick={() =>
+                                                        logic.actions.selectAiExamplePrompt(
+                                                            example.prompt,
+                                                            example.label
+                                                        )
+                                                    }
+                                                >
+                                                    {example.label}
+                                                </LemonButton>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </>
                         ) : null}
 
@@ -633,7 +643,7 @@ export function EditSubscription({
                             </FlaggedFeature>
                         )}
 
-                        {insightShortId && (
+                        {insightShortId && !isAiPrompt && (
                             <div>
                                 <LemonLabel className="mb-2">Preview</LemonLabel>
                                 <div className="border rounded p-2">
