@@ -84,6 +84,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "countState": HogQLFunctionMeta("countState", 0, 1, aggregate=True),
     "countMerge": HogQLFunctionMeta("countMerge", 1, 1, aggregate=True),
     "countStateIf": HogQLFunctionMeta("countStateIf", 1, 2, aggregate=True),
+    "countDistinct": HogQLFunctionMeta("countDistinct", 1, 1, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
     "countMapIf": HogQLFunctionMeta("countMapIf", 2, 3, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
