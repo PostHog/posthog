@@ -128,6 +128,7 @@ export type SettingId =
     | 'environment-experiment-recalculation-time'
     | 'environment-experiment-matured-users'
     | 'environment-experiment-cuped-enabled'
+    | 'environment-experiment-mde'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-ingestion-controls'
