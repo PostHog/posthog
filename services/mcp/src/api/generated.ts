@@ -23503,6 +23503,64 @@ export namespace Schemas {
     }
 
     /**
+     * * `video_segment` - Video Segment
+    * `safety_judgment` - Safety Judgment
+    * `actionability_judgment` - Actionability Judgment
+    * `priority_judgment` - Priority Judgment
+    * `signal_finding` - Signal Finding
+    * `repo_selection` - Repo Selection
+    * `suggested_reviewers` - Suggested Reviewers
+    * `dismissal` - Dismissal
+     */
+    export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
+
+
+    export const SignalReportArtefactTypeEnum = {
+      VideoSegment: 'video_segment',
+      SafetyJudgment: 'safety_judgment',
+      ActionabilityJudgment: 'actionability_judgment',
+      PriorityJudgment: 'priority_judgment',
+      SignalFinding: 'signal_finding',
+      RepoSelection: 'repo_selection',
+      SuggestedReviewers: 'suggested_reviewers',
+      Dismissal: 'dismissal',
+    } as const;
+
+    /**
+     * Parsed artefact payload. Shape varies by `type`. For `suggested_reviewers`, returns a list of `{github_login, github_name, relevant_commits, user}` entries where `user` is the enriched PostHog org-member profile (or null when no user is linked to that GitHub login).
+     */
+    export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
+
+    export interface SignalReportArtefact {
+      /** Stable identifier for the artefact row. */
+      readonly id: string;
+      /** Kind of artefact (e.g. `suggested_reviewers`, `priority_judgment`, `dismissal`).
+
+      * `video_segment` - Video Segment
+      * `safety_judgment` - Safety Judgment
+      * `actionability_judgment` - Actionability Judgment
+      * `priority_judgment` - Priority Judgment
+      * `signal_finding` - Signal Finding
+      * `repo_selection` - Repo Selection
+      * `suggested_reviewers` - Suggested Reviewers
+      * `dismissal` - Dismissal */
+      readonly type: SignalReportArtefactTypeEnum;
+      /** Parsed artefact payload. Shape varies by `type`. For `suggested_reviewers`, returns a list of `{github_login, github_name, relevant_commits, user}` entries where `user` is the enriched PostHog org-member profile (or null when no user is linked to that GitHub login). */
+      readonly content: SignalReportArtefactContent;
+      /** Timestamp when the artefact was written by the agentic pipeline (or via API). */
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSignalReportArtefactList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportArtefact[];
+    }
+
+    /**
      * * `potential` - Potential
     * `candidate` - Candidate
     * `in_progress` - In Progress
@@ -34466,6 +34524,39 @@ export namespace Schemas {
       release_to_everyone?: boolean;
     }
 
+    /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+
+    Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`.
+    The server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,
+    it must map to an org member on this team with a linked GitHub login.
+     */
+    export interface SuggestedReviewerEntryWrite {
+      /**
+         * GitHub login (case-insensitive). Stored lowercased.
+         * @maxLength 200
+         */
+      github_login?: string;
+      /** PostHog user UUID. Must be an org member on this team with a linked GitHub identity. If supplied together with `github_login`, the server-resolved login from the user wins. */
+      user_uuid?: string;
+      /**
+         * Optional human-readable display name. Not backfilled from GitHub by the server.
+         * @maxLength 200
+         */
+      github_name?: string;
+    }
+
+    /**
+     * PUT body for replacing a `suggested_reviewers` artefact's content.
+
+    Only `suggested_reviewers` artefacts may be modified via this endpoint;
+    the viewset enforces the type check before validation runs.
+     */
+    export interface SignalReportArtefactWrite {
+      /** Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries. */
+      content: SuggestedReviewerEntryWrite[];
+    }
+
     export interface _User {
       readonly id: number;
       readonly uuid: string;
@@ -44791,6 +44882,17 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    };
+
+    export type SignalsReportsArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type SignalsSourceConfigsListParams = {

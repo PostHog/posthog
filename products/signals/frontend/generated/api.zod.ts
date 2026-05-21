@@ -18,6 +18,48 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Pause the grouping pipeline until this timestamp (ISO 8601).'),
 })
 
+/**
+ * Replace the contents of a signal report artefact. Currently only artefacts of type `suggested_reviewers` may be modified via this endpoint; other types return 400.
+ */
+export const signalsReportsArtefactsUpdateBodyContentItemGithubLoginMax = 200
+
+export const signalsReportsArtefactsUpdateBodyContentItemGithubNameMax = 200
+
+export const SignalsReportsArtefactsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .array(
+                zod
+                    .object({
+                        github_login: zod
+                            .string()
+                            .max(signalsReportsArtefactsUpdateBodyContentItemGithubLoginMax)
+                            .optional()
+                            .describe('GitHub login (case-insensitive). Stored lowercased.'),
+                        user_uuid: zod
+                            .uuid()
+                            .optional()
+                            .describe(
+                                'PostHog user UUID. Must be an org member on this team with a linked GitHub identity. If supplied together with `github_login`, the server-resolved login from the user wins.'
+                            ),
+                        github_name: zod
+                            .string()
+                            .max(signalsReportsArtefactsUpdateBodyContentItemGithubNameMax)
+                            .optional()
+                            .describe(
+                                'Optional human-readable display name. Not backfilled from GitHub by the server.'
+                            ),
+                    })
+                    .describe(
+                        'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`.\nThe server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,\nit must map to an org member on this team with a linked GitHub login.'
+                    )
+            )
+            .describe('Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.'),
+    })
+    .describe(
+        "PUT body for replacing a `suggested_reviewers` artefact's content.\n\nOnly `suggested_reviewers` artefacts may be modified via this endpoint;\nthe viewset enforces the type check before validation runs."
+    )
+
 export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .enum([

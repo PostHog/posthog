@@ -1130,6 +1130,12 @@ signal_reports_router.register(
     "environment_signal_report_tasks",
     ["team_id", "report_id"],
 )
+signal_reports_router.register(
+    r"artefacts",
+    signals.SignalReportArtefactViewSet,
+    "environment_signal_report_artefacts",
+    ["team_id", "report_id"],
+)
 projects_router.register(
     r"signals/source_configs",
     signals.SignalSourceConfigViewSet,
