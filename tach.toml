@@ -32,6 +32,31 @@ layer = "modules"
 utility = true
 
 [[modules]]
+path = "ee"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.alerts",
+    "products.dashboards",
+    "products.data_modeling",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.llm_analytics",
+    "products.mcp_store",
+    "products.notebooks",
+    "products.posthog_ai",
+    "products.replay",
+    "products.revenue_analytics",
+    "products.surveys",
+    "products.tasks",
+    "products.user_interviews",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[modules]]
 path = "posthog"
 depends_on = [
     "ee",
@@ -78,7 +103,17 @@ depends_on = [
     "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
-    "products.workflows", "products.warehouse_sources", "products.data_tools",
+    "products.workflows",
+    "products.actions",
+    "products.alerts", "products.warehouse_sources", "products.data_tools",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.actions"
+depends_on = [
+    "posthog",
+    "products.experiments",
 ]
 layer = "modules"
 
@@ -136,6 +171,7 @@ path = "products.dashboards"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.llm_analytics",
     "products.mcp_analytics",
 ]
@@ -145,7 +181,25 @@ layer = "modules"
 path = "products.data_modeling"
 depends_on = [
     "posthog",
-    "products.data_warehouse", "products.warehouse_sources", "products.revenue_analytics", "products.data_tools",
+    "products.data_tools",
+    "products.data_warehouse",
+    "products.revenue_analytics",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.data_tools"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.warehouse_sources"
+depends_on = [
+    "posthog",
+    "products.data_modeling",
+    "products.data_tools",
+    "products.data_warehouse",
 ]
 layer = "modules"
 
@@ -156,8 +210,7 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.data_modeling",
-    "products.revenue_analytics",
-    "products.warehouse_sources", "products.data_tools",
+    "products.revenue_analytics", "products.warehouse_sources", "products.data_tools",
 ]
 layer = "modules"
 
@@ -219,6 +272,7 @@ path = "products.experiments"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.event_definitions",
     "products.notifications",
     "products.product_tours",
@@ -282,6 +336,7 @@ layer = "modules"
 path = "products.marketing_analytics"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.data_warehouse", "products.warehouse_sources",
 ]
 layer = "modules"
@@ -360,6 +415,16 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.product_analytics"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.data_warehouse",
+    "products.event_definitions",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.product_tours"
 depends_on = [
     "posthog",
@@ -393,8 +458,7 @@ path = "products.revenue_analytics"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
-    "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+    "products.data_warehouse", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
 ]
 layer = "modules"
 
@@ -404,8 +468,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks",
-    "products.warehouse_sources",
+    "products.tasks", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -422,6 +485,7 @@ path = "products.surveys"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.product_tours",
 ]
 layer = "modules"
@@ -475,6 +539,7 @@ path = "products.web_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
 ]
 layer = "modules"
 
@@ -487,7 +552,6 @@ depends_on = [
 layer = "modules"
 
 # Facade + views: the canonical public surface for all isolated products.
-
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
@@ -499,7 +563,6 @@ from = [
 
 # TODO: Experiments-specific temporary interface
 # Remove this block once all ViewSets are migrated to products/experiments/backend/presentation/views.py
-
 [[interfaces]]
 expose = [
     "backend\\.presentation\\.experiments.*",
@@ -510,6 +573,18 @@ from = [
 ]
 
 # user_interviews exposes Vapi webhook handlers that are routed directly from posthog/urls.py.
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.webhooks.*",
+]
+from = [
+    "products.user_interviews",
+]
+
+# Legacy leaks — core (posthog/ee) imports these internals directly.
+# Each block below should shrink as imports migrate to the facade.
+# These products have had backend:contract-check removed from package.json
+# so CI treats them as non-isolated until the leaks are cleaned up.
 
 [[interfaces]]
 expose = [
@@ -583,7 +658,6 @@ from = [
 ]
 
 # Legacy leaks — core (posthog/ee) still imports these internals directly.
-
 [[interfaces]]
 expose = [
     "backend\\.models.*",
@@ -608,64 +682,3 @@ expose = [
 from = [
     "products.business_knowledge",
 ]
-
-[[modules]]
-path = "products.warehouse_sources"
-depends_on = [
-    "posthog",
-    "products.data_warehouse", "products.data_modeling", "products.data_tools",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.data_tools"
-depends_on = ["posthog"]
-layer = "modules"
-
-[[modules]]
-path = "ee"
-depends_on = [
-    "posthog",
-    "products.alerts",
-    "products.dashboards",
-    "products.data_modeling",
-    "products.data_warehouse",
-    "products.error_tracking",
-    "products.event_definitions",
-    "products.experiments",
-    "products.feature_flags",
-    "products.llm_analytics",
-    "products.mcp_store",
-    "products.notebooks",
-    "products.posthog_ai",
-    "products.replay",
-    "products.revenue_analytics",
-    "products.surveys",
-    "products.tasks",
-    "products.user_interviews",
-    "products.warehouse_sources",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.product_analytics"
-depends_on = [
-    "posthog",
-    "products.data_warehouse",
-    "products.event_definitions",
-]
-layer = "modules"
-
-[[interfaces]]
-expose = [
-    "backend\\.presentation\\.webhooks.*",
-]
-from = [
-    "products.user_interviews",
-]
-
-# Legacy leaks — core (posthog/ee) imports these internals directly.
-# Each block below should shrink as imports migrate to the facade.
-# These products have had backend:contract-check removed from package.json
-# so CI treats them as non-isolated until the leaks are cleaned up.
-

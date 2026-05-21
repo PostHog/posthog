@@ -35,7 +35,9 @@ from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_g
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action, Team
+from posthog.models import Team
+
+from products.actions.backend.models.action import Action
 
 
 class TrendsActorsQueryBuilder:

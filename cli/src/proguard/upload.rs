@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     proguard::ProguardFile,
-    sourcemaps::args::{pack_version, ReleaseArgs},
+    sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
 };
 
@@ -26,6 +26,9 @@ pub struct Args {
 
     #[clap(flatten)]
     pub release: ReleaseArgs,
+
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -34,6 +37,7 @@ pub fn upload(args: &Args) -> Result<()> {
         map_id,
         batch_size,
         release,
+        conflict,
     } = args;
 
     let ReleaseArgs {
@@ -77,7 +81,8 @@ pub fn upload(args: &Args) -> Result<()> {
         vec![to_upload],
         *batch_size,
         *skip_release_on_fail,
-        false,
+        conflict.force,
+        conflict.skip_on_conflict,
     )?;
 
     Ok(())

@@ -14706,6 +14706,8 @@ export namespace Schemas {
       symbol_sets?: ErrorTrackingSymbolSetUpload[];
       /** Whether to overwrite uploaded symbol sets whose content hash changed. */
       force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
     }
 
     export interface ErrorTrackingSymbolSetFinishUpload {
@@ -28502,10 +28504,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -31374,10 +31373,7 @@ export namespace Schemas {
     };
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface ProjectBackwardCompat {
       readonly id: number;

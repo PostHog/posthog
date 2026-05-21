@@ -8,11 +8,11 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.models import Filter
-from posthog.models.action import Action
-from posthog.models.action.action import ActionStepJSON
 from posthog.models.property import Property, PropertyIdentifier
 from posthog.models.property.property import OperatorType
 from posthog.queries.util import PersonPropertiesMode
+
+from products.actions.backend.models.action import Action, ActionStepJSON
 
 
 def format_action_filter_event_only(
@@ -36,7 +36,7 @@ def format_action_filter(
     action: Action,
     hogql_context: HogQLContext,
     prepend: str = "action",
-    filter_by_team=True,
+    filter_by_team: bool = True,
     table_name: str = "",
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",

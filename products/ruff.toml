@@ -18,6 +18,8 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics
 # to check remaining count before removing the exemption.
+"actions/backend/**" = ["ANN"]
+"alerts/backend/**" = ["ANN"]
 "batch_exports/backend/**" = ["ANN"]
 "conversations/backend/**" = ["ANN"]
 "customer_analytics/backend/**" = ["ANN"]

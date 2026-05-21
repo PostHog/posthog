@@ -319,7 +319,7 @@ async def setup_bigquery(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_full_refresh_table(
     activity_environment,
@@ -385,7 +385,7 @@ async def test_bigquery_source_full_refresh_table(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_full_refresh_view(
     activity_environment,
@@ -451,7 +451,7 @@ async def test_bigquery_source_full_refresh_view(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_incremental_integer(
     activity_environment,
@@ -570,7 +570,7 @@ async def test_bigquery_source_incremental_integer(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_bigquery_source_incremental_timestamp(
     activity_environment,
@@ -695,7 +695,7 @@ async def test_bigquery_source_incremental_timestamp(
 
 
 @SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 @pytest.mark.parametrize("bigquery_table_primary_key", ["test_pk"], indirect=True)
 @pytest.mark.asyncio
 async def test_bigquery_source_incremental_custom_primary_key(

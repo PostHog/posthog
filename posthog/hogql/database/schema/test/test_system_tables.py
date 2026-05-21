@@ -11,7 +11,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import (
-    Action,
     Annotation,
     Cohort,
     ExportedAsset,
@@ -25,12 +24,13 @@ from posthog.models import (
     Team,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.actions.backend.models.action import Action
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
