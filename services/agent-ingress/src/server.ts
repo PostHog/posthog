@@ -216,6 +216,22 @@ async function dispatchRouteResult(
                 await openSSE(req, res, deps, result.sessionId)
                 return
             }
+            if (result.operation === 'cancel') {
+                // Publish a cancel on the session's input channel — the runner
+                // subscribes for the lifetime of the run and aborts the agent
+                // loop when it arrives.
+                try {
+                    await deps.bus.publishInput(result.sessionId, {
+                        type: 'cancel',
+                        at: new Date().toISOString(),
+                    })
+                    res.status(202).json({ ok: true })
+                } catch (err) {
+                    logger.error('cancel failed', { sessionId: result.sessionId, error: String(err) })
+                    res.status(503).json({ error: 'cancel failed' })
+                }
+                return
+            }
             // operation === 'send'
             try {
                 await deps.bus.publishInput(result.sessionId, {

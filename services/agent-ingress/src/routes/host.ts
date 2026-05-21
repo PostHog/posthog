@@ -25,6 +25,7 @@ export function extractHost(req: Request, domainSuffix: string): string | null {
  *     /agents/<slug>/webhooks/slack
  *     /agents/<slug>/listen/<session_id>
  *     /agents/<slug>/send/<session_id>
+ *     /agents/<slug>/cancel/<session_id>
  *
  * Useful for ngrok / cloudflared Quick Tunnels and other setups where you
  * can't get a wildcard subdomain. Returns the slug + the path the underlying

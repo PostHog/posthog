@@ -141,8 +141,29 @@ export class AssServerExecutor implements SessionExecutor {
                 sessionLogger.appendLog({ level: 'INFO', message: line })
             },
         })
-        await handle.done
 
+        // Watch the session's input channel for a `/cancel/:id` request. The
+        // deployed runner drives the whole session inside this one call, so a
+        // single subscription covers the run's entire lifetime.
+        let cancelled = false
+        const unsubscribe = await this.options.bus.subscribeInput(sessionId, (msg) => {
+            if (msg.type === 'cancel') {
+                cancelled = true
+                logger.info({ sessionId }, 'cancel received — aborting run')
+                handle.abort()
+            }
+        })
+        try {
+            await handle.done
+        } finally {
+            await unsubscribe().catch((err) => {
+                logger.error('cancel-subscription cleanup failed', { sessionId, error: String(err) })
+            })
+        }
+
+        if (cancelled) {
+            return { kind: 'cancelled' }
+        }
         if (bridge.lastError) {
             return { kind: 'failed', error: bridge.lastError }
         }

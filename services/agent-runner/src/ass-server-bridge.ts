@@ -88,6 +88,16 @@ export class BusBridgingRegistry extends SessionRegistry {
                     },
                 ]
             }
+            case 'message_delta': {
+                // Streamed token chunk of the in-flight assistant reply. Forwarded
+                // live to SSE listeners; the session-logger drops it (ephemeral —
+                // never persisted). See pubsub/types `message_delta`.
+                const d = data as { text?: unknown }
+                if (typeof d?.text !== 'string') {
+                    return []
+                }
+                return [{ type: 'message_delta', at, text: d.text }]
+            }
             case 'status': {
                 // `notify_user` meta tool — `{ text }` from session-runner.
                 const d = data as { text?: unknown }

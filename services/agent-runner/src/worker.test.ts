@@ -142,6 +142,31 @@ describe('RunnerWorker.processJob', () => {
         await bus.disconnect()
     })
 
+    it('cancelled: publishes a terminal session_failed and cancels the job', async () => {
+        const bus = new InMemorySessionBus()
+        const events = captureEvents(bus, 's-cancel')
+        const worker = new RunnerWorker({
+            pool: { dbUrl: 'postgres://unused' },
+            queueName: 'default',
+            executor: scriptedExecutor([{ kind: 'cancelled' }]),
+            bus,
+            loadSecrets: async () => ({}),
+            logProducer: new FakeLogProducer(),
+            heartbeatIntervalMs: 1_000_000,
+        })
+        const { record, job } = makeJob('s-cancel', {})
+        await (worker as unknown as { processJob(j: typeof job): Promise<void> }).processJob(job)
+
+        // The queue row settles as `canceled` (job.cancel), not failed.
+        expect(record.map((r) => r.method)).toEqual(['cancel'])
+        const failed = events.find(
+            (e): e is Extract<SessionEvent, { type: 'session_failed' }> => e.type === 'session_failed'
+        )
+        expect(failed?.error).toBe('cancelled by client')
+
+        await bus.disconnect()
+    })
+
     it('tool_call: runs the tool natively and reschedules with updated state', async () => {
         const bus = new InMemorySessionBus()
         captureEvents(bus, 's-tool')

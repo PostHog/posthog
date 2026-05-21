@@ -58,3 +58,7 @@ export type ExecutorTurnOutput =
           kind: 'failed'
           error: string
       }
+    | {
+          /** The run was aborted by a client `/cancel/:id`. The worker marks the job canceled. */
+          kind: 'cancelled'
+      }

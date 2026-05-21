@@ -121,6 +121,18 @@ export class RunnerWorker {
                     })
                     await job.fail()
                     return
+                case 'cancelled':
+                    // Client aborted the run via /cancel/:id. The durable record
+                    // is the queue row's `canceled` status; the live event is a
+                    // terminal `session_failed` with an explicit reason (there is
+                    // no separate `session_canceled` event in the union today).
+                    await this.publish(job.id, sessionLogger, {
+                        type: 'session_failed',
+                        at: new Date().toISOString(),
+                        error: 'cancelled by client',
+                    })
+                    await job.cancel()
+                    return
                 case 'tool_call': {
                     state.messages.push(outcome.message)
                     state.turnCount += 1

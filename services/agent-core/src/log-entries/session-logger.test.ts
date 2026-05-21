@@ -75,6 +75,16 @@ describe('createSessionLogger', () => {
         expect(producer.entries[1]!.timestamp).toBe('2026-05-19 15:00:00.456000')
     })
 
+    it('drops message_delta events without persisting them (ephemeral)', () => {
+        const producer = new FakeLogProducer()
+        const logger = createSessionLogger({ teamId, applicationId, sessionId, producer })
+        logger.appendEvent({ type: 'message_delta', at: fixedAt, text: 'tok' })
+        logger.appendEvent({ type: 'message_delta', at: fixedAt, text: 'en' })
+        // The durable record is the final message — deltas leave no rows.
+        logger.appendEvent({ type: 'message', at: fixedAt, role: 'assistant', content: 'token' })
+        expect(producer.entries.map((e) => e.message)).toEqual(['[chat] assistant: token'])
+    })
+
     it('drops writes silently when applicationId is null (orphan jobs)', () => {
         const producer = new FakeLogProducer()
         const logger = createSessionLogger({
@@ -118,6 +128,7 @@ describe('formatEvent', () => {
             { type: 'turn_started', at: fixedAt },
             { type: 'turn_completed', at: fixedAt },
             { type: 'message', at: fixedAt, role: 'system', content: 'ready' },
+            { type: 'message_delta', at: fixedAt, text: 'tok' },
             { type: 'tool_call', at: fixedAt, tool: 'x' },
             { type: 'tool_result', at: fixedAt, tool: 'x', ok: true },
             { type: 'status', at: fixedAt, text: 'fetching…' },

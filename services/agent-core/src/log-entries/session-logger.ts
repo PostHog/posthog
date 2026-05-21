@@ -10,6 +10,14 @@ import type { SessionEvent } from '../pubsub/types'
 import type { LogProducer } from './producer'
 import { AGENT_SESSION_LOG_SOURCE, type LogEntry, type LogLevel } from './types'
 
+/**
+ * Event types that are streamed to live listeners but never persisted. A
+ * streamed answer is hundreds–thousands of `message_delta` events — writing
+ * them to ClickHouse would explode `log_entries`. The durable record is the
+ * final complete `message`; deltas are a pure live-view side channel.
+ */
+const EPHEMERAL_EVENT_TYPES = new Set<SessionEvent['type']>(['message_delta'])
+
 export interface SessionLoggerOptions {
     teamId: number
     /**
@@ -54,6 +62,10 @@ export function createSessionLogger(opts: SessionLoggerOptions): SessionLogger {
 
     return {
         appendEvent(event: SessionEvent): void {
+            // Ephemeral events (streamed token deltas) are never persisted.
+            if (EPHEMERAL_EVENT_TYPES.has(event.type)) {
+                return
+            }
             const [level, message] = formatEvent(event)
             write(level, message, toClickhouseTimestamp(event.at))
         },
@@ -76,6 +88,10 @@ export function formatEvent(event: SessionEvent): [LogLevel, string] {
             return ['INFO', '[event] turn_completed']
         case 'message':
             return ['INFO', `[chat] ${event.role}: ${oneLine(event.content)}`]
+        case 'message_delta':
+            // Unreachable: appendEvent drops ephemeral events before formatting.
+            // The case exists only to keep this switch exhaustive.
+            return ['INFO', `[chat] delta: ${oneLine(event.text)}`]
         case 'tool_call': {
             const args = event.args === undefined ? '' : ` args=${truncate(stringifyArgs(event.args), 300)}`
             return ['INFO', `[tool] ${event.tool}${args}`]
