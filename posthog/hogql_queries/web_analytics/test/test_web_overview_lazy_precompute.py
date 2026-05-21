@@ -21,7 +21,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -35,7 +34,13 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
 
     def _enable_lazy(self):
-        return override_instance_config("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", [self.team.pk])
+        # Mock the org-level feature flag check to True so the gate accepts our test
+        # team. Outside this context manager the default `posthoganalytics.feature_enabled`
+        # returns False (no API key in tests), which models a flag-disabled org.
+        return patch(
+            "posthog.hogql_queries.web_analytics.web_overview_lazy_precompute.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
 
     def _seed_two_sessions(self) -> None:
         # p1 has two pageviews in one session, p2 has a single pageview (bounce).
@@ -207,27 +212,27 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_disabled_team_falls_through(self):
-        # Both gates closed: not in allowlist AND modifier not set.
+        # Both gates closed: org feature flag off AND query opt-in not set.
         self._seed_two_sessions()
         self._run(self._build_query(opt_in_precompute=False))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_query_optin_alone_falls_through_when_team_not_enrolled(self):
-        # `query.useWebAnalyticsPrecompute=True` BUT team is not in the
-        # `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist. Should fall
-        # through — the env var is the operator-controlled rollout gate.
+    def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
+        # `query.useWebAnalyticsPrecompute=True` BUT the
+        # `web-analytics-precompute-toggle` feature flag is off. Should
+        # fall through — the flag is the operator-controlled rollout gate.
         self._seed_two_sessions()
         self._run(self._build_query(opt_in_precompute=True))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_allowlist_alone_falls_through_when_query_not_opted_in(self):
-        # Team is in the allowlist BUT the query param is not set (the team
-        # hasn't enabled the "Allow precompute" toggle in the ScenePanel).
-        # Should fall through — the param is the per-team opt-in / kill switch.
+    def test_org_flag_alone_falls_through_when_query_not_opted_in(self):
+        # Org feature flag is on BUT the query param is not set (the team hasn't
+        # enabled the "Allow precompute" toggle in the ScenePanel). Should fall
+        # through — the param is the per-team opt-in / kill switch.
         self._seed_two_sessions()
         with self._enable_lazy():
             self._run(self._build_query(opt_in_precompute=False))
