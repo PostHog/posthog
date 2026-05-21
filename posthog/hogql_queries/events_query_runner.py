@@ -54,6 +54,19 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 WIDE_COLUMNS = {"elements_chain", "properties"}
 
 
+def _normalize_session_id(value: object) -> str | None:
+    """Return a normalized session id for comparing against the lowercased session recordings table.
+
+    Drops non-string values (e.g. dicts/lists from malformed properties) so the IN-list constant
+    in ``batch_check_session_recordings`` cannot break the EventsQuery, and lowercases so .NET
+    ``Guid.ToString()`` values match recordings stored in canonical lowercase form.
+    """
+    if not isinstance(value, str):
+        return None
+    coerced = value.strip().lower()
+    return coerced or None
+
+
 class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     query: EventsQuery
     cached_response: CachedEventsQueryResponse
@@ -451,9 +464,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     if isinstance(result[star_idx], dict):
                         properties = result[star_idx].get("properties", {})
                         if isinstance(properties, dict):
-                            session_id = properties.get("$session_id")
-                            if session_id:
-                                properties["$has_recording"] = session_id in session_recordings_map
+                            normalized = _normalize_session_id(properties.get("$session_id"))
+                            if normalized is not None:
+                                properties["$has_recording"] = normalized in session_recordings_map
 
         person_indices: list[int] = []
         for column_index, col in enumerate(self.select_input_raw()):
@@ -569,9 +582,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             if star_idx is not None and isinstance(result[star_idx], dict):
                 properties = result[star_idx].get("properties", {})
                 if isinstance(properties, dict):
-                    session_id = properties.get("$session_id")
-                    if session_id and session_id != "":
-                        session_ids.add(session_id)
+                    normalized = _normalize_session_id(properties.get("$session_id"))
+                    if normalized is not None:
+                        session_ids.add(normalized)
 
         # If no session IDs, return empty set
         if not session_ids:

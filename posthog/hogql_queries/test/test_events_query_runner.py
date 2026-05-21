@@ -1144,3 +1144,67 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
         with self.assertRaises(ResolutionError):
             runner.run()
+
+    @freeze_time("2024-04-04T12:00:05Z")
+    def test_session_id_normalization_does_not_500_and_marks_has_recording(self):
+        # Regression: .NET Guid.ToString() can emit uppercase or brace-wrapped values, and
+        # a malformed property could even be a non-string. None of those should crash the
+        # EventsQuery, and an uppercase GUID must still resolve to $has_recording=true when
+        # the recording exists under the canonical lowercase form.
+        from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+
+        lower_session_id = "a1b2c3d4-1234-5678-9abc-def012345678"
+        upper_session_id = lower_session_id.upper()
+        brace_session_id = "{" + lower_session_id + "}"
+        unknown_upper_session_id = "ZZZZZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZZZZZZZZZ"
+
+        self._create_events(
+            data=[
+                ("p1", "2024-04-04T12:00:01Z", {"$session_id": upper_session_id}),
+                ("p1", "2024-04-04T12:00:02Z", {"$session_id": brace_session_id}),
+                ("p1", "2024-04-04T12:00:03Z", {"$session_id": unknown_upper_session_id}),
+                # malformed: dict where a string is expected — must not break the IN-list
+                ("p1", "2024-04-04T12:00:04Z", {"$session_id": {"oops": True}}),
+            ]
+        )
+        flush_persons_and_events()
+
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=lower_session_id,
+            distinct_id="p1",
+            first_timestamp="2024-04-04T12:00:00Z",
+            last_timestamp="2024-04-04T12:00:10Z",
+            ensure_analytics_event_in_session=False,
+        )
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=brace_session_id.lower(),
+            distinct_id="p1",
+            first_timestamp="2024-04-04T12:00:00Z",
+            last_timestamp="2024-04-04T12:00:10Z",
+            ensure_analytics_event_in_session=False,
+        )
+
+        query = EventsQuery(after="-24h", select=["*"], orderBy=["timestamp ASC"])
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+
+        has_recording_by_session: dict[str, bool] = {}
+        malformed_row_seen = False
+        for row in response.results:
+            if not (isinstance(row[0], dict) and isinstance(row[0].get("properties"), dict)):
+                continue
+            sid = row[0]["properties"].get("$session_id")
+            if isinstance(sid, str):
+                has_recording_by_session[sid] = row[0]["properties"].get("$has_recording")
+            else:
+                malformed_row_seen = True
+                # malformed $session_id must not break the query, and must not get a recording flag
+                self.assertNotIn("$has_recording", row[0]["properties"])
+
+        self.assertTrue(malformed_row_seen)
+        self.assertEqual(has_recording_by_session.get(upper_session_id), True)
+        self.assertEqual(has_recording_by_session.get(brace_session_id), True)
+        self.assertEqual(has_recording_by_session.get(unknown_upper_session_id), False)
