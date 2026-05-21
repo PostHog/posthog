@@ -36,8 +36,15 @@ Ignore known pre-existing third-party noise when it was present before the
 action and does not affect the changed flow.
 
 **Distinguish local-stack noise from PR-introduced errors.** Before scoring
-any console output, check the dev process state via
-`mcp__phrocs__get_process_status`. Common patterns to recognize and
+any console output, check process-specific dev state through phrocs MCP:
+
+- `mcp__phrocs__get_process_status(process="backend")`
+- `mcp__phrocs__get_process_status(process="frontend")`
+- The process implied by the error, for example `capture`, `feature-flags`,
+  `temporal-worker`, or `mcp`
+
+Do not rely on all-process status during startup; process-specific calls can
+work while all-process status is still flaky. Common patterns to recognize and
 discount, _only_ when the failing process explains them:
 
 - 502s from `capture`, `capture-ai`, `capture-replay` endpoints when those
