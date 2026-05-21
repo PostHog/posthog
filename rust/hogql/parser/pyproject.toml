@@ -15,10 +15,9 @@ description = "Hand-rolled Rust HogQL parser with C++-parity AST output"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "PostHog" }]
-license = { file = "LICENSE" }
+license = "MIT"
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",

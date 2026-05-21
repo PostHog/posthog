@@ -421,17 +421,6 @@ module = "posthog.hogql.grammar.*"
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-# Parity-regression tests touch `parse_expr` / `parse_select` results as
-# concrete subclasses (e.g. ast.Constant.value, SelectQuery.select) without
-# `assert isinstance(...)` narrowing on every assertion, and iterate
-# inline backend tuples (`for backend in ("rust-json", "python"):`) that
-# mypy infers as `tuple[str, str]` rather than the literal type. The tests
-# run all three backends explicitly and a runtime AttributeError would
-# surface as a test failure anyway — relax the narrowing checks here only.
-module = "posthog.hogql.test.test_parser_regressions"
-disable_error_code = ["arg-type", "union-attr", "attr-defined", "assignment"]
-
-[[tool.mypy.overrides]]
 module = "posthog.tasks.*"
 disallow_untyped_defs = true
 check_untyped_defs = true
