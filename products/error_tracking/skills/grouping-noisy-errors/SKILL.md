@@ -163,6 +163,11 @@ into a target, the source issues are gone from the active list. Confirm the
 target with the user before calling. Cap each merge call at ~50 source IDs to
 keep failures localized; for larger sprawl, batch.
 
+Merged changes may not appear in the issue list immediately — re-listing right
+after the call can still show the source issues for a short window. If a
+follow-up `error-tracking-issues-list` call looks unchanged, wait a few seconds
+and re-query rather than re-issuing the merge.
+
 If after the merge the target's metadata looks wrong (a duplicate had a better
 name), use `error-tracking-issues-partial-update` to fix the name or description
 on the target rather than re-merging.
