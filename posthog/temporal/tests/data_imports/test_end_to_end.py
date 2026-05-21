@@ -48,7 +48,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.models import DataWarehouseTable
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
@@ -103,6 +102,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()

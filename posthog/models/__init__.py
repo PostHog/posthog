@@ -245,7 +245,6 @@ __all__ = [
     "UserGroupMembership",
     "UserIntegration",
     "UserPushToken",
-    "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",
     "Comment",

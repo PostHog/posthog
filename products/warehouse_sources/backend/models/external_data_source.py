@@ -94,7 +94,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         Safely access revenue_analytics_config with automatic creation fallback.
         Use this instead of direct access when you need to guarantee the config exists.
         """
-        from .revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+        from products.data_warehouse.backend.models.revenue_analytics_config import (
+            ExternalDataSourceRevenueAnalyticsConfig,
+        )
 
         try:
             return self.revenue_analytics_config
