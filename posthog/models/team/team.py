@@ -437,6 +437,20 @@ class Team(UUIDTClassicModel):
     # Logs
     logs_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
+    # LLM gateway — provisioning fields read by the llm-gateway Go service via a
+    # purpose-built HyperCache blob (cache/team_tokens/<token>/team_metadata/
+    # llm_gateway_policy.json). Null means "default tier, empty allowlist, not
+    # revoked"; the gateway and the cache projection both handle nulls without
+    # backfill. Not exposed in the product UI; set by internal tooling/admin only.
+    llm_gateway_allowed_models = models.JSONField(null=True, blank=True)
+    llm_gateway_tier = models.CharField(
+        max_length=32,
+        choices=[("free", "Free"), ("pro", "Pro"), ("enterprise", "Enterprise")],
+        null=True,
+        blank=True,
+    )
+    llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
+
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 
