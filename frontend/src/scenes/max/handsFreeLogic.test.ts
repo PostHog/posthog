@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { handsFreeLogic } from './handsFreeLogic'
+import { classifyPartial, handsFreeLogic, type SuppressionReason } from './handsFreeLogic'
 import { maxLogic } from './maxLogic'
 import { maxMocks } from './testUtils'
 
@@ -82,5 +82,29 @@ describe('handsFreeLogic state machine', () => {
         await expectLogic(logic, () => {
             logic.actions.speakAssistantResponse({ text: '', vizCount: 0 })
         }).toMatchValues({ status: 'off' })
+    })
+})
+
+describe('classifyPartial barge-in heuristic', () => {
+    const spoken = 'lets look at the daily active users for the last week'
+    const cases: { name: string; spoken: string; partial: string; expected: SuppressionReason }[] = [
+        { name: 'empty partial -> too_short', spoken, partial: '', expected: 'too_short' },
+        { name: '1-char partial -> too_short', spoken, partial: 'a', expected: 'too_short' },
+        { name: '3-char unrelated -> too_short', spoken, partial: 'xyz', expected: 'too_short' },
+        { name: 'allowlist "stop" bypasses too_short', spoken, partial: 'stop', expected: null },
+        { name: 'allowlist "no" bypasses too_short', spoken, partial: 'no', expected: null },
+        { name: 'allowlist "wait" bypasses too_short', spoken, partial: 'wait', expected: null },
+        { name: 'allowlist "max" bypasses too_short', spoken, partial: 'max', expected: null },
+        { name: 'substring of spoken text -> substring', spoken, partial: 'daily active', expected: 'substring' },
+        { name: 'unrelated longer phrase -> not suppressed', spoken, partial: 'change the chart type', expected: null },
+        {
+            name: 'partial matches mid-word run in spoken -> substring',
+            spoken,
+            partial: 'active users',
+            expected: 'substring',
+        },
+    ]
+    it.each(cases)('$name', ({ spoken, partial, expected }) => {
+        expect(classifyPartial(spoken, partial)).toBe(expected)
     })
 })

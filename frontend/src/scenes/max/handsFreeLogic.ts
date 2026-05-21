@@ -176,21 +176,6 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 // best-effort
             }
 
-            let token: string
-            try {
-                const response = await api.maxHandsFree.token()
-                token = response.token
-            } catch (err) {
-                posthog.captureException(err)
-                actions.setError('Could not start hands-free session.')
-                lemonToast.error('Hands-free could not start. Please try again.')
-                actions.exitHandsFree('token_failed')
-                return
-            }
-            if (values.status === 'off') {
-                return
-            }
-
             let sdk
             try {
                 sdk = await loadScribeSdk()
@@ -215,41 +200,81 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 actions.exitHandsFree('sdk_missing_scribe')
                 return
             }
-            let connection: ScribeConnection
-            try {
-                connection = Scribe.connect({
-                    token,
-                    modelId: SCRIBE_REALTIME_MODEL_ID,
-                    // SDK defaults to MANUAL — we need VAD so silence on the mic auto-commits
-                    // the speech segment and triggers askMax. Without this it isn't hands-free.
-                    commitStrategy: CommitStrategy?.VAD ?? 'vad',
-                    microphone: { echoCancellation: true, noiseSuppression: true },
-                })
-            } catch (err) {
-                posthog.captureException(err)
-                const message = (err as Error)?.message ?? ''
-                const isPermissionError =
-                    /permission|notallowed|denied/i.test(message) ||
-                    (err as { name?: string })?.name === 'NotAllowedError'
-                if (isPermissionError) {
-                    actions.setError('Microphone access was denied.')
-                    lemonToast.error('Microphone access was denied. Hands-free disabled.')
-                    actions.exitHandsFree('mic_permission_denied')
-                } else {
-                    actions.setError(`Hands-free connection failed: ${message || 'unknown error'}`)
-                    lemonToast.error('Hands-free failed to start. See console for details.')
-                    actions.exitHandsFree('connection_failed')
+
+            cache.reconnectAttempts = 0
+
+            // Mints a fresh token, opens a Scribe connection, and wires event handlers.
+            // Called for the initial session and on reconnect after an unexpected close.
+            // Returns true on success, false when the caller should give up.
+            const establishConnection = async (isReconnect: boolean): Promise<boolean> => {
+                let token: string
+                try {
+                    const response = await api.maxHandsFree.token()
+                    token = response.token
+                } catch (err) {
+                    posthog.captureException(err)
+                    if (!isReconnect) {
+                        actions.setError('Could not start hands-free session.')
+                        lemonToast.error('Hands-free could not start. Please try again.')
+                    }
+                    actions.exitHandsFree(isReconnect ? 'reconnect_token_failed' : 'token_failed')
+                    return false
                 }
-                return
+                if (values.status === 'off') {
+                    return false
+                }
+                let connection: ScribeConnection
+                try {
+                    connection = Scribe.connect({
+                        token,
+                        modelId: SCRIBE_REALTIME_MODEL_ID,
+                        // SDK defaults to MANUAL — we need VAD so silence on the mic auto-commits
+                        // the speech segment and triggers askMax. Without this it isn't hands-free.
+                        commitStrategy: CommitStrategy?.VAD ?? 'vad',
+                        microphone: { echoCancellation: true, noiseSuppression: true },
+                    })
+                } catch (err) {
+                    posthog.captureException(err)
+                    const message = (err as Error)?.message ?? ''
+                    const isPermissionError =
+                        /permission|notallowed|denied/i.test(message) ||
+                        (err as { name?: string })?.name === 'NotAllowedError'
+                    if (isPermissionError) {
+                        actions.setError('Microphone access was denied.')
+                        lemonToast.error('Microphone access was denied. Hands-free disabled.')
+                        actions.exitHandsFree('mic_permission_denied')
+                    } else if (isReconnect) {
+                        actions.exitHandsFree('reconnect_failed')
+                    } else {
+                        actions.setError(`Hands-free connection failed: ${message || 'unknown error'}`)
+                        lemonToast.error('Hands-free failed to start. See console for details.')
+                        actions.exitHandsFree('connection_failed')
+                    }
+                    return false
+                }
+                cache.connection = connection
+                wireConnectionEvents(connection)
+                return true
             }
-            cache.connection = connection
 
             const onOpen = (): void => actions.setConnection('connected')
             const onSessionStarted = (): void => {
-                if (values.status === 'starting') {
+                const wasStarting = values.status === 'starting'
+                const wasReconnecting = cache.isReconnecting === true
+                cache.isReconnecting = false
+                if (wasStarting || wasReconnecting) {
                     actions.setStatus('listening')
                 }
-                posthog.capture('max hands-free entered')
+                if (wasStarting) {
+                    posthog.capture('max hands-free entered')
+                }
+                if (wasReconnecting) {
+                    posthog.capture('max hands-free reconnected', {
+                        attempts: cache.reconnectAttempts ?? 1,
+                    })
+                }
+                // Audible cue so a user with phone in pocket knows the mic is live.
+                playBeep(cache, 'listening')
             }
             // While 'speaking', the Scribe mic stream stays open (we can't cheaply pause it)
             // and the speakers' TTS audio bleeds back into the mic — Scribe transcribes its
@@ -262,7 +287,14 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 if (values.status === 'speaking') {
                     const partialLower = normaliseForBargeInMatch(text)
                     const spokenLower: string = cache.spokenTextLower ?? ''
-                    if (looksLikeSelfTranscription(spokenLower, partialLower)) {
+                    const reason = classifyPartial(spokenLower, partialLower)
+                    if (reason) {
+                        posthog.capture('max hands-free partial suppressed', {
+                            reason,
+                            partial_chars: partialLower.length,
+                            spoken_chars: spokenLower.length,
+                            phase: 'partial',
+                        })
                         return
                     }
                     // User is talking over Max — barge in: stop TTS, flip to listening, then
@@ -281,7 +313,14 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 if (values.status === 'speaking') {
                     const committedLower = normaliseForBargeInMatch(text)
                     const spokenLower: string = cache.spokenTextLower ?? ''
-                    if (looksLikeSelfTranscription(spokenLower, committedLower)) {
+                    const reason = classifyPartial(spokenLower, committedLower)
+                    if (reason) {
+                        posthog.capture('max hands-free partial suppressed', {
+                            reason,
+                            partial_chars: committedLower.length,
+                            spoken_chars: spokenLower.length,
+                            phase: 'committed',
+                        })
                         return
                     }
                     actions.interruptSpeaking('voice')
@@ -292,10 +331,24 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 actions.commitTranscript(text)
             }
             const onClose = (): void => {
-                actions.setConnection('closed')
-                if (values.status !== 'off') {
-                    actions.exitHandsFree('connection_closed')
+                if (values.status === 'off') {
+                    return
                 }
+                // Single retry-with-fresh-token on unexpected close — mobile network blips
+                // (the exact gym/walking use case this targets) should not tear down the
+                // session. Beyond one attempt we give up to avoid a reconnect storm.
+                const attempts = (cache.reconnectAttempts ?? 0) + 1
+                cache.reconnectAttempts = attempts
+                if (attempts > 1) {
+                    actions.setConnection('closed')
+                    actions.exitHandsFree('connection_closed')
+                    return
+                }
+                actions.setConnection('reconnecting')
+                cache.isReconnecting = true
+                posthog.capture('max hands-free reconnect attempted', { attempt: attempts })
+                cache.connection = undefined
+                void establishConnection(true)
             }
             const onError = (payload: any): void => {
                 posthog.captureException(new Error(`scribe error: ${JSON.stringify(payload ?? {})}`))
@@ -303,12 +356,16 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 actions.exitHandsFree('scribe_error')
             }
 
-            connection.on(RealtimeEvents.OPEN, onOpen)
-            connection.on(RealtimeEvents.SESSION_STARTED, onSessionStarted)
-            connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, onPartial)
-            connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, onCommitted)
-            connection.on(RealtimeEvents.CLOSE, onClose)
-            connection.on(RealtimeEvents.ERROR, onError)
+            const wireConnectionEvents = (connection: ScribeConnection): void => {
+                connection.on(RealtimeEvents.OPEN, onOpen)
+                connection.on(RealtimeEvents.SESSION_STARTED, onSessionStarted)
+                connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, onPartial)
+                connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, onCommitted)
+                connection.on(RealtimeEvents.CLOSE, onClose)
+                connection.on(RealtimeEvents.ERROR, onError)
+            }
+
+            await establishConnection(false)
         },
 
         exitHandsFree: ({ reason }) => {
@@ -319,6 +376,11 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 assistant_turns: cache.assistantTurnCount ?? 0,
                 interruptions: cache.interruptedCount ?? 0,
             })
+            if (reason !== 'user') {
+                // Descending tone tells a pocketed user the session ended on its own — they
+                // don't think the mic is still live waiting for them.
+                playBeep(cache, 'exit')
+            }
             actions.cancelSpeaking()
             const connection = cache.connection as ScribeConnection | undefined
             if (connection) {
@@ -428,6 +490,10 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             actions.setStatus('listening')
             cache.interruptedCount = (cache.interruptedCount ?? 0) + 1
             posthog.capture('max hands-free tts interrupted', { trigger })
+            if (trigger === 'voice') {
+                // Confirm to the user that Max heard them barge in and stopped talking.
+                playBeep(cache, 'bargein')
+            }
         },
     })),
 
@@ -479,16 +545,71 @@ function normaliseForBargeInMatch(text: string): string {
         .trim()
 }
 
-// True when the partial transcript looks like a chunk of what Max is currently speaking
-// (i.e. TTS audio bleeding through the mic and getting re-transcribed). When false, the
-// user is talking over Max and we should barge in.
-function looksLikeSelfTranscription(spokenLower: string, partialLower: string): boolean {
-    if (!partialLower || partialLower.length < 4) {
-        // ignore noise-level micro-partials of 1-3 chars — both bleed-back AND legitimate
-        // user blips are usually too short to act on either way
-        return true
+// Short words a gym/walking user is likely to shout to stop Max mid-sentence. These
+// always trigger barge-in even though they'd otherwise fall under the too-short or
+// substring suppression — a wrong barge-in is recoverable (user just keeps talking),
+// a swallowed "stop" is not.
+const BARGE_IN_TRIGGER_WORDS: ReadonlySet<string> = new Set(['stop', 'wait', 'cancel', 'no', 'max', 'shh', 'hey'])
+
+export type SuppressionReason = 'too_short' | 'substring' | null
+
+// Returns null when the partial should be treated as real user speech (barge in), or a
+// reason string when it should be suppressed as TTS bleed. Callers should emit the
+// reason to PostHog so we can measure misfire rate before tuning the heuristic.
+export function classifyPartial(spokenLower: string, partialLower: string): SuppressionReason {
+    if (!partialLower) {
+        return 'too_short'
     }
-    return spokenLower.includes(partialLower)
+    if (BARGE_IN_TRIGGER_WORDS.has(partialLower)) {
+        return null
+    }
+    if (partialLower.length < 4) {
+        return 'too_short'
+    }
+    if (spokenLower.includes(partialLower)) {
+        return 'substring'
+    }
+    return null
+}
+
+// Short tone played at key state transitions so a user with the phone in a pocket can
+// tell what's happening. Web Audio API beep — no asset download, no playback latency.
+type BeepKind = 'listening' | 'bargein' | 'exit'
+const BEEP_FREQUENCIES: Record<BeepKind, [number, number]> = {
+    listening: [880, 880],
+    bargein: [660, 990],
+    exit: [660, 330],
+}
+
+function playBeep(cache: Record<string, any>, kind: BeepKind): void {
+    try {
+        const AudioCtx = (window as any).AudioContext ?? (window as any).webkitAudioContext
+        if (!AudioCtx) {
+            return
+        }
+        let ctx = cache.audioContext as AudioContext | undefined
+        if (!ctx) {
+            ctx = new AudioCtx() as AudioContext
+            cache.audioContext = ctx
+        }
+        const now = ctx.currentTime
+        const [startHz, endHz] = BEEP_FREQUENCIES[kind]
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(startHz, now)
+        if (endHz !== startHz) {
+            osc.frequency.exponentialRampToValueAtTime(endHz, now + 0.12)
+        }
+        gain.gain.setValueAtTime(0.0001, now)
+        gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15)
+        osc.connect(gain).connect(ctx.destination)
+        osc.start(now)
+        osc.stop(now + 0.16)
+    } catch {
+        // best-effort — audio cues are an enhancement, never required
+    }
 }
 
 function teardownSpeaking(cache: Record<string, any>): void {
