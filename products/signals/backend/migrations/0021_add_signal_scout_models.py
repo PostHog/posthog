@@ -168,7 +168,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="signalscoutrun",
-            index=models.Index(fields=["team", "skill_name"], name="signal_scout_run_team_skill_idx"),
+            index=models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
         ),
         migrations.AddConstraint(
             model_name="signalscratchpad",

@@ -1,7 +1,5 @@
 // Signal taxonomy types - shared contract between emitters and consumers
 
-import { integer } from './type-utils'
-
 // ── Source taxonomy enums ───────────────────────────────────────────────────────
 
 export enum SignalSourceProduct {
@@ -13,6 +11,7 @@ export enum SignalSourceProduct {
     CONVERSATIONS = 'conversations',
     ERROR_TRACKING = 'error_tracking',
     ENDPOINTS = 'endpoints',
+    PGANALYZE = 'pganalyze',
     SIGNALS_SCOUT = 'signals_scout',
 }
 
@@ -243,6 +242,33 @@ export interface ErrorTrackingSignalInput {
     extra: ErrorTrackingSignalExtra
 }
 
+// pganalyze issue (database performance finding)
+
+export interface PgAnalyzeIssueReference {
+    kind: string | null
+    name: string | null
+    url: string | null
+    queryText: string | null
+}
+
+export interface PgAnalyzeIssueSignalExtra {
+    severity: string | null
+    references: PgAnalyzeIssueReference[]
+    database_id: string | null
+    server_human_id: string | null
+    server_name: string | null
+    synced_at: string
+}
+
+export interface PgAnalyzeIssueSignalInput {
+    source_type: 'issue'
+    source_product: 'pganalyze'
+    source_id: string
+    description: string
+    weight: number
+    extra: PgAnalyzeIssueSignalExtra
+}
+
 // Endpoint execution failure
 
 export interface EndpointExecutionFailedSignalExtra {
@@ -278,7 +304,7 @@ export interface SignalsScoutSignalExtra {
     scout_run_id: string
     finding_id: string
     skill_name: string
-    skill_version: integer
+    skill_version: number
     /** Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`. */
     confidence: number
     severity?: 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
@@ -342,4 +368,5 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput

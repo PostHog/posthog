@@ -471,7 +471,7 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         verbose_name_plural = "Signal scout runs"
         default_manager_name = "all_teams"
         indexes = [
-            models.Index(fields=["team", "skill_name"], name="signal_scout_run_team_skill_idx"),
+            models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
         ]
 
 
