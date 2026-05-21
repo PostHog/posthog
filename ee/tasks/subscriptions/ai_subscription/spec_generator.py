@@ -205,10 +205,9 @@ def generate_query_plan(
         timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
-        # `billable=False` while AI subscriptions are in beta — PostHog absorbs the
-        # LLM spend. Flip to True when the feature flag rolls to GA and AI usage is
-        # priced into the billing model.
-        billable=False,
+        # Planner LLM spend is billable — AI subscription usage counts against the
+        # team's AI credits.
+        billable=True,
         posthog_properties=posthog_properties,
     ).with_structured_output(QueryPlan, method="json_schema", include_raw=False)
 

@@ -156,9 +156,8 @@ def generate_ai_report(
         timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
-        # `billable=False` while AI reports are in beta — PostHog absorbs the LLM
-        # spend. Flip to True when usage-based billing is wired.
-        billable=False,
+        # AI report LLM spend is billable — usage counts against the team's AI credits.
+        billable=True,
         posthog_properties=posthog_properties,
     )
 
@@ -287,10 +286,9 @@ async def _arequest_hogql_fix(
         timeout=_FIX_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
-        # `billable=False` matches the initial planner call — keep beta cost
-        # absorption consistent across the pipeline. See the open question in
-        # the PR description about flipping retries to billable at GA.
-        billable=False,
+        # Billable, matching the planner/synthesis calls — the whole pipeline's LLM
+        # usage is charged to the team's AI credits.
+        billable=True,
         posthog_properties=posthog_properties,
     ).with_structured_output(HogQLFix, method="json_schema", include_raw=False)
 
