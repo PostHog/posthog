@@ -1034,6 +1034,31 @@ def lint_spec_consistency_hook(result, generator, request, public):
                 walk(v, f"{path}[{i}]")
 
     walk(result, "$")
+
+    # operationId must be a valid identifier — drf-spectacular auto-derives it from the
+    # URL path, so segments like `@me` produce `..._@me_..._list` which (a) breaks the
+    # MCP YAML scaffolder, whose keys can't contain `@`, and (b) is rejected by any
+    # OpenAPI-typed-client codegen that maps it to a function name. The fix is to set
+    # `operation_id="..."` explicitly on `@extend_schema` — surface it here so CI catches
+    # it the same day it lands instead of breaking the MCP build downstream.
+    operation_id_pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    paths = result.get("paths") or {}
+    http_methods = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+    for url_path, methods in paths.items():
+        if not isinstance(methods, dict):
+            continue
+        for method, op in methods.items():
+            if method not in http_methods or not isinstance(op, dict):
+                continue
+            op_id = op.get("operationId")
+            if isinstance(op_id, str) and not operation_id_pattern.match(op_id):
+                spectacular_warn(
+                    f"spec consistency: operationId {op_id!r} contains non-identifier "
+                    f"characters (must match {operation_id_pattern.pattern}) at "
+                    f"{method.upper()} {url_path}. Set `operation_id=` explicitly on "
+                    f"`@extend_schema(...)` to override the URL-derived default."
+                )
+
     return result
 
 
