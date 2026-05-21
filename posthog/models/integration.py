@@ -2887,6 +2887,99 @@ class MetaAdsIntegration:
         self.integration.save()
 
 
+# Intercom OAuth issues long-lived tokens with neither `refresh_token` nor `expires_in`, so
+# the standard `OauthIntegration.access_token_expired()` path short-circuits and
+# `refresh_integrations` is a no-op for Intercom. Intercom can still server-side invalidate
+# tokens (admin reauth, security events, plan changes), and when that happens the CDP
+# destination starts returning 401s with no signal back to the customer. We instead poll
+# `GET /me` periodically and flip `integration.errors` so the existing reconnect banner
+# surfaces.
+INTERCOM_TOKEN_VALIDATION_INTERVAL_SECONDS = 3600
+
+INTERCOM_REGION_HOSTS = {
+    "US": "api.intercom.io",
+    "Europe": "api.eu.intercom.io",
+    "AU": "api.au.intercom.io",
+}
+
+intercom_validation_counter = Counter(
+    "integration_intercom_token_validation",
+    "Number of times an Intercom token validation has been attempted",
+    labelnames=["result"],
+)
+
+
+class IntercomIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "intercom":
+            raise Exception("IntercomIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    def __str__(self) -> str:
+        return f"IntercomIntegration(integration={self.integration.id}, team={self.integration.team_id})"
+
+    @property
+    def _api_base(self) -> str:
+        # `app.region` is captured at OAuth time via `token_info_config_fields`; default to US
+        # for older integrations that predate the region capture so we still detect bad tokens.
+        region = self.integration.config.get("app.region", "US")
+        return INTERCOM_REGION_HOSTS.get(region, INTERCOM_REGION_HOSTS["US"])
+
+    def access_token_validation_due(self) -> bool:
+        validated_at = self.integration.config.get("validated_at")
+        if not validated_at:
+            return True
+        return time.time() > validated_at + INTERCOM_TOKEN_VALIDATION_INTERVAL_SECONDS
+
+    def validate_access_token(self) -> bool:
+        """Probe Intercom with the stored access token. Marks the integration as broken when
+        the token is rejected, clears the error when it works again, and leaves state alone on
+        transient failures (network/5xx) so flaky probes don't show a reconnect banner.
+        """
+        access_token = self.integration.sensitive_config.get("access_token")
+        if not access_token:
+            return False
+
+        try:
+            res = requests.get(
+                f"https://{self._api_base}/me",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/json",
+                },
+                timeout=10,
+            )
+        except requests.RequestException as exc:
+            logger.warning(f"Intercom token validation request failed for {self}", error=str(exc))
+            intercom_validation_counter.labels("error").inc()
+            return False
+
+        if res.status_code == 401:
+            logger.info(f"Intercom rejected stored access token for {self}")
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            self.integration.config["validated_at"] = int(time.time())
+            self.integration.save()
+            intercom_validation_counter.labels("invalid").inc()
+            return False
+
+        if res.status_code >= 400:
+            logger.warning(
+                f"Intercom token validation returned unexpected status for {self}",
+                status_code=res.status_code,
+            )
+            intercom_validation_counter.labels("error").inc()
+            return False
+
+        if self.integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+            self.integration.errors = ""
+        self.integration.config["validated_at"] = int(time.time())
+        self.integration.save()
+        intercom_validation_counter.labels("valid").inc()
+        return True
+
+
 class TwilioIntegration:
     integration: Integration
     twilio_provider: TwilioProvider

@@ -22,6 +22,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    INTERCOM_TOKEN_VALIDATION_INTERVAL_SECONDS,
     MISSING_CERT_PATH,
     TLS,
     Authority,
@@ -35,6 +37,7 @@ from posthog.models.integration import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
+    IntercomIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
     SlackIntegration,
@@ -2320,5 +2323,117 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert pq.tls() == expected_tls
 
         assert "password" not in integration.config
+
+
+class TestIntercomIntegrationModel(BaseTest):
+    def create_integration(
+        self,
+        config: Optional[dict] = None,
+        sensitive_config: Optional[dict] = None,
+    ) -> Integration:
+        _config: dict = {"app.region": "US"}
+        _sensitive_config: dict = {"access_token": "ACCESS_TOKEN"}
+        _config.update(config or {})
+        _sensitive_config.update(sensitive_config or {})
+        return Integration.objects.create(
+            team=self.team,
+            kind="intercom",
+            config=_config,
+            sensitive_config=_sensitive_config,
+        )
+
+    def test_init_rejects_wrong_kind(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+        with pytest.raises(Exception, match="wrong 'kind'"):
+            IntercomIntegration(integration)
+
+    def test_access_token_validation_due_when_never_validated(self):
+        integration = self.create_integration()
+        assert IntercomIntegration(integration).access_token_validation_due() is True
+
+    def test_access_token_validation_due_respects_interval(self):
+        now = int(time.time())
+        integration = self.create_integration(config={"validated_at": now})
+        wrapper = IntercomIntegration(integration)
+
+        with freeze_time(datetime.fromtimestamp(now + INTERCOM_TOKEN_VALIDATION_INTERVAL_SECONDS - 60, tz=UTC)):
+            assert wrapper.access_token_validation_due() is False
+
+        with freeze_time(datetime.fromtimestamp(now + INTERCOM_TOKEN_VALIDATION_INTERVAL_SECONDS + 60, tz=UTC)):
+            assert wrapper.access_token_validation_due() is True
+
+    @parameterized.expand(
+        [
+            ("US", "https://api.intercom.io/me"),
+            ("Europe", "https://api.eu.intercom.io/me"),
+            ("AU", "https://api.au.intercom.io/me"),
+            (None, "https://api.intercom.io/me"),
+        ]
+    )
+    @patch("posthog.models.integration.requests.get")
+    def test_validate_access_token_uses_regional_endpoint(self, region, expected_url, mock_get):
+        mock_get.return_value.status_code = 200
+        config = {"app.region": region} if region else {}
+        integration = self.create_integration(config=config)
+
+        IntercomIntegration(integration).validate_access_token()
+
+        called_url = mock_get.call_args.args[0]
+        assert called_url == expected_url
+        assert mock_get.call_args.kwargs["headers"]["Authorization"] == "Bearer ACCESS_TOKEN"
+
+    @patch("posthog.models.integration.requests.get")
+    def test_validate_access_token_marks_errors_on_401(self, mock_get):
+        mock_get.return_value.status_code = 401
+        integration = self.create_integration()
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            assert IntercomIntegration(integration).validate_access_token() is False
+
+        integration.refresh_from_db()
+        assert integration.errors == ERROR_TOKEN_REFRESH_FAILED
+        assert integration.config["validated_at"] == int(datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).timestamp())
+
+    @patch("posthog.models.integration.requests.get")
+    def test_validate_access_token_clears_error_on_success(self, mock_get):
+        mock_get.return_value.status_code = 200
+        integration = self.create_integration()
+        integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        integration.save()
+
+        assert IntercomIntegration(integration).validate_access_token() is True
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
+        assert "validated_at" in integration.config
+
+    @patch("posthog.models.integration.requests.get")
+    def test_validate_access_token_leaves_state_alone_on_transient_failure(self, mock_get):
+        mock_get.return_value.status_code = 503
+        integration = self.create_integration()
+
+        assert IntercomIntegration(integration).validate_access_token() is False
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
+        assert "validated_at" not in integration.config
+
+    @patch("posthog.models.integration.requests.get")
+    def test_validate_access_token_leaves_state_alone_on_network_error(self, mock_get):
+        mock_get.side_effect = requests.ConnectionError("boom")
+        integration = self.create_integration()
+
+        assert IntercomIntegration(integration).validate_access_token() is False
+
+        integration.refresh_from_db()
+        assert integration.errors == ""
+        assert "validated_at" not in integration.config
+
+    @patch("posthog.models.integration.requests.get")
+    def test_validate_access_token_skips_when_no_token(self, mock_get):
+        integration = self.create_integration(sensitive_config={"access_token": None})
+
+        assert IntercomIntegration(integration).validate_access_token() is False
+        mock_get.assert_not_called()
 
         assert integration.sensitive_config["password"] == "super-secret"

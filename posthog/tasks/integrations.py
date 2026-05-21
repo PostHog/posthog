@@ -4,6 +4,7 @@ from posthog.models.integration import (
     FirebaseIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
+    IntercomIntegration,
     defer_repository_cache_fields,
 )
 from posthog.scoping_audit import skip_team_scope_audit
@@ -51,6 +52,16 @@ def refresh_integrations() -> int:
         if firebase_integration.access_token_expired():
             refresh_integration.delay(integration.id)
 
+    # Intercom OAuth tokens have no refresh_token or expires_in, so the standard expiry path
+    # is a no-op. Intercom can still server-side invalidate tokens, so probe periodically and
+    # flip integration.errors when the probe fails — this is what surfaces the reconnect banner.
+    intercom_integrations = defer_repository_cache_fields(Integration.objects.filter(kind="intercom").all())
+
+    for integration in intercom_integrations:
+        intercom_integration = IntercomIntegration(integration)
+        if intercom_integration.access_token_validation_due():
+            validate_intercom_integration.delay(integration.id)
+
     return 0
 
 
@@ -74,6 +85,19 @@ def refresh_integration(id: int) -> int:
         firebase_integration = FirebaseIntegration(integration)
         firebase_integration.refresh_access_token()
 
+    return 0
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
+@skip_team_scope_audit
+def validate_intercom_integration(id: int) -> int:
+    from posthog.models.integration import Integration
+
+    integration = defer_repository_cache_fields(Integration.objects.all()).get(id=id)
+    if integration.kind != "intercom":
+        return 0
+
+    IntercomIntegration(integration).validate_access_token()
     return 0
 
 

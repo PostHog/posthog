@@ -77,6 +77,7 @@
     'posthog.tasks.integrations.push_vercel_secrets',
     'posthog.tasks.integrations.refresh_integration',
     'posthog.tasks.integrations.refresh_integrations',
+    'posthog.tasks.integrations.validate_intercom_integration',
     'posthog.tasks.js_snippet_versioning.sync_js_snippet_manifest',
     'posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report',
     'posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports',
