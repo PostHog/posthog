@@ -18,7 +18,7 @@
  * can use to retry without an extra read.
  */
 import { isDeepStrictEqual } from 'node:util'
-import { Node as PMNode } from 'prosemirror-model'
+import { Node } from 'prosemirror-model'
 import { Transform } from 'prosemirror-transform'
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
@@ -110,7 +110,7 @@ function deepReplace<T>(tree: T, target: unknown, replacement: unknown, replaceA
  * Plain-text view for the search index.
  * Mirrors what the frontend's `editor.getText()` produces.
  */
-function buildTextContent(doc: PMNode): string {
+function buildTextContent(doc: Node): string {
     const parts: string[] = []
     doc.forEach((child) => {
         if (child.isAtom || (child.content.size === 0 && !child.isTextblock)) {
@@ -178,10 +178,10 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
     const newContentObj = newContent as unknown as ProseMirrorNodeJSON
     const schema = buildSchemaForDoc([rawContent, newContentObj])
 
-    const oldDoc = PMNode.fromJSON(schema, packDocAttrs(rawContent))
-    let newDoc: PMNode
+    const oldDoc = Node.fromJSON(schema, packDocAttrs(rawContent))
+    let newDoc: Node
     try {
-        newDoc = PMNode.fromJSON(schema, packDocAttrs(newContentObj))
+        newDoc = Node.fromJSON(schema, packDocAttrs(newContentObj))
     } catch (e) {
         throw new Error(
             `After applying the replacement, the notebook content does not parse as a valid ProseMirror document: ${
