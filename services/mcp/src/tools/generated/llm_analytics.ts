@@ -25,6 +25,7 @@ import {
     LlmAnalyticsEvaluationReportsRunsListQueryParams,
     LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
+    LlmAnalyticsPersonalSpendListQueryParams,
     LlmAnalyticsReviewQueueItemsCreateBody,
     LlmAnalyticsReviewQueueItemsDestroyParams,
     LlmAnalyticsReviewQueueItemsListQueryParams,
@@ -83,6 +84,27 @@ import {
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const LlmaPersonalSpendSchema = LlmAnalyticsPersonalSpendListQueryParams
+
+const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.PersonalSpendAnalysisResponse[]> => ({
+    name: 'llma-personal-spend',
+    schema: LlmaPersonalSpendSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPersonalSpendSchema>) => {
+        const result = await context.api.request<Schemas.PersonalSpendAnalysisResponse[]>({
+            method: 'GET',
+            path: `/api/llm_analytics/@me/spend/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                product: params.product,
+                refresh: params.refresh,
+            },
+        })
+        return result
+    },
+})
 
 const LlmaClusteringJobGetSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
 
@@ -1702,6 +1724,7 @@ const llmaTraceReviewUpdate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'llma-personal-spend': llmaPersonalSpend,
     'llma-clustering-job-get': llmaClusteringJobGet,
     'llma-clustering-job-list': llmaClusteringJobList,
     'llma-evaluation-config-get': llmaEvaluationConfigGet,

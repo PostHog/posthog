@@ -2861,6 +2861,21 @@
             "readOnlyHint": false
         }
     },
+    "llma-personal-spend": {
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get my LLM spend analysis",
+        "title": "Get my LLM spend analysis",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llma-prompt-create": {
         "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
         "category": "LLM analytics",

@@ -2935,7 +2935,7 @@ export type TaggersListParams = {
     search?: string
 }
 
-export type LlmAnalyticsMeSpendListParams = {
+export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
      * @minLength 1
