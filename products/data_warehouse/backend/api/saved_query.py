@@ -31,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     Change,
@@ -806,6 +806,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         trigger_saved_query_schedule(saved_query)
 
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="sync_triggered",
+            detail=Detail(name=saved_query.name),
+        )
+
         return response.Response(status=status.HTTP_200_OK)
 
     @action(
@@ -836,6 +847,17 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             capture_exception(e)
             logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
 
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="materialization_disabled",
+            detail=Detail(name=saved_query.name),
+        )
+
         return response.Response(status=status.HTTP_200_OK)
 
     @action(
@@ -856,6 +878,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
 
         should_unpause = saved_query.sync_frequency_interval is None
+        previous_interval = saved_query.sync_frequency_interval
 
         saved_query.sync_frequency_interval = sync_frequency_interval
         saved_query.is_materialized = True
@@ -882,6 +905,28 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         except Exception as e:
             capture_exception(e)
             logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="materialization_enabled",
+            detail=Detail(
+                name=saved_query.name,
+                changes=[
+                    Change(
+                        field="sync_frequency_interval",
+                        action="changed",
+                        type="DataWarehouseSavedQuery",
+                        before=str(previous_interval) if previous_interval else None,
+                        after=str(sync_frequency_interval),
+                    ),
+                ],
+            ),
+        )
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -1028,13 +1073,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             # This is because the saved_query is used by our UI to prevent multiple cancellations
             saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
             saved_query.save()
-
-            return response.Response(status=status.HTTP_200_OK)
         except Exception as e:
             logger.exception("Failed to cancel workflow", workflow_id=workflow_id, error=str(e))
             return response.Response(
                 {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=saved_query.id,
+            scope="DataWarehouseSavedQuery",
+            activity="sync_cancelled",
+            detail=Detail(name=saved_query.name),
+        )
+
+        return response.Response(status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=True)
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:

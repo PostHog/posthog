@@ -57,7 +57,11 @@ def incremental_type_to_operator(field_type: IncrementalFieldType) -> str:
 
 
 def build_table_name(source: ExternalDataSource, schema_name: str):
-    return f"{source.prefix or ''}{source.source_type}_{schema_name}".lower()
+    # Dots in `schema_name` would parse as `<table>.<column>` in HogQL, so any source that ever
+    # produces a dotted schema name (today: Postgres multi-schema like `public.auth_group`) needs
+    # them rewritten. No-op for pre-existing single-schema sources whose names never contained dots.
+    safe_schema_name = schema_name.replace(".", "__")
+    return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
 def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:

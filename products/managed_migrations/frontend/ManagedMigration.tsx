@@ -172,6 +172,20 @@ export function ManagedMigration(): JSX.Element {
                         <LemonField name="s3_prefix" label="S3 Prefix (optional)">
                             <LemonInput placeholder="path/to/files/" />
                         </LemonField>
+
+                        <LemonField
+                            name="endpoint_url"
+                            label="Endpoint URL"
+                            showOptional
+                            info={
+                                <>
+                                    Only required for S3-compatible storage like Cloudflare R2 or MinIO. For R2, use
+                                    https://ACCOUNT_ID.r2.cloudflarestorage.com and set region to "auto".
+                                </>
+                            }
+                        >
+                            <LemonInput placeholder="https://ACCOUNT_ID.r2.cloudflarestorage.com" />
+                        </LemonField>
                     </>
                 )}
                 {(managedMigration.source_type === 'mixpanel' || managedMigration.source_type === 'amplitude') && (

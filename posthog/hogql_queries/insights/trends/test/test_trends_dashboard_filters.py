@@ -163,7 +163,7 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
         assert query_runner.query.properties == [EventPropertyFilter(key="key", value="value", operator="exact")]
-        assert query_runner.query.breakdownFilter is None
+        assert query_runner.query.breakdownFilter is None  # type: ignore[unreachable]
         assert query_runner.query.trendsFilter is None
 
     def test_properties_list_extends_filters_list(self):
@@ -188,7 +188,7 @@ class TestTrendsDashboardFilters(BaseTest):
 
         assert query_runner.query.dateRange.date_from == "2020-01-09"
         assert query_runner.query.dateRange.date_to == "2020-01-20"
-        assert query_runner.query.properties == PropertyGroupFilter(
+        assert query_runner.query.properties == PropertyGroupFilter(  # type: ignore[comparison-overlap]
             type=FilterLogicalOperator.AND_,
             values=[
                 PropertyGroupFilterValue(
@@ -205,7 +205,7 @@ class TestTrendsDashboardFilters(BaseTest):
                 ),
             ],
         )
-        assert query_runner.query.breakdownFilter is None
+        assert query_runner.query.breakdownFilter is None  # type: ignore[unreachable]
         assert query_runner.query.trendsFilter is None
 
     def test_properties_list_extends_filters_group(self):
