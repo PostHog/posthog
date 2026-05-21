@@ -1,2 +1,7 @@
 {% extends "base.jinja" %}
-{% block task %}Summarize the session per the lens intent. `title` is at most ~80 characters. `summary` should be {{ length_guidance }}.{% endblock %}
+{% from "_macros.jinja" import cite_in %}
+{% block task %}Summarize this session per these instructions: {{ user_prompt }}
+
+`title` is at most ~80 characters and contains no event citations. `summary` should be {{ length_guidance }}.
+
+{{ cite_in('summary') }}{% endblock %}
