@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -54,22 +54,45 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
     const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
     const { queryInput, sourceQuery } = useValues(logic)
     const { initialize, runQuery, setQueryInput, setSourceQuery } = useActions(logic)
+    const lastAttributeQuery = useRef<DataVisualizationNode | null>(null)
+    const suppressNextWriteback = useRef(false)
 
     useEffect(() => {
         initialize()
     }, [initialize])
 
     useEffect(() => {
-        if (!editorSourceQuery || queryInput !== null) {
+        if (!editorSourceQuery) {
+            lastAttributeQuery.current = null
             return
         }
 
-        setQueryInput(editorSourceQuery.source.query)
-        setSourceQuery(editorSourceQuery)
-        runQuery(editorSourceQuery.source.query)
-    }, [editorSourceQuery, queryInput, runQuery, setQueryInput, setSourceQuery])
+        if (lastAttributeQuery.current && equal(lastAttributeQuery.current, editorSourceQuery)) {
+            return
+        }
+
+        lastAttributeQuery.current = editorSourceQuery
+        suppressNextWriteback.current = true
+
+        if (queryInput !== editorSourceQuery.source.query) {
+            setQueryInput(editorSourceQuery.source.query)
+
+            if (queryInput === null) {
+                runQuery(editorSourceQuery.source.query)
+            }
+        }
+
+        if (!equal(sourceQuery, editorSourceQuery)) {
+            setSourceQuery(editorSourceQuery)
+        }
+    }, [editorSourceQuery, queryInput, runQuery, setQueryInput, setSourceQuery, sourceQuery])
 
     useEffect(() => {
+        if (suppressNextWriteback.current) {
+            suppressNextWriteback.current = false
+            return
+        }
+
         if (!editorSourceQuery || queryInput === null) {
             return
         }
@@ -100,32 +123,42 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
     const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
     const { queryInput, sourceQuery } = useValues(logic)
     const { initialize, setQueryInput, setSourceQuery } = useActions(logic)
+    const lastAttributeCode = useRef<string | null>(null)
+    const suppressNextWriteback = useRef(false)
 
     useEffect(() => {
         initialize()
     }, [initialize])
 
     useEffect(() => {
-        if (queryInput !== null) {
+        if (lastAttributeCode.current === code) {
             return
         }
 
-        setQueryInput(code)
-        setSourceQuery(buildSourceQuery(code))
-    }, [code, queryInput, setQueryInput, setSourceQuery])
+        lastAttributeCode.current = code
+        suppressNextWriteback.current = true
+
+        if (queryInput !== code) {
+            setQueryInput(code)
+        }
+
+        const nextSourceQuery = buildSourceQuery(code)
+        if (!equal(nextSourceQuery, sourceQuery)) {
+            setSourceQuery(nextSourceQuery)
+        }
+    }, [code, queryInput, setQueryInput, setSourceQuery, sourceQuery])
 
     useEffect(() => {
+        if (suppressNextWriteback.current) {
+            suppressNextWriteback.current = false
+            return
+        }
+
         if (queryInput === null || queryInput === code) {
             return
         }
 
         updateAttributes({ code: queryInput } as Partial<NotebookNodeAttributes<T>>)
-    }, [code, queryInput, updateAttributes])
-
-    useEffect(() => {
-        if (queryInput === null) {
-            return
-        }
 
         const nextSourceQuery = {
             ...sourceQuery,
@@ -139,7 +172,7 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
         if (!equal(nextSourceQuery, sourceQuery)) {
             setSourceQuery(nextSourceQuery)
         }
-    }, [queryInput, setSourceQuery, sourceQuery])
+    }, [code, queryInput, setSourceQuery, sourceQuery, updateAttributes])
 }
 
 export function NotebookSQLEditorOutput<T extends { query: QuerySchema }>({
