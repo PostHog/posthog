@@ -146,17 +146,9 @@ const BOT_PATTERNS: &[(&str, BotCategory)] = &[
     ("crawler", BotCategory::Crawler),
 ];
 
-/// Compiled multi-pattern matcher over `BOT_PATTERNS`. Built once on first
-/// use (sub-ms with 77 short patterns) and shared across requests.
-///
-/// `MatchKind::Standard` is required so the automaton supports
-/// [`AhoCorasick::find_overlapping_iter`], which is the only iterator that
-/// reports *every* matching pattern at every position. We need that because
-/// classification is pattern-priority first, text-position second: an
-/// AhrefsBot UA that also contains `bot/` via a reference URL must classify
-/// as Seo (pattern index 21) rather than Crawler (pattern index 75), and
-/// `min()` over pattern indices is what enforces that — but only if we
-/// actually see both matches.
+/// `MatchKind::Standard` is required for `find_overlapping_iter`, which
+/// is what `classify` uses to enumerate every match so the lowest pattern
+/// index wins (specific bot names ahead of generic `bot/` / `crawler`).
 static BOT_MATCHER: LazyLock<AhoCorasick> = LazyLock::new(|| {
     AhoCorasick::builder()
         .ascii_case_insensitive(true)
@@ -165,19 +157,14 @@ static BOT_MATCHER: LazyLock<AhoCorasick> = LazyLock::new(|| {
         .expect("BOT_PATTERNS is a valid Aho-Corasick input")
 });
 
-/// Force eager construction of [`BOT_MATCHER`] and [`BOT_IP_RANGES`]. Call
-/// once at server start so the first `/flags` request after a pod restart
-/// doesn't pay the (sub-millisecond) build cost on its hot path.
+/// Call once at server start to keep the first `/flags` request after a
+/// pod restart off the matcher/IP-range build path.
 pub fn warm_caches() {
     LazyLock::force(&BOT_MATCHER);
     LazyLock::force(&BOT_IP_RANGES);
 }
 
-/// Returns the matched bot category, or `None` for non-bot or empty UAs.
-///
-/// When multiple patterns match the same UA, the one with the lowest index
-/// in `BOT_PATTERNS` wins — that is, specific bot names beat the generic
-/// `bot/` / `crawler` fallbacks.
+/// When multiple patterns match, the lowest index in `BOT_PATTERNS` wins.
 pub fn classify(user_agent: &str) -> Option<BotCategory> {
     if user_agent.is_empty() {
         return None;
@@ -486,9 +473,7 @@ mod tests {
 
     #[test]
     fn bot_patterns_are_lowercase() {
-        // The Aho-Corasick matcher uses `ascii_case_insensitive(true)`, so
-        // uppercase patterns would still match — but lowercase patterns
-        // keep the source-of-truth comparison with the SDK list trivial.
+        // Keeps the source-of-truth comparison with the SDK list trivial.
         for &(pattern, _) in BOT_PATTERNS {
             assert_eq!(
                 pattern,
@@ -501,10 +486,9 @@ mod tests {
 
     #[test]
     fn every_pattern_classifies_as_its_own_category() {
-        // Guards against drift in the Aho-Corasick matcher or in
-        // `BOT_PATTERNS` ordering: a UA equal to a pattern must classify
-        // as that pattern's category, regardless of which generic fallback
-        // (`bot/`, `crawler`, …) also matches.
+        // A UA equal to a pattern must classify as that pattern's
+        // category — guards the lowest-index-wins rule against any
+        // future matcher drift.
         for &(pattern, expected) in BOT_PATTERNS {
             assert_eq!(
                 classify(pattern),

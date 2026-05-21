@@ -293,11 +293,10 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
-// Counter for /flags requests short-circuited by the bot filter (User-Agent
-// substring match or published bot-IP CIDR hit).
-// Labels: `bot_category` (google, ai, seo, uptime, social, headless, crawler,
-// other) and `bot_source` (user_agent, ip). No `team_id` because the
-// rejection fires before token extraction.
+// Counter for /flags requests short-circuited by the bot filter.
+// Labels: `bot_category` (google, ai, seo, uptime, social, headless,
+// crawler, other) and `bot_source` (user_agent, ip). No `team_id`
+// because rejection fires before token extraction.
 pub const FLAG_BOT_REJECTED_COUNTER: &str = "flags_bot_rejected_total";
 
 // Request-level timeout (tower TimeoutLayer killed the request before completion)

@@ -310,14 +310,12 @@ pub struct FlagsCanonicalLogLine {
     pub error_code: Option<&'static str>,
 
     /// True when the request was short-circuited by the bot filter and
-    /// skipped rate-limit, auth, billing, and evaluation.
+    /// skipped token rate-limit, auth, billing, and evaluation.
     pub is_bot: bool,
-    /// Matched bot category, set iff `is_bot` is true. Stored as the enum
-    /// (not `&'static str`) so callers cannot accidentally pass a
-    /// non-low-cardinality label; stringification happens in [`Self::emit`].
+    /// Matched bot category, set iff `is_bot` is true. The enum bounds
+    /// the label set; [`Self::emit`] stringifies at log time.
     pub bot_category: Option<BotCategory>,
-    /// Which signal fired (UA or IP), set iff `is_bot` is true. Same
-    /// rationale as `bot_category`.
+    /// Which signal fired (UA or IP), set iff `is_bot` is true.
     pub bot_source: Option<BotSource>,
 }
 

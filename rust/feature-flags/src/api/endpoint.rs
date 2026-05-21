@@ -105,16 +105,9 @@ fn rate_limit_error(error: FlagError) -> FlagError {
     error
 }
 
-/// Build the empty-flags + minimal-config response that GET, HEAD-like, and
-/// bot-rejected paths all share. The response envelope is selected by
-/// [`get_versioned_response`] so callers do not duplicate the
-/// `is_from_decide × version` matrix.
-///
-/// Returns [`Json<ServiceResponse>`] directly rather than `Result<...>`
-/// because [`get_versioned_response`] is a pure dispatch over
-/// `(bool, Option<i32>)` and has no error paths. If a future change adds a
-/// fallible branch there, the `.expect` below will surface it loudly at
-/// startup rather than silently propagating a synthetic error.
+/// Empty-flags + minimal-config response shared by the GET and bot-reject
+/// paths. The envelope is selected by [`get_versioned_response`] so the
+/// `is_from_decide × version` matrix lives in one place.
 fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
@@ -122,11 +115,10 @@ fn get_minimal_flags_response(
 ) -> Json<ServiceResponse> {
     let request_id = extract_request_id(headers);
 
-    // Parse version string. `None` is preserved so `get_versioned_response`
-    // can apply its decide/non-decide defaults.
+    // `None` is preserved so `get_versioned_response` can apply its
+    // decide/non-decide defaults.
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1));
 
-    // Create minimal config response
     let mut config = ConfigResponse::new();
     config.set(
         "supportedCompression",
@@ -140,7 +132,6 @@ fn get_minimal_flags_response(
     config.set("isAuthenticated", serde_json::json!(false));
     config.set("sessionRecording", serde_json::json!(false));
 
-    // Create empty flags response with minimal config
     let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
     response.config = config;
 
@@ -237,9 +228,8 @@ pub async fn flags(
     // Handle different HTTP methods (these don't need canonical logging)
     match method {
         Method::GET => {
-            // GET requests return minimal flags response. The decide proxy
-            // does not forward GETs, so we always treat the request as a
-            // direct hit (`is_from_decide = false`) here.
+            // The decide proxy forwards POSTs only, so GETs are always
+            // direct hits (`is_from_decide = false`).
             return Ok(get_minimal_flags_response(
                 &headers,
                 query_params.version.as_deref(),
@@ -283,14 +273,10 @@ pub async fn flags(
     // Convert IP to string once and reuse throughout the request
     let ip_string = ip.to_string();
 
-    // Anchor for `flags_pre_handler_time_ms` — placed before UA parse so
-    // that synchronous pre-handler work (UA parse → IP rate-limit → bot
-    // check → token rate-limit) is included end-to-end, matching the
-    // metric's documented scope. The actual emission happens inside the
-    // canonical-log scope so the metric carries a `team_id` label once
-    // it's resolved. NB: as of the bot-filter rollout, the IP rate-limit
-    // phase runs *before* `run_with_canonical_log` (so it gates spoofed
-    // bot UAs) but is still bounded by this anchor.
+    // Anchor for `flags_pre_handler_time_ms`. Covers all synchronous
+    // pre-handler work (UA parse → IP rate-limit → bot check → token
+    // rate-limit). The histogram is emitted from inside the canonical-log
+    // scope once `team_id` is resolved.
     let pre_handler_start = std::time::Instant::now();
 
     // Parse User-Agent and extract SDK info for logging
@@ -321,22 +307,17 @@ pub async fn flags(
     // surface.
     let body_read_ms = body_read_duration.map(|Extension(d)| d.0.as_secs_f64() * 1000.0);
 
-    // Determine whether this request came through the decide proxy.
-    // Computed once here (before the bot check) because both the bot
-    // short-circuit response and the normal-path response need it for
-    // envelope selection.
+    // Needed by both the bot short-circuit and the normal-path response
+    // for envelope selection (Decide vs Flags shape).
     let is_from_decide = headers
         .get("X-Original-Endpoint")
         .and_then(|v| v.to_str().ok())
         .map(|v| v == "decide")
         .unwrap_or(false);
 
-    // Initialize canonical log with all upfront request metadata. Mutable
-    // because the IP rate-limit and bot-detection branches that follow
-    // may mark fields (`rate_limited`, `rate_limit_warned`, `is_bot`,
-    // `bot_category`, `bot_source`) directly before any
-    // canonical-log-scoped code runs. Fields discovered later during
-    // processing (team_id, flags_evaluated, etc.) are set via
+    // Mutable: the IP rate-limit and bot branches below mark fields on
+    // it directly because they run outside the canonical-log scope.
+    // Fields resolved inside `run_with_canonical_log` go through
     // `with_canonical_log()`.
     let mut canonical_log = FlagsCanonicalLogLine {
         request_id,
@@ -352,11 +333,10 @@ pub async fn flags(
         ..Default::default()
     };
 
-    // IP rate-limit FIRST. Runs before the bot check so that an attacker
-    // who spoofs a Googlebot UA cannot bypass the per-IP RPS limiter — UA
-    // matching is public and trivially forgeable. We mutate
-    // `canonical_log` directly (not via `with_canonical_log`) because the
-    // task-local scope hasn't been entered yet.
+    // Runs before the bot check: UA matching is public and trivially
+    // forgeable, so a spoofed Googlebot UA must still hit the per-IP
+    // limiter. Mutates `canonical_log` directly since the task-local
+    // scope has not been entered.
     let ip_rl_result = {
         let _t = common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
             .label("kind", "ip");
@@ -367,11 +347,10 @@ pub async fn flags(
             let err = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
             canonical_log.rate_limited = true;
             canonical_log.set_error(&err);
-            // Preserve today's observability: even though we never reached
-            // `run_with_canonical_log`, queue_time/body_read histograms
-            // should still publish (with team_id="unknown") so dashboards
-            // see rate-limit traffic. emit_db_operations/phase_metrics are
-            // no-ops here but match the post-scope ordering for symmetry.
+            // Publish queue_time/body_read histograms (team_id="unknown")
+            // so dashboards still see IP-rate-limited traffic. The other
+            // two emitters are no-ops on this path but keep the call
+            // order symmetric with the post-scope branch below.
             canonical_log.emit_db_operations_metrics();
             canonical_log.emit_timing_metrics();
             canonical_log.emit_phase_metrics();
@@ -382,14 +361,10 @@ pub async fn flags(
         RateLimitResult::Allowed => {}
     }
 
-    // Bot short-circuit: runs after IP rate-limit (so spoofed UAs are
-    // still throttled) but before token rate-limit, auth, billing, and
-    // evaluation. A known crawler costs only a single Aho-Corasick scan +
-    // a binary search over published bot IP ranges, plus one counter
-    // increment. The response envelope is selected by
-    // `get_minimal_flags_response` → `get_versioned_response`, which
-    // honors `is_from_decide` × `version` so bots hitting the decide
-    // proxy receive a Decide-shaped envelope (not Flags-shaped).
+    // Runs after IP rate-limit (so spoofed UAs are still throttled) but
+    // before token rate-limit, auth, billing, and evaluation. Envelope
+    // selection honors `is_from_decide × version` so proxied /decide
+    // bots get the Decide shape.
     if state.config.bot_filtering_enabled() {
         if let Some((category, source)) = bot_detection::classify_request(user_agent, ip) {
             common_metrics::inc(
@@ -403,11 +378,9 @@ pub async fn flags(
             canonical_log.is_bot = true;
             canonical_log.bot_category = Some(category);
             canonical_log.bot_source = Some(source);
-            // The `rate_limit_warned` state set above (if any) is logged
-            // for observability but is *not* propagated as the
-            // `X-PostHog-Rate-Limit-Warning` response header — bots do
-            // not read response headers, so emitting it would be cost
-            // without signal.
+            // `rate_limit_warned` stays on the canonical log but is not
+            // surfaced as the `X-PostHog-Rate-Limit-Warning` header here
+            // — bots do not read response headers.
             canonical_log.emit();
             return Ok(get_minimal_flags_response(
                 &headers,
@@ -459,11 +432,10 @@ pub async fn flags(
     // Run the request within a canonical log scope.
     // All code within can use with_canonical_log() to update the log.
     //
-    // IP-based rate limiting runs *outside* this scope (above, before the
-    // bot check) so a spoofed bot UA cannot bypass it. Here we only run
-    // the token-based per-project rate limit, which depends on parsing
-    // the JSON body and therefore needs to live alongside
-    // `process_request`.
+    // Only the token-based rate limit runs here: it needs the parsed JSON
+    // body, so it lives next to `process_request`. The IP-based limit
+    // runs above, before the bot check, so a spoofed bot UA cannot
+    // bypass it.
     let (result, mut log) = run_with_canonical_log(canonical_log, async {
         // Check token-based rate limit.
         // Extract token from body, use IP as fallback if extraction fails.
@@ -486,8 +458,7 @@ pub async fn flags(
                     ClientFacingError::TokenRateLimited,
                 )));
             }
-            // OR-semantics with the IP-warn state already on
-            // `canonical_log.rate_limit_warned` from the pre-scope phase.
+            // OR-combines with any IP warn already on the canonical log.
             RateLimitResult::Warned => with_canonical_log(|l| l.rate_limit_warned = true),
             RateLimitResult::Allowed => {}
         }

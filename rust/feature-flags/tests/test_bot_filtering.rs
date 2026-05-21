@@ -28,8 +28,8 @@ const BENIGN_FORWARDED_IP: &str = "8.8.8.8";
 struct RequestOptions<'a> {
     user_agent: Option<&'a str>,
     forwarded_for: Option<&'a str>,
-    /// Sets `X-Original-Endpoint` to simulate the Python `/decide` proxy
-    /// forwarding the request to the Rust `/flags` handler.
+    /// Value for the `X-Original-Endpoint` header (set to `"decide"` to
+    /// simulate the Python `/decide` proxy).
     original_endpoint: Option<&'a str>,
 }
 
@@ -364,13 +364,9 @@ async fn kill_switch_disables_bot_filtering() -> Result<()> {
     Ok(())
 }
 
-/// Decide-proxy bot response shape. When the Python `/decide` proxy
-/// forwards a POST to the Rust `/flags` handler with `X-Original-Endpoint:
-/// decide`, a bot hit must return a Decide-shaped envelope: `feature_flags`
-/// is a `Vec<String>` at v=1 and a `HashMap<String, FlagValue>` at v=2.
-/// Before the fix, the bot short-circuit always emitted the Flags-shaped
-/// envelope (`flags` / `feature_flag_payloads`), which would break any
-/// SDK consuming the Decide envelope.
+/// A bot hit on the `X-Original-Endpoint: decide` path must return the
+/// Decide envelope (`featureFlags`), not the Flags envelope (`flags` +
+/// `featureFlagPayloads`). v=1 → array; v=2 → object.
 #[rstest]
 #[case("1")]
 #[case("2")]
@@ -400,10 +396,8 @@ async fn bot_via_decide_proxy_returns_decide_envelope(#[case] version: &str) -> 
 
     let body: serde_json::Value = res.json().await?;
 
-    // The Decide envelope uses `featureFlags` (camelCase via serde) at
-    // both v=1 and v=2; the Flags envelope uses `flags` +
-    // `featureFlagPayloads`. Asserting presence/absence pins down the
-    // shape regardless of the specific FlagValue layout.
+    // Asserting raw keys rather than deserializing into Decide*Response
+    // pins down the envelope shape independently of the FlagValue layout.
     assert!(
         body.get("featureFlags").is_some(),
         "v={version}: bot via decide proxy must return a Decide envelope (no `featureFlags` key in {body})",
@@ -418,8 +412,6 @@ async fn bot_via_decide_proxy_returns_decide_envelope(#[case] version: &str) -> 
         .expect("featureFlags key already asserted present");
     match version {
         "1" => {
-            // DecideV1Response carries `feature_flags: Vec<String>` —
-            // serializes to a JSON array.
             assert!(
                 feature_flags.is_array(),
                 "v=1 Decide envelope requires `featureFlags` to be an array, got {feature_flags}",
@@ -431,8 +423,6 @@ async fn bot_via_decide_proxy_returns_decide_envelope(#[case] version: &str) -> 
             );
         }
         "2" => {
-            // DecideV2Response carries `feature_flags: HashMap<String, FlagValue>` —
-            // serializes to a JSON object.
             assert!(
                 feature_flags.is_object(),
                 "v=2 Decide envelope requires `featureFlags` to be an object, got {feature_flags}",
@@ -446,9 +436,9 @@ async fn bot_via_decide_proxy_returns_decide_envelope(#[case] version: &str) -> 
         other => panic!("unexpected version case {other}"),
     }
 
-    // The minimal-response config payload is shared with the GET path;
-    // its presence confirms we went through `get_minimal_flags_response`
-    // (i.e. the bot short-circuit), not full evaluation.
+    // `supportedCompression` is only present on the minimal-response
+    // payload, so it distinguishes the short-circuit from a full-eval
+    // empty-flags result.
     assert_eq!(
         body.get("supportedCompression"),
         Some(&json!(["gzip", "gzip-js"])),
@@ -458,19 +448,16 @@ async fn bot_via_decide_proxy_returns_decide_envelope(#[case] version: &str) -> 
     Ok(())
 }
 
-/// Spoofed bot UA must not bypass the per-IP rate limiter. Before the fix,
-/// the bot short-circuit ran before any rate-limit check, so an attacker
-/// who sent `User-Agent: Googlebot/...` could flood `/flags` from a single
-/// IP without ever hitting the limiter. This test asserts the post-fix
-/// ordering by sending a small burst from one IP, all with a Googlebot UA,
-/// and verifying the burst+1 request returns 429.
+/// A Googlebot UA must not exempt a client from per-IP rate limiting:
+/// sending `burst_size + 1` requests from one IP returns 429 on the last.
 #[tokio::test]
 async fn ip_rate_limit_fires_before_bot_check_for_spoofed_ua() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.flags_ip_rate_limit_enabled = FlexBool(true);
-    config.flags_ip_rate_limit_log_only = FlexBool(false); // enforce, not log-only
+    config.flags_ip_rate_limit_log_only = FlexBool(false);
     config.flags_ip_burst_size = 3;
-    config.flags_ip_replenish_rate = 0.1; // slow refill so the burst is the cap
+    // Slow refill so the burst is effectively the cap for the test.
+    config.flags_ip_replenish_rate = 0.1;
 
     let (server, token) = setup_server_with_a_flag(config).await;
 
@@ -479,8 +466,6 @@ async fn ip_rate_limit_fires_before_bot_check_for_spoofed_ua() -> Result<()> {
         "distinct_id": "any-id",
     });
 
-    // First `burst_size` requests with a Googlebot UA must succeed (each
-    // hits the bot short-circuit AFTER the IP limiter has admitted it).
     for i in 1..=3 {
         let res = post_flags(server.addr, "/flags", payload.clone(), Some(GOOGLEBOT_UA)).await;
         assert_eq!(
@@ -490,8 +475,6 @@ async fn ip_rate_limit_fires_before_bot_check_for_spoofed_ua() -> Result<()> {
         );
     }
 
-    // The next request must be blocked at the IP layer with 429 — the
-    // bot UA does NOT exempt it from per-IP rate limiting.
     let res = post_flags(server.addr, "/flags", payload, Some(GOOGLEBOT_UA)).await;
     assert_eq!(
         res.status(),
