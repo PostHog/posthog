@@ -13,6 +13,7 @@ TEMPLATE_FILES = [
     "onboarding_started_but_not_completed_template.json",
     "trial_started_upgrade_nudge_template.json",
     "welcome_email_sequence_template.json",
+    "hosted_survey_via_email_template.json",
     "celebrate-milestone.json",
     "feature-adoption-tips.json",
     "heavy-usage-detected.json",

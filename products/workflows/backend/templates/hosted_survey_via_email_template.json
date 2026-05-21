@@ -1,0 +1,305 @@
+{
+    "id": "019d8b01-1c41-7c4f-9b3a-507610100001",
+    "name": "Send a hosted survey via email",
+    "description": "Send a hosted survey link to users after they sign up \u2014 get NPS or product feedback over email without needing a snippet on the recipient's device.\n\nThe survey link includes `?distinct_id={{ person.properties.distinct_id }}` so responses are tied back to the recipient automatically. To pre-fill the first question (one-click NPS / CSAT), append `&q0=<value>` to the survey URL.\n\n**Before launching:**\n1. Create a hosted survey in PostHog (Surveys \u2192 New \u2192 External survey).\n2. Copy the survey URL from the survey's settings.\n3. Replace `REPLACE_WITH_YOUR_SURVEY_ID` in the email body.",
+    "image_url": "",
+    "scope": "global",
+    "created_at": "2026-05-21T00:00:00.000000Z",
+    "created_by": null,
+    "updated_at": "2026-05-21T00:00:00.000000Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "events": [
+                {
+                    "id": "user signed up",
+                    "name": "user signed up",
+                    "type": "events",
+                    "uuid": "1c11a280-b175-4066-a467-21a9df23c047",
+                    "order": 0
+                }
+            ],
+            "source": "events",
+            "actions": [],
+            "bytecode": ["_H", 1, 32, "user signed up", 32, "event", 1, 1, 11]
+        }
+    },
+    "trigger_masking": {
+        "ttl": null,
+        "threshold": null,
+        "hash": "{person.id}",
+        "bytecode": ["_H", 1, 32, "id", 32, "person", 1, 2]
+    },
+    "conversion": {
+        "filters": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_delay_019d8b01-1c41-7c4f-9b3a-507610100002",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "action_function_email_019d8b01-1c41-7c4f-9b3a-507610100003",
+            "from": "action_delay_019d8b01-1c41-7c4f-9b3a-507610100002",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_019d8b01-1c41-7c4f-9b3a-507610100003",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Trigger",
+            "description": "User performs an action to start the workflow.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [
+                        {
+                            "id": "user signed up",
+                            "name": "user signed up",
+                            "type": "events",
+                            "uuid": "1c11a280-b175-4066-a467-21a9df23c047",
+                            "order": 0
+                        }
+                    ],
+                    "source": "events",
+                    "actions": [],
+                    "bytecode": ["_H", 1, 32, "user signed up", 32, "event", 1, 1, 11]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_delay_019d8b01-1c41-7c4f-9b3a-507610100002",
+            "name": "Wait 7 days",
+            "description": "Give users time to use the product before asking for feedback.",
+            "on_error": null,
+            "created_at": 1767097791291,
+            "updated_at": 1767097791291,
+            "filters": null,
+            "type": "delay",
+            "config": {
+                "delay_duration": "7d"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_019d8b01-1c41-7c4f-9b3a-507610100003",
+            "name": "Survey email",
+            "description": "Send the recipient a link to the hosted survey.",
+            "on_error": null,
+            "created_at": 1767097486700,
+            "updated_at": 1767097486700,
+            "filters": null,
+            "type": "function_email",
+            "config": {
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": "{{ person.properties.email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  <title></title>\n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #F7F8F9;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Hi {{ person.properties.first_name }},</p><p style=\"line-height: 140%;\">We'd love your honest take on how things are going. It takes about 30 seconds and helps us improve the product.</p><p style=\"line-height: 140%;\"><a href=\"https://us.posthog.com/surveys/REPLACE_WITH_YOUR_SURVEY_ID?distinct_id={{ person.properties.distinct_id }}\" style=\"display:inline-block;padding:10px 18px;background-color:#1d4aff;color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:500;\">Take the 30-second survey</a></p><p style=\"line-height: 140%;font-size:12px;color:#666;\">Tip: append <code>&amp;q0=&lt;value&gt;</code> to the link to pre-fill the first question \u2014 great for one-click NPS or CSAT.</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+                            "text": "Hi {{ person.properties.first_name }},\n\nWe'd love your honest take on how things are going. It takes about 30 seconds and helps us improve the product.\n\nTake the survey: https://us.posthog.com/surveys/REPLACE_WITH_YOUR_SURVEY_ID?distinct_id={{ person.properties.distinct_id }}\n\nTip: append &q0=<value> to the link to pre-fill the first question.",
+                            "design": {
+                                "body": {
+                                    "id": "URm0NvJQHB",
+                                    "rows": [
+                                        {
+                                            "id": "Bl8ZJpyRQR",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "FA4-hRI7VN",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "-KDAT9u9Y5",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi {{ person.properties.first_name }},</p><p style=\"line-height: 140%;\">We'd love your honest take on how things are going. It takes about 30 seconds and helps us improve the product.</p><p style=\"line-height: 140%;\"><a href=\"https://us.posthog.com/surveys/REPLACE_WITH_YOUR_SURVEY_ID?distinct_id={{ person.properties.distinct_id }}\" style=\"display:inline-block;padding:10px 18px;background-color:#1d4aff;color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px;font-weight:500;\">Take the 30-second survey</a></p><p style=\"line-height: 140%;font-size:12px;color:#666;\">Tip: append <code>&amp;q0=&lt;value&gt;</code> to the link to pre-fill the first question \u2014 great for one-click NPS or CSAT.</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "popupWidth": "600px",
+                                        "_styleGuide": null,
+                                        "popupHeight": "auto",
+                                        "borderRadius": "10px",
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "popupPosition": "center",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupDisplayDelay": 0,
+                                        "contentVerticalAlign": "center",
+                                        "popupBackgroundColor": "#FFFFFF",
+                                        "popupBackgroundImage": {
+                                            "url": "",
+                                            "size": "cover",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "popupCloseButton_action": {
+                                            "name": "close_popup",
+                                            "attrs": {
+                                                "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                                            }
+                                        },
+                                        "popupCloseButton_margin": "0px",
+                                        "popupCloseButton_position": "top-right",
+                                        "popupCloseButton_iconColor": "#000000",
+                                        "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                                        "popupCloseButton_borderRadius": "0px",
+                                        "popupCloseButton_backgroundColor": "#DDDDDD"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "Got 30 seconds for some feedback?",
+                            "preheader": "Tell us how it's going \u2014 one tap to answer."
+                        }
+                    }
+                },
+                "template_id": "template-email"
+            },
+            "output_variable": null
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "tags": ["surveys", "email"],
+    "billable_action_types": ["function_email"]
+}
