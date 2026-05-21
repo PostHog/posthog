@@ -1153,13 +1153,13 @@ snapshots:
     components-search--default--light:
         hash: v1.k794b7964.5e6e91e6bae311ce2310a2192f3aaff14c143b1209da18aa0dd15b30ed378c23.we_dzaxMCPNMypRkaKFEQdAyzjTfZeI4dA-hl-fLBZo
     components-search--product-recents-and-starred--dark:
-        hash: v1.k794b7964.1c842fd127209581e6f4237e29b6c192e9554eca6d7cef676228aa8349c9558e.ejiFyOdHt-040qSjQ97L9VY73QuA59vgzAuXTJa6Zg0
+        hash: v1.k794b7964.22df1e775fc314a45651a47d2c84364561c276221a78ff7312412276b59a5b96.-d6xSe9GW0oteb2F2s7obniM1HUZ-IxQWK3YcIrnxeY
     components-search--product-recents-and-starred--light:
-        hash: v1.k794b7964.6d7ebbb457b003a589697f6dd6c054fdc6405868b4c6b3a616b004b8faa97ebd.klxLctEaGXfv7Ndvi9IfZL2U7iMfOdJjO805z_Kk8-U
+        hash: v1.k794b7964.093365121259b79e33584b3e0042ad3813b0e77f2af285369ab7b2bf98bd9c79.-imuS481bcvyD7kDEeyJ4mfKoQcmD451n4Lxv2IrE3g
     components-search--searching--dark:
-        hash: v1.k794b7964.42d2564402c84b62e5b6a0d989d8d3c5ac0981f2cacb7bbb3c94e308ec048142.TFTKhSqhGyw_ghSjZa8Dn6-RaVKrJThtl5Qzn_1TW7Q
+        hash: v1.k794b7964.3186b399678f119524fb1ee06066bda742a17215e4d98fc1d72103791d41d488.dpIb1it2pv9cxb8lahZiqy9g1MmxP5uzsKK67Xdxt3I
     components-search--searching--light:
-        hash: v1.k794b7964.15e3e049951af870576d917fb5577f346eaaba44c41ef6777cf612b5bd12c397.vAC6iJHI7gFpMGCh-NJLilZZzAwiV_j1WJnnGxknlhI
+        hash: v1.k794b7964.5cedfc61206131e99576f788aef90f379db4125ae219455c8ad99812773e3b11.KG9fpZuvFf0w79o6etNMJX7XV6BcePrGQ4E5_fY6EvI
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.9d72ed5224f75be3f53f1ba8edc2547978e519aa46a57cc97eef9087b403cb7d.3yHHiA7NW-p6vVSlM-2nPx7Nbk7wuTr5SA9Av2nW--g
     components-sentencelist--full-sentence--light:
@@ -4285,7 +4285,7 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-five-variants--dark:
         hash: v1.k794b7964.09d23fd44208249b4fd1555fcbdb941118bc2825dc7142bd6ba96335c9cb8f32.AipSypBKnQguXtQO9tkCsdO9IVj-_0bHqjCnFe0BE-U
     scenes-app-experiments--experiment-frequentist-five-variants--light:
-        hash: v1.k794b7964.3c0bbbedd69ecc4c499dd0639d1f0a6943c4fb8edb471d9c792affe1f2859fae.Q0RJJMyRpPWhrkDJyEmGuWREjFzxDUscM-NRNgh4Gyc
+        hash: v1.k794b7964.e184202ab354db72b08caacf7a647c081dbf1f4d830b882370edf8f1fab4c541.uwg0gIAoyM2kFfILlltXpquMpg2zt9e54PaC6eC1_QM
     scenes-app-experiments--experiment-frequentist-two-variants--dark:
         hash: v1.k794b7964.e09386503a4afe1b35afea46561b001c53fe4a0b33462b38411cf946062964d9.Wt1HdAZFHB1UJRhWLISfuBT-PnBvc6KPpc3VT1D4kF4
     scenes-app-experiments--experiment-frequentist-two-variants--light:
