@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.main import http_exception_handler
+from llm_gateway.rate_limiting.billable_credits_throttle import BillableCreditThrottle
 from llm_gateway.rate_limiting.cost_throttles import (
     ProductCostThrottle,
     UserCostBurstThrottle,
@@ -27,6 +28,7 @@ def create_test_app(
     from llm_gateway.api.routes import router
 
     default_throttles: list[Throttle] = [
+        BillableCreditThrottle(redis=None),
         ProductCostThrottle(redis=None),
         UserCostBurstThrottle(redis=None),
         UserCostSustainedThrottle(redis=None),
