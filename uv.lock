@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-14T11:44:46.390565312Z"
+exclude-newer = "2026-05-14T12:14:00.94570639Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -3027,16 +3027,16 @@ wheels = [
 
 [[package]]
 name = "hogql-parser-rs"
-version = "1.3.66"
+version = "1.3.67"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4d/dd/5fb4e3581bac304c584982567a87b3090097e5d9530acb1bbaa4b7645f0e/hogql_parser_rs-1.3.66.tar.gz", hash = "sha256:ed602a3c483784a64dd485a61f68613bdb9ded5730476f388daa45e23ae39567", size = 237695, upload-time = "2026-05-21T11:44:20.644Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/6a/0a8748a578916e2f3491e7594b9193c2d0938c2c8d27d619390e56ab14d9/hogql_parser_rs-1.3.67.tar.gz", hash = "sha256:4abca8c4406f6f3a054b10988ffe5533b6dad17a3e25cf9a8d57babdc8e11a4e", size = 236606, upload-time = "2026-05-21T12:13:43.483Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/cd/3715d70eb9d838f50351b72ae53e151b0944e096aad24185417354d79ee9/hogql_parser_rs-1.3.66-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:489c511c895f4df375bfd345377c18c2767175f322d807cfcf8855a2d9511dd4", size = 503155, upload-time = "2026-05-21T11:44:07.772Z" },
-    { url = "https://files.pythonhosted.org/packages/a9/49/3d84455b899332f1f7fe0b4ab51ea4c15c017dca6d83677c52a783b11de0/hogql_parser_rs-1.3.66-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:9f6c718a31bc862ab2b54947e7c1af2414a3c6da870d8354428950f1b05ff114", size = 478190, upload-time = "2026-05-21T11:44:10.003Z" },
-    { url = "https://files.pythonhosted.org/packages/e7/24/8d0e8cf65fc03a4f06bba19faf230402ff21150092e4ecb6a654ae96dde8/hogql_parser_rs-1.3.66-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:fa8309f096448d07bee55fca10a08e045b1771c9679bcc11dc2f035746729e13", size = 1929512, upload-time = "2026-05-21T11:44:12.172Z" },
-    { url = "https://files.pythonhosted.org/packages/85/13/9574677bfd0a70ece0f6f0e800b004b0b67022e607c9c76173dc11731750/hogql_parser_rs-1.3.66-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:d131b44e330214db88ecf98226e469eeab1e8f9381e13b1372bc2f62fb48df58", size = 2169553, upload-time = "2026-05-21T11:44:14.248Z" },
-    { url = "https://files.pythonhosted.org/packages/cf/17/eacfaaf22f81caa0088bb4c6e97f7d9a0992ef53f9bcbe4ebba516a3881d/hogql_parser_rs-1.3.66-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:e5b7185e1b31234c5f2c05820794282d209a26fdf701b6d88351e0a9aad85733", size = 2099358, upload-time = "2026-05-21T11:44:16.582Z" },
-    { url = "https://files.pythonhosted.org/packages/7c/9c/a29f047797c36746975e2f677fd7dfebdf476fb39b99c834aa0ac8e5bf57/hogql_parser_rs-1.3.66-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:ff3a22d11963e3f2f74fa70ff8459e5b16ddc6764029a169cd2dd2999088eb4a", size = 2152817, upload-time = "2026-05-21T11:44:18.694Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/be/39855d7779661a314b10d73d9e90bf51b2c3dc8583a961fb46d1e2a11541/hogql_parser_rs-1.3.67-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b42d9706c58c963060cade813ec2a54e51dd893d96256806d021b6653fa5d117", size = 502446, upload-time = "2026-05-21T12:13:32.037Z" },
+    { url = "https://files.pythonhosted.org/packages/17/4c/666502049fa43bd2b22dbf24978b1deb5ec9d648f59e67041ad99c8d3241/hogql_parser_rs-1.3.67-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:e1796cde3c90565ce5b0c7a1bb2ad006250c813f0ab306ed7584a560a245a95b", size = 477111, upload-time = "2026-05-21T12:13:33.821Z" },
+    { url = "https://files.pythonhosted.org/packages/94/93/edf4ba1b0eea0c08513dfa6f668d428f6f1975186229c4db1df42479506c/hogql_parser_rs-1.3.67-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:74d1fa0d51c3523fbed2d363330e8ff40d29e2bdc55eac5e497448fd1a38802a", size = 1928258, upload-time = "2026-05-21T12:13:35.374Z" },
+    { url = "https://files.pythonhosted.org/packages/58/aa/e23594aca406053be5199a38559d036ac145ccd894549e5ed26355d67dc5/hogql_parser_rs-1.3.67-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:7a71e7933c1a85e20b310bb17fb5be870749aac19ec4c3487c674607e2964a8c", size = 2168526, upload-time = "2026-05-21T12:13:37.533Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/69/6b271b0eb314f28e7d2c0b6926b958bfc018f1a522ad21f34a547d01c69e/hogql_parser_rs-1.3.67-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:aeafb74f40dd851839ed80616207748e32b7b984330d0b17e498b920f1ec891b", size = 2098404, upload-time = "2026-05-21T12:13:39.182Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/1c/381a697fc933660741173501d038fbf8a877832637c284deaeb8a0b98109/hogql_parser_rs-1.3.67-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:1fe8407ebc07400dcd38390b47a12e223f78ea30441308d1631de84de5dc139d", size = 2151722, upload-time = "2026-05-21T12:13:41.103Z" },
 ]
 
 [[package]]
@@ -5566,7 +5566,7 @@ requires-dist = [
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
     { name = "hogql-parser", specifier = "==1.3.63" },
-    { name = "hogql-parser-rs", specifier = "==1.3.66" },
+    { name = "hogql-parser-rs", specifier = "==1.3.67" },
     { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
     { name = "jsonref", specifier = "==1.1.0" },
