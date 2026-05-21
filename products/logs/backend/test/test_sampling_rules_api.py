@@ -118,50 +118,23 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         assert body["config"]["kb_per_second"] == 500
         assert body["config"]["burst_kb"] == 1500
 
-    def test_create_rate_limit_rejects_both_modes_set(self):
-        response = self.client.post(
-            self.base_url,
-            self._payload(
-                rule_type="rate_limit",
-                scope_service="payment-api",
-                config={"logs_per_second": 100, "kb_per_second": 100},
-            ),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    # Configs that should be rejected by the rate_limit validator. Keep this list
+    # close to the inverse of `test_create_rate_limit_*_success` — every accepted
+    # shape has a symmetric set of rejection cases here.
+    INVALID_RATE_LIMIT_CONFIGS = [
+        ("both_modes_set", {"logs_per_second": 100, "kb_per_second": 100}),
+        ("neither_mode_set", {}),
+        ("kb_per_second_below_min", {"kb_per_second": 0}),
+        ("kb_per_second_above_max", {"kb_per_second": 1_000_001}),
+        ("burst_kb_below_kb_per_second", {"kb_per_second": 500, "burst_kb": 100}),
+        ("burst_kb_above_max", {"kb_per_second": 1, "burst_kb": 10_000_001}),
+    ]
 
-    def test_create_rate_limit_rejects_neither_mode_set(self):
+    @parameterized.expand([(label, payload) for label, payload in INVALID_RATE_LIMIT_CONFIGS])
+    def test_create_rate_limit_rejects_invalid_config(self, _label, invalid_config):
         response = self.client.post(
             self.base_url,
-            self._payload(
-                rule_type="rate_limit",
-                scope_service="payment-api",
-                config={},
-            ),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-
-    def test_create_rate_limit_rejects_kb_per_second_out_of_range(self):
-        response = self.client.post(
-            self.base_url,
-            self._payload(
-                rule_type="rate_limit",
-                scope_service="payment-api",
-                config={"kb_per_second": 0},
-            ),
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-
-    def test_create_rate_limit_rejects_burst_kb_below_kb_per_second(self):
-        response = self.client.post(
-            self.base_url,
-            self._payload(
-                rule_type="rate_limit",
-                scope_service="payment-api",
-                config={"kb_per_second": 500, "burst_kb": 100},
-            ),
+            self._payload(rule_type="rate_limit", scope_service="payment-api", config=invalid_config),
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
