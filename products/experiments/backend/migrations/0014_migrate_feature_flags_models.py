@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("experiments", "0012_teamexperimentsconfig_default_cuped_enabled"),
+        ("experiments", "0013_teamexperimentsconfig_default_minimum_detectable_effect"),
         ("feature_flags", "0002_migrate_feature_flags_models"),
     ]
 
