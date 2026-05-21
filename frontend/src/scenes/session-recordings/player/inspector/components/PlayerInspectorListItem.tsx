@@ -110,6 +110,17 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
 
 const notExpandable = ['inspector-summary', 'inactivity', 'session-change']
 
+// Item types whose row click should open the detail view instead of seeking. These are the types
+// for which RowItemDetail returns a non-null element.
+const expandOnRowClickTypes: ReadonlySet<InspectorListItem['type']> = new Set([
+    'network',
+    'console',
+    'app-state',
+    'events',
+    'doctor',
+    'comment',
+])
+
 // TODO @posthog/icons doesn't export the type we need here
 // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types,@typescript-eslint/explicit-function-return-type
 export function eventToIcon(event: string | undefined | null) {
@@ -249,6 +260,46 @@ function RowItemDetail({
     )
 }
 
+function SeekableItemTimeDisplay({
+    item,
+    showSeekAffordance,
+    onSeek,
+}: {
+    item: InspectorListItem
+    showSeekAffordance: boolean
+    onSeek: () => void
+}): JSX.Element {
+    const timeDisplay = <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
+
+    if (!showSeekAffordance) {
+        return timeDisplay
+    }
+
+    return (
+        <Tooltip title="Jump to this time in the recording" placement="left">
+            <div
+                role="button"
+                tabIndex={0}
+                className="cursor-pointer hover:bg-fill-button-tertiary-hover rounded"
+                data-attr="inspector-seek-to-time"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    onSeek()
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onSeek()
+                    }
+                }}
+            >
+                {timeDisplay}
+            </div>
+        </Tooltip>
+    )
+}
+
 const ListItemTitle = memo(function ListItemTitle({
     item,
     index,
@@ -269,10 +320,19 @@ const ListItemTitle = memo(function ListItemTitle({
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
 
     const isExpanded = expandedItems.includes(index)
+    const expandOnRowClick = expandOnRowClickTypes.has(item.type)
 
     // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
     // Ceiling second is used since this is what's displayed to the user.
     const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
+
+    const onRowBodyClick = (): void => {
+        if (expandOnRowClick) {
+            setItemExpanded(index, !isExpanded)
+        } else {
+            seekToEvent()
+        }
+    }
 
     let TypeIcon = typeToIconAndDescription[item.type].Icon
     if (TypeIcon === undefined && item.type === 'events') {
@@ -285,7 +345,8 @@ const ListItemTitle = memo(function ListItemTitle({
             <div
                 className="flex flex-row flex-1 items-center overflow-hidden cursor-pointer"
                 ref={hoverRef}
-                onClick={() => seekToEvent()}
+                onClick={onRowBodyClick}
+                data-attr="inspector-row-body"
             >
                 {/*TODO this tooltip doesn't trigger whether its inside or outside of this hover container */}
                 {item.windowNumber ? (
@@ -318,7 +379,7 @@ const ListItemTitle = memo(function ListItemTitle({
                 ) : null}
 
                 {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
-                    <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
+                    <SeekableItemTimeDisplay item={item} showSeekAffordance={expandOnRowClick} onSeek={seekToEvent} />
                 )}
 
                 <IconWithOptionalBadge TypeIcon={TypeIcon} showBadge={item.type === 'comment'} />
