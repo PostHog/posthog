@@ -5,6 +5,7 @@ use crate::metrics::consts::{
     FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
     FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
+use crate::utils::bot_detection::{BotCategory, BotSource};
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -311,10 +312,13 @@ pub struct FlagsCanonicalLogLine {
     /// True when the request was short-circuited by the bot filter and
     /// skipped rate-limit, auth, billing, and evaluation.
     pub is_bot: bool,
-    /// Matched bot category, set iff `is_bot` is true.
-    pub bot_category: Option<&'static str>,
-    /// Which signal fired (`user_agent` or `ip`), set iff `is_bot` is true.
-    pub bot_source: Option<&'static str>,
+    /// Matched bot category, set iff `is_bot` is true. Stored as the enum
+    /// (not `&'static str`) so callers cannot accidentally pass a
+    /// non-low-cardinality label; stringification happens in [`Self::emit`].
+    pub bot_category: Option<BotCategory>,
+    /// Which signal fired (UA or IP), set iff `is_bot` is true. Same
+    /// rationale as `bot_category`.
+    pub bot_source: Option<BotSource>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -436,8 +440,8 @@ impl FlagsCanonicalLogLine {
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             is_bot = self.is_bot,
-            bot_category = self.bot_category,
-            bot_source = self.bot_source,
+            bot_category = self.bot_category.map(|c| c.as_str()),
+            bot_source = self.bot_source.map(|s| s.as_str()),
             "canonical_log_line"
         );
     }

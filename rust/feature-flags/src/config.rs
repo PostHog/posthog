@@ -546,8 +546,11 @@ pub struct Config {
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
 
-    // Kill switch for the /flags User-Agent bot filter. Set true to let bot
-    // UAs flow through the full pipeline if a false positive surfaces.
+    // Kill switch for the /flags bot filter (UA substring + IP CIDR). Set
+    // true to let bot requests flow through the full pipeline if a false
+    // positive surfaces. Read this via [`Config::bot_filtering_enabled`]
+    // rather than dereferencing the field directly — the accessor's
+    // positive form is what call sites should use.
     #[envconfig(from = "FLAGS_DISABLE_BOT_FILTERING", default = "false")]
     pub disable_bot_filtering: FlexBool,
 
@@ -799,6 +802,14 @@ impl ThreadCounts {
 impl Config {
     const MAX_RESPONSE_TIMEOUT_MS: u64 = 30_000; // 30 seconds
     const MAX_CONNECTION_TIMEOUT_MS: u64 = 60_000; // 60 seconds
+
+    /// Whether the `/flags` UA + IP bot filter is active. The underlying
+    /// [`Self::disable_bot_filtering`] flag is the env-var-bound kill
+    /// switch; this accessor wraps the negation so call sites read in the
+    /// positive form.
+    pub fn bot_filtering_enabled(&self) -> bool {
+        !*self.disable_bot_filtering
+    }
 
     /// Validate and fix timeout configuration, logging warnings and applying defaults for invalid values
     ///

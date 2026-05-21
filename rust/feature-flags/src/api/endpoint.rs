@@ -105,14 +105,26 @@ fn rate_limit_error(error: FlagError) -> FlagError {
     error
 }
 
+/// Build the empty-flags + minimal-config response that GET, HEAD-like, and
+/// bot-rejected paths all share. The response envelope is selected by
+/// [`get_versioned_response`] so callers do not duplicate the
+/// `is_from_decide × version` matrix.
+///
+/// Returns [`Json<ServiceResponse>`] directly rather than `Result<...>`
+/// because [`get_versioned_response`] is a pure dispatch over
+/// `(bool, Option<i32>)` and has no error paths. If a future change adds a
+/// fallible branch there, the `.expect` below will surface it loudly at
+/// startup rather than silently propagating a synthetic error.
 fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
-) -> Result<Json<ServiceResponse>, FlagError> {
+    is_from_decide: bool,
+) -> Json<ServiceResponse> {
     let request_id = extract_request_id(headers);
 
-    // Parse version string to determine response format
-    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
+    // Parse version string. `None` is preserved so `get_versioned_response`
+    // can apply its decide/non-decide defaults.
+    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1));
 
     // Create minimal config response
     let mut config = ConfigResponse::new();
@@ -132,14 +144,9 @@ fn get_minimal_flags_response(
     let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
     response.config = config;
 
-    // Return versioned response
-    let service_response = if version_num >= 2 {
-        ServiceResponse::V2(response)
-    } else {
-        ServiceResponse::Default(LegacyFlagsResponse::from_response(response))
-    };
-
-    Ok(Json(service_response))
+    let (service_response, _) = get_versioned_response(is_from_decide, version_num, response)
+        .expect("get_versioned_response is total for any (bool, Option<i32>, FlagsResponse)");
+    Json(service_response)
 }
 
 /// Determines the response format based on whether the request came from decide and the version parameter.
@@ -230,11 +237,15 @@ pub async fn flags(
     // Handle different HTTP methods (these don't need canonical logging)
     match method {
         Method::GET => {
-            // GET requests return minimal flags response
-            return Ok(
-                get_minimal_flags_response(&headers, query_params.version.as_deref())?
-                    .into_response(),
-            );
+            // GET requests return minimal flags response. The decide proxy
+            // does not forward GETs, so we always treat the request as a
+            // direct hit (`is_from_decide = false`) here.
+            return Ok(get_minimal_flags_response(
+                &headers,
+                query_params.version.as_deref(),
+                false,
+            )
+            .into_response());
         }
         Method::POST => {
             // POST requests continue with full processing logic below
@@ -273,10 +284,13 @@ pub async fn flags(
     let ip_string = ip.to_string();
 
     // Anchor for `flags_pre_handler_time_ms` — placed before UA parse so
-    // that synchronous pre-handler work (UA parse → token rate-limit) is
-    // included end-to-end, matching the metric's documented scope. The
-    // actual emission happens inside the canonical-log scope so the metric
-    // carries a `team_id` label once it's resolved.
+    // that synchronous pre-handler work (UA parse → IP rate-limit → bot
+    // check → token rate-limit) is included end-to-end, matching the
+    // metric's documented scope. The actual emission happens inside the
+    // canonical-log scope so the metric carries a `team_id` label once
+    // it's resolved. NB: as of the bot-filter rollout, the IP rate-limit
+    // phase runs *before* `run_with_canonical_log` (so it gates spoofed
+    // bot UAs) but is still bounded by this anchor.
     let pre_handler_start = std::time::Instant::now();
 
     // Parse User-Agent and extract SDK info for logging
@@ -307,9 +321,24 @@ pub async fn flags(
     // surface.
     let body_read_ms = body_read_duration.map(|Extension(d)| d.0.as_secs_f64() * 1000.0);
 
-    // Initialize canonical log with all upfront request metadata.
-    // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
-    let canonical_log = FlagsCanonicalLogLine {
+    // Determine whether this request came through the decide proxy.
+    // Computed once here (before the bot check) because both the bot
+    // short-circuit response and the normal-path response need it for
+    // envelope selection.
+    let is_from_decide = headers
+        .get("X-Original-Endpoint")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "decide")
+        .unwrap_or(false);
+
+    // Initialize canonical log with all upfront request metadata. Mutable
+    // because the IP rate-limit and bot-detection branches that follow
+    // may mark fields (`rate_limited`, `rate_limit_warned`, `is_bot`,
+    // `bot_category`, `bot_source`) directly before any
+    // canonical-log-scoped code runs. Fields discovered later during
+    // processing (team_id, flags_evaluated, etc.) are set via
+    // `with_canonical_log()`.
+    let mut canonical_log = FlagsCanonicalLogLine {
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
@@ -323,10 +352,45 @@ pub async fn flags(
         ..Default::default()
     };
 
-    // Bot short-circuit: runs before rate-limit, auth, billing, and
-    // evaluation so a known crawler costs only a substring scan + a binary
-    // search over published bot IP ranges, plus one counter increment.
-    if !*state.config.disable_bot_filtering {
+    // IP rate-limit FIRST. Runs before the bot check so that an attacker
+    // who spoofs a Googlebot UA cannot bypass the per-IP RPS limiter — UA
+    // matching is public and trivially forgeable. We mutate
+    // `canonical_log` directly (not via `with_canonical_log`) because the
+    // task-local scope hasn't been entered yet.
+    let ip_rl_result = {
+        let _t = common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
+            .label("kind", "ip");
+        state.ip_rate_limiter.allow_request(&ip_string)
+    };
+    match ip_rl_result {
+        RateLimitResult::Blocked => {
+            let err = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
+            canonical_log.rate_limited = true;
+            canonical_log.set_error(&err);
+            // Preserve today's observability: even though we never reached
+            // `run_with_canonical_log`, queue_time/body_read histograms
+            // should still publish (with team_id="unknown") so dashboards
+            // see rate-limit traffic. emit_db_operations/phase_metrics are
+            // no-ops here but match the post-scope ordering for symmetry.
+            canonical_log.emit_db_operations_metrics();
+            canonical_log.emit_timing_metrics();
+            canonical_log.emit_phase_metrics();
+            canonical_log.emit();
+            return Err(err);
+        }
+        RateLimitResult::Warned => canonical_log.rate_limit_warned = true,
+        RateLimitResult::Allowed => {}
+    }
+
+    // Bot short-circuit: runs after IP rate-limit (so spoofed UAs are
+    // still throttled) but before token rate-limit, auth, billing, and
+    // evaluation. A known crawler costs only a single Aho-Corasick scan +
+    // a binary search over published bot IP ranges, plus one counter
+    // increment. The response envelope is selected by
+    // `get_minimal_flags_response` → `get_versioned_response`, which
+    // honors `is_from_decide` × `version` so bots hitting the decide
+    // proxy receive a Decide-shaped envelope (not Flags-shaped).
+    if state.config.bot_filtering_enabled() {
         if let Some((category, source)) = bot_detection::classify_request(user_agent, ip) {
             common_metrics::inc(
                 FLAG_BOT_REJECTED_COUNTER,
@@ -336,24 +400,23 @@ pub async fn flags(
                 ],
                 1,
             );
-            let mut bot_log = canonical_log;
-            bot_log.is_bot = true;
-            bot_log.bot_category = Some(category.as_str());
-            bot_log.bot_source = Some(source.as_str());
-            bot_log.emit();
-            return Ok(
-                get_minimal_flags_response(&headers, query_params.version.as_deref())?
-                    .into_response(),
-            );
+            canonical_log.is_bot = true;
+            canonical_log.bot_category = Some(category);
+            canonical_log.bot_source = Some(source);
+            // The `rate_limit_warned` state set above (if any) is logged
+            // for observability but is *not* propagated as the
+            // `X-PostHog-Rate-Limit-Warning` response header — bots do
+            // not read response headers, so emitting it would be cost
+            // without signal.
+            canonical_log.emit();
+            return Ok(get_minimal_flags_response(
+                &headers,
+                query_params.version.as_deref(),
+                is_from_decide,
+            )
+            .into_response());
         }
     }
-
-    // Check if this request came through the decide proxy
-    let is_from_decide = headers
-        .get("X-Original-Endpoint")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v == "decide")
-        .unwrap_or(false);
 
     // Modify query params to enable config for decide requests
     let mut modified_query_params = query_params.clone();
@@ -395,38 +458,14 @@ pub async fn flags(
 
     // Run the request within a canonical log scope.
     // All code within can use with_canonical_log() to update the log.
+    //
+    // IP-based rate limiting runs *outside* this scope (above, before the
+    // bot check) so a spoofed bot UA cannot bypass it. Here we only run
+    // the token-based per-project rate limit, which depends on parsing
+    // the JSON body and therefore needs to live alongside
+    // `process_request`.
     let (result, mut log) = run_with_canonical_log(canonical_log, async {
-        // Rate limiting strategy (order matters for security):
-        // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
-        // 2. Token-based rate limiting second - enforces per-project limits
-        //
-        // This order ensures that an attacker cannot bypass rate limiting by
-        // simply rotating through fake tokens from the same IP address.
-
-        let mut rate_limit_warned = false;
-
-        // Check IP-based rate limit first.
-        // Time the governor `allow_request` call (sharded DashMap + sync
-        // mutex) — Mutex contention on a hot token is a known source of
-        // pre-handler latency spikes. Guard records on drop, before the
-        // match arm runs.
-        let ip_rl_result = {
-            let _t =
-                common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
-                    .label("kind", "ip");
-            state.ip_rate_limiter.allow_request(&ip_string)
-        };
-        match ip_rl_result {
-            RateLimitResult::Blocked => {
-                return Err(rate_limit_error(FlagError::ClientFacing(
-                    ClientFacingError::IpRateLimited,
-                )));
-            }
-            RateLimitResult::Warned => rate_limit_warned = true,
-            RateLimitResult::Allowed => {}
-        }
-
-        // Check token-based rate limit
+        // Check token-based rate limit.
         // Extract token from body, use IP as fallback if extraction fails.
         // Time the JSON DOM scan separately — pathological large bodies
         // are the suspected outlier driver here.
@@ -447,12 +486,10 @@ pub async fn flags(
                     ClientFacingError::TokenRateLimited,
                 )));
             }
-            RateLimitResult::Warned => rate_limit_warned = true,
+            // OR-semantics with the IP-warn state already on
+            // `canonical_log.rate_limit_warned` from the pre-scope phase.
+            RateLimitResult::Warned => with_canonical_log(|l| l.rate_limit_warned = true),
             RateLimitResult::Allowed => {}
-        }
-
-        if rate_limit_warned {
-            with_canonical_log(|l| l.rate_limit_warned = true);
         }
 
         // Stamp pre-handler duration into the canonical log just before we

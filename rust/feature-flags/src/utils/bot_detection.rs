@@ -3,6 +3,7 @@
 //! covers the case where an upstream proxy (e.g. CloudFront) rewrites the
 //! User-Agent and only the source IP is usable.
 
+use aho_corasick::{AhoCorasick, MatchKind};
 use std::net::IpAddr;
 use std::sync::LazyLock;
 
@@ -145,18 +146,47 @@ const BOT_PATTERNS: &[(&str, BotCategory)] = &[
     ("crawler", BotCategory::Crawler),
 ];
 
+/// Compiled multi-pattern matcher over `BOT_PATTERNS`. Built once on first
+/// use (sub-ms with 77 short patterns) and shared across requests.
+///
+/// `MatchKind::Standard` is required so the automaton supports
+/// [`AhoCorasick::find_overlapping_iter`], which is the only iterator that
+/// reports *every* matching pattern at every position. We need that because
+/// classification is pattern-priority first, text-position second: an
+/// AhrefsBot UA that also contains `bot/` via a reference URL must classify
+/// as Seo (pattern index 21) rather than Crawler (pattern index 75), and
+/// `min()` over pattern indices is what enforces that — but only if we
+/// actually see both matches.
+static BOT_MATCHER: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasick::builder()
+        .ascii_case_insensitive(true)
+        .match_kind(MatchKind::Standard)
+        .build(BOT_PATTERNS.iter().map(|(p, _)| *p))
+        .expect("BOT_PATTERNS is a valid Aho-Corasick input")
+});
+
+/// Force eager construction of [`BOT_MATCHER`] and [`BOT_IP_RANGES`]. Call
+/// once at server start so the first `/flags` request after a pod restart
+/// doesn't pay the (sub-millisecond) build cost on its hot path.
+pub fn warm_caches() {
+    LazyLock::force(&BOT_MATCHER);
+    LazyLock::force(&BOT_IP_RANGES);
+}
+
 /// Returns the matched bot category, or `None` for non-bot or empty UAs.
+///
+/// When multiple patterns match the same UA, the one with the lowest index
+/// in `BOT_PATTERNS` wins — that is, specific bot names beat the generic
+/// `bot/` / `crawler` fallbacks.
 pub fn classify(user_agent: &str) -> Option<BotCategory> {
     if user_agent.is_empty() {
         return None;
     }
-    let lowered = user_agent.to_ascii_lowercase();
-    for (pattern, category) in BOT_PATTERNS {
-        if lowered.contains(*pattern) {
-            return Some(*category);
-        }
-    }
-    None
+    BOT_MATCHER
+        .find_overlapping_iter(user_agent)
+        .map(|m| m.pattern().as_usize())
+        .min()
+        .map(|idx| BOT_PATTERNS[idx].1)
 }
 
 pub fn is_blocked_ua(user_agent: &str) -> bool {
@@ -456,14 +486,30 @@ mod tests {
 
     #[test]
     fn bot_patterns_are_lowercase() {
-        // The matcher only lowercases the haystack, not the pattern, so
-        // an uppercase pattern would never match.
+        // The Aho-Corasick matcher uses `ascii_case_insensitive(true)`, so
+        // uppercase patterns would still match — but lowercase patterns
+        // keep the source-of-truth comparison with the SDK list trivial.
         for &(pattern, _) in BOT_PATTERNS {
             assert_eq!(
                 pattern,
                 pattern.to_ascii_lowercase(),
                 "Pattern must be lowercase: {}",
                 pattern
+            );
+        }
+    }
+
+    #[test]
+    fn every_pattern_classifies_as_its_own_category() {
+        // Guards against drift in the Aho-Corasick matcher or in
+        // `BOT_PATTERNS` ordering: a UA equal to a pattern must classify
+        // as that pattern's category, regardless of which generic fallback
+        // (`bot/`, `crawler`, …) also matches.
+        for &(pattern, expected) in BOT_PATTERNS {
+            assert_eq!(
+                classify(pattern),
+                Some(expected),
+                "Pattern {pattern:?} should classify as {expected:?}",
             );
         }
     }
