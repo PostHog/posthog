@@ -22,7 +22,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
         ADD_RELEASE_CONDITION = "add_release_condition", "add_release_condition"
         UPDATE_VARIANTS = "update_variants", "update_variants"
 
-    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     record_id = models.CharField(max_length=200)
     model_name = models.CharField(max_length=100, choices=AllowedModels)
     payload = models.JSONField(default=dict)

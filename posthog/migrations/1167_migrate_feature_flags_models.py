@@ -3,45 +3,47 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
+MOVED_MODELS = [
+    "evaluationcontext",
+    "featureflag",
+    "featureflagdashboards",
+    "featureflagevaluationcontext",
+    "featureflaghashkeyoverride",
+    "featureflagoverride",
+    "scheduledchange",
+    "teamdefaultevaluationcontext",
+]
+
 
 def update_content_type(apps, schema_editor):
     ContentType = apps.get_model("contenttypes", "ContentType")
-    for model in [
-        "evaluationcontext",
-        "featureflag",
-        "featureflagdashboards",
-        "featureflagevaluationcontext",
-        "featureflaghashkeyoverride",
-        "featureflagoverride",
-        "scheduledchange",
-        "teamdefaultevaluationcontext",
-    ]:
-        try:
-            ct = ContentType.objects.get(app_label="posthog", model=model)
-            ct.app_label = "feature_flags"
-            ct.save()
-        except ContentType.DoesNotExist:
-            pass
+    for model in MOVED_MODELS:
+        # On fresh DBs, post_migrate may have already created the new (feature_flags, model)
+        # ContentType row before this RunPython runs. Drop the stale (posthog, model) row
+        # in that case so the unique constraint on (app_label, model) doesn't fire.
+        old = ContentType.objects.filter(app_label="posthog", model=model).first()
+        if old is None:
+            continue
+        new_exists = ContentType.objects.filter(app_label="feature_flags", model=model).exists()
+        if new_exists:
+            old.delete()
+        else:
+            old.app_label = "feature_flags"
+            old.save()
 
 
 def reverse_content_type(apps, schema_editor):
     ContentType = apps.get_model("contenttypes", "ContentType")
-    for model in [
-        "evaluationcontext",
-        "featureflag",
-        "featureflagdashboards",
-        "featureflagevaluationcontext",
-        "featureflaghashkeyoverride",
-        "featureflagoverride",
-        "scheduledchange",
-        "teamdefaultevaluationcontext",
-    ]:
-        try:
-            ct = ContentType.objects.get(app_label="feature_flags", model=model)
-            ct.app_label = "posthog"
-            ct.save()
-        except ContentType.DoesNotExist:
-            pass
+    for model in MOVED_MODELS:
+        new = ContentType.objects.filter(app_label="feature_flags", model=model).first()
+        if new is None:
+            continue
+        old_exists = ContentType.objects.filter(app_label="posthog", model=model).exists()
+        if old_exists:
+            new.delete()
+        else:
+            new.app_label = "posthog"
+            new.save()
 
 
 class Migration(migrations.Migration):

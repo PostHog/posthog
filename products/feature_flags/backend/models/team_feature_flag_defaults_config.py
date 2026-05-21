@@ -16,8 +16,5 @@ class TeamFeatureFlagDefaultsConfig(models.Model):
     # [{"properties": [...], "rollout_percentage": N, "variant": null}, ...]
     default_groups = models.JSONField(default=list)
 
-    class Meta:
-        db_table = "posthog_teamfeatureflagdefaultsconfig"
-
 
 register_team_extension_signal(TeamFeatureFlagDefaultsConfig, logger=logger)

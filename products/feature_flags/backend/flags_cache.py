@@ -173,6 +173,7 @@ def _load_cohorts_with_deps(seed_ids: set[int], **team_filter: Any) -> dict[int,
             break
         depth += 1
         newly_loaded: list[Cohort] = []
+        # nosemgrep: idor-lookup-without-team — team scope is enforced via **team_filter kwargs (team_id or team__project_id__in passed by caller).
         for cohort in Cohort.objects.filter(pk__in=ids_to_load, deleted=False, **team_filter):
             loaded[cohort.pk] = cohort
             newly_loaded.append(cohort)

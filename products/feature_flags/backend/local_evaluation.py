@@ -556,6 +556,7 @@ def _get_flags_response_for_local_evaluation_batch(
 
     while ids_to_load:
         newly_loaded: list[Cohort] = []
+        # nosemgrep: idor-lookup-without-team — team scope is enforced via team__project_id__in.
         for cohort in (
             Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION)
             .filter(pk__in=ids_to_load, team__project_id__in=project_ids, deleted=False, is_static=False)

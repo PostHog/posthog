@@ -26,7 +26,7 @@ class Migration(migrations.Migration):
                     fields=[
                         (
                             "id",
-                            models.BigAutoField(
+                            models.AutoField(
                                 auto_created=True,
                                 primary_key=True,
                                 serialize=False,
@@ -40,10 +40,6 @@ class Migration(migrations.Migration):
                         "db_table": "posthog_featureflaghashkeyoverride",
                         "managed": False,
                     },
-                ),
-                migrations.AlterModelTable(
-                    name="teamfeatureflagdefaultsconfig",
-                    table="posthog_teamfeatureflagdefaultsconfig",
                 ),
                 migrations.CreateModel(
                     name="EvaluationContext",
@@ -78,7 +74,7 @@ class Migration(migrations.Migration):
                     fields=[
                         (
                             "id",
-                            models.BigAutoField(
+                            models.AutoField(
                                 auto_created=True,
                                 primary_key=True,
                                 serialize=False,
@@ -195,7 +191,7 @@ class Migration(migrations.Migration):
                     fields=[
                         (
                             "id",
-                            models.BigAutoField(
+                            models.AutoField(
                                 auto_created=True,
                                 primary_key=True,
                                 serialize=False,
@@ -272,7 +268,7 @@ class Migration(migrations.Migration):
                     fields=[
                         (
                             "id",
-                            models.BigAutoField(
+                            models.AutoField(
                                 auto_created=True,
                                 primary_key=True,
                                 serialize=False,
@@ -308,7 +304,7 @@ class Migration(migrations.Migration):
                     fields=[
                         (
                             "id",
-                            models.BigAutoField(
+                            models.AutoField(
                                 auto_created=True,
                                 primary_key=True,
                                 serialize=False,
