@@ -2622,6 +2622,7 @@ dependencies = [
  "aws-sdk-s3",
  "axum 0.7.9",
  "base64 0.22.1",
+ "bytes",
  "chrono",
  "common-alloc",
  "common-continuous-profiling",

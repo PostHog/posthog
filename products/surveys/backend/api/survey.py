@@ -41,12 +41,12 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
+    warn_if_missing_feature_flag_write_scope,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -63,7 +63,7 @@ from posthog.helpers.trigram_search import (
     MIN_NAME_TRIGRAM_SIMILARITY,
     normalize_search_term,
 )
-from posthog.models import Action, Insight
+from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
@@ -74,6 +74,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
+from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
+from products.actions.backend.models.action import Action
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
@@ -1215,6 +1217,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
+        warn_if_missing_feature_flag_write_scope(
+            self.context["request"],
+            action="survey.create",
+            team_id=self.context["team_id"],
+        )
         if validated_data.get("targeting_flag_filters"):
             targeting_feature_flag = self._create_or_update_targeting_flag(
                 None, validated_data["targeting_flag_filters"], validated_data["name"]
@@ -1252,6 +1259,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
+                warn_if_missing_feature_flag_write_scope(
+                    self.context["request"],
+                    action="survey.update.remove_targeting_flag",
+                    team_id=self.context["team_id"],
+                    feature_flag_id=instance.targeting_flag_id,
+                )
                 # Manually delete the flag and log the change
                 # The `changes_between` method won't catch this because the flag (and underlying ForeignKey relationship)
                 # will have been deleted by the time the `changes_between` method is called, so we need to log the change manually
@@ -1267,6 +1280,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
+            warn_if_missing_feature_flag_write_scope(
+                self.context["request"],
+                action="survey.update.targeting_flag_filters",
+                team_id=self.context["team_id"],
+                feature_flag_id=instance.targeting_flag_id,
+            )
             new_filters = validated_data["targeting_flag_filters"]
             if instance.targeting_flag:
                 existing_targeting_flag = instance.targeting_flag
@@ -1732,10 +1751,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
+        related_internal_targeting_flag = instance.internal_targeting_flag
+        if related_targeting_flag or related_internal_targeting_flag:
+            warn_if_missing_feature_flag_write_scope(
+                request,
+                action="survey.destroy",
+                team_id=self.team_id,
+                feature_flag_id=(related_targeting_flag or related_internal_targeting_flag).id,
+            )
         if related_targeting_flag:
             related_targeting_flag.delete()
-
-        related_internal_targeting_flag = instance.internal_targeting_flag
         if related_internal_targeting_flag:
             related_internal_targeting_flag.delete()
 

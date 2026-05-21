@@ -1,8 +1,9 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import { teamLogic } from '~/scenes/teamLogic'
 
 import type { experimentsConfigLogicType } from './experimentsConfigLogicType'
@@ -13,6 +14,7 @@ export interface ExperimentsConfig {
     default_experiment_stats_method: string | null
     default_only_count_matured_users: boolean
     default_cuped_enabled: boolean
+    default_minimum_detectable_effect: number
 }
 
 export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
@@ -25,7 +27,7 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
         experimentsConfig: [
             null as ExperimentsConfig | null,
             {
-                loadExperimentsConfig: async () => {
+                loadExperimentsConfig: async (): Promise<ExperimentsConfig> => {
                     return await api.get(`api/environments/${values.currentTeamId}/experiments_config/`)
                 },
             },
@@ -35,6 +37,12 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
         experimentsConfig: {
             updateExperimentsConfig: (state, { payload }) => (state ? { ...state, ...payload } : state),
         },
+    }),
+    selectors({
+        defaultMinimumDetectableEffect: [
+            (s) => [s.experimentsConfig],
+            (config): number => config?.default_minimum_detectable_effect ?? DEFAULT_MDE,
+        ],
     }),
     listeners(({ actions, values }) => ({
         updateExperimentsConfig: async ({ payload }) => {

@@ -31,7 +31,10 @@ class ScorerOutput(BaseLensOutput, frozen=True):
 
 class ScorerLens(BaseLens, frozen=True):
     lens_type: Literal[LensType.SCORER] = LensType.SCORER
+    prompt: str
     prompt_template: ClassVar[str] = "scorer.jinja"
+    citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
+    output_cls: ClassVar[type[BaseLensOutput]] = ScorerOutput
     scale: ScoreScale
 
     @property
