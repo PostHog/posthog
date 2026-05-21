@@ -161,7 +161,7 @@ function TaskList(): JSX.Element {
                         <TaskIcon status={task.status} />
                         <span
                             className={
-                                task.status === 'completed' || task.status === 'cancelled'
+                                task.status === 'completed' || task.status === 'canceled'
                                     ? 'line-through text-neutral-500'
                                     : task.status === 'failed'
                                       ? 'text-brand-red'
@@ -192,7 +192,7 @@ function TaskIcon({ status }: { status: string }): JSX.Element {
               ? '▶'
               : status === 'failed'
                 ? '✗'
-                : status === 'cancelled'
+                : status === 'canceled'
                   ? '⊘'
                   : '☐'
     const color =
@@ -234,18 +234,21 @@ function Footer({ onManualSetup }: { onManualSetup?: () => void }): JSX.Element 
     const showManualLink =
         onManualSetup !== undefined &&
         (displayState === 'running' || displayState === 'connecting' || displayState === 'error')
-    const showErrorBlock = displayState === 'error' && latestSession?.error
+    const errorPayload =
+        displayState === 'error' && latestSession?.error && typeof latestSession.error === 'object'
+            ? (latestSession.error as { type?: string; message?: string })
+            : null
 
-    if (!showManualLink && !showErrorBlock) {
+    if (!showManualLink && !errorPayload) {
         return <></>
     }
 
     return (
         <div className="px-4 py-2.5 border-t border-neutral-800 text-xs flex items-center justify-between gap-3">
-            {showErrorBlock ? (
+            {errorPayload ? (
                 <div className="text-brand-red min-w-0">
-                    <span className="font-semibold">{latestSession!.error!.type}: </span>
-                    <span className="text-neutral-300">{latestSession!.error!.message}</span>
+                    <span className="font-semibold">{errorPayload.type}: </span>
+                    <span className="text-neutral-300">{errorPayload.message}</span>
                 </div>
             ) : (
                 <span />

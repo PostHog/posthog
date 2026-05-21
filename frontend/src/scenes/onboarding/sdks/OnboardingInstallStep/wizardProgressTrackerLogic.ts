@@ -1,6 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import type { WizardSessionApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
 import type { wizardProgressTrackerLogicType } from './wizardProgressTrackerLogicType'
@@ -118,7 +119,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 actions.appendActivity(text)
             }
         },
-        latestSession: (session, prev) => {
+        latestSession: (session: WizardSessionApi | null, prev: WizardSessionApi | null) => {
             if (!session) {
                 return
             }
