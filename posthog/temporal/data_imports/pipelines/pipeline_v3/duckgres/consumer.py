@@ -23,10 +23,10 @@ DuckgresConsumerConfig = BatchConsumerConfig
 
 
 class DuckgresBatchConsumerAdapter:
-    log_prefix = "duckgres"
-    executing_state = SourceBatchDuckgresStatus.State.EXECUTING
-    succeeded_state = SourceBatchDuckgresStatus.State.SUCCEEDED
-    waiting_retry_state = SourceBatchDuckgresStatus.State.WAITING_RETRY
+    log_prefix: str = "duckgres"
+    executing_state: str = SourceBatchDuckgresStatus.State.EXECUTING.value
+    succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
+    waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
 
     async def fetch_and_lock(
         self,

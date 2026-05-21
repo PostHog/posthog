@@ -51,6 +51,17 @@ class DuckgresBatchQueue:
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND ds.job_state = 'succeeded'
                         AND (dgs.batch_id IS NULL OR dgs.job_state = 'waiting_retry')
+                        AND (
+                            b.is_final_batch = true
+                            OR NOT EXISTS (
+                                SELECT 1
+                                FROM {DUCKGRES_APPLY_TABLE} current_apply
+                                WHERE current_apply.team_id = b.team_id
+                                    AND current_apply.schema_id = b.schema_id
+                                    AND current_apply.run_uuid = b.run_uuid
+                                    AND current_apply.batch_index = b.batch_index
+                            )
+                        )
                         AND b.run_uuid NOT IN (
                             SELECT DISTINCT b2.run_uuid
                             FROM {BATCH_TABLE} b2

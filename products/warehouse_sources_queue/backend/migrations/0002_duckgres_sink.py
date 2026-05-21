@@ -1,3 +1,4 @@
+import django.db.models.manager
 import django.db.models.deletion
 from django.db import migrations, models
 
@@ -40,6 +41,9 @@ def _create_duckgres_tables(apps, schema_editor):
 
         CREATE INDEX sbdga_run_idx
             ON sourcebatchduckgresapply (team_id, schema_id, run_uuid);
+
+        CREATE INDEX sbdga_team_id_idx
+            ON sourcebatchduckgresapply (team_id);
     """)
 
     schema_editor.execute(f"""
@@ -137,7 +141,7 @@ class Migration(migrations.Migration):
                             "id",
                             models.UUIDField(default=uuid7, editable=False, primary_key=True, serialize=False),
                         ),
-                        ("team_id", models.BigIntegerField()),
+                        ("team_id", models.BigIntegerField(db_index=True)),
                         ("schema_id", models.CharField(max_length=200)),
                         ("run_uuid", models.CharField(max_length=200)),
                         ("batch_index", models.IntegerField()),
@@ -163,6 +167,9 @@ class Migration(migrations.Migration):
                             )
                         ],
                     },
+                    managers=[
+                        ("all_teams", django.db.models.manager.Manager()),
+                    ],
                 ),
             ],
             database_operations=[],

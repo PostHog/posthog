@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import UUIDModel, sane_repr
 
 
@@ -112,8 +113,7 @@ class SourceBatchDuckgresStatus(UUIDModel):
         ]
 
 
-class SourceBatchDuckgresApply(UUIDModel):
-    team_id = models.BigIntegerField()
+class SourceBatchDuckgresApply(ProductTeamModel, UUIDModel):
     schema_id = models.CharField(max_length=200)
     run_uuid = models.CharField(max_length=200)
     batch_index = models.IntegerField()
