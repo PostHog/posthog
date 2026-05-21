@@ -74,7 +74,7 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
         db_table = "posthog_action"
 
     def __str__(self) -> str:
-        return self.name
+        return self.name or ""
 
     def save(self, *args, **kwargs) -> None:
         self.refresh_bytecode()
