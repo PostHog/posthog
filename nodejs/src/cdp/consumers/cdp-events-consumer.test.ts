@@ -73,19 +73,18 @@ describe.each([
         processor = new Consumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
+        ;(processor as any)['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),
             isHealthy: jest.fn(),
         } as any
-
-        processor['cyclotronJobQueue'] = {
+        ;(processor as any)['cyclotronJobQueue'] = {
             queueInvocations: jest.fn(),
             startAsProducer: jest.fn(() => Promise.resolve()),
             stop: jest.fn(),
         } as unknown as jest.Mocked<CyclotronJobQueue>
 
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = jest.mocked((processor as any)['cyclotronJobQueue']['queueInvocations'])
 
         await processor.start()
     })
@@ -590,13 +589,12 @@ describe('hog flow processing', () => {
         processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        processor['kafkaConsumer'] = {
+        ;(processor as any)['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),
             isHealthy: jest.fn(),
         } as any
-
-        processor['cyclotronJobQueue'] = {
+        ;(processor as any)['cyclotronJobQueue'] = {
             queueInvocations: jest.fn(),
             startAsProducer: jest.fn(() => Promise.resolve()),
             stop: jest.fn(),
@@ -639,7 +637,7 @@ describe('hog flow processing', () => {
             hogFlow.trigger = {} as any
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -656,7 +654,7 @@ describe('hog flow processing', () => {
                 .build()
             await insertHogFlow(hogFlow)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(0)
         })
 
@@ -673,7 +671,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const noInvocations = await processor['createHogFlowInvocations']([
+            const noInvocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([
                 {
                     ...globals,
                     event: {
@@ -685,7 +683,7 @@ describe('hog flow processing', () => {
 
             expect(noInvocations).toHaveLength(0)
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({
                 functionId: hogFlow.id,
@@ -716,7 +714,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            await processor['createHogFlowInvocations']([globals])
+            await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             const producedMetrics =
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
@@ -793,7 +791,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should have no invocations returned due to quota limiting
             expect(invocations).toHaveLength(0)
@@ -870,7 +868,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(0)
             expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
@@ -917,7 +915,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             // Should process the workflow since it doesn't have email or destination actions
             expect(invocations).toHaveLength(1)
@@ -967,7 +965,7 @@ describe('hog flow processing', () => {
                     .build()
             )
 
-            const invocations = await processor['createHogFlowInvocations']([globals])
+            const invocations = await (processor as any)['hogFlowPipeline']['buildInvocations']([globals])
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0]).toMatchObject({
