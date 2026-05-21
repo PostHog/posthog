@@ -82,7 +82,20 @@ impl<'a> Parser<'a> {
             if !body_takes_decorators {
                 return Ok(first);
             }
-            return Ok(merge_select_decorators(first, filtered));
+            // Do NOT extend the inner SelectQuery / SelectSetQuery's
+            // `end` to cover trailing set-level decorators. cpp's
+            // `VISIT(SelectStmt)` positions the SelectQuery from its own
+            // ctx (which spans whatever the selectStmt rule itself
+            // matched), and the outer `VISIT(SelectSetStmt)` adds
+            // limit / offset / limit_with_ties / limit_percent fields
+            // without re-stamping positions — so the end stays at the
+            // last body-level clause cpp consumed. Mirror that exactly.
+            let merged = merge_select_decorators(first, filtered);
+            // `has_set_level_trailing` is unused here (we keep it
+            // declared above for parity with the set-stmt branch's
+            // OFFSET-lift heuristic, which it still feeds).
+            let _ = has_set_level_trailing;
+            return Ok(merged);
         }
         // cpp's `VISIT(SelectSetStmt)` lifts the inner SelectQuery's
         // OFFSET to the outer SelectSetQuery — but ONLY for the
@@ -314,6 +327,11 @@ impl<'a> Parser<'a> {
         //   - `(` → paren-wrapped selectSet that inherits the CTEs
         //   - `SELECT` → bare WITH-SELECT; thread CTEs into parse_select_stmt
         if matches!(self.peek(), TokenKind::Keyword(Kw::With)) {
+            // Capture WITH's start so the resulting SelectQuery /
+            // SelectSetQuery has a span starting at WITH rather than at
+            // the inner SELECT — cpp's selectStmt ctx covers the whole
+            // WITH-led statement.
+            let with_start = self.peek0.start;
             self.bump()?; // WITH
             let recursive = self.eat_kw(Kw::Recursive)?;
             let mut ctes = self.parse_with_expr_list()?;
@@ -329,9 +347,14 @@ impl<'a> Parser<'a> {
                 let mut inner = self.parse_select_set_stmt()?;
                 self.expect(TokenKind::RParen, ")")?;
                 inject_ctes_into_select(&mut inner, ctes);
+                // cpp's `WITH ctes (selectSet)` ctx for the outer
+                // SelectSetQuery starts at the `(`, NOT at WITH. The
+                // CTEs are injected into the inner set's SelectQuery,
+                // but the outer span doesn't widen to cover WITH.
+                // Keep `inner`'s existing positions untouched.
                 return Ok(inner);
             }
-            return self.parse_select_stmt_body(Some(ctes));
+            return self.parse_select_stmt_body(Some(ctes), Some(with_start));
         }
         if self.eat(TokenKind::LParen)? {
             let inner = self.parse_select_set_stmt()?;
@@ -357,6 +380,14 @@ impl<'a> Parser<'a> {
         // WITH at the start; consume CTEs here then delegate to the body
         // helper. This lets parse_select_stmt_with_parens hand us
         // already-parsed CTEs when it disambiguated WITH+`(`.
+        // Capture the WITH start before consuming so the body wraps the
+        // resulting SelectQuery with a span beginning at WITH (cpp's
+        // selectStmt ctx covers the whole WITH-led statement).
+        let with_start = if matches!(self.peek(), TokenKind::Keyword(Kw::With)) {
+            Some(self.peek0.start)
+        } else {
+            None
+        };
         let mut ctes: Option<Vec<Value>> = None;
         if self.eat_kw(Kw::With)? {
             let recursive = self.eat_kw(Kw::Recursive)?;
@@ -370,17 +401,22 @@ impl<'a> Parser<'a> {
             }
             ctes = Some(parsed);
         }
-        self.parse_select_stmt_body(ctes)
+        self.parse_select_stmt_body(ctes, with_start)
     }
 
     /// SELECT statement body, starting at the `SELECT` keyword (after
     /// any WITH clause has been consumed). `pre_parsed_ctes` carries
-    /// CTEs that the caller already consumed.
+    /// CTEs that the caller already consumed; `override_start` carries
+    /// the caller-snapshotted position of the WITH keyword so the
+    /// resulting SelectQuery's span starts at WITH rather than at the
+    /// inner SELECT — cpp's selectStmt ctx covers the whole
+    /// WITH-led statement.
     fn parse_select_stmt_body(
         &mut self,
         pre_parsed_ctes: Option<Vec<Value>>,
+        override_start: Option<usize>,
     ) -> Result<Value, ParseError> {
-        let stmt_start = self.peek0.start;
+        let stmt_start = override_start.unwrap_or(self.peek0.start);
         let mut obj = serde_json::Map::new();
         obj.insert("node".into(), Value::String("SelectQuery".into()));
         if let Some(ctes) = pre_parsed_ctes {
@@ -569,8 +605,11 @@ impl<'a> Parser<'a> {
                 // grouping sets: list of `GroupingSet` nodes — cpp's
                 // visitor wraps each paren'd column list in a node so
                 // the Python AST can hold them in `group_by: list[Expr]`.
+                // The cpp ctx for `groupingSet` is `LPAREN columnExprList? RPAREN`
+                // so the position spans the parens themselves.
                 let mut sets: Vec<Value> = Vec::new();
                 loop {
+                    let set_start = self.peek0.start;
                     self.expect(TokenKind::LParen, "(")?;
                     let exprs = if self.peek() == TokenKind::RParen {
                         self.bump()?;
@@ -580,10 +619,13 @@ impl<'a> Parser<'a> {
                         self.expect(TokenKind::RParen, ")")?;
                         exprs
                     };
-                    sets.push(serde_json::json!({
-                        "node": "GroupingSet",
-                        "exprs": exprs,
-                    }));
+                    sets.push(self.wrap_pos(
+                        serde_json::json!({
+                            "node": "GroupingSet",
+                            "exprs": exprs,
+                        }),
+                        set_start,
+                    ));
                     if !self.eat(TokenKind::Comma)? {
                         break;
                     }
@@ -813,11 +855,16 @@ impl<'a> Parser<'a> {
         // BP_MULT+1 stops the initial parse before a top-level `%` so
         // `limit_resolve_percent` sees it undigested; a compound body
         // (additive / comparison / AND / OR) is then extended at BP=0.
+        let body_start = self.peek0.start;
         let first_raw = self.parse_expr_bp(BP_MULT + 1)?;
-        let (mut first, mut percent) = self.limit_resolve_percent(first_raw)?;
+        let (mut first, mut percent) = self.limit_resolve_percent(first_raw, body_start)?;
         if !percent {
-            let cont_start = self.peek0.start;
-            first = self.pratt_continue_with_lhs(first, 0, cont_start)?;
+            // Use the body's start (snapshotted before parse_expr_bp) for
+            // the continuation's wrap so the resulting infix span starts
+            // at the first operand, not at the operator that pratt_continue
+            // reads from peek0. cpp's limitExpr ctx covers the whole body
+            // from the first token.
+            first = self.pratt_continue_with_lhs(first, 0, body_start)?;
             // The continuation's `%` handler leaves a `LIMIT … PERCENT`
             // marker unconsumed (it isn't modulo); pick it up here.
             if self.peek() == TokenKind::Percent {
@@ -840,6 +887,10 @@ impl<'a> Parser<'a> {
         &mut self,
         obj: &mut serde_json::Map<String, Value>,
     ) -> Result<(), ParseError> {
+        // Capture the LIMIT keyword's start so the eventual LimitByExpr
+        // (cpp's `limitByClause` ctx, `LIMIT limitExpr BY columnExprList`)
+        // gets a span starting at LIMIT, not at the first BY-expr.
+        let limit_start = self.peek0.start;
         if !self.eat_kw(Kw::Limit)? {
             // No LIMIT — accept a standalone OFFSET clause (offsetOnlyClause).
             if self.eat_kw(Kw::Offset)? {
@@ -883,8 +934,28 @@ impl<'a> Parser<'a> {
         }
         let tail = if self.eat(TokenKind::Comma)? {
             Tail::Comma(self.parse_expr_bp(0)?)
-        } else if self.eat_kw(Kw::Offset)? {
-            Tail::Offset(self.parse_expr_bp(0)?)
+        } else if matches!(self.peek(), TokenKind::Keyword(Kw::Offset)) {
+            // cpp's grammar allows OFFSET at the body level in two places:
+            //   - `limitByClause: LIMIT limitExpr BY ...` where
+            //     `limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?`
+            //     — i.e. `LIMIT a OFFSET b BY c` is limit-by with offset_value=b.
+            //   - `limitAndOffsetClause` verbose alt: `LIMIT n PERCENT?
+            //     (WITH TIES)? OFFSET m`.
+            // For the verbose limit-and-offset alt, cpp's ANTLR ALL(*)
+            // prefers the COMPACT alt (`LIMIT n` only) when both can
+            // match, leaving `OFFSET m` to be absorbed by selectSetStmt's
+            // trailing `limitAndOffsetClauseOptional`. So consume OFFSET
+            // here ONLY when BY follows — otherwise leave it for the
+            // outer set-stmt trailing-decorators pass.
+            let cp = self.checkpoint();
+            self.bump()?; // OFFSET
+            let off = self.parse_expr_bp(0)?;
+            if matches!(self.peek(), TokenKind::Keyword(Kw::By)) {
+                Tail::Offset(off)
+            } else {
+                self.restore(cp)?;
+                Tail::None
+            }
         } else {
             Tail::None
         };
@@ -923,7 +994,10 @@ impl<'a> Parser<'a> {
             if let Some(o) = offset_value {
                 lb.insert("offset_value".into(), o);
             }
-            obj.insert("limit_by".into(), Value::Object(lb));
+            obj.insert(
+                "limit_by".into(),
+                self.wrap_pos(Value::Object(lb), limit_start),
+            );
 
             // After the limit-by clause, an optional outer
             // limit-and-offset (or bare OFFSET) may follow.
@@ -1035,11 +1109,15 @@ impl<'a> Parser<'a> {
     /// modulo whenever the modulo path can succeed end-to-end (the
     /// whole `columnExpr` parses and the rest forms a valid limit
     /// continuation), otherwise `%` is the PERCENT marker.
-    fn limit_resolve_percent(&mut self, expr: Value) -> Result<(Value, bool), ParseError> {
+    fn limit_resolve_percent(
+        &mut self,
+        expr: Value,
+        expr_start: usize,
+    ) -> Result<(Value, bool), ParseError> {
         if self.peek0.kind != TokenKind::Percent {
             return Ok((expr, false));
         }
-        match self.try_limit_modulo_extension(expr.clone())? {
+        match self.try_limit_modulo_extension(expr.clone(), expr_start)? {
             Some(extended) => Ok((extended, false)),
             None => {
                 self.bump()?; // % (PERCENT marker)
@@ -1067,9 +1145,9 @@ impl<'a> Parser<'a> {
     pub(crate) fn try_limit_modulo_extension(
         &mut self,
         lhs: Value,
+        lhs_start: usize,
     ) -> Result<Option<Value>, ParseError> {
         let cp = self.checkpoint();
-        let pct_start = self.peek0.start;
         let trial = (|p: &mut Self| -> Result<Option<Value>, ParseError> {
             p.bump()?; // %
             let rhs = p.parse_expr_bp(BP_MULT + 1)?;
@@ -1077,7 +1155,10 @@ impl<'a> Parser<'a> {
             // Extend the whole columnExpr (BP=0) — cpp parses the
             // LIMIT body greedily, so a lower-precedence tail
             // (`% 2 + 3`, `% 2 AND 3`) stays part of the modulo body.
-            let extended = p.pratt_continue_with_lhs(combined, 0, pct_start)?;
+            // `lhs_start` is the original LHS's start, not the `%` —
+            // cpp's `columnExprPrecedence2` ctx covers the whole modulo
+            // expression from the LHS's first token.
+            let extended = p.pratt_continue_with_lhs(combined, 0, lhs_start)?;
             if p.peek_is_limit_body_done() {
                 return Ok(Some(extended));
             }

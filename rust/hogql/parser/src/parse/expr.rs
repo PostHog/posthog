@@ -75,7 +75,7 @@ impl<'a> Parser<'a> {
                     // → the `%` is the PERCENT marker, left for the
                     // enclosing LIMIT clause.
                     if self.limit_body_depth > 0 {
-                        match self.try_limit_modulo_extension(lhs.clone())? {
+                        match self.try_limit_modulo_extension(lhs.clone(), lhs_start)? {
                             Some(extended) => {
                                 lhs = extended;
                                 continue;
@@ -371,6 +371,20 @@ impl<'a> Parser<'a> {
                                 | TokenKind::RBracket
                                 | TokenKind::RBrace
                                 | TokenKind::Semicolon
+                                // `NOT ilike(args)` / `NOT like(a, b)` /
+                                // `NOT between(a, b, c)` are function-call
+                                // forms — cpp treats the `(args)` as a
+                                // Call (ANTLR's `ColumnExprFunction` alt
+                                // wins because the keyword reads as an
+                                // identifier function-name), so NOT
+                                // applies as a unary prefix to the whole
+                                // call: `Not(Call(ilike, [a, b]))`.
+                                // Treating LParen as a "terminator" here
+                                // keeps the unary-NOT path so we recurse
+                                // into parse_ident_lead → Call rather
+                                // than falling through to the binary
+                                // `Field(not) NOT-ILIKE rhs` interpretation.
+                                | TokenKind::LParen
                         ) {
                             return self.parse_ident_lead();
                         }
@@ -1544,10 +1558,16 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn parse_brace_dict_or_placeholder(&mut self) -> Result<Value, ParseError> {
+        // Capture the `{` start so the resulting Dict / Placeholder carries
+        // a span from `{` through `}`. Callers reached via `parse_expr_bp`
+        // also wrap, but `parse_table_expr` and the join-expr placeholder
+        // arm call this directly without an outer Pratt wrap — without
+        // wrapping here the resulting table-position is None.
+        let brace_start = self.peek0.start;
         self.expect(TokenKind::LBrace, "{")?;
         if self.peek() == TokenKind::RBrace {
             self.bump()?;
-            return Ok(emit::dict_(vec![]));
+            return Ok(self.wrap_pos(emit::dict_(vec![]), brace_start));
         }
         let first = self.parse_expr_bp(0)?;
         if self.eat(TokenKind::Colon)? {
@@ -1563,10 +1583,10 @@ impl<'a> Parser<'a> {
                 items.push((k, v));
             }
             self.expect(TokenKind::RBrace, "}")?;
-            Ok(emit::dict_(items))
+            Ok(self.wrap_pos(emit::dict_(items), brace_start))
         } else {
             self.expect(TokenKind::RBrace, "}")?;
-            Ok(emit::placeholder(first))
+            Ok(self.wrap_pos(emit::placeholder(first), brace_start))
         }
     }
 
@@ -4221,7 +4241,19 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     let (low, high, hoisted) = self.parse_between_body(min_bp)?;
                     let prev = lhs.take();
-                    let mut between = emit::between(prev, low, high, true);
+                    // Wrap the inner BetweenExpr with positions BEFORE the
+                    // hoist loop. When a hoist wrapper (Or / Ternary /
+                    // Alias / Arith) is applied, the outer pratt-loop
+                    // wrap_pos at line ~126 stamps positions onto the
+                    // OUTERMOST wrapper, but the BetweenExpr is now
+                    // buried inside (e.g. as `Call(if, [BetweenExpr, …])`
+                    // for the ternary hoist) and would not otherwise
+                    // receive a span. cpp emits position info on
+                    // BetweenExpr unconditionally — match that.
+                    let mut between = self.wrap_pos(
+                        emit::between(prev, low, high, true),
+                        lhs_start,
+                    );
                     for hoist in hoisted {
                         between = apply_between_hoist(between, hoist);
                     }
@@ -4273,7 +4305,13 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 let (low, high, hoisted) = self.parse_between_body(min_bp)?;
                 let prev = lhs.take();
-                let mut between = emit::between(prev, low, high, false);
+                // See the NOT BETWEEN arm above — wrap before hoist
+                // application so a buried BetweenExpr inside a Call(if,…),
+                // Or(…), Alias(…), or Arith(…) still carries its own span.
+                let mut between = self.wrap_pos(
+                    emit::between(prev, low, high, false),
+                    lhs_start,
+                );
                 for hoist in hoisted {
                     between = apply_between_hoist(between, hoist);
                 }
@@ -4988,6 +5026,32 @@ fn apply_between_hoist(expr: Value, hoist: BetweenHoist) -> Value {
     }
 }
 
+/// Stamp `start` / `end` on a synthetic And/Or built by
+/// `split_at_rightmost_and` from a slice of pre-positioned children.
+/// `emit::and_` / `emit::or_` produce position-less JSON; an outer
+/// `wrap_pos` would catch the BETWEEN-level wrap but not the inner
+/// synthetic And/Or that lives inside BetweenExpr's `low` or `high`,
+/// because BetweenExpr's `low` / `high` are direct fields (not nested
+/// expressions that the pratt loop wraps). Derive the span from the
+/// first child's `start` and the last child's `end` so the inner
+/// synthetic node carries a non-null span.
+fn stamp_span_from_children(mut node: Value, children: &[Value]) -> Value {
+    if children.is_empty() {
+        return node;
+    }
+    let start = children[0].get("start").cloned();
+    let end = children[children.len() - 1].get("end").cloned();
+    if let Some(obj) = node.as_object_mut() {
+        if let Some(s) = start {
+            obj.insert("start".into(), s);
+        }
+        if let Some(e) = end {
+            obj.insert("end".into(), e);
+        }
+    }
+    node
+}
+
 /// Walk an already-parsed boolean tree to find the rightmost AND in
 /// source order and split there. Returns `(left_of_and, right_of_and)`.
 /// Used by `parse_between_body` to apply ANTLR's "rightmost AND is the
@@ -5023,7 +5087,8 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
             let new_left = if new_exprs.len() == 1 {
                 new_exprs.into_iter().next().unwrap()
             } else {
-                emit::and_(new_exprs)
+                let synthetic = emit::and_(new_exprs.clone());
+                stamp_span_from_children(synthetic, &new_exprs)
             };
             return Some((new_left, deep_right, hoisted));
         }
@@ -5033,7 +5098,8 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
         let left = if exprs.len() == 1 {
             exprs.pop().unwrap()
         } else {
-            emit::and_(exprs)
+            let synthetic = emit::and_(exprs.clone());
+            stamp_span_from_children(synthetic, &exprs)
         };
         return Some((left, right, Vec::new()));
     }
@@ -5053,7 +5119,8 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                     let left = if left_children.len() == 1 {
                         left_children.pop().unwrap()
                     } else {
-                        emit::or_(left_children)
+                        let synthetic = emit::or_(left_children.clone());
+                        stamp_span_from_children(synthetic, &left_children)
                     };
                     let mut right_children: Vec<Value> = Vec::with_capacity(exprs.len() - i);
                     right_children.push(right_in);
@@ -5061,7 +5128,8 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                     let right = if right_children.len() == 1 {
                         right_children.pop().unwrap()
                     } else {
-                        emit::or_(right_children)
+                        let synthetic = emit::or_(right_children.clone());
+                        stamp_span_from_children(synthetic, &right_children)
                     };
                     return Some((left, right, hoisted));
                 }

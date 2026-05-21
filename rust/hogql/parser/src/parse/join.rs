@@ -157,6 +157,13 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // wrap_pos is idempotent. parse_table_atom and wrap_pivot_chain
+        // both wrap their results with positions, so `left` always has
+        // a span by this point — keeping wrap_pos here matches cpp's
+        // JoinExprParens semantics (unwrap parens, keep the inner's
+        // positions) and cpp's JoinExprOp / JoinExprCrossOp semantics
+        // (chain joins, keep the head's positions; do not extend to the
+        // joined-in tables).
         Ok(self.wrap_pos(left, chain_start))
     }
 
@@ -239,7 +246,12 @@ impl<'a> Parser<'a> {
         if let Some(s) = self.try_consume_sample()? {
             outer.insert("sample".into(), s);
         }
-        Ok(Value::Object(outer))
+        // Wrap before returning so the JoinExpr carries positions even
+        // when a later wrap_pivot_chain stacks it as the inner table of
+        // a fresh outer PivotExpr / UnpivotExpr. The outer parse_join_expr
+        // wrap_pos at line ~160 is idempotent and only reaches the
+        // *outermost* node — the inner one needs its own wrap here.
+        Ok(self.wrap_pos(Value::Object(outer), table_start))
     }
 
     fn try_consume_join_op(&mut self) -> Result<Option<String>, ParseError> {
@@ -531,6 +543,15 @@ impl<'a> Parser<'a> {
     fn parse_table_atom(&mut self) -> Result<Value, ParseError> {
         let atom_start = self.peek0.start;
         let mut table_expr = self.parse_table_expr()?;
+        // Snapshot the end of `tableExpr` before alias / FINAL / SAMPLE
+        // are consumed. For the table-function case (cpp's
+        // `TableFunctionExpr`), cpp's emitted JoinExpr's ctx covers
+        // ONLY `name(args)` — the alias is injected by the parent
+        // `TableExprAlias` without changing the JoinExpr's span. Capture
+        // here so the table-function branch below can clamp `end` to
+        // the args-close position rather than letting it run through
+        // the alias / FINAL / SAMPLE decorations.
+        let table_expr_end = self.last_consumed_end;
         // `(joinExpr)` per the grammar's `JoinExprParens` returns an
         // already-wrapped JoinExpr (or chain). The grammar:
         //   joinExpr: ... | LPAREN joinExpr RPAREN  # JoinExprParens
@@ -552,6 +573,7 @@ impl<'a> Parser<'a> {
         let table_args = table_expr
             .as_object_mut()
             .and_then(|m| m.remove("__rust_table_args"));
+        let is_table_function = table_args.is_some();
         // Grammar order: `TableExprAlias` is `tableExpr (alias | AS
         // identifier) columnAliases?` — the alias and column-aliases
         // bind *inside* `tableExpr` — and `JoinExprTable` then
@@ -560,6 +582,13 @@ impl<'a> Parser<'a> {
         // alias (as this did) silently dropped the sample on an
         // aliased table — `t AS e SAMPLE 1` lost its `SampleExpr`.
         let (alias, column_aliases) = self.consume_table_alias_chain()?;
+        let had_alias = alias.is_some() || column_aliases.is_some();
+        // Snapshot end after alias / column_aliases — cpp's
+        // `TableExprAlias` ctx covers `tableExpr alias columnAliases?` and
+        // its JoinExpr wrap stops there. The subsequent FINAL / SAMPLE
+        // sit in the parent `JoinExprTable` rule, which adds them as
+        // fields on the existing JoinExpr WITHOUT widening its span.
+        let after_alias_end = self.last_consumed_end;
         // `JoinExprTable: tableExpr FINAL? sampleClause?` — FINAL and
         // SAMPLE decorate the (possibly aliased) table.
         let final_ = self.eat_kw(Kw::Final)?;
@@ -591,7 +620,24 @@ impl<'a> Parser<'a> {
                 Value::Array(ca.into_iter().map(Value::String).collect()),
             );
         }
-        Ok(self.wrap_pos(Value::Object(obj), atom_start))
+        // Three position-end regimes match cpp's three wrapping points:
+        //   - `TableFunctionExpr` (cpp lines 2797-2817): ctx covers
+        //     `name(args)` only; alias / FINAL / SAMPLE never widen it.
+        //   - `TableExprAlias`     (cpp lines 2754-2790): ctx covers
+        //     `tableExpr alias columnAliases?`; FINAL / SAMPLE applied
+        //     by the parent JoinExprTable don't widen.
+        //   - `JoinExprTable`      (cpp lines 1056-1080): wraps a non-
+        //     JoinExpr tableExpr with ctx = `tableExpr FINAL? SAMPLE?`;
+        //     this is the only path where FINAL / SAMPLE contribute to
+        //     the span.
+        let wrap_end = if is_table_function {
+            table_expr_end
+        } else if had_alias {
+            after_alias_end
+        } else {
+            self.last_consumed_end
+        };
+        Ok(self.wrap_pos_to(Value::Object(obj), atom_start, wrap_end))
     }
 
     /// Consume a chain of table aliases. The grammar's `TableExprAlias`
@@ -788,14 +834,16 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::RParen, ")")?;
             // Encode as a Field with a sibling "table_args" object so the
             // wrapping JoinExpr in parse_table_atom can pull it out.
-            return Ok(self.wrap_pos(
-                json!({
-                    "node": "Field",
-                    "chain": [name],
-                    "__rust_table_args": args,
-                }),
-                tab_start,
-            ));
+            // cpp's `VISIT(TableFunctionExpr)` (parser_json.cpp lines
+            // 2797-2817) builds the inner Field WITHOUT calling
+            // `addPositionInfo` — only the wrapping JoinExpr carries the
+            // span. Emit position-less here too so the deserialised
+            // Field's `start` / `end` stay `None`, matching cpp.
+            return Ok(emit::no_pos(json!({
+                "node": "Field",
+                "chain": [name],
+                "__rust_table_args": args,
+            })));
         }
         // Field chain.
         let mut chain: Vec<Value> = vec![Value::String(name)];
@@ -1255,7 +1303,15 @@ impl<'a> Parser<'a> {
             self.bump()?;
             let exprs = self.parse_expr_list_until_paren()?;
             self.expect(TokenKind::RParen, ")")?;
-            return Ok(self.wrap_pos(emit::tuple_(exprs), op_start));
+            // cpp's UnpivotColumn / PivotColumn visitors construct a
+            // synthetic Tuple (`{node: Tuple, exprs: …}`) without calling
+            // `addPositionInfo` (lines 1141-1148 and 1100-1116 of
+            // `parser_json.cpp`). The grammar's
+            // `columnExprTupleOrSingle: LPAREN columnExprList RPAREN`
+            // exists only inside PIVOT/UNPIVOT, so every call to this
+            // function lands in one of those slots and the Tuple
+            // emission must be position-less to match.
+            return Ok(emit::tuple_(exprs));
         }
         let stop = if in_separated {
             self.find_pivot_in_separator()
