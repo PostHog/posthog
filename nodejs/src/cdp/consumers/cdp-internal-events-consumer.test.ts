@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -28,7 +29,8 @@ describe('CDP Internal Events Consumer', () => {
         })
         team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpInternalEventsConsumer(hub, createCdpConsumerDeps(hub))
+        const mockJobQueue = createMockJobQueue()
+        processor = new CdpInternalEventsConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
         await processor.start()
     })
 

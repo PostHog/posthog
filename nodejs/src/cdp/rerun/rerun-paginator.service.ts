@@ -8,7 +8,7 @@ import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
@@ -95,7 +95,7 @@ export class RerunPaginatorService {
         private hogFlowManager: HogFlowManagerService,
         private hogInputsService: HogInputsService,
         private invocationResultsRowsService: HogInvocationResultsService,
-        private cyclotronJobQueue: CyclotronJobQueue,
+        private cyclotronJobQueue: CyclotronJobQueuePostgresV2,
         private monitoringService: HogFunctionMonitoringService,
         // Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var).
         private maxCount: number

@@ -10,7 +10,7 @@ import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
 import { RerunPaginatorService } from '../rerun/rerun-paginator.service'
 import { CyclotronV2Worker } from '../services/cyclotron-v2'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Heartbeat interval — the cyclotron-v2 lock timeout is 30s by default, send
@@ -45,14 +45,14 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
     protected name = 'CdpRerunWorkerConsumer'
 
     private worker: CyclotronV2Worker | null = null
-    private cyclotronJobQueue: CyclotronJobQueue
+    private cyclotronJobQueue: CyclotronJobQueuePostgresV2
     private paginator: RerunPaginatorService | null = null
     private clickhouseClient: ClickHouseClient | null = null
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         // Used by the paginator to re-enqueue invocations as it pages.
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.cyclotronJobQueue = new CyclotronJobQueuePostgresV2(config.CONSUMER_BATCH_SIZE, config)
     }
 
     override async start(): Promise<void> {
@@ -122,7 +122,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
     override async stop(): Promise<void> {
         this.isStopping = true
         await this.worker?.disconnect()
-        await this.cyclotronJobQueue.stop()
+        await this.cyclotronJobQueue.stopProducer()
         await this.clickhouseClient?.close()
         await this.invocationResultsService.flush()
     }

@@ -7,7 +7,7 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
 import { RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { CdpRerunWorkerConsumer } from './cdp-rerun-worker.consumer'
 
 jest.setTimeout(20000)
@@ -81,7 +81,7 @@ describe('CdpRerunWorkerConsumer', () => {
         consumer['cyclotronJobQueue'] = {
             startAsProducer: jest.fn(() => Promise.resolve()),
             stop: jest.fn(() => Promise.resolve()),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
+        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
     })
 
     afterEach(async () => {

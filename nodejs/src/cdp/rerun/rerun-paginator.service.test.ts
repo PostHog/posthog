@@ -18,7 +18,7 @@ import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } fr
 import { createCdpOutputsRegistry } from '../outputs/registry'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
@@ -52,7 +52,7 @@ describe('RerunPaginatorService integration', () => {
     let seedingService: HogInvocationResultsService
     let chClient: ClickHouseClient
     let paginator: RerunPaginatorService
-    let cyclotronJobQueue: jest.Mocked<CyclotronJobQueue>
+    let cyclotronJobQueue: jest.Mocked<CyclotronJobQueuePostgresV2>
     let paginatorLifecycleService: jest.Mocked<HogInvocationResultsService>
     let paginatorMonitoringService: jest.Mocked<HogFunctionMonitoringService>
     let hogFunctionManager: HogFunctionManagerService
@@ -178,7 +178,7 @@ describe('RerunPaginatorService integration', () => {
 
         cyclotronJobQueue = {
             queueInvocations: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
+        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
 
         // The paginator's lifecycle service is mocked so we can assert what it
         // got asked to write (the 'running' row for each rerun). The actual

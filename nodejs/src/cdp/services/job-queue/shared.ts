@@ -1,6 +1,9 @@
 import { Histogram } from 'prom-client'
 
-import { CyclotronJobInvocation } from '../../types'
+import { buildIntegerMatcher } from '../../../config/config'
+import { ValueMatcher } from '../../../types'
+import { CdpConfig } from '../../config'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 
 export const cdpJobSizeKb = new Histogram({
     name: 'cdp_cyclotron_job_size_kb',
@@ -50,6 +53,34 @@ export function sanitizeInvocationForPersistence(
         state: {
             ...invocation.state,
             globals: newGlobals,
+        },
+    }
+}
+
+/**
+ * Creates a sanitizer that strips transient data before persisting.
+ * Call once at construction time, use the returned functions on every queue operation.
+ */
+export function createInvocationSanitizer(config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'>) {
+    const stripPersonMatcher: ValueMatcher<number> = buildIntegerMatcher(
+        config.CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS,
+        true
+    )
+
+    return {
+        sanitizeInvocations(invocations: CyclotronJobInvocation[]): CyclotronJobInvocation[] {
+            return invocations.map((inv) =>
+                sanitizeInvocationForPersistence(inv, { stripPerson: stripPersonMatcher(inv.teamId) })
+            )
+        },
+
+        sanitizeResults(results: CyclotronJobInvocationResult[]): CyclotronJobInvocationResult[] {
+            return results.map((result) => ({
+                ...result,
+                invocation: sanitizeInvocationForPersistence(result.invocation, {
+                    stripPerson: stripPersonMatcher(result.invocation.teamId),
+                }),
+            }))
         },
     }
 }
