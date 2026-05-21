@@ -10,7 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneConfig } from 'scenes/sceneTypes'
+import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -45,7 +45,7 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
-    const { activeTabId } = useValues(sceneLogic)
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { registerScenePanelElement } = useActions(sceneLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -187,6 +187,11 @@ export function Navigation({
                                     <div
                                         className={cn({
                                             'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                            // Settings scene's nav is viewport-fixed on desktop, so the
+                                            // banner needs to clear it (nav width + column gap) to align
+                                            // with the settings content column.
+                                            'md:ml-[calc(var(--settings-nav-width)+2rem)]':
+                                                activeSceneId === Scene.Settings,
                                         })}
                                     >
                                         <ProjectNotice

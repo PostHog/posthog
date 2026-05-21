@@ -125,6 +125,9 @@ class Settings(BaseSettings):
     bedrock_region_name: str | None = None
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None  # Used for regional endpoints
+    # OpenAI organization ID. When set, forwarded to OpenAI on every request so
+    # traffic is attributed to the HIPAA-covered organization. Omitted when unset.
+    openai_organization: str | None = None
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
 
