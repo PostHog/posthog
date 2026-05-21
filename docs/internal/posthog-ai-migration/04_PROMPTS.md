@@ -1,6 +1,6 @@
 # 04 — Prompts migration
 
-This spec covers the **Prompts** slice of the migration described in [`00_OVERVIEW.md`](./00_OVERVIEW.md). Read that document first — it establishes the SSE-relay architecture (`Conversation.agent_runtime === 'sandbox'` routes through the Django SSE relay at `ee/hogai/sandbox/sse_relay.py` to a cloud-agent Task/Run), the "no repository / no PR" posture, and the phasing order. This spec assumes you've also skimmed [`01_CONTEXT.md`](./01_CONTEXT.md), which locks the contract that **dynamic per-turn context is prepended to the user message as a `<posthog_context>` block (by the SSE relay), not the system prompt** — this document owns everything *else* in the prompt.
+This spec covers the **Prompts** slice of the migration described in [`00_OVERVIEW.md`](./00_OVERVIEW.md). Read that document first — it establishes the split architecture (`Conversation.agent_runtime === 'sandbox'` routes through Django's `POST /conversations/{id}/sandbox/` handler at `ee/hogai/sandbox/message_view.py` to create a cloud-agent Task/Run; the frontend then opens SSE directly against the cloud-agent endpoint), the "no repository / no PR" posture, and the phasing order. This spec assumes you've also skimmed [`01_CONTEXT.md`](./01_CONTEXT.md), which locks the contract that **dynamic per-turn context is prepended to the user message as a `<posthog_context>` block (by the `POST /sandbox/` handler), not the system prompt** — this document owns everything *else* in the prompt.
 
 Scope of this document: how every prompt segment in `posthog/ee/hogai/chat_agent/prompts/` (and the mode-specific siblings) maps onto the sandbox's `systemPrompt` slot, where the dynamic `{{{var}}}` variables get resolved server-side at Run-create, what happens to "modes" when the agent runtime no longer has a graph-level mode concept, which MCP servers replace the LangGraph `toolkit.py`, and how `APPENDED_INSTRUCTIONS` collides with PostHog AI. Out of scope: the dynamic context payload (`01_CONTEXT.md`), tool-call rendering (`03_RICH_UI.md`), the Task/Run wire (`02_CORE.md`).
 
@@ -173,7 +173,7 @@ For PostHog AI we want the **No Repository Mode, `createPr === false`** branch �
 
 ### 2.3 No-repository / no-git posture
 
-When the SSE relay creates a Task for a sandbox-runtime conversation, it sets:
+When the `POST /sandbox/` handler creates a Task for a sandbox-runtime conversation, it sets:
 
 ```
 {
@@ -630,10 +630,10 @@ Snapshot the full composed string. Use `pytest-snapshot` or `syrupy`. Snapshots 
 Reuse the `posthog-ai-sandbox` flag from `00_OVERVIEW.md` § 9 — boolean, per-user, default `false`. When the user has the flag:
 
 1. Conversation create stamps `agent_runtime = 'sandbox'` on the row (`02_CORE.md` § 2).
-2. `/conversations/stream/` branches into the sandbox SSE relay (`02_CORE.md` § 3) which creates Task + Run.
-3. The SSE relay calls `build_posthog_ai_system_prompt(...)` to build `systemPrompt` for the `POST /tasks/{id}/run/` body.
+2. Frontend POSTs to `/conversations/{id}/sandbox/` (sandbox-only routing endpoint per `02_CORE.md` § 3) which creates Task + Run.
+3. The handler calls `build_posthog_ai_system_prompt(...)` to build `systemPrompt` for the `POST /tasks/{id}/run/` body.
 4. `--mcpServers` includes `posthog-data`, `posthog-notebook` (+ optional `posthog-code` if its per-tool flag is on). `TodoWrite` comes from the Claude Code SDK built-in — no MCP server needed.
-5. **The frontend is unchanged** — `scenes/max/` renders both runtimes; the relay difference is invisible above `/conversations/*`.
+5. **The frontend** picks `/conversations/{id}/sandbox/` (sandbox) vs `/conversations/{id}/stream/` (LangGraph) based on `agent_runtime`; `scenes/max/` renders both runtimes; the routing difference is one `if` in `maxThreadLogic.sendMessage`.
 
 When the user doesn't have the flag: today's LangGraph stack is unchanged.
 
