@@ -29,6 +29,7 @@ from ee.hogai.tools.upsert_dashboard.prompts import (
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
     UPSERT_DASHBOARD_TOOL_PROMPT,
 )
+from ee.hogai.utils.helpers import assistant_query_to_dict
 from ee.hogai.utils.prompt import format_prompt_string
 
 logger = structlog.get_logger(__name__)
@@ -222,8 +223,10 @@ class UpsertDashboardTool(MaxTool):
             else:
                 # State or Artifact source - need to create and save insight from artifact content
                 content = result.content
-                # Coerce query to the QuerySchema union
-                coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
+                # Coerce query to the QuerySchema union. `assistant_query_to_dict` reattaches
+                # fields the assistant schema hides from the LLM (e.g. `math_property_type` on
+                # session-level trends math) so the runner sees them once persisted.
+                coerced_query = QuerySchemaRoot.model_validate(assistant_query_to_dict(content.query)).root
                 if isinstance(coerced_query, HogQLQuery):
                     converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
                 else:
