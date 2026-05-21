@@ -665,7 +665,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         )
 
 
-_STRIPE_JOB_INPUTS = {
+_STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
     "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
     "stripe_account_id": "acct_id",
 }
@@ -731,7 +731,7 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
     assert team.revenue_analytics_config.notified_first_sync
 
 
-_ZENDESK_JOB_INPUTS = {
+_ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
     "subdomain": "test",
     "api_key": "test_api_key",
     "email_address": "test@posthog.com",
@@ -772,6 +772,9 @@ async def test_zendesk_source(team, request, schema_name, table_name, fixture_na
     )
 
 
+_PADDLE_JOB_INPUTS: dict[str, str | dict[str, str]] = {"paddle_api_key": "test_api_key"}
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -790,7 +793,7 @@ async def test_paddle_source(team, mock_paddle_client, request, schema_name, tab
         schema_name=schema_name,
         table_name=table_name,
         source_type="Paddle",
-        job_inputs={"paddle_api_key": "test_api_key"},
+        job_inputs=_PADDLE_JOB_INPUTS,
         mock_data_response=fixture_data["data"],
     )
 
