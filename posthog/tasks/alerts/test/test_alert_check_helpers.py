@@ -4,9 +4,10 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models.alert import AlertCheck
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
 from posthog.tasks.alerts.utils import AlertEvaluationResult
+
+from products.alerts.backend.models import AlertCheck
 
 
 class TestRunAlertCheck(APIBaseTest):

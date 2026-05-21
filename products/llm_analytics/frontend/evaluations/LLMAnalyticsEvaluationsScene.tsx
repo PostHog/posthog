@@ -314,14 +314,14 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             )}
 
             <LemonBanner type="info" dismissKey="evals-billing-notice">
-                Each evaluation run counts as an LLM analytics event.
+                Each evaluation run counts as an AI observability event.
             </LemonBanner>
 
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Online evals</h2>
                     <p className="text-muted">
-                        Configure evaluation prompts and triggers to automatically assess your LLM generations.
+                        Configure evaluation prompts and triggers to automatically assess your AI generations.
                     </p>
                 </div>
                 <AccessControlAction
@@ -435,7 +435,7 @@ export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX
                         }}
                         actions={
                             <LemonButton
-                                to="https://posthog.com/docs/llm-analytics/evaluations"
+                                to="https://posthog.com/docs/ai-evals/evaluations"
                                 type="secondary"
                                 targetBlank
                                 size="small"

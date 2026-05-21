@@ -4042,7 +4042,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -11058,6 +11058,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
+
+
+    export const DataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type DataWarehouseSavedQueryQuery = {
+      kind?: DataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -11106,8 +11121,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -13941,6 +13956,11 @@ export namespace Schemas {
       results: ErrorTrackingGroupingRule[];
     }
 
+    export interface ErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
+    }
+
     export interface ErrorTrackingImpact {
       /** Exception occurrence count. */
       occurrences?: number;
@@ -14706,6 +14726,8 @@ export namespace Schemas {
       symbol_sets?: ErrorTrackingSymbolSetUpload[];
       /** Whether to overwrite uploaded symbol sets whose content hash changed. */
       force?: boolean;
+      /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+      skip_on_conflict?: boolean;
     }
 
     export interface ErrorTrackingSymbolSetFinishUpload {
@@ -16963,7 +16985,7 @@ export namespace Schemas {
     export interface GenerateSurveyTranslationsRequest {
       /** Language code to generate translations for, for example pt-BR. */
       target_language: string;
-      /** Source language code for the existing survey copy. */
+      /** Optional override for the source language code. Defaults to the survey's `base_language` (or 'en' if unset). */
       source_language?: string;
       /** Whether to overwrite existing translations for this language. */
       overwrite?: boolean;
@@ -19908,15 +19930,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `gemini-3-flash` - Gemini 3 Flash
-    * `gemini-3-flash-lite` - Gemini 3 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+    * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
      */
     export type LensModelEnum = typeof LensModelEnum[keyof typeof LensModelEnum];
 
 
     export const LensModelEnum = {
-      Gemini3Flash: 'gemini-3-flash',
-      Gemini3FlashLite: 'gemini-3-flash-lite',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
     } as const;
 
     /**
@@ -19930,6 +19952,11 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+     */
+    export type LensResultEventIdMapping = { [key: string]: unknown };
+
+    /**
      * Mirrors `temporal.types.LensResult` for OpenAPI generation.
      */
     export interface LensResult {
@@ -19940,6 +19967,8 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
+      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+      event_id_mapping: LensResultEventIdMapping;
     }
 
     /**
@@ -19978,8 +20007,8 @@ export namespace Schemas {
       lens_version: number;
       /** Concrete model that ran the observation.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** Concrete provider that ran the observation.
 
@@ -20366,14 +20395,14 @@ export namespace Schemas {
          * @nullable
          */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
       * `severity_sampling` - Severity-based reduction
       * `path_drop` - Path exclusion
       * `rate_limit` - Rate limit */
       rule_type: RuleTypeEnum;
       /**
-         * If set, the rule applies only to this service name; null means all services.
+         * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
          * @maxLength 512
          * @nullable
          */
@@ -20386,7 +20415,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -21528,6 +21557,23 @@ export namespace Schemas {
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown: boolean | null;
+      /** @nullable */
+      readonly is_hipaa: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -22998,8 +23044,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
+      readonly created_by: UserBasic;
       /** @nullable */
       readonly last_used_at: string | null;
       /** @nullable */
@@ -23110,7 +23155,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -23126,8 +23171,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -24268,7 +24313,7 @@ export namespace Schemas {
 
               Translations: Each question can include inline translations.
               - `translations`: Object mapping language codes to translated fields.
-              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
               - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
               Example with translations:
@@ -24352,6 +24397,11 @@ export namespace Schemas {
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
+      /**
+         * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+         * @maxLength 20
+         */
+      base_language?: string;
       translations?: unknown;
       /**
          * The effective access level the user has for this object
@@ -24634,6 +24684,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -25709,7 +25763,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -26239,6 +26293,21 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
+
+
+    export const PatchedDataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type PatchedDataWarehouseSavedQueryQuery = {
+      kind?: PatchedDataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -26255,8 +26324,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -26793,6 +26862,11 @@ export namespace Schemas {
       disabled_data?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
+      /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue | null;
     }
 
     /**
@@ -28026,14 +28100,14 @@ export namespace Schemas {
          * @nullable
          */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
       * `severity_sampling` - Severity-based reduction
       * `path_drop` - Path exclusion
       * `rate_limit` - Rate limit */
       rule_type?: RuleTypeEnum;
       /**
-         * If set, the rule applies only to this service name; null means all services.
+         * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
          * @maxLength 512
          * @nullable
          */
@@ -28046,7 +28120,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -28260,6 +28334,23 @@ export namespace Schemas {
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
+      /**
+         * When True, this organization allows its data to be used to train PostHog AI models.
+         * @nullable
+         */
+      is_ai_training_opted_in?: boolean | null;
+      /**
+         * When True, the AI training opt-out setting cannot be modified through the UI or API.
+         * @nullable
+         */
+      readonly is_ai_training_locked?: boolean | null;
+      /**
+         * When True, in-app callouts inviting members to enable AI training are shown.
+         * @nullable
+         */
+      readonly is_ai_training_cta_shown?: boolean | null;
+      /** @nullable */
+      readonly is_hipaa?: boolean | null;
       /** Default statistical method for new experiments in this organization.
 
       * `bayesian` - Bayesian
@@ -28502,10 +28593,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
@@ -29293,8 +29381,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value?: string | null;
       readonly created_at?: string;
-      /** @nullable */
-      readonly created_by?: number | null;
+      readonly created_by?: UserBasic;
       /** @nullable */
       readonly last_used_at?: string | null;
       /** @nullable */
@@ -29348,7 +29435,7 @@ export namespace Schemas {
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
       lens_type?: LensTypeEnum;
-      /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
       lens_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -29364,8 +29451,8 @@ export namespace Schemas {
       provider?: LensProviderEnum;
       /** Concrete model to use for this lens.
 
-      * `gemini-3-flash` - Gemini 3 Flash
-      * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
       model?: LensModelEnum;
       /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -30294,7 +30381,7 @@ export namespace Schemas {
 
               Translations: Each question can include inline translations.
               - `translations`: Object mapping language codes to translated fields.
-              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
               - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
               Example with translations:
@@ -30391,6 +30478,11 @@ export namespace Schemas {
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
+      /**
+         * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+         * @maxLength 20
+         */
+      base_language?: string;
       translations?: unknown;
       _create_in_folder?: string;
       form_content?: unknown;
@@ -30507,6 +30599,10 @@ export namespace Schemas {
       json_schema?: unknown;
       /** If true, this task is for internal use and should not be exposed to end users. */
       internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at?: string | null;
       /**
          * Latest run details for this task
          * @nullable
@@ -31314,6 +31410,131 @@ export namespace Schemas {
       value: unknown;
     }
 
+    export interface _Summary {
+      /** Inclusive UTC start of the spend window resolved from the request. */
+      date_from: string;
+      /** Exclusive UTC end of the spend window resolved from the request. */
+      date_to: string;
+      /**
+         * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
+         * @nullable
+         */
+      product: string | null;
+      /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
+      total_cost_usd: number;
+      /** Total $ai_generation + $ai_embedding events captured across every product. */
+      event_count: number;
+      /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+      scoped_cost_usd: number;
+      /** Total $ai_generation + $ai_embedding events for the scoped slice. */
+      scoped_event_count: number;
+    }
+
+    export interface _ProductBreakdownRow {
+      /**
+         * Value of the `ai_product` property on the event (e.g. `posthog_code`, `background_agents`). Null when unset.
+         * @nullable
+         */
+      product: string | null;
+      /** Number of $ai_generation + $ai_embedding events for this product. */
+      event_count: number;
+      /** Total cost in USD for this product over the lookback window. */
+      cost_usd: number;
+    }
+
+    export interface _ProductBreakdown {
+      /** Rows of spend by product, ordered by cost descending. */
+      items: _ProductBreakdownRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    export interface _ToolBreakdownRow {
+      /**
+         * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
+         * @nullable
+         */
+      tool: string | null;
+      /** Number of $ai_generation events whose tool list includes this tool. */
+      generation_count: number;
+      /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
+      cost_usd: number;
+      /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
+      share_of_scoped: number;
+      /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
+      avg_input_tokens: number;
+    }
+
+    export interface _ToolBreakdown {
+      /** Rows of spend by tool, ordered by cost descending. */
+      items: _ToolBreakdownRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    export interface _ModelBreakdownRow {
+      /**
+         * Value of the `$ai_model` property.
+         * @nullable
+         */
+      model: string | null;
+      /** Number of $ai_generation + $ai_embedding events. */
+      generation_count: number;
+      /** Total cost in USD for this model. */
+      cost_usd: number;
+      /** Sum of `$ai_input_tokens` for this model. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` for this model. */
+      output_tokens: number;
+    }
+
+    export interface _ModelBreakdown {
+      /** Rows of spend by model, ordered by cost descending. */
+      items: _ModelBreakdownRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    export interface _TopTraceRow {
+      /**
+         * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Number of $ai_generation events in this trace. */
+      generation_count: number;
+      /** Total cost in USD for this trace. */
+      cost_usd: number;
+      /**
+         * Timestamp of the earliest event in this trace.
+         * @nullable
+         */
+      started_at: string | null;
+    }
+
+    export interface _TopTraces {
+      /** Rows of top traces by cost, ordered by cost descending. */
+      items: _TopTraceRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    /**
+     * Structured personal LLM spend analysis for the requesting user.
+     */
+    export interface PersonalSpendAnalysisResponse {
+      /** High-level totals for the lookback window. */
+      summary: _Summary;
+      /** Spend grouped by the `ai_product` property — always across all products, never filtered. */
+      by_product: _ProductBreakdown;
+      /** Spend grouped by tool. Scoped to `product` when set. */
+      by_tool: _ToolBreakdown;
+      /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
+      by_model: _ModelBreakdown;
+      /** Most expensive trace IDs (sessions) in the window. Scoped to `product` when set. */
+      top_traces: _TopTraces;
+    }
+
     export interface PinnedSceneTabs {
       /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
@@ -31374,10 +31595,7 @@ export namespace Schemas {
     };
 
     /**
-     * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-    passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-    backward compatibility of the REST API.
-    Do not use this in greenfield endpoints!
+     * Mixin for serializers to add user access control fields
      */
     export interface ProjectBackwardCompat {
       readonly id: number;
@@ -34938,7 +35156,7 @@ export namespace Schemas {
 
               Translations: Each question can include inline translations.
               - `translations`: Object mapping language codes to translated fields.
-              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
               - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
               Example with translations:
@@ -35020,6 +35238,11 @@ export namespace Schemas {
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
+      /**
+         * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+         * @maxLength 20
+         */
+      base_language?: string;
       translations?: unknown;
       _create_in_folder?: string;
       form_content?: unknown;
@@ -35156,7 +35379,7 @@ export namespace Schemas {
 
               Translations: Each question can include inline translations.
               - `translations`: Object mapping language codes to translated fields.
-              - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+              - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
               - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
               Example with translations:
@@ -35253,6 +35476,11 @@ export namespace Schemas {
       enable_partial_responses?: boolean | null;
       /** @nullable */
       enable_iframe_embedding?: boolean | null;
+      /**
+         * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+         * @maxLength 20
+         */
+      base_language?: string;
       translations?: unknown;
       _create_in_folder?: string;
       form_content?: unknown;
@@ -36574,6 +36802,14 @@ export namespace Schemas {
       date_to?: string | null;
     }
 
+    /**
+     * DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema.
+     */
+    export interface _ErrorResponse {
+      /** Human-readable error description from DRF. */
+      detail: string;
+    }
+
     export interface _LogAttributeEntry {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
@@ -36926,6 +37162,8 @@ export namespace Schemas {
       /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
       service?: string;
       count: number;
+      /** Sum of uncompressed bytes for the bucket. */
+      bytes_uncompressed?: number;
     }
 
     export interface _LogsSparklineRequest {
@@ -40932,6 +41170,37 @@ export namespace Schemas {
     };
 
     export type WebVitalsRetrieve200 = { [key: string]: unknown };
+
+    export type LlmAnalyticsPersonalSpendListParams = {
+    /**
+     * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
+     * @minLength 1
+     * @maxLength 32
+     */
+    date_from?: string;
+    /**
+     * End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * @maxLength 64
+     * @nullable
+     */
+    product?: string | null;
+    /**
+     * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
+     */
+    refresh?: boolean;
+    };
 
     export type ListParams = {
     /**
@@ -45140,6 +45409,15 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
+     * Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.
+
+    * `true` - true
+    * `false` - false
+    * `all` - all
+     * @minLength 1
+     */
+    archived?: TasksListArchived;
+    /**
      * Filter by creator user ID
      */
     created_by?: number;
@@ -45192,6 +45470,15 @@ export namespace Schemas {
      */
     status?: TasksListStatus;
     };
+
+    export type TasksListArchived = typeof TasksListArchived[keyof typeof TasksListArchived];
+
+
+    export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
 
     export type TasksListStatus = typeof TasksListStatus[keyof typeof TasksListStatus];
 
