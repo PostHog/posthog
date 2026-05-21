@@ -590,6 +590,37 @@ mod tests {
         }
 
         #[test]
+        fn built_ranges_are_non_overlapping() {
+            // `lookup` only inspects the entry whose `start` is the largest
+            // value <= key. If two entries overlap, a key inside the larger
+            // (earlier-starting) range but past the end of the smaller
+            // (later-starting) range is silently missed. Guard against a
+            // future CIDR addition violating the invariant the lookup relies
+            // on. Pairs with `built_ranges_are_sorted_by_start`.
+            let ranges = &*BOT_IP_RANGES;
+            for w in ranges.v4.windows(2) {
+                assert!(
+                    w[0].end < w[1].start,
+                    "overlapping v4 ranges: [{}, {}] and [{}, {}]",
+                    w[0].start,
+                    w[0].end,
+                    w[1].start,
+                    w[1].end,
+                );
+            }
+            for w in ranges.v6.windows(2) {
+                assert!(
+                    w[0].end < w[1].start,
+                    "overlapping v6 ranges: [{}, {}] and [{}, {}]",
+                    w[0].start,
+                    w[0].end,
+                    w[1].start,
+                    w[1].end,
+                );
+            }
+        }
+
+        #[test]
         fn every_published_cidr_parses() {
             // build_ranges panics on a bad CIDR; touching LazyLock would
             // have already done this, but be explicit for future drift.
