@@ -143,6 +143,15 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()),
         }),
     }),
+    z.object({
+        type: z.literal('data-warehouse-table'),
+        // Dot-notated table name matching the Python CDPProducer naming
+        table_name: z.string(),
+        filters: z.object({
+            properties: z.array(z.any()).optional(),
+        }),
+        key_property: z.string().optional(),
+    }),
 ])
 
 /** Trigger types that use HogFlowSchedule for recurring execution */

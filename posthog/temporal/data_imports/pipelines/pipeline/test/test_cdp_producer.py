@@ -10,6 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
 
+from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 
@@ -186,6 +187,153 @@ async def test_should_produce_table_with_leading_underscore_source_prefix(team):
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
     assert await producer.should_produce_table() is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_should_produce_table_with_matching_hog_flow(team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    await sync_to_async(HogFlow.objects.create)(
+        team=team,
+        status=HogFlow.State.ACTIVE,
+        trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.should_produce_table() is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_should_not_produce_table_with_draft_hog_flow(team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    await sync_to_async(HogFlow.objects.create)(
+        team=team,
+        status=HogFlow.State.DRAFT,
+        trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.should_produce_table() is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_should_not_produce_table_with_non_matching_hog_flow_table(team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    await sync_to_async(HogFlow.objects.create)(
+        team=team,
+        status=HogFlow.State.ACTIVE,
+        trigger={"type": "data-warehouse-table", "table_name": "postgres.some_other_table"},
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.should_produce_table() is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_should_produce_table_with_both_hog_function_and_flow(team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+    )
+    await sync_to_async(HogFlow.objects.create)(
+        team=team,
+        status=HogFlow.State.ACTIVE,
+        trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.should_produce_table() is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+async def test_produce_to_kafka_from_s3_includes_table_name(mock_get_s3_client, team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    mock_s3_client = mock.AsyncMock()
+    mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+
+    mock_kafka_producer = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
+
+    test_data = pa.table({"id": [1], "name": ["Alice"]})
+    parquet_buffer = BytesIO()
+    pq.write_table(test_data, parquet_buffer, compression="zstd")
+    parquet_buffer.seek(0)
+
+    mock_fs = MagicMock()
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=parquet_buffer)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_fs.open_input_file.return_value = mock_file
+    mock_fs.delete_file = MagicMock()
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
+
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        _patch_async_producer_scope(mock_kafka_producer),
+    ):
+        await producer.produce_to_kafka_from_s3()
+
+    first_call_kwargs = mock_kafka_producer.produce.call_args_list[0][1]
+    assert first_call_kwargs["data"]["team_id"] == team.id
+    assert first_call_kwargs["data"]["table_name"] == "postgres.table_1"
+    assert "id" in first_call_kwargs["data"]["properties"]
 
 
 @pytest.mark.django_db(transaction=True)

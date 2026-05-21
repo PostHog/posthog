@@ -65,6 +65,18 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()),
         }),
     }),
+    z.object({
+        type: z.literal('data-warehouse-table'),
+        // Dot-notated table name, matching the format produced by the Python CDPProducer
+        // (see get_data_warehouse_table_name) so producer gating and trigger config use identical strings.
+        table_name: z.string(),
+        filters: z.object({
+            // Row-property filters only - warehouse-triggered workflows are person-less ("row-scoped")
+            properties: z.array(z.any()).optional(),
+        }),
+        // Optional row column used as the masking / dedup key in place of distinct_id
+        key_property: z.string().optional(),
+    }),
 ])
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [

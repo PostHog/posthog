@@ -109,6 +109,10 @@ export type HogFunctionInvocationGlobals = {
 
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
+
+    // Set for rows synced into a data warehouse table. Dot-notated table name used to match
+    // `data-warehouse-table` HogFlow triggers against the row's source table.
+    dataWarehouseTable?: string
 }
 
 /**

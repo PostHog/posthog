@@ -1,0 +1,124 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { IconServer } from '@posthog/icons'
+import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
+
+import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
+import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
+import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
+
+import { HogFlowAction } from '../../types'
+
+export type DataWarehouseTableTriggerConfig = {
+    type: 'data-warehouse-table'
+    table_name: string
+    filters: {
+        properties?: any[]
+    }
+    key_property?: string
+}
+
+export function isDataWarehouseTableTriggerConfig(
+    config: Extract<HogFlowAction, { type: 'trigger' }>['config']
+): config is DataWarehouseTableTriggerConfig {
+    return config.type === 'data-warehouse-table'
+}
+
+function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { dataWarehouseTables, databaseLoading } = useValues(databaseTableListLogic)
+    const { loadDatabase } = useActions(databaseTableListLogic)
+
+    useEffect(() => {
+        // The list isn't loaded automatically on mount, so kick it off when the panel opens.
+        if (!dataWarehouseTables.length) {
+            loadDatabase()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    const config = node.data.config as DataWarehouseTableTriggerConfig
+    const selectedTableName = config.table_name || null
+    const properties = config.filters?.properties ?? []
+
+    const tableOptions = dataWarehouseTables.map((table) => ({
+        label: table.name,
+        value: table.name,
+    }))
+
+    const updateTriggerConfig = (tableName: string | null, newProperties: any[]): void => {
+        setWorkflowActionConfig(node.data.id, {
+            type: 'data-warehouse-table',
+            table_name: tableName ?? '',
+            filters: { properties: newProperties },
+        })
+    }
+
+    return (
+        <div className="flex flex-col gap-2 w-full">
+            <p className="mb-0 text-sm text-muted-alt">
+                This workflow runs once for each new row synced into the selected data warehouse table. Runs are
+                row-scoped — there is no associated person, so person-dependent steps are unavailable.
+            </p>
+            <LemonField.Pure label="Data warehouse table">
+                <LemonSelect
+                    options={tableOptions}
+                    value={selectedTableName}
+                    loading={databaseLoading}
+                    onChange={(tableName) => updateTriggerConfig(tableName, properties)}
+                    placeholder="Select a table"
+                />
+                {!databaseLoading && dataWarehouseTables.length === 0 && (
+                    <LemonBanner type="warning" className="w-full mt-1">
+                        <p className="mb-0">
+                            You don't have any data warehouse tables yet. This workflow won't run until you sync a
+                            source.{' '}
+                            <Link to={urls.dataPipelinesNew('source')} target="_blank" className="font-semibold">
+                                Set up a source
+                            </Link>
+                        </p>
+                    </LemonBanner>
+                )}
+            </LemonField.Pure>
+
+            <LemonField.Pure label="Only trigger for specific rows">
+                <HogFlowPropertyFilters
+                    filtersKey={`data-warehouse-table-trigger-${node.data.id}`}
+                    filters={{ properties }}
+                    setFilters={(filters) => updateTriggerConfig(selectedTableName, filters?.properties ?? [])}
+                />
+            </LemonField.Pure>
+        </div>
+    )
+}
+
+registerTriggerType({
+    value: 'data-warehouse-table',
+    label: 'Data warehouse row synced',
+    icon: <IconServer />,
+    description: 'Trigger when a new row is synced into a data warehouse table',
+    group: 'Data warehouse',
+    featureFlag: 'cdp-dwh-table-source',
+    matchConfig: (config) => isDataWarehouseTableTriggerConfig(config),
+    buildConfig: () => ({
+        type: 'data-warehouse-table',
+        table_name: '',
+        filters: { properties: [] },
+    }),
+    validate: (config): { valid: boolean; errors: Record<string, string> } | null => {
+        if (config.type !== 'data-warehouse-table') {
+            return null
+        }
+        if (!config.table_name) {
+            return { valid: false, errors: { table_name: 'Please select a data warehouse table' } }
+        }
+        return { valid: true, errors: {} }
+    },
+    ConfigComponent: StepTriggerConfigurationDataWarehouseTable,
+})

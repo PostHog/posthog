@@ -157,7 +157,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpDataWarehouseEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })

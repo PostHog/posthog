@@ -11,6 +11,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { fetch } from '~/utils/request'
 import { logger } from '../../../utils/logger'
 import { Hub } from '../../../types'
+import { HogFunctionInvocationGlobals } from '../../types'
 import { createHub } from '../../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
@@ -1347,6 +1348,79 @@ describe('Hogflow Executor', () => {
             // Should match because email doesn't contain @posthog.com
             expect(result.invocations).toHaveLength(1)
             expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
+        })
+    })
+
+    describe('data-warehouse-table trigger', () => {
+        const buildDataWarehouseHogFlow = (tableName: string): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'data-warehouse-table',
+                        table_name: tableName,
+                        // Always-true bytecode (return true) like the no-filter data warehouse example
+                        filters: { properties: [], bytecode: ['_h', 29] } as any,
+                    },
+                })
+                .build()
+
+        const buildDataWarehouseGlobals = (tableName: string | undefined): HogFunctionInvocationGlobals =>
+            createHogExecutionGlobals({
+                event: {
+                    uuid: 'data-warehouse-table-uuid-do-not-use',
+                    event: 'data-warehouse-table-event-do-not-use',
+                    distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: '',
+                    properties: { column1: 'value1', column2: 123 },
+                },
+                dataWarehouseTable: tableName,
+            })
+
+        it('matches a row-scoped trigger when the source table matches', async () => {
+            const hogFlow = buildDataWarehouseHogFlow('postgres.table_1')
+            const globals = buildDataWarehouseGlobals('postgres.table_1')
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            expect(result.invocations).toHaveLength(1)
+            expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
+        })
+
+        it('does not match when the source table differs', async () => {
+            const hogFlow = buildDataWarehouseHogFlow('postgres.table_1')
+            const globals = buildDataWarehouseGlobals('postgres.other_table')
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            expect(result.invocations).toHaveLength(0)
+        })
+
+        it('does not match a row-scoped trigger for event-sourced globals', async () => {
+            const hogFlow = buildDataWarehouseHogFlow('postgres.table_1')
+            // No dataWarehouseTable set => event-sourced globals
+            const globals = buildDataWarehouseGlobals(undefined)
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            expect(result.invocations).toHaveLength(0)
+        })
+
+        it('does not match an event trigger for warehouse-sourced globals', async () => {
+            const eventHogFlow = new FixtureHogFlowBuilder()
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'event',
+                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                    },
+                })
+                .build()
+            const globals = buildDataWarehouseGlobals('postgres.table_1')
+
+            const result = await executor.buildHogFlowInvocations([eventHogFlow], globals)
+
+            expect(result.invocations).toHaveLength(0)
         })
     })
 
