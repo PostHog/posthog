@@ -35,6 +35,7 @@ utility = true
 path = "ee"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.alerts",
     "products.dashboards",
     "products.data_warehouse",
@@ -98,9 +99,21 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.visual_review",
+    "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
+    "products.actions",
+    "products.alerts",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.actions"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.experiments",
 ]
 layer = "modules"
 
@@ -158,7 +171,9 @@ path = "products.dashboards"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.llm_analytics",
+    "products.mcp_analytics",
 ]
 layer = "modules"
 
@@ -239,6 +254,7 @@ path = "products.experiments"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.event_definitions",
     "products.notifications",
     "products.product_tours",
@@ -302,6 +318,7 @@ layer = "modules"
 path = "products.marketing_analytics"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.data_warehouse",
 ]
 layer = "modules"
@@ -310,6 +327,7 @@ layer = "modules"
 path = "products.mcp_analytics"
 depends_on = [
     "posthog",
+    "products.dashboards",
 ]
 layer = "modules"
 
@@ -382,6 +400,7 @@ layer = "modules"
 path = "products.product_analytics"
 depends_on = [
     "posthog",
+    "products.actions",
     "products.data_warehouse",
     "products.event_definitions",
 ]
@@ -448,6 +467,7 @@ path = "products.surveys"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.product_tours",
 ]
 layer = "modules"
@@ -501,6 +521,7 @@ path = "products.web_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
 ]
 layer = "modules"
 
@@ -578,6 +599,19 @@ expose = [
 ]
 from = [
     "products.tracing",
+]
+
+# TODO: legacy leaks — posthog/temporal/mcp_analytics/* and the dashboard
+# integration import models / dashboard_templates directly. Move those into
+# the product (and through the facade) so this interface can shrink back to
+# the isolated default.
+[[interfaces]]
+expose = [
+    "backend\\.dashboard_templates.*",
+    "backend\\.models.*",
+]
+from = [
+    "products.mcp_analytics",
 ]
 
 [[modules]]

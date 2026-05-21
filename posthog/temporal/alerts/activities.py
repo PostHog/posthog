@@ -13,8 +13,6 @@ from posthog.schema import AlertCalculationInterval, AlertState
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
@@ -42,6 +40,7 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -62,10 +61,12 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
 
         # Hourly before daily before weekly/monthly so the cheaper, more
         # time-sensitive checks get workers first when the due batch is large.
+        # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(1)),
-            default=Value(2),
+            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(0)),
+            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(1)),
+            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(2)),
+            default=Value(3),
             output_field=IntegerField(),
         )
 

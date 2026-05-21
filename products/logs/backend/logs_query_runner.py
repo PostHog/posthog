@@ -31,6 +31,49 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+def _trace_id_normalise_to_base64(value: str) -> str:
+    """Accept either hex or base64 encoded trace_id/span_id values.
+
+    The `trace_id` and `span_id` columns store base64-encoded bytes. Hex input (32-char for
+    trace_id, 16-char for span_id) is the form users normally see in trace UIs, so we accept
+    it and convert. Values that aren't valid hex are passed through as-is (assumed base64).
+    """
+    try:
+        int(value, 16)
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    except ValueError:
+        return value
+
+
+def _normalise_trace_id_filter(log_filter: LogPropertyFilter) -> None:
+    """In-place: normalize trace_id/span_id filter values to base64 to match column storage."""
+    if isinstance(log_filter.value, list):
+        log_filter.value = [_trace_id_normalise_to_base64(str(v)) for v in log_filter.value]
+    elif log_filter.value is not None:
+        log_filter.value = _trace_id_normalise_to_base64(str(log_filter.value))
+
+
+def _severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
+    """Translate a `severity_level` log property filter to a HogQL expression on `severity_text`.
+
+    Only equality operators (Exact/IsNot) are exposed in the UI.
+    """
+    values: list[str]
+    if isinstance(log_filter.value, list):
+        values = [str(v) for v in log_filter.value]
+    elif log_filter.value is None:
+        values = []
+    else:
+        values = [str(log_filter.value)]
+
+    op = ast.CompareOperationOp.NotIn if log_filter.operator == PropertyOperator.IS_NOT else ast.CompareOperationOp.In
+    return ast.CompareOperation(
+        op=op,
+        left=ast.Field(chain=["severity_text"]),
+        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values]),
+    )
+
+
 def _generate_resource_attribute_filters(
     resource_attribute_filters, *, existing_filters, query_date_range, team, is_negative_filter
 ):
@@ -246,6 +289,12 @@ class LogsFilterBuilder:
 
             if self.log_filters:
                 for log_filter in self.log_filters:
+                    if log_filter.key == "severity_level":
+                        exprs.append(_severity_level_to_expr(log_filter))
+                        continue
+                    if log_filter.key in ("trace_id", "span_id"):
+                        log_filter = log_filter.copy(deep=True)
+                        _normalise_trace_id_filter(log_filter)
                     if log_filter.key == "message":
                         exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
                     exprs.append(property_to_expr(log_filter, team=self.team))
@@ -535,7 +584,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
-            enable_analyzer=True,
             max_bytes_to_read=None,
             read_overflow_mode=None,
         )
