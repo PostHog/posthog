@@ -124,6 +124,55 @@ describe('editHandler', () => {
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('First paragraph EDITED.')
     })
 
+    it('emits a step trimmed to the changed block, not a full-doc replace', async () => {
+        // Position math for `sampleDoc` (each open/close token is one position):
+        //   heading "Sample Notebook"        (15 text chars + 2 wrap)  → 17 positions  [0, 17)
+        //   paragraph "First paragraph."     (16 text chars + 2 wrap)  → 18 positions  [17, 35)
+        //   paragraph "Second paragraph."    (17 text chars + 2 wrap)  → 19 positions  [35, 54)
+        //   ph-recording atom                                          → 1 position    [54, 55)
+        // ⇒ doc.content.size = 55
+        //
+        // Editing "First paragraph." → "First paragraph EDITED." only changes
+        // the second top-level block. The trimmed step replaces just that block's
+        // range [17, 35] with one new paragraph, instead of overwriting [0, 55]
+        const updatedNotebook = {
+            short_id: 'aBcD1234',
+            content: sampleDoc,
+            version: 8,
+            title: 'Original',
+        }
+        const state: MockState = {
+            notebookContent: sampleDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [{ ok: true, body: updatedNotebook }],
+        }
+        const context = createMockContext(state)
+
+        await editHandler(context, {
+            short_id: 'aBcD1234',
+            old_value: { type: 'text', text: 'First paragraph.' },
+            new_value: { type: 'text', text: 'First paragraph EDITED.' },
+        })
+
+        const steps = state.saveCalls[0]!.body.steps as Array<{
+            stepType: string
+            from: number
+            to: number
+            slice?: { content: Array<{ type: string; content?: Array<{ type: string; text?: string }> }> }
+        }>
+        expect(steps).toHaveLength(1)
+        expect(steps[0]!.stepType).toBe('replace')
+        expect(steps[0]!.from).toBe(17)
+        expect(steps[0]!.to).toBe(35)
+        // Slice contains exactly one paragraph block with the edited text.
+        const sliceBlocks = steps[0]!.slice?.content ?? []
+        expect(sliceBlocks).toHaveLength(1)
+        expect(sliceBlocks[0]!.type).toBe('paragraph')
+        expect(sliceBlocks[0]!.content?.[0]).toMatchObject({ type: 'text', text: 'First paragraph EDITED.' })
+    })
+
     it('matches by deep equality regardless of key order in the agent input', async () => {
         const updatedNotebook = {
             short_id: 'aBcD1234',

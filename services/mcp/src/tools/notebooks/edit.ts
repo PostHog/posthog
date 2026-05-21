@@ -18,8 +18,8 @@
  * can use to retry without an extra read.
  */
 import { isDeepStrictEqual } from 'node:util'
-import { Node } from 'prosemirror-model'
-import { Transform } from 'prosemirror-transform'
+import { Fragment, Node } from 'prosemirror-model'
+import { type Step, Transform } from 'prosemirror-transform'
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
@@ -107,6 +107,58 @@ function deepReplace<T>(tree: T, target: unknown, replacement: unknown, replaceA
 }
 
 /**
+ * Single ReplaceStep covering the smallest top-level block range that differs.
+ * Block-level (not character-level).
+ */
+function buildMinimalSteps(oldDoc: Node, newDoc: Node): Step[] {
+    const oldContent = oldDoc.content
+    const newContent = newDoc.content
+    const oldCount = oldContent.childCount
+    const newCount = newContent.childCount
+
+    // Walk in from the start until blocks diverge.
+    let startIdx = 0
+    while (startIdx < oldCount && startIdx < newCount && oldContent.child(startIdx).eq(newContent.child(startIdx))) {
+        startIdx++
+    }
+
+    // Walk in from the end until blocks diverge (without crossing startIdx).
+    let oldEndIdx = oldCount
+    let newEndIdx = newCount
+    while (
+        oldEndIdx > startIdx &&
+        newEndIdx > startIdx &&
+        oldContent.child(oldEndIdx - 1).eq(newContent.child(newEndIdx - 1))
+    ) {
+        oldEndIdx--
+        newEndIdx--
+    }
+
+    // Identical docs — nothing to send.
+    if (startIdx === oldEndIdx && startIdx === newEndIdx) {
+        return []
+    }
+
+    // Convert block indices to doc positions.
+    let fromPos = 0
+    for (let i = 0; i < startIdx; i++) {
+        fromPos += oldContent.child(i).nodeSize
+    }
+    let toPos = fromPos
+    for (let i = startIdx; i < oldEndIdx; i++) {
+        toPos += oldContent.child(i).nodeSize
+    }
+
+    // Replacement is the slice of new blocks in [startIdx, newEndIdx).
+    const replacementBlocks: Node[] = []
+    for (let i = startIdx; i < newEndIdx; i++) {
+        replacementBlocks.push(newContent.child(i))
+    }
+
+    return new Transform(oldDoc).replaceWith(fromPos, toPos, Fragment.from(replacementBlocks)).steps
+}
+
+/**
  * Plain-text view for the search index.
  * Mirrors what the frontend's `editor.getText()` produces.
  */
@@ -190,12 +242,8 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         )
     }
 
-    // Build steps via ProseMirror's canonical Transform API. Empty steps means
-    // the deep-replace round-tripped to an identical ProseMirror tree (e.g.
-    // attrs key order changed but the parsed result is structurally equal).
-    const steps = oldDoc.eq(newDoc)
-        ? []
-        : new Transform(oldDoc).replaceWith(0, oldDoc.content.size, newDoc.content).steps
+    // Build steps via ProseMirror Transform API
+    const steps = buildMinimalSteps(oldDoc, newDoc)
     if (steps.length === 0) {
         return notebook
     }
