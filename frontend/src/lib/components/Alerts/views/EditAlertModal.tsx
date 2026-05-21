@@ -117,9 +117,7 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
-    const alertsHistoryChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
-
-    const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
+    const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
@@ -145,7 +143,6 @@ export function EditAlertModal({
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
-        historyChartEnabled: alertsHistoryChartEnabled,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -164,7 +161,6 @@ export function EditAlertModal({
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
-    const quietHoursEnabled = useFeatureFlag('ALERTS_QUIET_HOURS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
@@ -219,7 +215,7 @@ export function EditAlertModal({
         ) {
             n += 1
         }
-        if (quietHoursEnabled && (alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
+        if ((alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
             n += 1
         }
         return n
@@ -229,7 +225,6 @@ export function EditAlertModal({
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
-        quietHoursEnabled,
     ])
 
     return (
@@ -794,16 +789,14 @@ export function EditAlertModal({
                                                             }
                                                         />
                                                     </LemonField>
-                                                    {quietHoursEnabled ? (
-                                                        <QuietHoursFields
-                                                            scheduleRestriction={alertForm.schedule_restriction}
-                                                            calculationInterval={alertForm.calculation_interval}
-                                                            teamTimezone={projectTimezone}
-                                                            onChange={(next) =>
-                                                                setAlertFormValue('schedule_restriction', next)
-                                                            }
-                                                        />
-                                                    ) : null}
+                                                    <QuietHoursFields
+                                                        scheduleRestriction={alertForm.schedule_restriction}
+                                                        calculationInterval={alertForm.calculation_interval}
+                                                        teamTimezone={projectTimezone}
+                                                        onChange={(next) =>
+                                                            setAlertFormValue('schedule_restriction', next)
+                                                        }
+                                                    />
                                                 </div>
                                             ),
                                         },
@@ -816,7 +809,7 @@ export function EditAlertModal({
                             alert ? (
                                 <AlertHistorySection alertId={alert.id} />
                             ) : alertLoading ? (
-                                <AlertHistorySectionSkeleton showChartArea={alertsHistoryChartEnabled} />
+                                <AlertHistorySectionSkeleton />
                             ) : null
                         ) : null}
                     </LemonModal.Content>
