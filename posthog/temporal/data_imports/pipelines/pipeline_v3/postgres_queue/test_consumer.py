@@ -321,6 +321,33 @@ class TestLogContextBinding:
         assert structlog.contextvars.get_contextvars().get("batch_id") is None
 
     @pytest.mark.asyncio
+    async def test_process_single_binds_external_data_job_workflow_type_for_non_cdc(self):
+        """Consumer also runs non-CDC syncs (`external-data-job` workflow_id prefix)."""
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=0)
+        seen: dict[str, Any] = {}
+
+        async def capture_context(b):
+            seen.update(structlog.contextvars.get_contextvars())
+
+        consumer._process_batch = capture_context
+
+        with (
+            patch.object(
+                consumer,
+                "_lookup_workflow_ids",
+                new=AsyncMock(return_value=("019df430-765a-0000-0523-040f9c48be64-2026-05-21T00:00:00", "wf-run")),
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await consumer._process_single(batch)
+
+        assert seen.get("workflow_type") == "external-data-job"
+
+    @pytest.mark.asyncio
     async def test_process_single_clears_context_on_error(self):
         consumer = _make_consumer(max_attempts=3)
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))

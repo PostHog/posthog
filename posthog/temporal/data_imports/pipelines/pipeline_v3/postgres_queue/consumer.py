@@ -185,6 +185,10 @@ class BatchConsumer:
 
         workflow_id, workflow_run_id = await self._lookup_workflow_ids(batch.job_id)
 
+        # Derive workflow_type from the workflow_id prefix so non-CDC syncs (regular
+        # `external-data-job`) route to the right `log_entries` source too.
+        workflow_type = "cdc-extraction" if (workflow_id or "").startswith("cdc-extraction-") else "external-data-job"
+
         # LogMessagesRenderer needs workflow_type/id/run_id + team_id; log_source_id routes the line.
         structlog.contextvars.bind_contextvars(
             team_id=batch.team_id,
@@ -194,7 +198,7 @@ class BatchConsumer:
             run_uuid=batch.run_uuid,
             batch_id=batch.id,
             resource_name=batch.resource_name,
-            workflow_type="cdc-extraction",
+            workflow_type=workflow_type,
             workflow_id=workflow_id or "",
             workflow_run_id=workflow_run_id or "",
             log_source_id=batch.schema_id,
