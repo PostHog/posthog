@@ -504,9 +504,7 @@ pub async fn create_client(router_addr: SocketAddr) -> PersonHogServiceClient<Ch
 }
 
 /// Create a client that sends Zstd-compressed requests.
-pub async fn create_compressed_client(
-    router_addr: SocketAddr,
-) -> PersonHogServiceClient<Channel> {
+pub async fn create_compressed_client(router_addr: SocketAddr) -> PersonHogServiceClient<Channel> {
     let url = format!("http://{}", router_addr);
     let channel = Channel::from_shared(url).unwrap().connect().await.unwrap();
     PersonHogServiceClient::new(channel)

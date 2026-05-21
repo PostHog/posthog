@@ -299,7 +299,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let incoming = tracked_tcp_incoming(listener);
 
         let result = if proxy_mode == ProxyMode::Raw {
-            let proxy = RawProxyService::new(replica_backend, leader_backend, retry_config, max_recv);
+            let proxy =
+                RawProxyService::new(replica_backend, leader_backend, retry_config, max_recv);
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)
