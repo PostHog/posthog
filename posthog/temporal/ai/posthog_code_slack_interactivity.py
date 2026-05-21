@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 
 POSTHOG_CODE_SLACK_INTERACTIVITY_TIMEOUT_SECONDS = 5 * 60
+SLACK_INTEGRATION_KIND = "slack"
 logger = structlog.get_logger(__name__)
 
 
@@ -96,7 +97,7 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
 
     try:
         integration = Integration.objects.get(
-            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
         logger.warning("posthog_code_terminate_integration_not_found", integration_id=integration_id)

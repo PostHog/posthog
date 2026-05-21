@@ -3113,9 +3113,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -3164,9 +3162,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -3294,9 +3290,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         mock_execute_relay.return_value = "relay-1"
 
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,
@@ -3378,9 +3372,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
             integration=integration,

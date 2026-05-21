@@ -60,7 +60,7 @@ class TestRepoPickerOptions(TestCase):
         OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         self.posthog_code_integration = Integration.objects.create(
             team=self.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
