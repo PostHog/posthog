@@ -82,6 +82,7 @@ import {
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
+import { autoAssignBreakdownColors, extractBreakdownValues } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
@@ -1408,6 +1409,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (tiles) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
+        autoBreakdownColors: [
+            (s) => [s.insightTiles, s.featureFlags],
+            (insightTiles, featureFlags): BreakdownColorConfig[] => {
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]) {
+                    return []
+                }
+                return autoAssignBreakdownColors(extractBreakdownValues(insightTiles, null))
+            },
+        ],
+        effectiveBreakdownColors: [
+            (s) => [s.temporaryBreakdownColors, s.autoBreakdownColors],
+            (temporaryBreakdownColors, autoBreakdownColors): BreakdownColorConfig[] => {
+                // User-explicit (and persisted dashboard.breakdown_colors) wins over auto.
+                // Both consumers (trendsDataLogic/funnelDataLogic) use Array.find — first match wins.
+                return [...temporaryBreakdownColors, ...autoBreakdownColors]
+            },
+        ],
         itemsLoading: [
             (s) => [
                 s.dashboardLoading,

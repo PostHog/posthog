@@ -433,9 +433,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     let breakdownValue = JSON.parse(key)['breakdown_value']
                     breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
 
-                    // dashboard color overrides
+                    // dashboard color overrides (user-explicit, then auto-assigned)
                     const logic = dashboardLogic.findMounted({ id: props.dashboardId })
-                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
+                    const dashboardBreakdownColors = logic?.values.effectiveBreakdownColors
                     const colorOverride = dashboardBreakdownColors?.find(
                         (config) =>
                             config.breakdownValue === breakdownValue &&
