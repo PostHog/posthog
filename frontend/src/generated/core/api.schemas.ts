@@ -570,10 +570,7 @@ export const AvailableSetupTaskIdsEnumApi = {
 } as const
 
 /**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
+ * Mixin for serializers to add user access control fields
  */
 export interface ProjectBackwardCompatApi {
     readonly id: number
@@ -1366,10 +1363,7 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
 }
 
 /**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
+ * Mixin for serializers to add user access control fields
  */
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
