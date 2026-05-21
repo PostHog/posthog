@@ -1691,6 +1691,9 @@ export type RetentionFilter = {
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
+    /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
+     * @default 0 */
+    cohortLabelStartIndex?: integer
 }
 
 export interface RetentionValue {
