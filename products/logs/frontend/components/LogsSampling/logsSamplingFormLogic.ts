@@ -1,19 +1,16 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
-import {
-    logsSamplingRulesCreate,
-    logsSamplingRulesPartialUpdate,
-    logsServicesCreate,
-} from 'products/logs/frontend/generated/api'
+import { logsSamplingRulesCreate, logsSamplingRulesPartialUpdate } from 'products/logs/frontend/generated/api'
 import {
     LogsSamplingRuleApi,
     PatchedLogsSamplingRuleApi,
@@ -36,7 +33,6 @@ export interface LogsSamplingFormType {
     name: string
     enabled: boolean
     rule_type: RuleTypeEnumApi
-    scope_service: string
     filter_group: UniversalFiltersGroup
     rate_limit_logs_per_second: string
 }
@@ -45,7 +41,6 @@ const DEFAULT_FORM: LogsSamplingFormType = {
     name: '',
     enabled: true,
     rule_type: RuleTypeEnumApi.PathDrop,
-    scope_service: '',
     filter_group: EMPTY_FILTER_GROUP,
     rate_limit_logs_per_second: '',
 }
@@ -71,6 +66,10 @@ function wrapFilterGroup(inner: UniversalFiltersGroup): UniversalFiltersGroup {
     return { type: FilterLogicalOperator.And, values: [inner] as never }
 }
 
+function isFilterGroupNonEmpty(group: UniversalFiltersGroup): boolean {
+    return Array.isArray(group.values) && group.values.length > 0
+}
+
 export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): LogsSamplingFormType {
     if (!rule) {
         return { ...DEFAULT_FORM }
@@ -84,11 +83,8 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
         name: rule.name,
         enabled: rule.enabled ?? false,
         rule_type,
-        scope_service: rule.scope_service ?? '',
     }
-    if (rule_type === RuleTypeEnumApi.PathDrop) {
-        form.filter_group = extractFilterGroup(cfg.filter_group)
-    }
+    form.filter_group = extractFilterGroup(cfg.filter_group)
     if (rule_type === RuleTypeEnumApi.RateLimit) {
         form.rate_limit_logs_per_second =
             typeof cfg.logs_per_second === 'number' && !Number.isNaN(cfg.logs_per_second)
@@ -104,6 +100,7 @@ export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<s
         return {
             logs_per_second: lps,
             burst_logs: lps * BURST_MULTIPLIER,
+            filter_group: wrapFilterGroup(form.filter_group),
         }
     }
     // `patterns: []` keeps the existing path_drop config validator happy.
@@ -130,53 +127,42 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
     })),
 
     actions({
-        refreshServiceTraffic: true,
+        refreshFilterPreview: true,
     }),
 
     loaders(({ values }) => ({
-        serviceTraffic: [
-            null as { log_count: number; avg_logs_per_sec: number } | null,
+        filterPreview: [
+            null as { time: string; severity: string; count: number }[] | null,
             {
-                loadServiceTraffic: async (_, breakpoint) => {
+                loadFilterPreview: async (_, breakpoint) => {
                     await breakpoint(400)
                     const form = values.samplingForm
-                    if (form.rule_type !== RuleTypeEnumApi.RateLimit) {
+                    if (!isFilterGroupNonEmpty(form.filter_group)) {
                         return null
                     }
-                    const svc = form.scope_service.trim()
-                    if (!svc) {
-                        return null
-                    }
-                    const projectId = String(values.currentTeamId)
-                    const res = await logsServicesCreate(projectId, {
+                    const response = await api.logs.sparkline({
                         query: {
                             dateRange: { date_from: '-24h', date_to: null },
-                            serviceNames: [svc],
+                            filterGroup: wrapFilterGroup(form.filter_group) as PropertyGroupFilter,
+                            sparklineBreakdownBy: 'severity',
                         },
                     })
-                    const row = res.services.find((s) => s.service_name === svc)
-                    if (!row) {
-                        return { log_count: 0, avg_logs_per_sec: 0 }
-                    }
-                    const logCount = row.log_count
-                    return { log_count: logCount, avg_logs_per_sec: logCount / (24 * 3600) }
+                    return response as { time: string; severity: string; count: number }[]
                 },
             },
         ],
     })),
 
     listeners(({ actions }) => ({
-        refreshServiceTraffic: () => {
-            actions.loadServiceTraffic(null)
+        refreshFilterPreview: () => {
+            actions.loadFilterPreview(null)
         },
-        setSamplingFormValue: () => {
-            actions.refreshServiceTraffic()
+        setSamplingFormValue: ({ name }) => {
+            if (name === 'filter_group') {
+                actions.refreshFilterPreview()
+            }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.refreshServiceTraffic()
-    }),
 
     forms(({ props, values }) => ({
         samplingForm: {
@@ -185,32 +171,26 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
                 const lps = parseInt(form.rate_limit_logs_per_second.trim(), 10)
                 return {
                     name: !form.name?.trim() ? 'Name is required' : undefined,
-                    scope_service:
-                        form.rule_type === RuleTypeEnumApi.RateLimit && !form.scope_service?.trim()
-                            ? 'Select or enter a service name'
-                            : undefined,
+                    filter_group: !isFilterGroupNonEmpty(form.filter_group)
+                        ? 'Add at least one filter to match logs'
+                        : undefined,
                     rate_limit_logs_per_second:
                         form.rule_type === RuleTypeEnumApi.RateLimit &&
                         (form.rate_limit_logs_per_second.trim() === '' || Number.isNaN(lps) || lps < 1)
-                            ? 'Enter logs per second (integer ≥ 1)'
+                            ? 'Enter kilobytes per second (integer ≥ 1)'
                             : undefined,
                 }
             },
             submit: async (form: LogsSamplingFormType) => {
-                if (form.rule_type === RuleTypeEnumApi.PathDrop && form.filter_group.values.length === 0) {
-                    lemonToast.error('Add at least one filter to drop logs')
-                    return
-                }
                 const projectId = String(values.currentTeamId)
                 try {
-                    const scope_service = form.scope_service.trim() || null
                     const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
                         []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
                     const payload = {
                         name: form.name.trim(),
                         enabled: form.enabled,
                         rule_type: form.rule_type,
-                        scope_service,
+                        scope_service: null,
                         // scope_path_pattern is folded into the filter group; the backend column will be retired in PR 2.
                         scope_path_pattern: null,
                         scope_attribute_filters,
