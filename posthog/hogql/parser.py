@@ -246,29 +246,40 @@ def _run_shadow_comparison(
     shadow backend; a divergence or shadow-backend crash is captured to
     error tracking and the primary result is returned untouched.
 
-    In TEST: every parse runs through the shadow AND a structural AST
-    divergence (positions stripped via `clear_locations` on both sides)
-    is raised so a unit test that hits a divergence fails loudly. A
-    shadow-backend EXCEPTION (packaging error, panic, ImportError after
-    `hogql_parser_rs` was stubbed at import time) is NEVER propagated —
-    it's captured to error tracking and incremented on the
-    `hogql_parser_shadow_backend_failures` metric. A broken shadow
-    wheel must not block the primary parser's hot path or fail the
-    test suite; position parity is enforced at explicit test-suite
-    assertion sites and the PBT / corpus diagnostics instead.
+    In TEST: every parse runs through the shadow. Two failure classes
+    are distinguished:
+      - parser-class: shadow rejects (`BaseHogQLError`) input the primary
+        accepted, OR the two backends agree to parse but produce
+        different ASTs. Both raise in TEST so a regression fails loud.
+      - packaging-class: any other exception (`ImportError`,
+        `RuntimeError` from the stub, a PyO3 panic). NEVER propagates;
+        captured + counted only. A broken shadow wheel must not block
+        the primary parser's hot path or fail the test suite.
     """
     if random.random() >= _shadow_sample_rate():
         return
     test_mode = settings.TEST
     try:
         shadow_node = _invoke_parser(shadow_backend, rule, statement, start)
+    except BaseHogQLError as err:
+        # Parser-class failure: shadow rejects input that primary accepted.
+        # In TEST that's a regression we want to see.
+        _SHADOW_BACKEND_FAILURES.labels(rule=str(rule), shadow=shadow_backend).inc()
+        capture_exception(
+            err,
+            additional_properties={
+                "hogql_parser_rule": str(rule),
+                "hogql_parser_shadow": shadow_backend,
+                "hogql_parser_statement": statement,
+                "hogql_parser_shadow_throw": "true",
+            },
+        )
+        if test_mode:
+            raise
+        return
     except Exception as err:
-        # Defensive: a shadow-backend throw is treated as a packaging /
-        # build / panic class of failure, NOT a user-input issue. Capture
-        # to error tracking, increment the metric, but never let it
-        # propagate. Tests don't raise either — a broken shadow shouldn't
-        # turn into red CI; the directly-targeted `test_parser_rust_json`
-        # suite catches rust-specific regressions on its own.
+        # Packaging-class failure (ImportError, stub RuntimeError, panic).
+        # Capture + count, never propagate, even in TEST.
         _SHADOW_BACKEND_FAILURES.labels(rule=str(rule), shadow=shadow_backend).inc()
         capture_exception(
             err,
@@ -589,7 +600,7 @@ def parse_program(
     if timings is None:
         timings = HogQLTimings()
     primary, shadow = _resolve_parser_mode(parser_mode, backend)
-    with timings.measure(f"parse_expr_{primary}"):
+    with timings.measure(f"parse_program_{primary}"):
         node = _parse_cached(ParseRule.PROGRAM, source, primary, cache_origin)
         if shadow is not None:
             _run_shadow_comparison(ParseRule.PROGRAM, source, primary, shadow, node, None)

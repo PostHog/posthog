@@ -100,3 +100,42 @@ class TestParserMode(BaseTest):
         # `rust_only` routes the parse entirely through the Rust backend.
         node = parse_select("select a, b from events where a > 1", parser_mode=ParserMode.RUST_ONLY)
         self.assertIsInstance(node, ast.SelectQuery)
+
+    def test_shadow_raises_parser_class_throw_in_test_mode(self):
+        # A `BaseHogQLError` from the shadow backend means it rejected what
+        # the primary accepted — a real parser regression. Propagate in TEST
+        # so a unit-suite parse hitting the regression fails loudly.
+        from posthog.hogql import parser as parser_module
+        from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
+
+        real_invoke = parser_module._invoke_parser
+
+        def shadow_throws_parser_class(backend, rule, statement, start):
+            if backend == "rust-json":
+                raise HogQLSyntaxError("simulated rust-json regression")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=shadow_throws_parser_class):
+            with patch("posthog.hogql.parser.capture_exception"):
+                with self.assertRaises(HogQLSyntaxError):
+                    parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
+
+    def test_shadow_swallows_packaging_class_throw_in_test_mode(self):
+        # A non-BaseHogQLError exception (ImportError, RuntimeError from a
+        # broken wheel, PyO3 panic) is treated as a packaging issue — never
+        # propagates, even in TEST. Captures + counts.
+        from posthog.hogql import parser as parser_module
+
+        real_invoke = parser_module._invoke_parser
+
+        def shadow_throws_packaging(backend, rule, statement, start):
+            if backend == "rust-json":
+                raise ImportError("simulated wheel failure")
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser._invoke_parser", side_effect=shadow_throws_packaging):
+            with patch("posthog.hogql.parser.capture_exception") as captured:
+                node = parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_SHADOW)
+        self.assertIsInstance(node, ast.SelectQuery)
+        captured.assert_called_once()
+        self.assertIsInstance(captured.call_args.args[0], ImportError)
