@@ -481,11 +481,118 @@ Some products or features may require additional configuration, for example: Dat
 
 As you run workflows, you will be able to see the logs in the worker's logs, and you can go to the Temporal UI at http://localhost:8081 to check on the workflow status.
 
+## Testing patterns
+
+Temporal tests are expensive — they boot Temporal test servers, register activities, and frequently force the slow `TransactionTestCase` isolation mode. The cost is real (per-test TRUNCATE across multiple databases), so write them deliberately.
+
+### Pick the lightest harness that proves what you need
+
+| Harness                                                   | When to use                                                                  | Cost                       |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------- |
+| Pure pytest (no Worker, no `ActivityEnvironment`)         | Unit-testing pure functions — prompt builders, parsers, decision trees       | ~ms/test                   |
+| `ActivityEnvironment`                                     | Testing a single activity's body in isolation; no workflow orchestration     | ~10s of ms/test            |
+| Real Worker + `WorkflowEnvironment.start_time_skipping()` | Integration tests that exercise workflow ↔ activity orchestration end-to-end | seconds/test + Worker boot |
+
+Per Temporal's own guidance: write the **majority** of tests as the cheapest harness that still proves the contract you care about. Spinning up a Worker is a deliberate choice for integration tests, not the default.
+
+### The `django_db(transaction=True)` rule
+
+Async tests that touch the Django ORM via `sync_to_async` / `database_sync_to_async` will fail without `@pytest.mark.django_db(transaction=True)`. asgiref dispatches the wrapped sync function to a separate thread, which gets its own DB connection, which can't see the test's wrapping atomic transaction. The test will create a row, the activity will fail to find it.
+
+`transaction=True` swaps fast transaction-rollback for slow TRUNCATE-everything between tests. This is the correct workaround — there's no clean way to share a Django connection across threads — but it's expensive, so **only use it when needed**:
+
+```python
+# Async test + Django ORM = needs transaction=True
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_my_activity(team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(team=team, ...)
+    result = await my_activity(SomeInputs(source_id=source.pk))
+    assert result.ok
+
+# Sync test or no ORM = does NOT need transaction=True
+@pytest.mark.django_db  # transaction rollback — much faster
+def test_my_pure_function(team):
+    source = ExternalDataSource.objects.create(team=team, ...)
+    assert build_query(source) == "..."
+```
+
+### Share `WorkflowEnvironment` + `Worker` across tests in the file
+
+`WorkflowEnvironment.start_time_skipping()` spawns a real `temporal-test-server` process; `Worker(...)` registers every workflow + activity. Booting them per-test compounds into minutes of CI cost. Use a module-scoped autouse fixture instead:
+
+```python
+_shared_workflow_env: Any = None
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")
+async def _shared_workflow_environment_and_worker():
+    global _shared_workflow_env
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.MY_TASK_QUEUE,
+            workflows=[MyWorkflow, ...],
+            activities=ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            max_concurrent_activities=50,
+            debug_mode=True,
+        ):
+            _shared_workflow_env = env
+            yield env
+            _shared_workflow_env = None
+```
+
+Each test then runs `await _shared_workflow_env.client.execute_workflow(...)` without nesting its own context managers. Workflow execution is stateless across runs (each call gets its own `workflow_id`), so the same Worker can service every test serially. See `posthog/temporal/tests/data_imports/test_end_to_end.py` for a real example.
+
+### Watch for production code that calls `connection.connect()`
+
+Some activities call `django.db.connection.connect()` explicitly to recover from stale worker connections in production. Under test that drops the test's wrapping atomic — the next ORM read on the (new) connection sees no data, and teardown fails with `TransactionManagementError: The rollback flag doesn't work outside of an 'atomic' block`.
+
+Targeted fix in the test file (or a `conftest.py` for the whole package): no-op the reconnect during tests.
+
+```python
+@pytest.fixture(autouse=True)
+def _no_worker_reconnect(monkeypatch):
+    from django.db import connection
+    monkeypatch.setattr(connection, "connect", lambda: None)
+```
+
+With this fixture the test can stay on fast `@pytest.mark.django_db` (no `transaction=True`). See `posthog/temporal/proxy_service/test/test_send_proxy_email.py` for a real example.
+
+### Don't copy-paste; parametrize
+
+It's tempting to write "one test per endpoint" when adding source variants. The temptation produces files like the historical state of `test_end_to_end.py`: 83 mechanically identical 10-line tests differing only in fixture name. Each one paid the full per-test cost.
+
+Prefer `@pytest.mark.parametrize`:
+
+```python
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name",
+    [
+        ("charge", "stripe_charge", "stripe_charge"),
+        ("customer", "stripe_customer", "stripe_customer"),
+        # ... etc — adding a new endpoint is now appending a tuple
+    ],
+)
+async def test_stripe_source(team, mock_stripe_client, request, schema_name, table_name, fixture_name):
+    fixture_data = request.getfixturevalue(fixture_name)
+    await _run(team=team, schema_name=schema_name, table_name=table_name,
+               source_type="Stripe", job_inputs=_STRIPE_JOB_INPUTS,
+               mock_data_response=fixture_data["data"])
+```
+
+The per-test cost is the same as N separate functions, but the file shrinks and adding endpoints stops feeling like a refactor.
+
 ## Relevant documentation
 
 - [Documentation for the Temporal Python SDK](https://docs.temporal.io/develop/python).
 - [Documentation on Temporal schedules](https://docs.temporal.io/evaluate/development-production-features/schedules).
 - [Documentation on different types of activities](https://docs.temporal.io/develop/python/python-sdk-sync-vs-async).
+- [Documentation on testing Temporal applications](https://docs.temporal.io/develop/python/best-practices/testing-suite).
 - [Temporal Python SDK repository](https://github.com/temporalio/sdk-python).
 - [Temporal Python SDK code samples](https://github.com/temporalio/samples-python).
 
