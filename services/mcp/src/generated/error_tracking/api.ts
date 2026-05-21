@@ -3793,7 +3793,9 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
         .min(errorTrackingSuppressionRulesCreateBodySamplingRateMin)
         .max(errorTrackingSuppressionRulesCreateBodySamplingRateMax)
         .default(errorTrackingSuppressionRulesCreateBodySamplingRateDefault)
-        .describe('Fraction of matching events to suppress. Use `1.0` to suppress all matching events.'),
+        .describe(
+            'Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.'
+        ),
 })
 
 export const ErrorTrackingSuppressionRulesUpdateParams = /* @__PURE__ */ zod.object({
@@ -4863,7 +4865,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
         .max(errorTrackingSuppressionRulesUpdateBodySamplingRateMax)
         .optional()
         .describe(
-            'Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.'
+            'Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.'
         ),
 })
 

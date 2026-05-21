@@ -61,7 +61,10 @@ class ErrorTrackingSuppressionRuleCreateRequestSerializer(serializers.Serializer
         default=1.0,
         min_value=0.0,
         max_value=1.0,
-        help_text="Fraction of matching events to suppress. Use `1.0` to suppress all matching events.",
+        help_text=(
+            "Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; "
+            "`0.5` drops half. Higher values suppress more."
+        ),
     )
 
 
@@ -79,8 +82,8 @@ class ErrorTrackingSuppressionRuleUpdateRequestSerializer(serializers.Serializer
         min_value=0.0,
         max_value=1.0,
         help_text=(
-            "Fraction of matching events to suppress. Use `1.0` to suppress all matching events. "
-            "Omit to preserve the existing rate."
+            "Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; "
+            "`0.5` drops half. Higher values suppress more. Omit to preserve the existing rate."
         ),
     )
 

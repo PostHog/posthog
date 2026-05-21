@@ -14444,7 +14444,7 @@ export namespace Schemas {
       /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
       filters?: PropertyGroupFilterValue;
       /**
-         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+         * Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.
          * @minimum 0
          * @maximum 1
          */
@@ -14455,7 +14455,7 @@ export namespace Schemas {
       /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
       filters?: PropertyGroupFilterValue;
       /**
-         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
+         * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
          * @minimum 0
          * @maximum 1
          */
@@ -26413,7 +26413,7 @@ export namespace Schemas {
       /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
       filters?: PropertyGroupFilterValue;
       /**
-         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events. Omit to preserve the existing rate.
+         * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
          * @minimum 0
          * @maximum 1
          */
