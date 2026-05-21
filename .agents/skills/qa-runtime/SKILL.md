@@ -1,29 +1,32 @@
 ---
 name: qa-runtime
 description: >
-  Runtime QA agent for PostHog. Use when the user asks to QA this PR, run runtime
-  QA, review and fix this PR, agent QA on PR <N>, browser-test a PR, verify a PR
-  against the local PostHog stack, or QA the current branch / current changes
-  with no PR. Runs in PR mode (checkout PR, upload evidence to posthog.com CDN,
-  post one PR comment) or local mode (QA current branch + uncommitted, write
-  report locally, no upload, no GitHub side effects). Reads diffs, plans
-  adaptive browser/API checks, drives Playwright MCP, captures evidence, and
-  fixes only reproducible in-diff issues when confidence is high.
+  Internal PostHog developer runtime QA skill. Use when a PostHog developer asks
+  to QA this PR, run runtime QA, review and fix this PR, agent QA on PR <N>,
+  browser-test a PR, verify a PR against the local PostHog stack, or QA the
+  current branch / current changes with no PR. Runs in PR mode (checkout PR,
+  optional approved evidence upload, one PR comment) or local mode (QA committed,
+  staged, unstaged, and untracked changes, write report locally, no GitHub side
+  effects). Reads diffs, plans adaptive browser/API checks, drives Playwright
+  MCP, captures evidence, and fixes only reproducible in-diff issues when
+  confidence is high.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*, mcp__phrocs__*
 ---
 
 # QA Runtime
 
-Run the code, not just the diff. This skill executes a bounded runtime QA loop
+Run the code, not just the diff. This is a repo-local skill for PostHog
+developers working on PostHog itself. It executes a bounded runtime QA loop
 against a local PostHog stack and operates in one of two modes:
 
 - **PR mode** - user references a specific PR (URL, number, or branch). The
-  skill checks out the PR, runs QA, uploads final evidence to the posthog.com
-  CDN, and posts a single PR comment. Requires a clean working tree.
+  skill checks out the PR, runs QA, optionally uploads final evidence after
+  approval, and posts a single PR comment after approval. Requires a clean
+  working tree.
 - **Local mode** - user asks to QA their current work with no PR reference. The
-  skill QAs the current checkout against `origin/master` plus any uncommitted
-  changes, writes a report locally, and does **not** upload evidence or touch
-  GitHub. A dirty working tree is fine in this mode.
+  skill QAs the current checkout against `origin/master` plus staged,
+  unstaged, and untracked changes, writes a report locally, and does **not**
+  upload evidence or touch GitHub. A dirty working tree is fine in this mode.
 
 Choose mode from the prompt. If the user names a PR, links one, or asks to "QA
 PR <N>", use PR mode. If the user says "QA my current changes", "QA this
@@ -38,7 +41,9 @@ instructions, and explicit user approval in the current conversation.
 
 1. Decide mode (PR vs local) from the user prompt and presence of a PR ref.
 2. In PR mode, require a clean working tree before doing anything else.
-3. Require a reachable local stack and working Playwright MCP session.
+3. Require a reachable local stack and working Playwright MCP session. If the
+   stack is down, ask whether to start it in detached mode or let the user start
+   it manually.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
 5. Plan tests from the diff and runtime route mapping.
@@ -48,9 +53,9 @@ instructions, and explicit user approval in the current conversation.
    (PR mode) or the changed-file set (local mode).
 9. Create a slow GIF from captured screenshots when `ffmpeg` or another
    existing local GIF tool is available.
-10. PR mode only: upload final evidence to the posthog.com CDN, verify PR
-    comment connectivity, and post one final PR comment for every completed
-    run, including clean runs. Push only after explicit approval.
+10. PR mode only: after approval, upload selected evidence if configured,
+    verify PR comment connectivity, and post one final PR comment for every
+    completed run, including clean runs. Push only after explicit approval.
 11. Local mode only: write the rendered report to stdout and to
     `.qa-runtime/runs/<run-id>/report.md`. No upload, no PR comment, no push.
 12. In PR mode, restore the original branch in a finally-style cleanup.
@@ -75,6 +80,8 @@ Load these files only when the matching phase starts:
 - `references/file-classification.md` - diff pattern to runtime test type mapping.
 - `references/url-mapping.md` - route walker expectations and coverage gaps.
 - `references/playwright-mcp-patterns.md` - MCP execution and evidence capture.
+- `references/evidence-and-output.md` - evidence upload, verdict artifacts, and
+  PR/local report rendering.
 - `references/pr-comment-template.md` - final PR comment structure.
 
 Skill scripts live next to this file (under `scripts/`). When Claude Code
@@ -178,15 +185,43 @@ Set:
 BASE_URL="${BASE_URL:-http://localhost:8010}"
 ```
 
-Prefer `mcp__phrocs__get_process_status` to confirm PostHog `app` and
-`frontend` are running. If phrocs is unavailable, fall back to:
+First check whether PostHog is already reachable:
 
 ```bash
 curl -sf "$BASE_URL/_preflight"
 ```
 
-Wait up to about 30 seconds. If neither path succeeds, abort with a `hogli wait`
-hint and do not checkout the PR.
+If that succeeds, continue. If it fails, try `mcp__phrocs__get_process_status`
+to inspect the local process manager. If phrocs reports that it is not running,
+or if both checks fail, ask the user:
+
+```text
+PostHog is not reachable at $BASE_URL. Should I start the local dev stack in
+detached mode, or would you prefer to start it yourself?
+```
+
+If the user wants to start it themselves, stop and give this hint:
+
+```bash
+flox activate -- bin/hogli up -d
+flox activate -- bin/hogli wait --timeout 180
+```
+
+If the user approves agent startup, prefer detached mode. In Codex and other
+headless shells, do not run the interactive `./bin/start` TUI. Use the
+repo-local `bin/hogli` command through Flox so required tools such as `flock`
+are on PATH:
+
+```bash
+flox activate -- bin/hogli up -d
+flox activate -- bin/hogli wait --timeout 180
+```
+
+Then re-check `$BASE_URL/_preflight` and, if available,
+`mcp__phrocs__get_process_status`. Continue only after the stack is reachable.
+If startup or wait fails, summarize the failure, point at the relevant phrocs
+logs under `.posthog/.generated/logs/`, and stop before checkout, edits,
+uploads, comments, or pushes.
 
 ## Checkout
 
@@ -373,169 +408,18 @@ remaining findings are reported as comment-only.
 If a fix fails verification, revert it immediately and leave the finding as a
 suggested patch in the final comment.
 
-## Evidence Upload
+## Evidence And Output
 
-PR mode only. After the QA loop completes and findings are settled, upload the
-final human-facing evidence directly to Cloudinary so the PR comment can embed
-external image/GIF URLs instead of local `.qa-runtime/...` paths.
+Load `references/evidence-and-output.md` after the QA loop completes and before
+rendering anything user-facing. That reference owns:
 
-Required environment variable:
+- Optional evidence upload in PR mode.
+- `findings.json` and `QA-VERDICT` artifact requirements.
+- The PR comment and local report rendering rules.
+- The push approval gate for same-repo PR fixes.
 
-```bash
-CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
-```
-
-This is the standard Cloudinary credential format and lives in the repo's
-`.env` (see `bin/start`). The upload script loads it via `python-dotenv`, so
-no manual sourcing is needed - just invoke through `uv run` so the project
-venv is on `PYTHONPATH`.
-
-If `CLOUDINARY_URL` is missing, tell the user up front that evidence cannot
-be uploaded and the PR comment will reference local paths only. Continue the
-QA run regardless - upload is a courtesy, not a blocker.
-
-Pick only the human-facing evidence to upload:
-
-- `runtime-qa.gif` (or `runtime-qa-small.gif` if generated)
-- 1-3 key screenshots that match the findings or the PASS narrative
-
-Do not upload `.md` snapshots, `console.log`, every numbered screenshot, or
-uncompressed video. The earlier GIF step should already have produced a
-compressed GIF; if it did not, skip the GIF upload rather than uploading a
-multi-MB file.
-
-Invoke (substitute `<skill_dir>` with the skill's own base directory that
-Claude Code reports at activation, e.g. `~/.claude/skills/qa-runtime`):
-
-```bash
-uv run python "<skill_dir>/scripts/upload-evidence.py" \
-  --pr "$PR_NUMBER" \
-  --output ".qa-runtime/runs/<run-id>/upload-manifest.json" \
-  --file ".qa-runtime/runs/<run-id>/runtime-qa.gif:flow-overview" \
-  --file ".qa-runtime/runs/<run-id>/<screenshot>.png:<kebab-finding-description>"
-```
-
-If the upload script is unreachable at the expected path, do NOT roll your
-own Cloudinary upload code as a substitute - the script encodes the
-qa-runtime public_id naming convention, manifest format, and network-error
-handling that downstream comment rendering relies on. Instead, surface the
-issue (e.g. "skill scripts not on PATH") and fall back to local-path
-evidence in the PR comment.
-
-The script emits a manifest JSON with `uploaded`, `failed`, and
-`skipped_no_env` fields. Exit codes:
-
-- `0` - at least one file uploaded, none failed
-- `1` - partial failure, some files uploaded
-- `2` - `CLOUDINARY_URL` missing, nothing attempted
-- `3` - fatal error (git inspection, malformed credential, etc.)
-
-Substitute uploaded URLs into the PR comment for each matched local path,
-reading the `url` field from each `uploaded` entry verbatim. The URL lives on
-`res.cloudinary.com/<cloud_name>/image/upload/v.../<public_id>.<ext>` and
-preserves the public_id verbatim (dashes intact). Do not try to reconstruct
-the URL from `public_id`.
-
-For any file that failed or was skipped, fall back to the local path and note
-`(upload failed)` next to it. Never block the run on upload failure.
-
-Never echo `CLOUDINARY_URL`, the API secret, or raw upload response bodies
-into evidence files or PR comments. The script does not log them by default;
-if you copy any script output into the comment, double-check the line.
-
-## Output
-
-**Re-read `<skill_dir>/references/pr-comment-template.md` immediately before
-composing the comment, not just once at activation.** The template defines
-the exact banner, verdict line, coverage table format, finding layout, and
-footer. Do not improvise from memory or fall back to a generic "QA: PASS"
-header - that produces inconsistent reports across runs.
-
-Before posting, sanity-check the rendered comment:
-
-- First line is the literal `## 🦔 PostHog QA Swarm · Frontend Report`
-  banner.
-- Second line is a verdict line matching one of the templates (PASS /
-  FIXED / FAIL / REPORT-ONLY) with pass count, runtime, and commit SHA.
-- Last line is the `<sub>🦔 PostHog QA Swarm · Frontend Report</sub>`
-  footer.
-
-If any of these are missing, you did not read the template - go back and
-read it.
-
-Every run writes two artifacts before rendering anything user-facing:
-
-1. `.qa-runtime/runs/<run-id>/findings.json` - structured findings array (see
-   schema below). The PR comment and local report are renders of this file.
-2. A single first line on stdout: `QA-VERDICT: <verdict>` so an outer
-   orchestrator can grep status without parsing markdown. Examples:
-   - `QA-VERDICT: PASS`
-   - `QA-VERDICT: FAIL findings=3 fixes=1 coverage_gaps=2`
-   - `QA-VERDICT: FORK_READONLY findings=1`
-   - `QA-VERDICT: COMMENT_ONLY findings=2`
-
-`findings.json` schema (array, one entry per finding or coverage gap):
-
-```json
-{
-  "id": "<sha1(target+step)[:12]>",
-  "kind": "finding|coverage_gap",
-  "severity": "high|medium|low",
-  "confidence": "high|medium",
-  "target": "/route-or-endpoint",
-  "step": "user-visible step",
-  "expected": "expected outcome",
-  "actual": "actual outcome",
-  "evidence": ["<uploaded url or local path>"],
-  "status": "new|fix-applied|suggested-patch|skipped",
-  "fix_commit": "<sha or null>"
-}
-```
-
-`coverage_gap` entries record routes or files the QA loop could not exercise
-(missing scene mapping, blocked by a feature flag, dark-mode skipped, etc.).
-They must surface as visible rows in the PR comment's test-plan table, not as
-a footer note.
-
-PR mode - every completed run posts one PR comment:
-
-- Clean run: PASS verdict plus collapsed test plan.
-- Confident fixes: pushed fix summary plus findings and evidence.
-- Low-confidence or fork PR: findings with repro steps and suggested patches.
-- Runtime target gaps: explicit coverage-gap rows.
-
-Before any push, verify the comment path works. Prefer a read-only `gh api`
-reachability check or a tiny draft/stub comment workflow that is immediately
-cleaned up. If comment connectivity fails, skip the push, write the final
-comment markdown to stdout, and stop.
-
-Push approval gate (PR mode, same-repo PR, at least one confident fix
-commit):
-
-1. If `AUTO_PUSH_FIXES` was set in `$ARGUMENTS`, proceed straight to the
-   push step without asking.
-2. Otherwise, after the fix loop completes and re-verification passes, stop
-   and ask the user in chat: "Apply fix commit(s) <sha-list> to the PR
-   branch? (y/n)". Wait for explicit "yes" / "y" / "push" / similar
-   confirmation. "no" / "n" / silence means do not push; emit the comment
-   draft with the local commit SHAs and a note that the user can push
-   manually.
-3. Re-fetch and verify the remote did not move (lease check).
-
-```bash
-git fetch origin "$headRefName"
-git push --force-with-lease origin HEAD:"$headRefName"
-```
-
-If the remote moved, do not push. Post or print a report explaining that local
-fix commits exist but were not pushed because the PR branch changed.
-
-Local mode - write the rendered report to stdout and to
-`.qa-runtime/runs/<run-id>/report.md`. Use the same comment template, but:
-
-- Omit upload steps.
-- Reference evidence by local relative path only.
-- Do not call `gh api`, `gh pr comment`, or any push.
+Local mode always uses local evidence paths and writes
+`.qa-runtime/runs/<run-id>/report.md`. It never uploads, comments, or pushes.
 
 ## Cleanup
 

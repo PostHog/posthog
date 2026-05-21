@@ -32,6 +32,7 @@ design; do not abort local-mode runs for either reason.
 
 Ask for explicit approval in the current conversation before:
 
+- Starting, stopping, or restarting the local PostHog dev stack.
 - Posting any GitHub PR comment, review, or issue comment.
 - Pushing commits, force-pushing, deleting branches, or renaming branches.
 - Rerunning or canceling GitHub Actions.
@@ -40,6 +41,27 @@ Ask for explicit approval in the current conversation before:
 - Accepting or updating snapshots.
 
 Read-only GitHub and git inspection commands are allowed.
+
+## Local Stack Control
+
+If PostHog is not reachable, ask whether the user wants the agent to start it
+or whether they prefer to start it themselves.
+
+When the user approves agent startup, use detached mode:
+
+```bash
+flox activate -- bin/hogli up -d
+flox activate -- bin/hogli wait --timeout 180
+```
+
+Do not run the interactive `./bin/start` terminal UI from a headless agent
+session. In Codex, bare `hogli` may not be on PATH, and `./bin/start` may miss
+Flox-provided dependencies such as `flock`; prefer the repo-local `bin/hogli`
+through Flox.
+
+If detached startup succeeds but readiness does not, stop before checkout,
+edits, uploads, comments, or pushes. Summarize the failure and point at
+`.posthog/.generated/logs/`.
 
 ## Fork PRs
 
