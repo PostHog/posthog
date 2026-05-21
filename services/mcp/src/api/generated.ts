@@ -31410,6 +31410,131 @@ export namespace Schemas {
       value: unknown;
     }
 
+    export interface _Summary {
+      /** Inclusive UTC start of the spend window resolved from the request. */
+      date_from: string;
+      /** Exclusive UTC end of the spend window resolved from the request. */
+      date_to: string;
+      /**
+         * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
+         * @nullable
+         */
+      product: string | null;
+      /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
+      total_cost_usd: number;
+      /** Total $ai_generation + $ai_embedding events captured across every product. */
+      event_count: number;
+      /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+      scoped_cost_usd: number;
+      /** Total $ai_generation + $ai_embedding events for the scoped slice. */
+      scoped_event_count: number;
+    }
+
+    export interface _ProductBreakdownRow {
+      /**
+         * Value of the `ai_product` property on the event (e.g. `posthog_code`, `background_agents`). Null when unset.
+         * @nullable
+         */
+      product: string | null;
+      /** Number of $ai_generation + $ai_embedding events for this product. */
+      event_count: number;
+      /** Total cost in USD for this product over the lookback window. */
+      cost_usd: number;
+    }
+
+    export interface _ProductBreakdown {
+      /** Rows of spend by product, ordered by cost descending. */
+      items: _ProductBreakdownRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    export interface _ToolBreakdownRow {
+      /**
+         * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
+         * @nullable
+         */
+      tool: string | null;
+      /** Number of $ai_generation events whose tool list includes this tool. */
+      generation_count: number;
+      /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
+      cost_usd: number;
+      /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
+      share_of_scoped: number;
+      /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
+      avg_input_tokens: number;
+    }
+
+    export interface _ToolBreakdown {
+      /** Rows of spend by tool, ordered by cost descending. */
+      items: _ToolBreakdownRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    export interface _ModelBreakdownRow {
+      /**
+         * Value of the `$ai_model` property.
+         * @nullable
+         */
+      model: string | null;
+      /** Number of $ai_generation + $ai_embedding events. */
+      generation_count: number;
+      /** Total cost in USD for this model. */
+      cost_usd: number;
+      /** Sum of `$ai_input_tokens` for this model. */
+      input_tokens: number;
+      /** Sum of `$ai_output_tokens` for this model. */
+      output_tokens: number;
+    }
+
+    export interface _ModelBreakdown {
+      /** Rows of spend by model, ordered by cost descending. */
+      items: _ModelBreakdownRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    export interface _TopTraceRow {
+      /**
+         * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Number of $ai_generation events in this trace. */
+      generation_count: number;
+      /** Total cost in USD for this trace. */
+      cost_usd: number;
+      /**
+         * Timestamp of the earliest event in this trace.
+         * @nullable
+         */
+      started_at: string | null;
+    }
+
+    export interface _TopTraces {
+      /** Rows of top traces by cost, ordered by cost descending. */
+      items: _TopTraceRow[];
+      /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+      truncated: boolean;
+    }
+
+    /**
+     * Structured personal LLM spend analysis for the requesting user.
+     */
+    export interface PersonalSpendAnalysisResponse {
+      /** High-level totals for the lookback window. */
+      summary: _Summary;
+      /** Spend grouped by the `ai_product` property — always across all products, never filtered. */
+      by_product: _ProductBreakdown;
+      /** Spend grouped by tool. Scoped to `product` when set. */
+      by_tool: _ToolBreakdown;
+      /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
+      by_model: _ModelBreakdown;
+      /** Most expensive trace IDs (sessions) in the window. Scoped to `product` when set. */
+      top_traces: _TopTraces;
+    }
+
     export interface PinnedSceneTabs {
       /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
@@ -36677,6 +36802,14 @@ export namespace Schemas {
       date_to?: string | null;
     }
 
+    /**
+     * DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema.
+     */
+    export interface _ErrorResponse {
+      /** Human-readable error description from DRF. */
+      detail: string;
+    }
+
     export interface _LogAttributeEntry {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
@@ -41037,6 +41170,37 @@ export namespace Schemas {
     };
 
     export type WebVitalsRetrieve200 = { [key: string]: unknown };
+
+    export type LlmAnalyticsPersonalSpendListParams = {
+    /**
+     * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
+     * @minLength 1
+     * @maxLength 32
+     */
+    date_from?: string;
+    /**
+     * End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * @maxLength 64
+     * @nullable
+     */
+    product?: string | null;
+    /**
+     * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
+     */
+    refresh?: boolean;
+    };
 
     export type ListParams = {
     /**
