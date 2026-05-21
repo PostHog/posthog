@@ -11,7 +11,6 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import {
@@ -90,17 +89,22 @@ export function Settings({
         navigateToSetting,
     } = useActions(settingsLogic(props))
 
-    const { ref, size } = useResizeBreakpoints(
-        {
-            0: 'small',
-            768: 'medium',
-        },
-        {
-            initialSize: 'medium',
+    // Tailwind `md` breakpoint (768px). Matches `screens.md` in common/tailwind/tailwind.config.js.
+    const [isViewportCompact, setIsViewportCompact] = React.useState(() => {
+        if (typeof window === 'undefined') {
+            return false
         }
-    )
+        return window.matchMedia('(max-width: 767px)').matches
+    })
+    React.useEffect(() => {
+        const mql = window.matchMedia('(max-width: 767px)')
+        const update = (e: MediaQueryListEvent | MediaQueryList): void => setIsViewportCompact(e.matches)
+        update(mql)
+        mql.addEventListener('change', update)
+        return () => mql.removeEventListener('change', update)
+    }, [])
 
-    const isCompact = !inStorybookTestRunner() && size === 'small'
+    const isCompact = !inStorybookTestRunner() && isViewportCompact
 
     // The full settings scene fills the scene area, so its nav can be viewport-fixed.
     // Embeds (replay settings, error tracking config, side panel, modal) place the nav
@@ -320,7 +324,7 @@ export function Settings({
     )
 
     return (
-        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')} ref={ref}>
+        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')}>
             {hideSections ? null : isCompact ? (
                 <>
                     <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
