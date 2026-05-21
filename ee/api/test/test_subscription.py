@@ -24,6 +24,7 @@ from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInpu
 from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.api.test.base import APILicensedTest
+from ee.hogai.ai_reports import AiReportStageError
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 
 
@@ -1909,6 +1910,21 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert kwargs["user"] == self.user
         assert kwargs["prompt"] == "What changed this week?"
         assert kwargs["window_days"] == 7
+
+    @patch(
+        "ee.api.subscription.generate_ai_report",
+        side_effect=AiReportStageError("synthesis", TimeoutError("LLM timed out")),
+    )
+    def test_ai_report_endpoint_returns_503_on_stage_failure(self, mock_generate, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/ai_report",
+            {"prompt": "What changed this week?", "window_days": 7},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        assert "synthesis" in response.json()["detail"]
 
     def test_ai_report_endpoint_rejects_without_consent(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)

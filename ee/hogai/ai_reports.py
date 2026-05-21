@@ -73,6 +73,7 @@ class AiReportStageError(Exception):
 
     def __init__(self, stage: str, original: BaseException) -> None:
         self.stage = stage
+        self.original = original
         super().__init__(f"AI report failed at {stage} stage: {original}")
 
 
@@ -119,6 +120,8 @@ def generate_ai_report(
         raise AiReportStageError("planner", exc) from exc
 
     try:
+        # Runs inside a `database_sync_to_async(thread_sensitive=False)` worker thread,
+        # which has no running event loop — so `asyncio.run` is safe here.
         rendered_results = asyncio.run(_arun_plan(spec, team, user, ai_config, trace_correlation_id))
     except Exception as exc:
         raise AiReportStageError("query", exc) from exc

@@ -48,7 +48,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
-from ee.hogai.ai_reports import generate_ai_report
+from ee.hogai.ai_reports import AiReportStageError, generate_ai_report
 from ee.tasks.subscriptions.ai_subscription.spec_generator import (
     ALLOWED_AI_MODELS,
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
@@ -358,7 +358,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if not has_insight:
                 raise ValidationError({"insight": ["Insight is required for insight subscriptions."]})
             if attrs.get("dashboard") or attrs.get("prompt"):
-                raise ValidationError("Insight subscriptions cannot also set dashboard or prompt.")
+                raise ValidationError({"insight": ["Insight subscriptions cannot also set dashboard or prompt."]})
             if attrs.get("ai_config") is not None:
                 raise ValidationError({"ai_config": ["ai_config is only valid on AI subscriptions."]})
         elif content_type == Subscription.ContentType.DASHBOARD:
@@ -990,7 +990,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         detail=False,
         url_path="ai_report",
         throttle_classes=[SubscriptionTestDeliveryThrottle],
-        required_scopes=["subscription:write"],
+        # query:read in addition to subscription:write — the response returns
+        # LLM-summarized HogQL results, so a subscription-only token must not reach it.
+        required_scopes=["subscription:write", "query:read"],
     )
     def ai_report(self, request, **kwargs):
         """Generate an ad-hoc AI report from a prompt without creating a recurring subscription.
@@ -1020,6 +1022,13 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             )
         except PromptRejectedError as exc:
             raise ValidationError({"prompt": [str(exc)]})
+        except AiReportStageError as exc:
+            # Transient pipeline failure (planner/query/synthesis). 503 signals "retry";
+            # naming the stage helps the caller understand what failed.
+            return Response(
+                {"detail": f"Report generation failed at the {exc.stage} stage. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response({"markdown": markdown})
 
