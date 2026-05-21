@@ -18,15 +18,14 @@ import re
 import sys
 import json
 import time
-import uuid
 import hashlib
 import argparse
 import mimetypes
 import subprocess
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import requests
 
 EXIT_NO_CREDENTIALS = 2
 EXIT_FATAL = 3
@@ -119,35 +118,17 @@ def parse_cloudinary_url(url: str) -> tuple[str, str, str]:
     m = re.match(r"^cloudinary://([^:]+):([^@]+)@(.+)$", url)
     if not m:
         raise RuntimeError("CLOUDINARY_URL must be cloudinary://<key>:<secret>@<cloud>")
-    return m.group(3), m.group(1), m.group(2)
+    cloud_name = m.group(3)
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", cloud_name):
+        raise RuntimeError("CLOUDINARY_URL cloud name may contain only letters, numbers, underscores, and hyphens")
+    return cloud_name, m.group(1), m.group(2)
 
 
 def cloudinary_signature(params: dict[str, str], api_secret: str) -> str:
-    # SHA1 of alphabetized "k=v" pairs joined by "&", plus api_secret appended.
-    # Standard Cloudinary signing rule for upload params.
+    # SHA-256 of alphabetized "k=v" pairs joined by "&", plus api_secret appended.
+    # Cloudinary supports SHA-256 signatures for upload params.
     payload = "&".join(f"{k}={params[k]}" for k in sorted(params))
-    return hashlib.sha1((payload + api_secret).encode("utf-8")).hexdigest()
-
-
-def build_multipart(fields: dict[str, str], file_path: Path) -> tuple[bytes, str]:
-    boundary = f"----qa-runtime-{uuid.uuid4().hex}"
-    parts: list[bytes] = []
-    for k, v in fields.items():
-        parts.append(f"--{boundary}\r\n".encode())
-        parts.append(f'Content-Disposition: form-data; name="{k}"\r\n\r\n'.encode())
-        parts.append(str(v).encode("utf-8"))
-        parts.append(b"\r\n")
-    mime_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
-    parts.append(f"--{boundary}\r\n".encode())
-    parts.append(
-        (
-            f'Content-Disposition: form-data; name="file"; filename="{file_path.name}"\r\n'
-            f"Content-Type: {mime_type}\r\n\r\n"
-        ).encode()
-    )
-    parts.append(file_path.read_bytes())
-    parts.append(f"\r\n--{boundary}--\r\n".encode())
-    return b"".join(parts), boundary
+    return hashlib.sha256((payload + api_secret).encode("utf-8")).hexdigest()
 
 
 def upload_one(cloud_name: str, api_key: str, api_secret: str, file_path: Path, public_id: str) -> tuple[int, str]:
@@ -163,23 +144,22 @@ def upload_one(cloud_name: str, api_key: str, api_secret: str, file_path: Path, 
         "public_id": public_id,
         "signature": signature,
     }
-    body, boundary = build_multipart(fields, file_path)
-    req = urllib.request.Request(
-        f"https://api.cloudinary.com/v1_1/{cloud_name}/image/upload",
-        data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-        method="POST",
-    )
+    upload_url = f"https://api.cloudinary.com/v1_1/{cloud_name}/image/upload"
+    mime_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return resp.status, resp.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        # Don't echo response body - may contain hints. Caller logs HTTP <code>.
-        return exc.code, ""
-    except urllib.error.URLError as exc:
-        return 0, f"network error: {exc.reason}"
-    except (TimeoutError, OSError) as exc:
+        with file_path.open("rb") as file_handle:
+            response = requests.post(
+                upload_url,
+                data=fields,
+                files={"file": (file_path.name, file_handle, mime_type)},
+                timeout=120,
+            )
+    except requests.RequestException as exc:
         return 0, f"network error: {exc}"
+    if response.ok:
+        return response.status_code, response.text
+    # Don't echo response body - may contain hints. Caller logs HTTP <code>.
+    return response.status_code, ""
 
 
 def extract_url(response_body: str) -> str:
