@@ -629,6 +629,75 @@ class ClickHousePrinter(BasePrinter):
             else:
                 return f"notEquals({materialized_column_sql}, {constant_sql})"
 
+    _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
+        ast.CompareOperationOp.Lt: "less",
+        ast.CompareOperationOp.LtEq: "lessOrEquals",
+        ast.CompareOperationOp.Gt: "greater",
+        ast.CompareOperationOp.GtEq: "greaterOrEquals",
+    }
+
+    def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for range comparisons (``<``, ``<=``, ``>``, ``>=``)
+        on individually materialized string columns.
+
+        Nullable variant
+        ~~~~~~~~~~~~~~~~
+        Without this rewrite, ``properties.foo < 'x'`` on a nullable mat column prints as:
+            ifNull(less(events.mat_foo, 'x'), 0)
+        The ``ifNull`` wrapper is opaque to the planner and defeats the minmax skip index. We
+        rewrite to:
+            (less(events.mat_foo, 'x') AND (events.mat_foo IS NOT NULL))
+        which is semantically identical in a WHERE clause (NULL AND FALSE = FALSE) but lets
+        ClickHouse use the minmax index — both for range pruning on ``less`` and for skipping
+        granules that are entirely NULL via ``IS NOT NULL``.
+
+        Non-nullable variant
+        ~~~~~~~~~~~~~~~~~~~~
+        Non-nullable mat columns store JSON nulls and missing keys as the sentinel strings
+        ``''`` and ``'null'``. PropertySwapper wraps the column in ``nullIf(nullIf(col, ''), 'null')``
+        to scrub them, but that wrapper hides the column from the minmax index. Range comparisons
+        can't bail like equality does (an EXACT against a non-sentinel constant doesn't need the
+        wrapper at all — ``equals('', 'real')`` is just false), because ``less('', 'real')`` IS
+        true and a naive rewrite would let the sentinel match the user's range.
+
+        Solution: inline the sentinel exclusion as explicit AND clauses, leaving the comparison
+        side of the expression bare so minmax can prune::
+
+            (less(events.mat_foo, 'x')
+             AND notEquals(events.mat_foo, '')
+             AND notEquals(events.mat_foo, 'null'))
+
+        ClickHouse evaluates each AND-ed clause against the index independently — ``less`` keeps
+        its minmax pruning, while the two ``notEquals`` clauses act as row-level filters.
+        """
+        if node.op not in self._RANGE_OP_TO_CH_NAME:
+            return None
+
+        # property_to_expr always emits the column on the left, so we only need to handle that side.
+        if not (
+            (property_source := self._get_materialized_string_property_source(node.left))
+            and isinstance(node.right, ast.Constant)
+            and node.right.value is not None
+        ):
+            return None
+
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
+        op_name = self._RANGE_OP_TO_CH_NAME[node.op]
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(node.right)
+
+        if property_source.is_nullable:
+            return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
+
+        # Non-nullable: exclude the '' / 'null' sentinels inline so the comparison stays bare.
+        sentinel_exclusions = " AND ".join(
+            f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
+        )
+        return f"({op_name}({materialized_column_sql}, {constant_sql}) AND {sentinel_exclusions})"
+
     def _get_materialized_string_property_source(self, expr: ast.Expr) -> PrintableMaterializedColumn | None:
         """
         Extracts a PrintableMaterializedColumn from an expression if it's a simple string property access.
@@ -1170,6 +1239,8 @@ class ClickHousePrinter(BasePrinter):
         # we can skip the nullIf wrapping to allow skip index usage.
         if optimized_materialized_column_compare := self._get_optimized_materialized_column_equals_operation(node):
             return optimized_materialized_column_compare
+        if optimized_materialized_range := self._get_optimized_materialized_column_range_operation(node):
+            return optimized_materialized_range
         if optimized_materialized_ilike := self._get_optimized_materialized_column_ilike_operation(node):
             return optimized_materialized_ilike
         if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
