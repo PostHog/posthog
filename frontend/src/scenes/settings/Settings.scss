@@ -1,13 +1,7 @@
 .Settings {
     display: flex;
-    gap: 2rem;
     align-items: flex-start;
     margin-top: 0;
-
-    &--compact {
-        flex-direction: column;
-        gap: 0;
-    }
 
     .LemonModal & {
         margin-top: 0;

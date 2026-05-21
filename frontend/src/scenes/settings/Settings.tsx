@@ -11,7 +11,6 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import {
@@ -34,7 +33,6 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from 'lib/ui/quill'
-import { inStorybookTestRunner } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
@@ -67,7 +65,6 @@ export function Settings({
     const {
         selectedSectionId,
         selectedLevel,
-        selectedSettingId,
         selectedSetting,
         settings,
         isCompactNavigationOpen,
@@ -90,22 +87,19 @@ export function Settings({
         navigateToSetting,
     } = useActions(settingsLogic(props))
 
-    const { ref, size } = useResizeBreakpoints(
-        {
-            0: 'small',
-            700: 'medium',
-        },
-        {
-            initialSize: 'medium',
-        }
-    )
-
-    const isCompact = !inStorybookTestRunner() && size === 'small'
-
     // The full settings scene fills the scene area, so its nav can be viewport-fixed.
     // Embeds (replay settings, error tracking config, side panel, modal) place the nav
     // in normal flow instead, so it sits beside the content rather than overlapping.
     const isFullScene = props.logicKey === 'settingsScene'
+
+    const responsive = {
+        compactHide: isFullScene ? 'md:hidden w-full' : '@min-[768px]/settings:hidden',
+        desktopShow: isFullScene ? 'hidden md:flex' : 'hidden @min-[768px]/settings:flex',
+        rootLayout: isFullScene
+            ? 'flex-col gap-0 md:flex-row md:gap-8'
+            : 'flex-col gap-0 @min-[768px]/settings:flex-row @min-[768px]/settings:gap-8',
+        contentPl: isFullScene && !hideSections ? 'md:pl-[calc(var(--settings-nav-width)+2rem)]' : undefined,
+    }
 
     const settingsInSidebar = props.sectionId && !!selectedSetting
 
@@ -116,18 +110,17 @@ export function Settings({
 
     // Track the visual viewport so the mobile drawer shrinks above the on-screen
     // keyboard (`dvh` units don't account for the keyboard) — keeps the list scrollable.
-    // Only needed in compact mode, where the Drawer is used.
     const [visualViewportHeight, setVisualViewportHeight] = React.useState<number | null>(null)
     React.useEffect(() => {
         const vv = window.visualViewport
-        if (!isCompact || !vv) {
+        if (!vv) {
             return
         }
         const update = (): void => setVisualViewportHeight(vv.height)
         update()
         vv.addEventListener('resize', update)
         return () => vv.removeEventListener('resize', update)
-    }, [isCompact])
+    }, [])
 
     // Scroll the active item into view in the nav, on load and whenever the selected
     // section changes. Delayed so any auto-expanded collapsible has finished animating.
@@ -156,7 +149,6 @@ export function Settings({
               key: s.id,
               content: (
                   <OptionButton
-                      active={selectedSettingId === s.id}
                       handleLocally={handleLocally}
                       onClick={() => selectSetting(s.id)}
                       data-attr={`settings-menu-item-${s.id}`}
@@ -320,59 +312,56 @@ export function Settings({
     )
 
     return (
-        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')} ref={ref}>
-            {hideSections ? null : isCompact ? (
+        <div className={clsx('Settings @container/settings flex items-start', responsive.rootLayout)}>
+            {hideSections ? null : (
                 <>
-                    <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
-                        <IconList className="stroke-2 size-4 mr-1" />{' '}
-                        <span className="flex-1 truncate text-left font-semibold text-base">Settings menu</span>
-                    </Button>
-                    <Drawer
-                        swipeDirection="left"
-                        open={isCompactNavigationOpen}
-                        onOpenChange={(open) => (open ? openCompactNavigation() : closeCompactNavigation())}
+                    <div className={responsive.compactHide}>
+                        <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
+                            <IconList className="stroke-2 size-4 mr-1" />{' '}
+                            <span className="flex-1 truncate text-left font-semibold text-base">Settings menu</span>
+                        </Button>
+                        <Drawer
+                            swipeDirection="left"
+                            open={isCompactNavigationOpen}
+                            onOpenChange={(open) => (open ? openCompactNavigation() : closeCompactNavigation())}
+                        >
+                            <DrawerContent data-quill>
+                                <DrawerTitle className="sr-only">Settings navigation</DrawerTitle>
+                                {/* Pin the height to the visual viewport (minus the drawer's 1rem
+                                    padding) so the search stays put, the list scrolls within, and
+                                    the panel shrinks above the on-screen keyboard. */}
+                                <div
+                                    className="flex flex-col min-h-0"
+                                    style={{
+                                        height:
+                                            visualViewportHeight != null
+                                                ? `${visualViewportHeight - 16}px`
+                                                : 'calc(100dvh - 1rem)',
+                                    }}
+                                >
+                                    {navContent}
+                                </div>
+                            </DrawerContent>
+                        </Drawer>
+                        <LemonDivider />
+                    </div>
+                    <div
+                        data-quill
+                        className={clsx(
+                            'border rounded w-[var(--settings-nav-width)] flex flex-col',
+                            responsive.desktopShow,
+                            isFullScene
+                                ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
+                                : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                        )}
                     >
-                        <DrawerContent data-quill>
-                            <DrawerTitle className="sr-only">Settings navigation</DrawerTitle>
-                            {/* Pin the height to the visual viewport (minus the drawer's 1rem
-                                padding) so the search stays put, the list scrolls within, and
-                                the panel shrinks above the on-screen keyboard. */}
-                            <div
-                                className="flex flex-col min-h-0"
-                                style={{
-                                    height:
-                                        visualViewportHeight != null
-                                            ? `${visualViewportHeight - 16}px`
-                                            : 'calc(100dvh - 1rem)',
-                                }}
-                            >
-                                {navContent}
-                            </div>
-                        </DrawerContent>
-                    </Drawer>
-                    <LemonDivider />
+                        {navContent}
+                    </div>
                 </>
-            ) : (
-                <div
-                    data-quill
-                    className={clsx(
-                        'border rounded w-[var(--settings-nav-width)] flex flex-col',
-                        isFullScene
-                            ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
-                            : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
-                    )}
-                >
-                    {navContent}
-                </div>
             )}
 
             <AuthenticationAreaComponent>
-                <div
-                    className={clsx(
-                        'flex-1 w-full min-w-0 space-y-2 self-start pb-32',
-                        isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
-                    )}
-                >
+                <div className={clsx('flex-1 w-full min-w-0 space-y-2 self-start pb-32', responsive.contentPl)}>
                     {headerSlot}
                     <SettingsRenderer {...props} handleLocally={handleLocally} />
                 </div>
