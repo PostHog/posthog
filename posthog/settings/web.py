@@ -75,6 +75,8 @@ PRODUCTS_APPS = [
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.deployments.backend.apps.DeploymentsConfig",
+    "products.alerts.backend.apps.AlertsConfig",
+    "products.actions.backend.apps.ActionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -683,6 +685,9 @@ PRESTOP_MARKER_FILE = get_from_env("PRESTOP_MARKER_FILE", "/tmp/posthog_prestop"
 
 # disables frontend side navigation hooks to make hot-reload work seamlessly
 DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", False, type_cast=bool)
+
+# one-click passwordless login on the login page (also requires DEBUG)
+ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 
 ####
 # Random/temporary

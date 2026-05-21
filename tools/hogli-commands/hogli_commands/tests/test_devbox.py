@@ -671,6 +671,47 @@ def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
     return out
 
 
+def _flag_value(args: list[str], flag: str) -> str | None:
+    """Return the value paired with the given flag in argv, or None."""
+    for cur, nxt in zip(args, args[1:]):
+        if cur == flag:
+            return nxt
+    return None
+
+
+def _stub_create_workspace(captured: dict[str, str | None]) -> Callable[..., None]:
+    """Stub for ``devbox_cli.create_workspace`` that records its forwarded kwargs.
+
+    Tracks every CLI-facing kwarg so devbox:start tests can assert on the
+    specific subset they care about without redeclaring the signature.
+    """
+
+    def stub(
+        name: str,
+        disk_size: int,
+        *,
+        git_name: str | None = None,
+        git_email: str | None = None,
+        dotfiles_uri: str | None = None,
+        template: str = coder.DEFAULT_TEMPLATE,
+        preset: str = coder.DEFAULT_PRESET,
+        verbose: bool = False,
+    ) -> None:
+        captured.update(
+            {
+                "name": name,
+                "disk_size": str(disk_size),
+                "git_name": git_name,
+                "git_email": git_email,
+                "dotfiles_uri": dotfiles_uri,
+                "template": template,
+                "preset": preset,
+            }
+        )
+
+    return stub
+
+
 def _fake_run_build_capturing(captured: dict[str, object]) -> Callable[..., subprocess.CompletedProcess[str]]:
     """Return a `_run_build` stub that records its argv and reports success."""
 
@@ -690,11 +731,13 @@ class TestWorkspaceCreation:
     """Test Coder workspace creation parameter passing and template selection."""
 
     @pytest.mark.parametrize(
-        "kwargs, expected_template, expected_params",
+        "kwargs, available_presets, expected_template, expected_preset, expected_params",
         [
             (
                 {},
+                ["Default (warm)", "Cold"],
                 "posthog-linux",
+                "Default (warm)",
                 {"disk_size": "100", "repo": _REPO},
             ),
             (
@@ -703,7 +746,9 @@ class TestWorkspaceCreation:
                     "git_email": "test-user@example.com",
                     "dotfiles_uri": _DOTFILES,
                 },
+                ["Default (warm)"],
                 "posthog-linux",
+                "Default (warm)",
                 {
                     "disk_size": "100",
                     "repo": _REPO,
@@ -714,33 +759,59 @@ class TestWorkspaceCreation:
             ),
             (
                 {"template": "posthog-microvm"},
+                ["Default (warm)"],
                 "posthog-microvm",
+                "Default (warm)",
+                {"disk_size": "100", "repo": _REPO},
+            ),
+            (
+                {"preset": "none"},
+                ["Default (warm)"],
+                "posthog-linux",
+                "none",
+                {"disk_size": "100", "repo": _REPO},
+            ),
+            # Resolution fallback to "none" is exhaustively covered by
+            # TestTemplatePresetResolution; one case here is enough to prove
+            # the resolved value flows through to the coder argv.
+            (
+                {"template": "posthog-microvm"},
+                ["Cold only"],
+                "posthog-microvm",
+                "none",
                 {"disk_size": "100", "repo": _REPO},
             ),
         ],
-        ids=["defaults", "all-optionals", "custom-template"],
+        ids=[
+            "defaults",
+            "all-optionals",
+            "custom-template",
+            "preset-opt-out",
+            "resolver-fallback-flows-through",
+        ],
     )
     def test_create_workspace_forwards_params_and_template(
         self,
         monkeypatch: pytest.MonkeyPatch,
         kwargs: dict[str, str],
+        available_presets: list[str],
         expected_template: str,
+        expected_preset: str,
         expected_params: dict[str, str],
     ) -> None:
         captured: dict[str, object] = {}
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(available_presets))
 
         coder.create_workspace("devbox-test-user", 100, **kwargs)
 
         args = captured["args"]
-        assert args[:6] == [
-            "coder",
-            "create",
-            "devbox-test-user",
-            "--template",
-            expected_template,
-            "--use-parameter-defaults",
-        ]
+        assert args[:3] == ["coder", "create", "devbox-test-user"]
+        assert _flag_value(args, "--template") == expected_template
+        # `--preset` must always be forwarded -- newer coder versions otherwise
+        # prompt interactively for a preset, which `--yes` does not bypass.
+        assert _flag_value(args, "--preset") == expected_preset
+        assert "--use-parameter-defaults" in args
         assert "--yes" in args
         # Security invariant: the Claude OAuth token is a Coder user secret
         # (env-injected at workspace start); it must never be forwarded as a
@@ -805,6 +876,7 @@ class TestWorkspaceCreation:
             return subprocess.CompletedProcess(args, rc, stdout, "")
 
         monkeypatch.setattr(coder, "_run_build", fake_run_build)
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: ["Default (warm)"])
 
         def go() -> None:
             coder.create_workspace(
@@ -822,6 +894,85 @@ class TestWorkspaceCreation:
 
         assert len(calls) == len(outputs)
         assert dropped.isdisjoint(_parse_parameter_flags(calls[-1]))
+
+
+class TestTemplatePresetResolution:
+    """Test the runtime preset resolution that suppresses coder's picker."""
+
+    @pytest.mark.parametrize(
+        "rc, stdout, stderr, expected, warning_expected",
+        [
+            (0, '[{"name": "Default (warm)"}, {"name": "Cold"}]', "", ["Default (warm)", "Cold"], False),
+            (1, "", "auth: token expired", [], True),
+            (1, "", "", [], True),
+            (0, '{"error": "no presets"}', "", [], False),
+            (0, "not json", "", [], False),
+            (0, '[{"name": "Default (warm)"}, {"description": "no-name"}]', "", ["Default (warm)"], False),
+        ],
+        ids=[
+            "happy",
+            "non-zero-exit-with-stderr",
+            "non-zero-exit-bare",
+            "non-list-json",
+            "invalid-json",
+            "skip-nameless",
+        ],
+    )
+    def test_list_template_presets_parses_coder_output(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        rc: int,
+        stdout: str,
+        stderr: str,
+        expected: list[str],
+        warning_expected: bool,
+    ) -> None:
+        def fake_run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
+            assert args[:4] == ["coder", "templates", "presets", "list"]
+            return subprocess.CompletedProcess(args, rc, stdout, stderr)
+
+        monkeypatch.setattr(coder, "_run", fake_run)
+
+        assert coder._list_template_presets(coder.DEFAULT_TEMPLATE) == expected
+        output = capsys.readouterr().out
+        if warning_expected:
+            assert "Warning: failed to list presets" in output
+            if stderr:
+                assert stderr in output
+        else:
+            assert "Warning" not in output
+
+    @pytest.mark.parametrize(
+        "requested, presets, expected, warning_expected",
+        [
+            ("Default (warm)", ["Default (warm)", "Cold"], "Default (warm)", False),
+            ("none", ["Default (warm)"], "none", False),
+            ("Default (warm)", ["Cold only"], "none", True),
+            ("Default (warm)", [], "none", False),
+            ("Missing", ["Default (warm)"], "none", True),
+        ],
+        ids=["match", "explicit-none", "default-missing", "no-presets", "user-supplied-missing"],
+    )
+    def test_resolve_template_preset(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        requested: str,
+        presets: list[str],
+        expected: str,
+        warning_expected: bool,
+    ) -> None:
+        monkeypatch.setattr(coder, "_list_template_presets", lambda template: list(presets))
+
+        result = coder.resolve_template_preset("posthog-linux", requested)
+
+        assert result == expected
+        output = capsys.readouterr().out
+        if warning_expected:
+            assert "Warning" in output
+        else:
+            assert "Warning" not in output
 
 
 class TestWorkspaceUpdate:
@@ -1103,26 +1254,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "disk_size": str(disk_size),
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                    "template": template,
-                }
-            ),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start"])
 
@@ -1133,7 +1265,8 @@ class TestDevboxCommands:
             "git_name": None,
             "git_email": None,
             "dotfiles_uri": None,
-            "template": "posthog-linux",
+            "template": coder.DEFAULT_TEMPLATE,
+            "preset": coder.DEFAULT_PRESET,
         }
 
     def test_devbox_start_with_name_creates_labeled_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1156,25 +1289,7 @@ class TestDevboxCommands:
                 "dotfiles_uri": "https://github.com/user/dotfiles",
             },
         )
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                    "template": template,
-                }
-            ),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start", "api"])
 
@@ -1183,33 +1298,40 @@ class TestDevboxCommands:
         assert captured["git_name"] == "PostHog Engineer"
         assert captured["git_email"] == "test-user@example.com"
         assert captured["dotfiles_uri"] == "https://github.com/user/dotfiles"
-        assert captured["template"] == "posthog-linux"
+        assert captured["template"] == coder.DEFAULT_TEMPLATE
+        assert captured["preset"] == coder.DEFAULT_PRESET
         assert "devbox:ssh api" in result.output
 
     def test_devbox_start_forwards_template_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: dict[str, object] = {}
+        captured: dict[str, str | None] = {}
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
-        monkeypatch.setattr(
-            devbox_cli,
-            "create_workspace",
-            lambda name,
-            disk_size,
-            git_name=None,
-            git_email=None,
-            dotfiles_uri=None,
-            template="posthog-linux",
-            verbose=False: captured.update({"template": template}),
-        )
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
         result = runner.invoke(cli, ["devbox:start", "-t", "posthog-microvm"])
 
         assert result.exit_code == 0, result.output
-        assert captured == {"template": "posthog-microvm"}
+        assert captured["template"] == "posthog-microvm"
+        assert captured["preset"] == coder.DEFAULT_PRESET
+
+    def test_devbox_start_forwards_preset_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict[str, str | None] = {}
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_cli, "get_workspace", lambda name, workspaces=None: None)
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "load_config", lambda: {})
+        monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
+
+        result = runner.invoke(cli, ["devbox:start", "--preset", "none"])
+
+        assert result.exit_code == 0, result.output
+        assert captured["preset"] == "none"
 
     def test_devbox_restart_calls_restart_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
