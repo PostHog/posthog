@@ -172,7 +172,7 @@ class ManagedWarehousePromotedTableViewSet(TeamAndOrgViewSetMixin, AccessControl
     """Manage tables promoted from a customer's managed DuckLake warehouse to PostHog."""
 
     scope_object = "INTERNAL"
-    queryset = ManagedWarehousePromotedTable.objects.none()
+    queryset = ManagedWarehousePromotedTable.objects.unscoped().none()
     serializer_class = ManagedWarehousePromotedTableSerializer
 
     def safely_get_queryset(self, queryset):
