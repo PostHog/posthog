@@ -568,6 +568,38 @@ class TestQueryRunner(BaseTest):
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
 
+    def test_query_execution_metric_promotes_query_build_bug_category(self):
+        from clickhouse_driver.errors import ServerException
+
+        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_TOTAL
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_raises(self):
+            raise ServerException("DB::Exception: synthetic UNKNOWN_IDENTIFIER", code=47)
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        before = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery",
+            category="query_build_bug",
+            error_type="CHQueryErrorUnknownIdentifier",
+            has_user_authored_hogql="false",
+        )._value.get()
+
+        with pytest.raises(ServerException):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        after = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery",
+            category="query_build_bug",
+            error_type="CHQueryErrorUnknownIdentifier",
+            has_user_authored_hogql="false",
+        )._value.get()
+
+        assert after - before == 1
+
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
 

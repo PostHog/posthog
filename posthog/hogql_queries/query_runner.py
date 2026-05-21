@@ -1605,7 +1605,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers.useMaterializedViews = True
 
         query_type = getattr(self.query, "kind", "Other")
-        has_user_authored_hogql = str(query_uses_user_authored_hogql(self.query)).lower()
+        has_user_authored_hogql = query_uses_user_authored_hogql(self.query)
+        has_user_authored_hogql_label = str(has_user_authored_hogql).lower()
         survey_query_metric_labels = get_survey_query_metric_labels(self.query)
         query_start = perf_counter()
         try:
@@ -1614,23 +1615,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 query_type=query_type,
                 category="success",
                 error_type="none",
-                has_user_authored_hogql=has_user_authored_hogql,
+                has_user_authored_hogql=has_user_authored_hogql_label,
             ).inc()
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_TOTAL.labels(
                     **survey_query_metric_labels, category="success", error_type="none"
                 ).inc()
         except Exception as e:
+            category = classify_query_error(e, has_user_authored_hogql=has_user_authored_hogql)
             QUERY_EXECUTION_TOTAL.labels(
                 query_type=query_type,
-                category=classify_query_error(e),
+                category=category,
                 error_type=clickhouse_error_type(e),
-                has_user_authored_hogql=has_user_authored_hogql,
+                has_user_authored_hogql=has_user_authored_hogql_label,
             ).inc()
             if survey_query_metric_labels:
                 SURVEY_QUERY_EXECUTION_TOTAL.labels(
                     **survey_query_metric_labels,
-                    category=classify_query_error(e),
+                    category=category,
                     error_type=clickhouse_error_type(e),
                 ).inc()
             raise
