@@ -672,6 +672,34 @@ def verify_team_flags(
     return result
 
 
+def _strip_null_values(value: Any) -> Any:
+    """Recursively drop ``None`` values from dicts; recurse into lists without dropping ``None`` elements.
+
+    Used to normalize structural divergence between the Django serializer (which
+    passes JSONB through verbatim and preserves explicit ``null`` entries) and
+    the Rust warmer (whose typed ``Option<T>`` deserialization collapses
+    "absent key" and "explicit null" into the same ``None`` and emits one
+    shape). The matcher already treats those two states as equivalent, so the
+    verifier should mirror that tolerance instead of reporting spurious
+    ``FIELD_MISMATCH``.
+
+    Rules:
+    - Dicts: drop entries whose value is ``None``; recurse into remaining values.
+    - Lists: recurse into each element, but preserve ``None`` elements (dropping
+      them would shift indices and change semantics). The Rust typed
+      serialization will not emit ``null`` list elements in current data, so
+      this rule preserves correctness without changing observed behavior.
+    - Scalars: returned unchanged.
+
+    See plans/verify-flags-cache-loose-comparison.md for the full rationale.
+    """
+    if isinstance(value, dict):
+        return {k: _strip_null_values(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_null_values(item) for item in value]
+    return value
+
+
 def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     """Compare field values between DB and cached versions of a flag.
 
@@ -680,6 +708,14 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     were removed from the serializer but still linger in pre-existing cache
     entries) are ignored so that benign serializer field removals do not flag
     every team's cache as mismatched.
+
+    For container values (dicts and lists, which is where every observed
+    absent/null divergence lives — under ``filters``), both sides are passed
+    through ``_strip_null_values`` before the equality check so that explicit
+    ``null`` and absent-key normalize to the same shape. Top-level scalar keys
+    are compared directly; ``MinimalFeatureFlagSerializer`` emits all top-level
+    keys explicitly today, so there is no top-level absent/null divergence to
+    tolerate. See plans/verify-flags-cache-loose-comparison.md.
     """
     field_diffs = []
 
@@ -687,7 +723,10 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
         db_val = db_flag[key]
         cached_val = cached_flag.get(key)
 
-        if db_val != cached_val:
+        if isinstance(db_val, dict | list) or isinstance(cached_val, dict | list):
+            if _strip_null_values(db_val) != _strip_null_values(cached_val):
+                field_diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
+        elif db_val != cached_val:
             field_diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
 
     return field_diffs

@@ -17,7 +17,9 @@
                             }
                         ],
                         "rollout_percentage": 50,
-                        "variant": null
+                        "variant": null,
+                        "description": "rollout to enterprise",
+                        "sort_key": "abc-123"
                     }
                 ],
                 "multivariate": {
@@ -46,7 +48,14 @@
                     "id": 42,
                     "exclusion_percentage": 10.0
                 },
-                "aggregation_group_type_index": null
+                "aggregation_group_type_index": null,
+                "holdout_groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 5,
+                        "variant": "holdout-42"
+                    }
+                ]
             },
             "deleted": false,
             "active": true,
@@ -93,7 +102,8 @@
                                 "key": "id",
                                 "value": 100,
                                 "type": "cohort",
-                                "operator": "in"
+                                "operator": "in",
+                                "cohort_name": "QA users"
                             }
                         ],
                         "rollout_percentage": 100,

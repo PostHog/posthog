@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import unittest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,7 @@ from posthog.models import Team
 from posthog.models.cohort.cohort import Cohort
 
 from products.feature_flags.backend.flags_cache import (
+    _compare_flag_fields,
     _compute_flag_dependencies,
     _extract_cohort_ids_from_flag_filters,
     _extract_direct_dependency_ids,
@@ -34,6 +36,7 @@ from products.feature_flags.backend.flags_cache import (
     _get_referenced_cohorts,
     _get_team_ids_with_recently_updated_flags,
     _serialize_cohort,
+    _strip_null_values,
     clear_flags_cache,
     flags_hypercache,
     get_flags_from_cache,
@@ -3415,3 +3418,183 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
         cohort.name = "updated"
         cohort.save()
         mock_task.delay.assert_not_called()
+
+
+class TestStripNullValues(unittest.TestCase):
+    """Pure-function tests for ``_strip_null_values``.
+
+    The helper normalizes the absent-vs-explicit-null divergence between the
+    Django JSONB passthrough and the Rust typed deserializer before
+    ``_compare_flag_fields`` runs ``!=``. See
+    plans/verify-flags-cache-loose-comparison.md.
+    """
+
+    @parameterized.expand(
+        [
+            ("scalar_string_unchanged", "hello", "hello"),
+            ("scalar_none_unchanged", None, None),
+            ("scalar_zero_unchanged", 0, 0),
+            ("scalar_false_unchanged", False, False),
+            ("empty_dict_unchanged", {}, {}),
+            ("empty_list_unchanged", [], []),
+            ("dict_drops_top_level_null", {"a": 1, "b": None}, {"a": 1}),
+            (
+                "dict_recurses_into_nested_dict",
+                {"outer": {"keep": 1, "drop": None}},
+                {"outer": {"keep": 1}},
+            ),
+            (
+                "list_preserves_null_elements",
+                [None, {"a": None, "b": 1}],
+                [None, {"b": 1}],
+            ),
+            (
+                "list_of_dicts_strips_nulls_in_each",
+                [{"variant": None, "rp": 100}, {"variant": "x", "rp": None}],
+                [{"rp": 100}, {"variant": "x"}],
+            ),
+            (
+                "deeply_nested_filters_shape",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "a", "operator": None},
+                            ],
+                            "rollout_percentage": None,
+                            "variant": None,
+                        }
+                    ],
+                    "payloads": None,
+                },
+                {
+                    "groups": [
+                        {
+                            "properties": [{"key": "email", "value": "a"}],
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_strip_null_values(self, _name, value, expected):
+        self.assertEqual(_strip_null_values(value), expected)
+
+
+class TestCompareFlagFieldsLooseness(unittest.TestCase):
+    """Pure-function tests for ``_compare_flag_fields`` after the looseness fix.
+
+    Covers the absent-vs-explicit-null collapse that previously caused
+    ~66k flags to report spurious ``FIELD_MISMATCH`` against the Rust warmer.
+    See plans/verify-flags-cache-loose-comparison.md.
+    """
+
+    @staticmethod
+    def _flag(**overrides: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
+            "id": 1,
+            "key": "test-flag",
+            "filters": {"groups": []},
+        }
+        base.update(overrides)
+        return base
+
+    def test_absent_vs_explicit_null_at_group_level_is_not_a_mismatch(self):
+        """db has ``variant: null``, cache has the key absent → no mismatch."""
+        db_flag = self._flag(filters={"groups": [{"properties": [], "variant": None, "rollout_percentage": 100}]})
+        cached_flag = self._flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]})
+
+        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
+
+    def test_absent_vs_non_null_value_is_still_a_mismatch(self):
+        """db has ``variant: "x"``, cache lacks the key → real divergence, flagged."""
+        db_flag = self._flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]})
+        cached_flag = self._flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]})
+
+        diffs = _compare_flag_fields(db_flag, cached_flag)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(diffs[0]["field"], "filters")
+
+    def test_different_non_null_values_are_still_a_mismatch(self):
+        """db has ``variant: "x"``, cache has ``variant: "y"`` → real divergence."""
+        db_flag = self._flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]})
+        cached_flag = self._flag(filters={"groups": [{"properties": [], "variant": "y", "rollout_percentage": 100}]})
+
+        diffs = _compare_flag_fields(db_flag, cached_flag)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(diffs[0]["field"], "filters")
+
+    def test_aggregation_group_type_index_null_on_both_sides_is_not_a_mismatch(self):
+        """The pre-existing equal-null case still passes after null-stripping."""
+        db_flag = self._flag(filters={"groups": [], "aggregation_group_type_index": None})
+        cached_flag = self._flag(filters={"groups": [], "aggregation_group_type_index": None})
+
+        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
+
+    def test_aggregation_group_type_index_value_on_one_side_is_a_mismatch(self):
+        """0 (explicit group aggregation) vs absent → real divergence."""
+        db_flag = self._flag(filters={"groups": [], "aggregation_group_type_index": 0})
+        cached_flag = self._flag(filters={"groups": []})
+
+        diffs = _compare_flag_fields(db_flag, cached_flag)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(diffs[0]["field"], "filters")
+
+    def test_cohort_name_runtime_annotation_matches_when_both_have_it(self):
+        """Once Rust preserves unknown keys via ``#[serde(flatten)]``, the
+        verifier should see ``cohort_name`` on both sides and report no
+        mismatch — the same field name appears in both because Rust's flatten
+        passthrough round-trips it. See Layer 2 in the plan.
+        """
+        prop = {"key": "id", "type": "cohort", "value": 5, "cohort_name": "QA users"}
+        db_flag = self._flag(filters={"groups": [{"properties": [prop], "rollout_percentage": 100}]})
+        cached_flag = self._flag(filters={"groups": [{"properties": [prop], "rollout_percentage": 100}]})
+
+        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
+
+    def test_top_level_scalar_mismatch_still_reported(self):
+        db_flag = self._flag(key="renamed-flag")
+        cached_flag = self._flag(key="test-flag")
+
+        diffs = _compare_flag_fields(db_flag, cached_flag)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(diffs[0]["field"], "key")
+
+    def test_extra_key_in_cache_still_ignored(self):
+        """Pre-existing tolerance: extras in the cache that aren't in db are ignored."""
+        db_flag = self._flag()
+        cached_flag = self._flag()
+        cached_flag["legacy_field"] = True
+
+        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
+
+    def test_properties_array_with_per_property_null_drops_normalize(self):
+        """Per-property ``operator: null`` vs absent across a properties list."""
+        db_flag = self._flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "value": "a", "operator": None},
+                            {"key": "name", "value": "b", "operator": None},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            }
+        )
+        cached_flag = self._flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "value": "a"},
+                            {"key": "name", "value": "b"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
