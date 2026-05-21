@@ -1,6 +1,6 @@
 # Playwright MCP Patterns
 
-Use Playwright MCP as the runtime lens. Prefer user-visible assertions over
+Use Playwright MCP as the browser lens. Prefer user-visible assertions over
 implementation assertions.
 
 ## Browser Flow Skeleton
@@ -12,7 +12,7 @@ implementation assertions.
    controls over CSS selectors.
 5. After each meaningful action, assert on UI state: changed text, toast,
    table row, modal state, URL change, or other visible result.
-6. Capture a screenshot under `.qa-runtime/runs/<run-id>/`.
+6. Capture a screenshot under `.qa-frontend/runs/<run-id>/`.
 7. Read error-level console messages and network failures for the page.
 
 ## Snapshot Use
@@ -72,11 +72,11 @@ in the PR comment ("All console errors traced to capture process being
 stopped on this machine; no new errors introduced by this PR"). Silently
 swallowing console output erodes trust in the report.
 
-## API Checks
+## Page Context Helpers
 
-Prefer API checks through the authenticated Playwright page context so cookies
-and CSRF state are naturally present. If the MCP toolset exposes evaluation,
-use `browser_evaluate` to issue `fetch` from the page context.
+Use authenticated `fetch` from the Playwright page context only to set up or
+inspect frontend state that the visible flow needs. Cookies and CSRF state come
+from the browser session. Do not turn this into a standalone backend test plan.
 
 Use shell `curl` only for unauthenticated health checks like `_preflight`.
 
@@ -95,8 +95,8 @@ notes but do not include it as an actionable PR finding unless the user asks.
 ## Theme Toggle
 
 To exercise dark/light variants of a scene, patch the authenticated user's
-`theme_mode` via the API and reload. This is the same path the in-app theme
-switcher uses and is the only reliable lever:
+`theme_mode` from the page context and reload. This is the same path the in-app
+theme switcher uses and is the only reliable lever:
 
 ```js
 // via mcp__playwright__browser_evaluate, in the authenticated page context
@@ -204,15 +204,15 @@ ran with non-default flag state.
 Use stable, readable names:
 
 ```text
-.qa-runtime/runs/<run-id>/001-login.png
-.qa-runtime/runs/<run-id>/010-dashboard-load.png
-.qa-runtime/runs/<run-id>/011-save-click-failure.png
-.qa-runtime/runs/<run-id>/runtime-qa.gif
-.qa-runtime/runs/<run-id>/console-errors.json
+.qa-frontend/runs/<run-id>/001-login.png
+.qa-frontend/runs/<run-id>/010-dashboard-load.png
+.qa-frontend/runs/<run-id>/011-save-click-failure.png
+.qa-frontend/runs/<run-id>/frontend-qa.gif
+.qa-frontend/runs/<run-id>/console-errors.json
 ```
 
 After a browser or visual test captures two or more screenshots, assemble the
-ordered screenshots into `runtime-qa.gif` by default when `ffmpeg` or another
+ordered screenshots into `frontend-qa.gif` by default when `ffmpeg` or another
 existing local GIF tool is available. This follows the same evidence pattern as
 the demo-reel browser tier: screenshots stitched into a slow GIF. Use slow
 frames, about 1.5-2 seconds each, and preserve the original PNGs.
@@ -227,19 +227,19 @@ screenshots with different heights can make GIFs look stretched or huge. Copy or
 symlink the selected frames into a temporary frame sequence first:
 
 ```bash
-mkdir -p /tmp/qa-runtime-gif-<run-id>
-ln -sf "$PWD/.qa-runtime/runs/<run-id>/003-state-a.png" /tmp/qa-runtime-gif-<run-id>/frame-001.png
-ln -sf "$PWD/.qa-runtime/runs/<run-id>/011-state-b.png" /tmp/qa-runtime-gif-<run-id>/frame-002.png
-ln -sf "$PWD/.qa-runtime/runs/<run-id>/014-state-c.png" /tmp/qa-runtime-gif-<run-id>/frame-003.png
+mkdir -p /tmp/qa-frontend-gif-<run-id>
+ln -sf "$PWD/.qa-frontend/runs/<run-id>/003-state-a.png" /tmp/qa-frontend-gif-<run-id>/frame-001.png
+ln -sf "$PWD/.qa-frontend/runs/<run-id>/011-state-b.png" /tmp/qa-frontend-gif-<run-id>/frame-002.png
+ln -sf "$PWD/.qa-frontend/runs/<run-id>/014-state-c.png" /tmp/qa-frontend-gif-<run-id>/frame-003.png
 
 ffmpeg -y -framerate 0.5 \
-  -i "/tmp/qa-runtime-gif-<run-id>/frame-%03d.png" \
+  -i "/tmp/qa-frontend-gif-<run-id>/frame-%03d.png" \
   -vf "scale=900:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
   -loop 0 \
-  ".qa-runtime/runs/<run-id>/runtime-qa.gif"
+  ".qa-frontend/runs/<run-id>/frontend-qa.gif"
 ```
 
-This command was verified against real `.qa-runtime` screenshots and produced a
+This command was verified against real `.qa-frontend` screenshots and produced a
 small readable GIF (about 226 KB for three 1200x942 frames). If `ffmpeg` is not
 available but another local GIF tool is, use that. If no GIF tool is already
 available, skip the GIF and keep the screenshots as the evidence.

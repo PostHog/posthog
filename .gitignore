@@ -4,6 +4,7 @@
 .cache
 .planning
 .pr-review-diff.patch
+.qa-frontend/
 .qa-runtime/
 __emails__
 __pycache__/

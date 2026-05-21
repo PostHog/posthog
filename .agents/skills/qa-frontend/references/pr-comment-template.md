@@ -57,8 +57,8 @@ wrapper - reviewers must see what was exercised vs skipped at a glance.
 Result symbols: `✅` passed, `❌` failed, `⏭` skipped/coverage gap, `🛠`
 fixed (use only when a fix landed on this target).
 
-Coverage gaps from the walker or runtime loop must appear as their own row
-with the "Coverage gap · `<reason>`" action and the `⏭` symbol. Do not
+Coverage gaps from route-finding or the frontend QA loop must appear as their
+own row with the "Coverage gap · `<reason>`" action and the `⏭` symbol. Do not
 relegate them to a footer.
 
 ## Effort Saved (optional)
@@ -260,8 +260,8 @@ under `failed`, fall back to local paths and append `(upload failed)`:
 ```markdown
 **Evidence**
 
-- GIF: `.qa-runtime/runs/<run-id>/runtime-qa.gif` (upload failed)
-- Still: `.qa-runtime/runs/<run-id>/011-detail.png` (upload failed)
+- GIF: `.qa-frontend/runs/<run-id>/frontend-qa.gif` (upload failed)
+- Still: `.qa-frontend/runs/<run-id>/011-detail.png` (upload failed)
 ```
 
 Local mode always uses local paths. Do not invent external URLs when no
@@ -294,9 +294,8 @@ Capture discipline so the comparison is honest:
   comparisons hide the diff in noise.
 
 Skip the side-by-side when one screenshot tells the whole story
-(button click → toast appears) or when the change has no visual signal
-(API-only fix). Don't pad the comment with side-by-sides for their own
-sake.
+(button click → toast appears) or when the frontend change has no visual signal.
+Don't pad the comment with side-by-sides for their own sake.
 
 ## Severity Rubric
 

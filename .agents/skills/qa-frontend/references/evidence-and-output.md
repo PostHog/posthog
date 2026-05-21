@@ -1,6 +1,6 @@
 # Evidence And Output
 
-Use this reference after the runtime QA loop completes and findings are settled.
+Use this reference after the frontend QA loop completes and findings are settled.
 
 ## Evidence Upload
 
@@ -22,7 +22,7 @@ and the PR comment will reference local paths only. Continue the QA run.
 Before upload, show the user the exact upload set and ask for approval. Pick only
 human-facing evidence:
 
-- `runtime-qa.gif` or `runtime-qa-small.gif`, if generated
+- `frontend-qa.gif` or `frontend-qa-small.gif`, if generated
 - 1-3 key screenshots that match the findings or PASS narrative
 
 Do not upload `.md` snapshots, `console.log`, every numbered screenshot, or
@@ -33,9 +33,9 @@ Invoke with the active skill directory:
 ```bash
 uv run python "<skill_dir>/scripts/upload-evidence.py" \
   --pr "$PR_NUMBER" \
-  --output ".qa-runtime/runs/<run-id>/upload-manifest.json" \
-  --file ".qa-runtime/runs/<run-id>/runtime-qa.gif:flow-overview" \
-  --file ".qa-runtime/runs/<run-id>/<screenshot>.png:<kebab-finding-description>"
+  --output ".qa-frontend/runs/<run-id>/upload-manifest.json" \
+  --file ".qa-frontend/runs/<run-id>/frontend-qa.gif:flow-overview" \
+  --file ".qa-frontend/runs/<run-id>/<screenshot>.png:<kebab-finding-description>"
 ```
 
 If the upload script is unreachable at the expected path, do not write a custom
@@ -62,7 +62,7 @@ evidence files or PR comments.
 
 Every run writes two artifacts before rendering anything user-facing:
 
-1. `.qa-runtime/runs/<run-id>/findings.json` - structured findings array. The PR
+1. `.qa-frontend/runs/<run-id>/findings.json` - structured findings array. The PR
    comment and local report are renders of this file.
 2. A single first line on stdout: `QA-VERDICT: <verdict>` so an outer
    orchestrator can grep status without parsing markdown.
@@ -82,7 +82,7 @@ Examples:
   "kind": "finding|coverage_gap",
   "severity": "high|medium|low",
   "confidence": "high|medium",
-  "target": "/route-or-endpoint",
+  "target": "/route",
   "step": "user-visible step",
   "expected": "expected outcome",
   "actual": "actual outcome",
@@ -114,7 +114,7 @@ PR mode posts one PR comment for every completed run after explicit approval:
 - Clean run: PASS verdict plus coverage table.
 - Confident fixes: pushed fix summary plus findings and evidence.
 - Low-confidence or fork PR: findings with repro steps and suggested patches.
-- Runtime target gaps: explicit coverage-gap rows.
+- Frontend target gaps: explicit coverage-gap rows.
 
 Before any push, verify the comment path works. Prefer a read-only `gh api`
 reachability check or a tiny stub comment workflow that is immediately cleaned
@@ -122,7 +122,7 @@ up. If comment connectivity fails, skip the push, write the final comment
 markdown to stdout, and stop.
 
 Local mode writes the rendered report to stdout and to
-`.qa-runtime/runs/<run-id>/report.md`. Use the same template, but:
+`.qa-frontend/runs/<run-id>/report.md`. Use the same template, but:
 
 - Omit upload steps.
 - Reference evidence by local relative path only.

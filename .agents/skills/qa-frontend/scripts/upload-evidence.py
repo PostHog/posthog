@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Upload qa-runtime evidence files directly to Cloudinary.
+"""Upload qa-frontend evidence files directly to Cloudinary.
 
 Reads credentials from `CLOUDINARY_URL` in the form
 `cloudinary://<api_key>:<api_secret>@<cloud_name>`. Renames each file to the
-qa-runtime convention, signs a Cloudinary `/image/upload` POST, and writes a
+qa-frontend convention, signs a Cloudinary `/image/upload` POST, and writes a
 JSON manifest mapping local paths to the returned `secure_url`.
 
 If `CLOUDINARY_URL` is missing, exits with code 2 and prints a non-blocking
@@ -172,7 +172,7 @@ def extract_url(response_body: str) -> str:
 
 def parse_file_arg(raw: str) -> tuple[Path, str]:
     # Format: <local_path>:<kebab-description>. Path may contain colons on Windows,
-    # but qa-runtime runs on POSIX, so split on the last colon.
+    # but qa-frontend runs on POSIX, so split on the last colon.
     if ":" not in raw:
         raise argparse.ArgumentTypeError(f"--file expects '<path>:<description>', got: {raw}")
     path_str, description = raw.rsplit(":", 1)
@@ -211,7 +211,7 @@ def main() -> int:
     if not cloudinary_url:
         manifest = Manifest(skipped_no_env=True)
         sys.stderr.write(
-            "qa-runtime upload: CLOUDINARY_URL not set; skipping upload. PR comment will use local paths.\n"
+            "qa-frontend upload: CLOUDINARY_URL not set; skipping upload. PR comment will use local paths.\n"
         )
         if args.output:
             args.output.write_text(manifest.to_json())
@@ -223,7 +223,7 @@ def main() -> int:
         repo = repo_slug_from_origin()
         sha = git_short_sha()
     except (subprocess.CalledProcessError, RuntimeError) as exc:
-        sys.stderr.write(f"qa-runtime upload: setup failed: {exc}\n")
+        sys.stderr.write(f"qa-frontend upload: setup failed: {exc}\n")
         return EXIT_FATAL
 
     manifest = Manifest()
