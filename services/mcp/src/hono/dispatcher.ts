@@ -25,7 +25,7 @@ import { getEnv } from './constants'
 import { initDurationSeconds } from './metrics'
 import { ToolCatalog } from './tool-catalog'
 
-import { AnalyticsBridge } from './analytics-bridge'
+import { trackInitEvent } from './analytics'
 import { InstructionsBuilder } from './instructions'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
@@ -77,7 +77,6 @@ class McpDispatcher {
     private readonly catalog: ToolCatalog
     private readonly resourceCatalog: ResourceCatalog
     private readonly stateResolver: RequestStateResolver
-    private readonly analyticsBridge: AnalyticsBridge
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
 
@@ -88,7 +87,6 @@ class McpDispatcher {
         this.catalog = catalog
         this.resourceCatalog = new ResourceCatalog(env)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
-        this.analyticsBridge = new AnalyticsBridge()
         this.instructionsBuilder = new InstructionsBuilder()
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
     }
@@ -194,7 +192,7 @@ class McpDispatcher {
 
         initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
 
-        void this.analyticsBridge.trackInitEvent(props, state)
+        void trackInitEvent(props, state)
 
         return {
             protocolVersion,

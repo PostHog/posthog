@@ -7,11 +7,9 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import { getPostHogClient } from '@/lib/posthog'
-import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
 import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
@@ -145,35 +143,6 @@ export class RequestContext {
 
         const distinctId = await this.getDistinctId()
         await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)
-    }
-
-    async resolveVersionFlag(): Promise<number | undefined> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
-        } catch {
-            return undefined
-        }
-    }
-
-    async resolveSingleExecFlag(): Promise<boolean> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
-        } catch {
-            return false
-        }
-    }
-
-    async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
-        try {
-            const flagKeys = getRequiredFeatureFlags(version)
-            if (flagKeys.length === 0) {return undefined}
-            const distinctId = await this.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId)
-        } catch {
-            return undefined
-        }
     }
 
     buildClientProperties(props?: RequestProperties): Record<string, unknown> {
