@@ -1,6 +1,7 @@
 import './QuestionInput.scss'
 
 import { offset } from '@floating-ui/react'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
@@ -212,7 +213,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     return (
         <div
-            className={cn(
+            // clsx (not cn): callers pass a containerClassName containing w-full and we
+            // merge in w-[min(40rem,100%)] for the constrained-input mode. Master relied
+            // on both being present so the cascade picked w-full and rendered full width;
+            // cn's twMerge would strip the duplicate width utility and break the layout
+            // that every Max screenshot is anchored on.
+            className={clsx(
                 containerClassName,
                 !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
