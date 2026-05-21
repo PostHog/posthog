@@ -11,10 +11,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     MCPAnalyticsSubmissionApi,
     MCPFeedbackCreateApi,
+    MCPIntentClusterSnapshotApi,
     MCPMissingCapabilityCreateApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
+    McpAnalyticsSessionsListParams,
+    McpAnalyticsSessionsToolCallsParams,
     PaginatedMCPAnalyticsSubmissionListApi,
+    PaginatedMCPSessionListApi,
+    PaginatedMCPToolCallListApi,
 } from './api.schemas'
 
 export const getMcpAnalyticsFeedbackListUrl = (projectId: string, params?: McpAnalyticsFeedbackListParams) => {
@@ -64,6 +69,40 @@ export const mcpAnalyticsFeedbackCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(mCPFeedbackCreateApi),
+    })
+}
+
+export const getMcpAnalyticsIntentClustersRetrieveUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/mcp_analytics/intent_clusters/`
+}
+
+/**
+ * Return the most recent intent cluster snapshot for the current project. Returns an empty IDLE snapshot when no clustering run has happened yet.
+ */
+export const mcpAnalyticsIntentClustersRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPIntentClusterSnapshotApi[]> => {
+    return apiMutator<MCPIntentClusterSnapshotApi[]>(getMcpAnalyticsIntentClustersRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsIntentClustersRecomputeUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/mcp_analytics/intent_clusters/recompute/`
+}
+
+/**
+ * Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the background; poll the GET endpoint for progress (status transitions to 'idle' or 'error').
+ */
+export const mcpAnalyticsIntentClustersRecompute = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPIntentClusterSnapshotApi> => {
+    return apiMutator<MCPIntentClusterSnapshotApi>(getMcpAnalyticsIntentClustersRecomputeUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -120,5 +159,70 @@ export const mcpAnalyticsMissingCapabilitiesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(mCPMissingCapabilityCreateApi),
+    })
+}
+
+export const getMcpAnalyticsSessionsListUrl = (projectId: string, params?: McpAnalyticsSessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/mcp_analytics/sessions/?${stringifiedParams}`
+        : `/api/environments/${projectId}/mcp_analytics/sessions/`
+}
+
+/**
+ * List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_conversation_id. Ordered by most recent activity first by default.
+ */
+export const mcpAnalyticsSessionsList = async (
+    projectId: string,
+    params?: McpAnalyticsSessionsListParams,
+    options?: RequestInit
+): Promise<PaginatedMCPSessionListApi> => {
+    return apiMutator<PaginatedMCPSessionListApi>(getMcpAnalyticsSessionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsToolCallsUrl = (
+    projectId: string,
+    id: string,
+    params?: McpAnalyticsSessionsToolCallsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/mcp_analytics/sessions/${id}/tool_calls/?${stringifiedParams}`
+        : `/api/environments/${projectId}/mcp_analytics/sessions/${id}/tool_calls/`
+}
+
+/**
+ * List all mcp_tool_call events that belong to a given $session_id, in chronological order.
+ */
+export const mcpAnalyticsSessionsToolCalls = async (
+    projectId: string,
+    id: string,
+    params?: McpAnalyticsSessionsToolCallsParams,
+    options?: RequestInit
+): Promise<PaginatedMCPToolCallListApi> => {
+    return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
