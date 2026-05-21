@@ -52,6 +52,7 @@ import { SimulationSummary } from './SimulationSummary'
 
 function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {
     switch (interval) {
+        case AlertCalculationInterval.EVERY_15_MINUTES:
         case AlertCalculationInterval.HOURLY:
             return [
                 { label: 'Last 24h', value: '-24h' },
@@ -84,6 +85,8 @@ function getSimulationRangeOptions(interval: AlertCalculationInterval): { label:
 
 function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return '15 minutes'
         case AlertCalculationInterval.HOURLY:
             return 'hour'
         case AlertCalculationInterval.DAILY:
@@ -115,6 +118,7 @@ export function EditAlertModal({
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
     const alertsHistoryChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
+    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
 
     const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
     const { alert, alertLoading } = useValues(_alertLogic)
@@ -209,7 +213,8 @@ export function EditAlertModal({
             n += 1
         }
         if (
-            (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
+            (alertForm.calculation_interval === AlertCalculationInterval.EVERY_15_MINUTES ||
+                alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
                 alertForm.calculation_interval === AlertCalculationInterval.HOURLY) &&
             alertForm.skip_weekend
         ) {
@@ -620,6 +625,9 @@ export function EditAlertModal({
                                                 options={Object.values(AlertCalculationInterval).map((interval) => ({
                                                     label: alertCalculationIntervalToLabel(interval),
                                                     value: interval,
+                                                    hidden:
+                                                        interval === AlertCalculationInterval.EVERY_15_MINUTES &&
+                                                        !alerts15MinuteIntervalEnabled,
                                                 }))}
                                             />
                                         </LemonField>
@@ -769,7 +777,9 @@ export function EditAlertModal({
                                                         <LemonCheckbox
                                                             checked={
                                                                 (alertForm?.calculation_interval ===
-                                                                    AlertCalculationInterval.DAILY ||
+                                                                    AlertCalculationInterval.EVERY_15_MINUTES ||
+                                                                    alertForm?.calculation_interval ===
+                                                                        AlertCalculationInterval.DAILY ||
                                                                     alertForm?.calculation_interval ===
                                                                         AlertCalculationInterval.HOURLY) &&
                                                                 alertForm?.skip_weekend
@@ -779,10 +789,12 @@ export function EditAlertModal({
                                                             label="Skip checking on weekends"
                                                             disabledReason={
                                                                 alertForm?.calculation_interval !==
+                                                                    AlertCalculationInterval.EVERY_15_MINUTES &&
+                                                                alertForm?.calculation_interval !==
                                                                     AlertCalculationInterval.DAILY &&
                                                                 alertForm?.calculation_interval !==
                                                                     AlertCalculationInterval.HOURLY &&
-                                                                'Can only skip weekend checking for hourly/daily alerts'
+                                                                'Can only skip weekend checking for 15-minute, hourly, or daily alerts'
                                                             }
                                                         />
                                                     </LemonField>

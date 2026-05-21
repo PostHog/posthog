@@ -232,6 +232,21 @@ export const proxyLogic = kea<proxyLogicType>([
                 return proxyRecords.some((r) => ['waiting', 'issuing', 'deleting'].includes(r.status))
             },
         ],
+        shouldShowCloudflareOptIn: [
+            (s) => [s.cloudflareOptInAcknowledged, s.proxyRecords, s.user],
+            (acknowledged: boolean, records: ProxyRecord[], user: UserType | null): boolean => {
+                if (acknowledged) {
+                    return false
+                }
+                if (user?.is_impersonated) {
+                    return false
+                }
+                if (records.length > 0) {
+                    return false
+                }
+                return true
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         collapseForm: () => actions.loadRecords(),
