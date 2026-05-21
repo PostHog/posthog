@@ -430,13 +430,15 @@ class AgentApplicationSessionProxyViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
                 after=after,
                 limit=limit,
             )
-        except Exception as exc:
+        except Exception:
+            # Full exception (ClickHouse error codes, internal hostnames, stack)
+            # goes to the server log only — never echo it to the API client.
             logger.exception(
                 "agent_stack.session_logs query failed",
                 extra={"application_id": app_id, "session_id": pk, "team_id": self.team_id},
             )
             return Response(
-                {"detail": f"log query failed: {exc!s}", "type": type(exc).__name__},
+                {"detail": "Log store is temporarily unavailable. Retry shortly."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         # Rows come back DESC by timestamp; flip to oldest-first for the UI.
