@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the Python acceptance test suite for the LLM Analytics pipeline. These tests validate **end-to-end functionality** that requires real PostHog infrastructure: database, S3 storage, Kafka, authentication services, and the full ingestion pipeline.
+This document describes the Python acceptance test suite for the AI observability pipeline. These tests validate **end-to-end functionality** that requires real PostHog infrastructure: database, S3 storage, Kafka, authentication services, and the full ingestion pipeline.
 
 **Implementation Requirement**: Each phase in the implementation plan must pass its corresponding acceptance tests before proceeding to the next phase. This ensures incremental validation and prevents regression as new features are added.
 

@@ -9,32 +9,32 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
 
 export const manifest: ProductManifest = {
-    name: 'LLM Analytics',
+    name: 'AI observability',
     scenes: {
         LLMAnalytics: {
             import: () => import('./frontend/LLMAnalyticsScene'),
             projectBased: true,
-            name: 'LLM analytics',
+            name: 'AI observability',
             layout: 'app-container',
-            description: 'Analyze and understand your LLM usage and performance.',
+            description: 'Analyze and understand your AI usage and performance.',
             iconType: 'llm_analytics',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
             projectBased: true,
-            name: 'LLM analytics trace',
+            name: 'AI observability trace',
             layout: 'app-container',
         },
         LLMAnalyticsSession: {
             import: () => import('./frontend/LLMAnalyticsSessionScene'),
             projectBased: true,
-            name: 'LLM analytics session',
+            name: 'AI observability session',
             layout: 'app-container',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
             projectBased: true,
-            name: 'LLM analytics users',
+            name: 'AI observability users',
             layout: 'app-container',
         },
         LLMAnalyticsPlayground: {
@@ -56,7 +56,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsDataset: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetScene'),
             projectBased: true,
-            name: 'LLM analytics dataset',
+            name: 'AI observability dataset',
             layout: 'app-container',
             iconType: 'llm_datasets',
         },
@@ -72,7 +72,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsEvaluation: {
             import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
             projectBased: true,
-            name: 'LLM analytics evaluation',
+            name: 'AI observability evaluation',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
@@ -80,7 +80,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsEvaluationTemplates: {
             import: () => import('./frontend/evaluations/EvaluationTemplates'),
             projectBased: true,
-            name: 'LLM analytics evaluation templates',
+            name: 'AI observability evaluation templates',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
@@ -89,7 +89,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/tags/LLMAnalyticsTagsScene'),
             projectBased: true,
             name: 'Tags',
-            description: 'Add custom tags to your LLM generations automatically.',
+            description: 'Add custom tags to your AI generations automatically.',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_tags',
@@ -97,7 +97,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsTag: {
             import: () => import('./frontend/tags/LLMAnalyticsTag'),
             projectBased: true,
-            name: 'LLM analytics tag',
+            name: 'AI observability tag',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_tags',
@@ -113,7 +113,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsPrompt: {
             import: () => import('./frontend/prompts/LLMPromptScene'),
             projectBased: true,
-            name: 'LLM analytics prompt',
+            name: 'AI observability prompt',
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
@@ -128,7 +128,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsSkill: {
             import: () => import('./frontend/skills/LLMSkillScene'),
             projectBased: true,
-            name: 'LLM analytics skill',
+            name: 'AI observability skill',
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
@@ -136,14 +136,14 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/clusters/LLMAnalyticsClustersScene'),
             projectBased: true,
             name: 'Clusters',
-            description: 'Discover patterns and clusters in your LLM usage.',
+            description: 'Discover patterns and clusters in your AI usage.',
             layout: 'app-container',
             iconType: 'llm_clusters',
         },
         LLMAnalyticsCluster: {
             import: () => import('./frontend/clusters/LLMAnalyticsClusterScene'),
             projectBased: true,
-            name: 'LLM analytics cluster',
+            name: 'AI observability cluster',
             layout: 'app-container',
             iconType: 'llm_clusters',
         },
@@ -267,6 +267,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'LLM analytics',
+            displayLabel: 'AI observability',
             intents: [
                 ProductKey.LLM_ANALYTICS,
                 ProductKey.LLM_EVALUATIONS,

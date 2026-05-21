@@ -1,5 +1,5 @@
 """
-Configuration for LLMA (LLM Analytics) metrics aggregation.
+Configuration for LLMA (AI observability) metrics aggregation.
 
 This module defines all parameters and constants used in the LLMA metrics pipeline.
 Modify this file to add new metrics or change aggregation behavior.

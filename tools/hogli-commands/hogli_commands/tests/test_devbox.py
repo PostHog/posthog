@@ -2565,23 +2565,25 @@ class TestConfigSshArgs:
         decoded = [self._csv_decode(v) for v in self._ssh_option_values(args)]
         assert decoded == ["ForwardAgent yes"]
 
-    def test_identity_agent_socket_with_spaces_is_csv_encoded(self) -> None:
-        args = coder._config_ssh_args(identity_agent_socket=self._SOCKET_WITH_SPACES)
+    @pytest.mark.parametrize(
+        "socket",
+        [
+            # 1Password's default path contains spaces; without quoting,
+            # OpenSSH parses the trailing path components as "extra arguments"
+            # and refuses to load the config file.
+            "/Users/me/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
+            "/tmp/agent.sock",
+        ],
+        ids=["spaces", "no-spaces"],
+    )
+    def test_identity_agent_socket_roundtrips_to_quoted_ssh_form(self, socket: str) -> None:
+        args = coder._config_ssh_args(identity_agent_socket=socket)
         identity_option = next(v for v in self._ssh_option_values(args) if "IdentityAgent" in v)
-
-        # Layer 1: the value must be a CSV-quoted field (no bare " in a
-        # non-quoted field); cobra rejects otherwise.
-        assert identity_option.startswith('"') and identity_option.endswith('"')
-        # Layer 2: after coder CSV-decodes it, ~/.ssh/config gets the form
-        # ssh actually expects -- IdentityAgent with a quoted path.
-        assert self._csv_decode(identity_option) == f'IdentityAgent "{self._SOCKET_WITH_SPACES}"'
-
-    def test_identity_agent_socket_without_spaces_still_roundtrips(self) -> None:
-        # Plain paths don't strictly need CSV quoting, but the helper should
-        # still produce a value that CSV-decodes to the same SSH form.
-        args = coder._config_ssh_args(identity_agent_socket="/tmp/agent.sock")
-        identity_option = next(v for v in self._ssh_option_values(args) if "IdentityAgent" in v)
-        assert self._csv_decode(identity_option) == 'IdentityAgent "/tmp/agent.sock"'
+        # After coder CSV-decodes it, ~/.ssh/config gets the SSH form -- an
+        # IdentityAgent line with a quoted path. The quotes are what ssh needs
+        # when the socket contains spaces; CSV encoding is what coder needs to
+        # accept those quotes.
+        assert self._csv_decode(identity_option) == f'IdentityAgent "{socket}"'
 
 
 class TestEncodeSshOption:

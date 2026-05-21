@@ -92,6 +92,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -205,6 +208,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -249,6 +253,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -303,6 +308,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -772,6 +780,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -914,6 +925,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -958,6 +970,7 @@
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
          "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
          "posthog_survey"."translations"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
@@ -1012,6 +1025,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",

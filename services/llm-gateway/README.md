@@ -218,9 +218,9 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | `wizard`             | API key + OAuth | All                        | Max AI assistant                |
 | `django`             | API key only    | All                        | Server-side Django calls        |
 | `growth`             | API key only    | All                        | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini               | LLM analytics translation       |
-| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
-| `llma_eval_summary`  | API key only    | gpt-5-mini                 | LLM analytics eval summary      |
+| `llma_translation`   | API key only    | gpt-4.1-mini               | AI observability translation    |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | AI observability summarization  |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                 | AI observability eval summary   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 

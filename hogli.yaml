@@ -799,7 +799,7 @@ tools:
         description: Download and cache GeoLite2 MaxMind database with retry logic
     tool:download-sentiment-model:
         bin_script: download-sentiment-model
-        description: Download and export sentiment ONNX model for local LLM Analytics
+        description: Download and export sentiment ONNX model for local AI observability
             development
         services:
             - temporal

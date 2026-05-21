@@ -489,6 +489,16 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
     description?: string | null
 }
 
+export interface ErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
+export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
 /**
  * @nullable
  */

@@ -1,5 +1,5 @@
 """
-Daily aggregation of LLMA (LLM Analytics) metrics.
+Daily aggregation of LLMA (AI observability) metrics.
 
 Aggregates AI event counts from the events table into a daily metrics table
 for efficient querying and cost analysis.
@@ -37,7 +37,7 @@ LLMA_CLICKHOUSE_SETTINGS = {
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": config.table_name},
-    tags={"owner": JobOwners.TEAM_LLM_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_AI_OBSERVABILITY.value},
 )
 def llma_metrics_daily(
     context: dagster.AssetExecutionContext,
@@ -98,7 +98,7 @@ llma_metrics_daily_job = dagster.define_asset_job(
     name="llma_metrics_daily_job",
     selection=["llma_metrics_daily"],
     tags={
-        "owner": JobOwners.TEAM_LLM_ANALYTICS.value,
+        "owner": JobOwners.TEAM_AI_OBSERVABILITY.value,
         "dagster/max_runtime": str(config.job_timeout),
     },
 )
@@ -108,7 +108,7 @@ llma_metrics_daily_job = dagster.define_asset_job(
     cron_schedule=config.cron_schedule,
     job=llma_metrics_daily_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_LLM_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_AI_OBSERVABILITY.value},
 )
 def llma_metrics_daily_schedule(context: dagster.ScheduleEvaluationContext):
     """
