@@ -960,6 +960,7 @@ export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */
 })
 
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = false
+export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault = false
 
 export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ zod.object({
     chunk_ids: zod
@@ -987,4 +988,8 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault)
         .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
+    skip_on_conflict: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
+        .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
 })

@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -189,13 +189,6 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return False
 
     def _calculate(self) -> HogQLQueryResponse:
-        settings = None
-
-        # Funnel queries require the experimental analyzer to run correctly
-        # Can remove once clickhouse moves to version 24.3 or above
-        if isinstance(self.source_runner, FunnelsQueryRunner):
-            settings = HogQLGlobalSettings(enable_analyzer=True)
-
         return execute_hogql_query(
             query_type="InsightActorsQuery",
             query=self.to_query(),
@@ -203,5 +196,4 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
-            settings=settings,
         )

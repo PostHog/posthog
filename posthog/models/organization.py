@@ -700,7 +700,7 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
 def clean_up_alert_subscriptions_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
-    from posthog.models.alert import AlertSubscription
+    from products.alerts.backend.models.alert import AlertSubscription
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,

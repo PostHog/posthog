@@ -22,7 +22,14 @@ from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
 from hogli.lazy_commands import add_commands_dir_to_path, add_repo_root_to_path, resolve_click_command
-from hogli.manifest import REPO_ROOT, get_category_for_command, get_manifest, get_services_for_command, load_manifest
+from hogli.manifest import (
+    REPO_ROOT,
+    Manifest,
+    get_category_for_command,
+    get_manifest,
+    get_services_for_command,
+    load_manifest,
+)
 from hogli.validate import auto_update_manifest, find_missing_manifest_entries, find_orphan_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
@@ -175,7 +182,7 @@ def cli(ctx: click.Context) -> None:
     # Skip env loading during shell completion — completion fires this
     # callback for every Tab press and doesn't need the env populated.
     if not ctx.resilient_parsing:
-        _apply_env_config()
+        _apply_env_config(ctx.invoked_subcommand)
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
@@ -268,6 +275,10 @@ _SECRETS_WRAPPED_ENV = "HOGLI_SECRETS_WRAPPED"
 # argv. Kept as a constant so the README, AGENTS.md, and runtime stay in sync.
 _WRAP_FILE_PLACEHOLDER = "{file}"
 
+# Built-in commands whose contract is "forward the resolved env" (e.g.
+# `hogli run`). Manifest commands opt in via `needs_secrets: true`.
+_BUILTIN_COMMANDS_NEEDING_SECRETS = frozenset({"run"})
+
 
 def _load_env_file(
     path: os.PathLike[str],
@@ -303,29 +314,21 @@ def _load_env_file(
         os.environ[name] = value
 
 
-def _apply_env_config() -> None:
+def _apply_env_config(invoked_subcommand: str | None = None) -> None:
     """Apply ``config.env`` from hogli.yaml: load files, optionally re-exec via wrap.
 
-    Behavior depends on what's declared in the manifest:
+    - No ``config.env``: no-op.
+    - ``config.env.files``: each file loaded with only_if_unset=True; first
+      listed wins for duplicate keys; shell env always wins.
+    - ``config.env.secrets``: secrets file. Wrap re-exec is gated on
+      ``_command_needs_secrets`` — when open, the file exists, the marker
+      matches, and ``wrap[0]`` is on PATH, set the ``HOGLI_SECRETS_WRAPPED``
+      sentinel and ``execvp`` into the wrap (which re-runs hogli with
+      secrets resolved). Otherwise load the file directly with
+      marker-matching lines skipped, so unresolved refs don't leak as
+      literal env values.
 
-    - No ``config.env``: no-op. hogli stays a transparent CLI.
-    - ``config.env.files``: each file is loaded with only_if_unset=True. First
-      file in the list wins for duplicate keys; shell env always wins.
-    - ``config.env.secrets``: wrapper for a secrets file (e.g. one containing
-      1Password ``op://`` refs).
-        * If the file exists, contains the marker, and the wrap binary is on
-          PATH: set the ``HOGLI_SECRETS_WRAPPED`` sentinel and ``execvp`` into
-          the wrap command, which re-runs hogli with secrets resolved. Files
-          are pre-loaded so wrap's child inherits them.
-        * If the wrap binary is missing or the marker doesn't hit, load the
-          file directly. Lines whose value contains the marker are skipped
-          (so unresolved refs don't leak as garbage env values).
-        * If the sentinel is already set we are the child of a wrap re-exec —
-          skip the wrap entirely and proceed to load the files normally.
-
-    Precedence (in both wrap-resolved and fallback paths, highest wins):
-    shell env > secrets file > env files (earlier files in the list win for
-    duplicate keys).
+    Precedence (highest wins): shell env > secrets file > env files.
     """
     manifest = get_manifest()
     try:
@@ -335,22 +338,38 @@ def _apply_env_config() -> None:
         click.echo(f"⚠️  Invalid config.env in hogli.yaml: {e}", err=True)
         return
 
-    # Consume the sentinel — we're either the wrap-child (sentinel set) or
-    # the initial parent (sentinel unset). Pop so the sentinel never leaks
-    # to subprocesses or repeat in-process calls.
-    already_wrapped = os.environ.pop(_SECRETS_WRAPPED_ENV, None) is not None
+    # Don't pop: subprocesses spawned by composite/steps commands need to
+    # inherit this so they skip a redundant wrap re-exec. In-process callers
+    # that want to retrigger the wrap must clear it themselves.
+    already_wrapped = _SECRETS_WRAPPED_ENV in os.environ
 
     if secrets is not None and not already_wrapped:
-        _maybe_reexec_via_wrap(secrets, env_files)
+        if _command_needs_secrets(invoked_subcommand, manifest):
+            _maybe_reexec_via_wrap(secrets, env_files)
 
-        # Reached here = no re-exec happened (no marker hit, file missing, or
-        # wrap binary missing). Load secrets BEFORE env_files so .env.local
-        # literals override .env.development / .env.services — matches the
-        # wrap-resolved path's precedence (where op layers .env.local on top).
+        # Load secrets BEFORE env_files so .env.local literals override
+        # .env.development / .env.services — matches the wrap-resolved
+        # path's precedence (where op layers .env.local on top).
         _load_env_file(secrets["file"], only_if_unset=True, skip_pattern=secrets["marker"])
 
     for path in env_files:
         _load_env_file(path, only_if_unset=True)
+
+
+def _command_needs_secrets(invoked_subcommand: str | None, manifest: Manifest) -> bool:
+    """Whether the invoked command opts into the secret wrap.
+
+    Two sources, in order: built-in framework commands
+    (``_BUILTIN_COMMANDS_NEEDING_SECRETS``), then ``needs_secrets: true`` on
+    the manifest entry. Default False — most commands don't need secrets and
+    shouldn't pay the wrap cost.
+    """
+    if not invoked_subcommand:
+        return False
+    if invoked_subcommand in _BUILTIN_COMMANDS_NEEDING_SECRETS:
+        return True
+    cmd_config = manifest.get_command_config(invoked_subcommand) or {}
+    return bool(cmd_config.get("needs_secrets"))
 
 
 def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> None:
