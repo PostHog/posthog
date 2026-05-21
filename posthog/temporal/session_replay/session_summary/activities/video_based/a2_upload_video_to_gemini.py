@@ -145,6 +145,10 @@ async def upload_video_to_gemini_activity(
                     f"File processing timed out after {time.time() - wait_start_time:.1f}s "
                     f"before status check. State: {uploaded_file.state.name}"
                 )
+            # Snapshot the pre-get state name so the TimeoutError handler can report it without
+            # mypy re-narrowing across the await — the loop guard above proved state is non-None,
+            # but mypy widens it back to FileState | None inside the except.
+            pre_get_state_name = uploaded_file.state.name
             try:
                 uploaded_file = await asyncio.wait_for(
                     sync_to_async(raw_client.files.get, thread_sensitive=False)(name=gemini_file_name),
@@ -153,8 +157,7 @@ async def upload_video_to_gemini_activity(
             except TimeoutError as e:
                 elapsed = time.time() - wait_start_time
                 raise RuntimeError(
-                    f"File processing timed out after {elapsed:.1f}s during status check. "
-                    f"State: {uploaded_file.state.name}"
+                    f"File processing timed out after {elapsed:.1f}s during status check. State: {pre_get_state_name}"
                 ) from e
             except ClientError as e:
                 # 400s during PROCESSING polling appear to be a transient Gemini-side race against
