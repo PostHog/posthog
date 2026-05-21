@@ -7325,7 +7325,6 @@ dependencies = [
  "common-kafka",
  "envconfig",
  "lifecycle",
- "metrics",
  "proptest",
  "serve-metrics",
  "siphasher 1.0.2",
