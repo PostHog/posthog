@@ -29,7 +29,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS, HogQLParserBackend
-from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.json_ast import deserialize_ast
@@ -122,6 +122,12 @@ def safe_lambda(f):
     def wrapped(*args, **kwargs):
         try:
             return f(*args, **kwargs)
+        except NotImplementedError as e:
+            # Mirror cpp's JSON wrapper: `NotImplementedError` is `InternalHogQLError`
+            # and shouldn't leak past the parser boundary. `posthog/hogql/json_ast.py`
+            # rewrites cpp's JSON-encoded NotImplementedError into `ExposedHogQLError`;
+            # do the same for the python visitor so callers see the same class.
+            raise ExposedHogQLError(str(e), start=e.start, end=e.end) from e
         except Exception as e:
             if str(e) == "Empty Stack":  # Antlr throws `Exception("Empty Stack")` ¯\_(ツ)_/¯
                 raise SyntaxError("Unmatched curly bracket") from e
@@ -1324,16 +1330,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return (self.visit(ctx.winFrameBound(0)), self.visit(ctx.winFrameBound(1)))
 
     def visitWinFrameBound(self, ctx: HogQLParser.WinFrameBoundContext):
-        if ctx.PRECEDING():
+        # Mirror cpp's `VISIT(WinFrameBound)`: unwrap a Constant int frame_value to a bare number; floats / strings / other Constants stay wrapped.
+        if ctx.PRECEDING() or ctx.FOLLOWING():
+            frame_type = "PRECEDING" if ctx.PRECEDING() else "FOLLOWING"
             frame_value = self.visit(ctx.columnExpr()) if ctx.columnExpr() else None
-            if isinstance(frame_value, ast.Constant) and isinstance(frame_value.value, (int, float)):
-                frame_value = int(frame_value.value)
-            return ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=frame_value)
-        if ctx.FOLLOWING():
-            frame_value = self.visit(ctx.columnExpr()) if ctx.columnExpr() else None
-            if isinstance(frame_value, ast.Constant) and isinstance(frame_value.value, (int, float)):
-                frame_value = int(frame_value.value)
-            return ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=frame_value)
+            if (
+                isinstance(frame_value, ast.Constant)
+                and isinstance(frame_value.value, int)
+                and not isinstance(frame_value.value, bool)
+            ):
+                frame_value = frame_value.value
+            return ast.WindowFrameExpr(frame_type=frame_type, frame_value=frame_value)
         return ast.WindowFrameExpr(frame_type="CURRENT ROW")
 
     def visitExpr(self, ctx: HogQLParser.ExprContext):

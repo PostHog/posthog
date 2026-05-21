@@ -91,7 +91,9 @@ then opens a follow-up PR that updates the repo-root pin.
 
 ## Adding a new grammar feature
 
-The big-picture loop:
+Steps 1–4 are the one-time grammar-update process — done once,
+human-driven. Step 5 (running the parity loop below) is the
+long-running, agent-friendly part.
 
 1. **Update [`HogQLLexer.*.g4`](../../../posthog/hogql/grammar/) and
     [`HogQLParser.g4`](../../../posthog/hogql/grammar/HogQLParser.g4).**
@@ -122,28 +124,64 @@ The big-picture loop:
     "Position parity" below). Rebuild the cpp wheel
     (`pip install ./common/hogql_parser`).
 
-4. **Pin the new behaviour.** Add a regression test (and a
-    rust-rejects-it negative test if the grammar tightens) in
-    [`posthog/hogql/test/test_parser_regressions.py`](../../../posthog/hogql/test/test_parser_regressions.py).
-    Run on `cpp-json` only (you haven't done the Rust work yet); the
-    test should pass on cpp and fail on rust. That fail is the
-    starting state for step 5.
+4. **Pin the new behaviour with a regression test.** Add a test (and a
+    rust-rejects-it negative test if the grammar tightens) into the
+    `parser_test_factory` suite in
+    [`posthog/hogql/test/_test_parser.py`](../../../posthog/hogql/test/_test_parser.py).
+    The factory runs every test against `cpp-json`, `rust-json`, and
+    `python`; on a fresh grammar change the test passes on cpp and
+    fails on rust. That fail is the starting state for the parity
+    loop.
 
-5. **Bring the Rust parser to parity.** Add lexer keywords (if any)
-    in [`src/lex.rs`](src/lex.rs), then the parser shape in the
-    matching `src/parse/*.rs` file. Match cpp's per-node visit
-    behaviour: every `addPositionInfo(json, ctx)` on the cpp side
-    needs a `self.wrap_pos(value, start)` or `self.wrap_pos_to(value,
-    start, end)` on this side. Add an `emit::*` helper if you're
-    building a new node shape, so callers stay declarative.
+5. **Run the parity loop.** See the next section.
 
-6. **Run the diagnostics.** PBT, corpus checks, regression suite,
-    perf bench. Anything below the previous baseline goes back into
-    the loop.
+## The parity loop
 
-Step 5 is where an LLM agent in a long-running loop (ralph loop,
-autoresearch, Claude Code with a wakeup schedule) does well. The
-diagnostics produce concrete diffs the agent can attack one at a time.
+The agent loop that brings rust to behavioural parity with cpp. Long-running;
+the diagnostics produce concrete diffs the agent attacks one at a time.
+
+Before each iteration make sure both the cpp and rust parser binaries
+are up to date (`pip install ./common/hogql_parser`, `maturin develop
+--release --manifest-path rust/hogql/parser/Cargo.toml`).
+
+1. **Generate a new divergence.** In priority order:
+    + existing failing regression tests (highest signal);
+    + real production queries via `log_corpus_diagnostic.py` /
+      `hog_corpus_diagnostic.py` (the hog corpus has been at 100% for
+      a while — usually skip);
+    + PBT (`pbt_diagnostic.py --rule expr|select|program`);
+    + thinking hard about edge cases the grammar surface invites.
+
+    For everything other than regression tests, start with a small
+    budget (lower `--n`, less thinking time) and increase until at
+    least one divergence surfaces.
+2. **Reduce + pin.** Shrink each divergence to its minimal form and
+   add it as a regression test in `_test_parser.py`'s factory so
+   it runs on all three backends.
+3. **Read before fixing.** Read the grammar AND the cpp visitor for
+   the rule. 100% identical behaviour means knowing exactly what cpp
+   does — guessing leads to fixes that resurface on a deeper PBT
+   run.
+4. **Fix the rust parser.** Prefer general fixes that won't break on
+   deeper nesting; a depth-0-only special case is a smell. Print a
+   one-paragraph report for the human operator so progress is
+   visible while the loop runs autonomously.
+5. **Re-run the regression suite.** Anything below the previous
+   baseline goes back to step 1.
+
+Generating divergences is the slow step. Run discovery in parallel
+in the background:
+
++ `pbt_diagnostic.py --rule select`
++ `pbt_diagnostic.py --rule expr`
++ `pbt_diagnostic.py --rule program`
++ `log_corpus_diagnostic.py` (real query corpus)
++ a research subagent grepping for cpp-vs-rust visitor differences
++ a research subagent brainstorming adversarial edge cases
+
+Most of these can stream divergences as they're found. Once at least
+one known divergence is in hand, start fixing it while the parallel
+runs keep mining the long tail.
 
 ## Tools for parity work
 
@@ -156,19 +194,17 @@ read.
 ### Regression tests in `posthog/hogql/test/`
 
 ```bash
-hogli test posthog/hogql/test/test_parser_regressions.py
+hogli test posthog/hogql/test/test_parser_cpp_json.py
+hogli test posthog/hogql/test/test_parser_python.py
 hogli test posthog/hogql/test/test_parser_rust_json.py
 ```
 
-`test_parser_regressions.py` pins every cpp-vs-rust divergence that
-has been found and fixed; one parameterised assertion runs on all
-three backends (`cpp-json`, `rust-json`, `python`). When you add a new
-grammar shape, add a regression here too.
-
-`test_parser_rust_json.py` runs the shared
-[`_test_parser.py`](../../../posthog/hogql/test/_test_parser.py)
-suite against `rust-json`. Catches behaviour regressions the
-regression file doesn't pin.
+The behaviour suite + regression pins live in
+[`_test_parser.py`](../../../posthog/hogql/test/_test_parser.py)'s
+`parser_test_factory`. The three files above are thin subclasses that
+spawn one runnable test entry per (backend, case) combination. When
+you find a new divergence, add a reduced regression to the factory —
+it picks up all three backends automatically.
 
 ### Property-based testing via `posthog/hogql/scripts/pbt_diagnostic.py`
 
@@ -230,53 +266,9 @@ from posthog.hogql.constants import HogQLParserBackend
 parse_expr(src, backend=HogQLParserBackend.CPP_WITH_RUST_SHADOW)
 ```
 
-## Example loop for an LLM agent
+## Rules of thumb for the parity loop
 
-A long-running loop driving a single grammar-parity task looks roughly
-like this. Tailor for your runtime (ralph loop, autoresearch, Claude
-Code wakeup, etc.); the steps stay the same.
-
-```text
-PROMPT:
-  You are bringing the Rust parser to parity with the C++ parser for
-  the new grammar feature `<feature description>`. The C++ parser is
-  the source of truth. Each iteration:
-
-    1. Run the PBT for the rule the feature touches:
-       posthog/hogql/scripts/pbt_diagnostic.py --n 500 --rule <rule> \
-         --shrink-failures \
-         --write-divergences /tmp/divs.jsonl
-
-    2. Read /tmp/divs.jsonl. Bucket divergences by the failing AST
-       node type. Pick the bucket with the most members.
-
-    3. Read 2–3 shrunk reproducers from that bucket. Look at the
-       cpp output and the rust output side by side.
-
-    4. Fix the rust parser. Prefer changes that generalise to deeper
-       and more nested queries. A fix that only handles `a.b` but
-       not `a.b.c` is going to lose ground on the next iteration. If
-       a fix needs a special case at depth 0 only, that's a smell.
-
-    5. Re-run the PBT. If the failing-bucket count went down without
-       introducing new buckets, keep the change.
-
-    6. Re-run the regression suite and the perf bench. Both must stay
-       green / on-baseline before continuing.
-
-    7. Commit. The commit message should call out which divergence
-       class the fix targets so future work can trace the history.
-
-  Stop when:
-    - The PBT bucket is empty
-    - The hog_corpus_diagnostic and log_corpus_diagnostic both stay
-      at >= 90% match (run weekly)
-    - The perf bench `parse_select` mean is within 5% of its
-      pre-change baseline
-```
-
-A few rules of thumb the loop should follow that aren't always
-obvious from the diagnostics alone:
+These aren't always obvious from the diagnostics alone:
 
 + **Prefer the generalising fix.** When two implementations both pass
   the failing cases, pick the one that doesn't depend on the input

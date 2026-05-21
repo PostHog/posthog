@@ -4944,10 +4944,7 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         @no_memory_leak_check
         def test_settings_and_top_clause_error_class(self):
-            # SETTINGS/TOP parse but the visitor rejects them — cpp's NotImplementedError surfaces as a bare ExposedHogQLError via the JSON wrapper.
-            # Python has no JSON wrapper and leaks the raw NotImplementedError.
-            if backend == "python":
-                self.skipTest("python visitor has no JSON wrapper, leaks NotImplementedError directly")
+            # SETTINGS/TOP parse but the visitor rejects them — `NotImplementedError` is `InternalHogQLError` and is rewritten to `ExposedHogQLError` at the parser boundary.
             for src in ("SELECT 1 SETTINGS x = 1", "SELECT TOP 5 x FROM t"):
                 with self.assertRaises(ExposedHogQLError) as cpp_cm:
                     parse_select(src, backend="cpp-json")
@@ -4958,10 +4955,7 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         @no_memory_leak_check
         def test_window_frame_non_int_bound_keeps_constant(self):
-            # cpp unwraps a frame-bound Constant to a bare number only when integer; floats / strings keep the Constant.
-            # Python diverges from cpp on this — separate cpp-vs-python issue — so this pins rust vs cpp only.
-            if backend == "python":
-                self.skipTest("python visitor diverges from cpp on non-int frame bounds")
+            # Unwrap a frame-bound Constant to a bare number only when integer; floats / strings keep the Constant.
             cases = (
                 "SELECT count() OVER (ROWS 1.5 PRECEDING) FROM t",
                 "SELECT count() OVER (ROWS '5' PRECEDING) FROM t",
