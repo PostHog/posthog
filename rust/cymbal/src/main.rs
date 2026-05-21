@@ -1,6 +1,9 @@
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
-use cymbal::{app_context::AppContext, config::Config, server::start_server};
+use cymbal::{
+    app_context::AppContext, config::Config, server::start_server,
+    symbol_store::warming::warm_cache,
+};
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -55,5 +58,27 @@ async fn main() {
 
     let context = Arc::new(AppContext::from_config(&config).await.unwrap());
 
-    start_server(config.clone(), context.clone()).await;
+    // Start the HTTP server before warming so liveness probes keep passing.
+    // Readiness stays closed until warming finishes or fails.
+    let server_handle = tokio::spawn(start_server(config.clone(), context.clone()));
+
+    if config.cache_warming_enabled {
+        info!("Starting cache warming");
+        if let Err(error) = warm_cache(
+            &context.posthog_pool,
+            &context.s3_client,
+            &config.object_storage_bucket,
+            &context.ss_cache,
+            &config,
+        )
+        .await
+        {
+            error!(%error, "Cache warming failed, proceeding with cold cache");
+        }
+    }
+
+    context.cache_warmed.store(true, Ordering::Relaxed);
+    info!("Pod is ready to serve traffic");
+
+    server_handle.await.unwrap();
 }

@@ -25,6 +25,7 @@ pub mod hermesmap;
 pub mod proguard;
 pub mod saving;
 pub mod sourcemap;
+pub mod warming;
 
 mod s3;
 pub use s3::BlobClient;

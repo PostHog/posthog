@@ -126,3 +126,9 @@ pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_g
 pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
+
+// Cache warming metrics
+pub const CACHE_WARMING_DURATION: &str = "cymbal_cache_warming_duration";
+pub const CACHE_WARMING_ENTRIES_LOADED: &str = "cymbal_cache_warming_entries_loaded";
+pub const CACHE_WARMING_ENTRIES_FAILED: &str = "cymbal_cache_warming_entries_failed";
+pub const CACHE_WARMING_BYTES_LOADED: &str = "cymbal_cache_warming_bytes_loaded";

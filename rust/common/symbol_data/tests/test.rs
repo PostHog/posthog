@@ -1,6 +1,6 @@
 use posthog_symbol_data::{
-    read_symbol_data, write_symbol_data, write_symbol_data_uncompressed, HermesMap,
-    ProguardMapping, SourceAndMap,
+    read_symbol_data, sniff_data_type, write_symbol_data, write_symbol_data_uncompressed,
+    HermesMap, ProguardMapping, SourceAndMap, SymbolDataType,
 };
 
 const MAGIC_LEN: usize = b"posthog_error_tracking".len();
@@ -104,4 +104,23 @@ fn test_v2_compressed_large_payload() {
 
     let output = read_symbol_data::<SourceAndMap>(&bytes).unwrap();
     assert_eq!(input, output);
+}
+
+#[test]
+fn test_sniff_data_type() {
+    let sourcemap = write_symbol_data(SourceAndMap {
+        minified_source: "minified_source".to_string(),
+        sourcemap: "sourcemap".to_string(),
+    })
+    .unwrap();
+    let hermes = write_symbol_data(HermesMap {
+        sourcemap: "hermes map data".to_string(),
+    })
+    .unwrap();
+
+    assert_eq!(
+        sniff_data_type(&sourcemap).unwrap(),
+        SymbolDataType::SourceAndMap
+    );
+    assert_eq!(sniff_data_type(&hermes).unwrap(), SymbolDataType::HermesMap);
 }

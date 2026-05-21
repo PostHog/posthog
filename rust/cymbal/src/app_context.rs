@@ -4,7 +4,10 @@ use health::HealthRegistry;
 use moka::future::{Cache, CacheBuilder};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 use tokio::sync::{Mutex, Semaphore};
 use tracing::info;
 use uuid::Uuid;
@@ -50,6 +53,9 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    pub ss_cache: Arc<Mutex<SymbolSetCache>>,
+    pub s3_client: Arc<dyn BlobClient>,
+    pub cache_warmed: Arc<AtomicBool>,
 }
 
 impl AppContext {
@@ -210,6 +216,8 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
+        let cache_warmed = Arc::new(AtomicBool::new(!config.cache_warming_enabled));
+
         Ok(Self {
             health_registry,
             immediate_producer,
@@ -224,6 +232,9 @@ impl AppContext {
             signal_client,
             symbol_resolver,
             issue_cache,
+            ss_cache,
+            s3_client,
+            cache_warmed,
         })
     }
 }

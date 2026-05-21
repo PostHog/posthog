@@ -14,6 +14,31 @@ pub enum SymbolDataType {
     AppleDsym = 5,
 }
 
+impl TryFrom<u32> for SymbolDataType {
+    type Error = Error;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            2 => Ok(SymbolDataType::SourceAndMap),
+            3 => Ok(SymbolDataType::HermesMap),
+            4 => Ok(SymbolDataType::ProguardMapping),
+            5 => Ok(SymbolDataType::AppleDsym),
+            other => Err(Error::InvalidDataType(other, "any".to_string())),
+        }
+    }
+}
+
+/// Reads the type discriminator from a `posthog_symbol_data` byte slice without
+/// performing decompression or deserialization. The type field sits at the same
+/// offset in both v1 and v2 formats, after the magic bytes and version.
+pub fn sniff_data_type(data: &[u8]) -> Result<SymbolDataType, Error> {
+    let type_offset = MAGIC.len() + 4;
+    assert_at_least_as_long_as(type_offset + 4, data.len())?;
+    assert_has_magic(data)?;
+    let raw = u32::from_le_bytes(data[type_offset..type_offset + 4].try_into().unwrap());
+    SymbolDataType::try_from(raw)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Compression {

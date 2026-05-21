@@ -93,19 +93,26 @@ impl SymbolSetCache {
         }
     }
 
+    pub fn held_bytes(&self) -> usize {
+        self.held_bytes
+    }
+
     pub fn insert<T>(&mut self, key: String, value: Arc<T>, bytes: usize)
     where
         T: Any + Send + Sync,
     {
-        self.held_bytes += bytes;
-        self.cached.insert(
+        if let Some(previous) = self.cached.insert(
             key,
             CachedSymbolSet {
                 data: value,
                 bytes,
                 last_used: Instant::now(),
             },
-        );
+        ) {
+            self.held_bytes = self.held_bytes.saturating_sub(previous.bytes);
+        }
+
+        self.held_bytes += bytes;
 
         self.evict();
     }
@@ -167,5 +174,30 @@ pub trait Countable {
 impl Countable for Vec<u8> {
     fn byte_count(&self) -> usize {
         self.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::SymbolSetCache;
+
+    #[test]
+    fn replacing_existing_key_keeps_byte_accounting_accurate() {
+        let mut cache = SymbolSetCache::new(usize::MAX);
+
+        cache.insert("key".to_string(), Arc::new(vec![1_u8, 2, 3]), 3);
+        assert_eq!(cache.held_bytes, 3);
+        assert_eq!(cache.cached.len(), 1);
+
+        cache.insert("key".to_string(), Arc::new(vec![1_u8, 2, 3, 4, 5]), 5);
+
+        assert_eq!(cache.held_bytes, 5);
+        assert_eq!(cache.cached.len(), 1);
+        assert_eq!(
+            *cache.get::<Vec<u8>>("key").unwrap(),
+            vec![1_u8, 2, 3, 4, 5]
+        );
     }
 }

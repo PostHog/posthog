@@ -178,6 +178,22 @@ pub struct Config {
 
     #[envconfig(default = "")]
     pub internal_api_secret: String,
+
+    // Cache warming pre-populates the symbol set cache from recently used DB records on startup.
+    #[envconfig(default = "true")]
+    pub cache_warming_enabled: bool,
+
+    #[envconfig(default = "1")]
+    pub cache_warming_lookback_hours: u64,
+
+    #[envconfig(default = "10000")]
+    pub cache_warming_max_entries: usize,
+
+    #[envconfig(default = "32")]
+    pub cache_warming_concurrency: usize,
+
+    #[envconfig(default = "180")]
+    pub cache_warming_timeout_seconds: u64,
 }
 
 impl Config {
