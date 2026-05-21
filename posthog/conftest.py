@@ -557,24 +557,81 @@ def _runs_on_internal_pr() -> bool:
     return value.lower() in {"1", "true"}
 
 
+# Tenancy-boundary fields that are always server-controlled (set from the URL
+# / authenticated context, never from the request body). A ModelSerializer
+# that accepts writes to any of these is a tenancy-cross mass-assignment risk:
+# a user could set a record's team/organization/project to one they shouldn't
+# have access to.
+#
+# Other server-controlled fields (status/state machines, created_at/updated_at
+# timestamps, created_by/updated_by audit) are NOT in this denylist on
+# purpose: status/state are often legitimate state-machine inputs validated by
+# the serializer, and timestamps are typically overridden by Django's
+# ``auto_now`` / ``auto_now_add``. Adding those generates too many false
+# positives to be useful here.
+#
+# Per-serializer opt-out via the ``_idor_mass_assignment_allowlist`` class
+# attribute, e.g. ``_idor_mass_assignment_allowlist = frozenset({"team_id"})``
+# with a comment explaining why.
+_DANGER_WRITABLE_FIELD_NAMES: frozenset[str] = frozenset(
+    {
+        "team",
+        "team_id",
+        "organization",
+        "organization_id",
+        "project",
+        "project_id",
+    }
+)
+
+
 @pytest.fixture(autouse=True)
 def enforce_detail_object_permissions(monkeypatch, request):
     """
-    Runtime guard: every @action(detail=True) that returns 2xx for an
-    authenticated user on a viewset inheriting AccessControlViewSetMixin
-    MUST have called AccessControlPermission.has_object_permission().
+    Runtime IDOR guards.
 
-    Exceptions:
-    - Viewsets that override ``dangerously_get_permissions`` (outside of
-      ``TeamAndOrgViewSetMixin``) are assumed to handle permissions themselves.
-    - Actions that declare their own ``permission_classes`` without
-      ``AccessControlPermission`` are skipped.
+    1. Detail action permissions: every @action(detail=True) that returns
+       2xx for an authenticated user on a viewset inheriting
+       ``AccessControlViewSetMixin`` MUST have called
+       ``AccessControlPermission.has_object_permission()``.
+
+       Exceptions:
+       - Viewsets that override ``dangerously_get_permissions`` (outside of
+         ``TeamAndOrgViewSetMixin``) are assumed to handle permissions themselves.
+       - Actions that declare their own ``permission_classes`` without
+         ``AccessControlPermission`` are skipped.
+
+    2. Cross-tenant FK on write: any DRF serializer save that occurs inside
+       an API request is checked. For every foreign key on the saved
+       instance that was touched by user-provided ``validated_data``, the
+       target's ``team_id`` (if any) MUST match the saved instance's
+       ``team_id``. Catches the pattern of accepting an FK id (via
+       ``PrimaryKeyRelatedField(queryset=Model.objects.all())`` or a plain
+       ``IntegerField`` named ``*_id``) that points to another tenant.
+
+    3. Mass-assignment of tenancy boundary fields: any DRF Serializer whose
+       ``is_valid()`` is called inside an API request is checked. If the
+       serializer declares a writable, FK/ID-shaped field whose name is in
+       ``_DANGER_WRITABLE_FIELD_NAMES`` (team/team_id/organization*/project*),
+       the request fails. The trigger is "this serializer is actually used
+       for input validation"; the assertion is on the declared shape — so
+       even a test that only PATCHes the ``name`` field will catch a latent
+       writable ``team_id``.
 
     Opt out per-test with @pytest.mark.skip_access_control_permission_check.
+    Per-serializer opt-out via the ``_idor_mass_assignment_allowlist`` class
+    attribute, e.g. ``_idor_mass_assignment_allowlist = frozenset({"team_id"})``
+    with a comment explaining why.
     """
     if "skip_access_control_permission_check" in request.keywords:
         return
 
+    from django.core.exceptions import FieldDoesNotExist
+    from django.db.models import ForeignKey, Model
+
+    from rest_framework import serializers as drf_serializers
+    from rest_framework.fields import IntegerField, UUIDField
+    from rest_framework.relations import RelatedField
     from rest_framework.views import APIView
 
     from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -584,14 +641,163 @@ def enforce_detail_object_permissions(monkeypatch, request):
 
     original_dispatch = APIView.dispatch
     original_has_object_permission = AccessControlPermission.has_object_permission
+    original_save = drf_serializers.BaseSerializer.save
+    original_is_valid = drf_serializers.Serializer.is_valid
+
+    # Counter so nested dispatches (request inside request via test client) still leave the check enabled
+    dispatch_depth = [0]
+    # Per-(model, fk_name) cache: True if related model has a team_id field
+    fk_target_has_team_id_cache: dict[tuple[type, str], bool] = {}
+    # AssertionErrors stashed during save() to be re-raised after dispatch unwinds
+    # (DRF's dispatch catches Exception from the view handler and converts to 500,
+    # so we cannot reliably raise from inside the handler.)
+    pending_violations: list[AssertionError] = []
 
     def tracked_has_object_permission(self, req, view, obj):
         view._access_control_hop_called = True
         return original_has_object_permission(self, req, view, obj)
 
+    def _related_model_has_team_id(model: type, fk_name: str) -> bool:
+        key = (model, fk_name)
+        cached = fk_target_has_team_id_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            model._meta.get_field("team_id")
+            result = True
+        except (FieldDoesNotExist, AttributeError):
+            result = False
+        fk_target_has_team_id_cache[key] = result
+        return result
+
+    def _check_cross_tenant_fk(instance, serializer, save_kwargs):
+        if not isinstance(instance, Model):
+            return
+        own_team_id = getattr(instance, "team_id", None)
+        if own_team_id is None:
+            return
+
+        validated_data = getattr(serializer, "validated_data", None)
+        if not isinstance(validated_data, dict):
+            return
+        touched: set[str] = {str(k) for k in validated_data.keys()} | {str(k) for k in save_kwargs.keys()}
+        if not touched:
+            return
+
+        for field in instance._meta.get_fields():
+            if not isinstance(field, ForeignKey):
+                continue
+            if field.attname not in touched and field.name not in touched:
+                continue
+            fk_id = getattr(instance, field.attname, None)
+            if fk_id is None:
+                continue
+            related_model = field.related_model
+            if related_model is None:
+                continue
+            if not _related_model_has_team_id(related_model, field.name):
+                continue
+            related_team_id = related_model.objects.filter(pk=fk_id).values_list("team_id", flat=True).first()
+            if related_team_id is None or related_team_id == own_team_id:
+                continue
+            raise AssertionError(
+                f"Cross-tenant FK IDOR detected on save: "
+                f"{instance.__class__.__name__}.{field.name} -> "
+                f"{related_model.__name__}#{fk_id} has team_id={related_team_id}, "
+                f"but {instance.__class__.__name__}#{instance.pk}.team_id={own_team_id}.\n"
+                f"\n"
+                f"A foreign key from another team was accepted on write. To fix:\n"
+                f"  - Use TeamScopedPrimaryKeyRelatedField from posthog.api.scoped_related_fields, or\n"
+                f"  - Add validate_<field>() on the serializer asserting the target belongs to the current team.\n"
+                f"\n"
+                f"To bypass this check (after review):\n"
+                f"  - Mark the test with @pytest.mark.skip_access_control_permission_check"
+            )
+
+    def tracked_save(self, **kwargs):
+        instance = original_save(self, **kwargs)
+        if dispatch_depth[0] > 0:
+            try:
+                _check_cross_tenant_fk(instance, self, kwargs)
+            except AssertionError as err:
+                pending_violations.append(err)
+                raise
+        return instance
+
+    # Per-serializer cache: list of declared tenancy fields that violate the
+    # mass-assignment denylist. Computed once per class.
+    mass_assignment_shape_cache: dict[type, list[str]] = {}
+
+    def _denylisted_writable_tenancy_fields(serializer) -> list[str]:
+        cls = type(serializer)
+        cached = mass_assignment_shape_cache.get(cls)
+        if cached is not None:
+            return cached
+        allowlist = getattr(cls, "_idor_mass_assignment_allowlist", frozenset())
+        violations: list[str] = []
+        try:
+            fields = serializer.fields
+        except Exception:
+            mass_assignment_shape_cache[cls] = violations
+            return violations
+        for name, field in fields.items():
+            if name not in _DANGER_WRITABLE_FIELD_NAMES:
+                continue
+            if name in allowlist:
+                continue
+            if field.read_only:
+                continue
+            if not isinstance(field, (RelatedField, IntegerField, UUIDField)):
+                continue
+            violations.append(name)
+        mass_assignment_shape_cache[cls] = violations
+        return violations
+
+    def tracked_is_valid(self, *, raise_exception=False):
+        # Trigger condition: a Serializer (incl. ModelSerializer) is being
+        # used for input validation inside an API request. This naturally
+        # excludes response-only serializers (their is_valid is never called)
+        # and read-only viewsets (which never construct serializers with
+        # data=).
+        if dispatch_depth[0] > 0 and isinstance(self, drf_serializers.Serializer):
+            violations = _denylisted_writable_tenancy_fields(self)
+            if violations:
+                err = AssertionError(
+                    f"Mass-assignment IDOR risk: {type(self).__module__}.{type(self).__qualname__} "
+                    f"is used to validate API input but declares writable tenancy field(s) "
+                    f"{violations!r}.\n"
+                    f"\n"
+                    f"Even if this request does not set those fields, the declared shape allows "
+                    f"a user to overwrite the record's tenancy boundary (team/organization/project).\n"
+                    f"\n"
+                    f"To fix:\n"
+                    f"  - Add the field(s) to Meta.read_only_fields, or\n"
+                    f"  - Declare with read_only=True, or\n"
+                    f"  - If legitimately user-writable here, add to the serializer's\n"
+                    f"    ``_idor_mass_assignment_allowlist`` with a comment explaining why.\n"
+                    f"\n"
+                    f"To bypass this check (after review):\n"
+                    f"  - Mark the test with @pytest.mark.skip_access_control_permission_check"
+                )
+                pending_violations.append(err)
+                raise err
+        return original_is_valid(self, raise_exception=raise_exception)
+
     def patched_dispatch(self, http_request, *args, **kwargs):
         self._access_control_hop_called = False
-        response = original_dispatch(self, http_request, *args, **kwargs)
+        is_top_level = dispatch_depth[0] == 0
+        if is_top_level:
+            pending_violations.clear()
+        dispatch_depth[0] += 1
+        try:
+            response = original_dispatch(self, http_request, *args, **kwargs)
+        finally:
+            dispatch_depth[0] -= 1
+
+        if is_top_level and pending_violations:
+            err = pending_violations[0]
+            pending_violations.clear()
+            raise err
 
         if not isinstance(self, AccessControlViewSetMixin):
             return response
@@ -632,6 +838,8 @@ def enforce_detail_object_permissions(monkeypatch, request):
 
     monkeypatch.setattr(AccessControlPermission, "has_object_permission", tracked_has_object_permission)
     monkeypatch.setattr(APIView, "dispatch", patched_dispatch)
+    monkeypatch.setattr(drf_serializers.BaseSerializer, "save", tracked_save)
+    monkeypatch.setattr(drf_serializers.Serializer, "is_valid", tracked_is_valid)
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
