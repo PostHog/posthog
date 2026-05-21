@@ -515,7 +515,7 @@ def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
         }
     )
     delta_schema = deltalake.Schema.from_arrow(
-        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])  # type: ignore[arg-type]
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])
     )
 
     with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
@@ -532,7 +532,7 @@ def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():
         }
     )
     delta_schema = deltalake.Schema.from_arrow(
-        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.int32(), nullable=True)])  # type: ignore[arg-type]
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.int32(), nullable=True)])
     )
 
     evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
