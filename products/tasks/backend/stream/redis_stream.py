@@ -11,13 +11,16 @@ from asgiref.sync import async_to_sync
 
 from posthog.redis import get_async_client
 
+from products.tasks.backend.services.connection_token import SANDBOX_EVENT_INGEST_TOKEN_TTL
+from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
+
 logger = structlog.get_logger(__name__)
 
 # Keep enough live history for users who open an in-progress run late while
-# still bounding Redis growth for streams with a one-hour TTL.
+# still bounding Redis growth to the sandbox lifetime.
 TASK_RUN_STREAM_MAX_LENGTH = 20_000
-TASK_RUN_STREAM_TIMEOUT = 60 * 60  # 60 minutes
-TASK_RUN_STREAM_SEQUENCE_TIMEOUT = 24 * 60 * 60  # match sandbox event-ingest token lifetime
+TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
+TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
 TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05

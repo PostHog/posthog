@@ -14,10 +14,12 @@ from posthog.redis import TEST_clear_clients
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.connection_token import (
+    SANDBOX_EVENT_INGEST_TOKEN_TTL,
     create_sandbox_connection_token,
     create_sandbox_event_ingest_token,
     get_sandbox_jwt_public_key,
 )
+from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 from products.tasks.backend.stream.event_ingest import (
     MAX_EVENT_LINE_BYTES,
     MAX_EVENTS_PER_REQUEST,
@@ -26,6 +28,7 @@ from products.tasks.backend.stream.event_ingest import (
 )
 from products.tasks.backend.stream.redis_stream import (
     TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
+    TASK_RUN_STREAM_TIMEOUT,
     TaskRunRedisStream,
     get_task_run_stream_completed_key,
     get_task_run_stream_key,
@@ -441,6 +444,19 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, self._read_stream_events())
         self.assertEqual(self._read_notification_methods(), ["first"])
 
+    def test_live_stream_ttl_matches_sandbox_ttl(self) -> None:
+        async def _write_and_get_ttl() -> int:
+            stream_key = get_task_run_stream_key(str(self.task_run.id))
+            redis_stream = TaskRunRedisStream(stream_key)
+            await redis_stream.write_event({"type": "notification", "notification": {"method": "first"}})
+            return await redis_stream._redis_client.ttl(stream_key)
+
+        stream_ttl = asyncio.run(_write_and_get_ttl())
+
+        self.assertEqual(TASK_RUN_STREAM_TIMEOUT, SANDBOX_TTL_SECONDS)
+        self.assertGreater(stream_ttl, SANDBOX_TTL_SECONDS - 5)
+        self.assertLessEqual(stream_ttl, SANDBOX_TTL_SECONDS)
+
     def test_sequence_key_ttl_outlives_live_stream_ttl(self) -> None:
         async def _write_and_get_ttls() -> tuple[int, int]:
             stream_key = get_task_run_stream_key(str(self.task_run.id))
@@ -458,7 +474,10 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         self.assertGreater(stream_ttl, 0)
         self.assertLessEqual(stream_ttl, 5)
-        self.assertGreaterEqual(sequence_ttl, 23 * 60 * 60)
+        self.assertEqual(TASK_RUN_STREAM_SEQUENCE_TIMEOUT, int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds()))
+        self.assertGreater(sequence_ttl, TASK_RUN_STREAM_SEQUENCE_TIMEOUT - 5)
+        self.assertLessEqual(sequence_ttl, TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
+        self.assertGreater(sequence_ttl, stream_ttl)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_non_terminal_request_close_does_not_complete(self) -> None:
