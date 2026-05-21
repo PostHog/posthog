@@ -57,6 +57,22 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
 
 
+def _current_workflow_id() -> str | None:
+    """Return the current Temporal workflow id, or None if not running inside an activity."""
+    try:
+        return activity.info().workflow_id
+    except RuntimeError:
+        return None
+
+
+def _current_workflow_run_id() -> str | None:
+    """Return the current Temporal workflow run id, or None if not running inside an activity."""
+    try:
+        return activity.info().workflow_run_id
+    except RuntimeError:
+        return None
+
+
 class PipelineV3(Generic[ResumableData]):
     _resource: SourceResponse
     _resource_name: str
@@ -149,6 +165,8 @@ class PipelineV3(Generic[ResumableData]):
             partition_format=partition_format,
             partition_mode=partition_mode,
             is_first_ever_sync=is_first_ever_sync,
+            workflow_id=_current_workflow_id(),
+            workflow_run_id=_current_workflow_run_id(),
         )
 
         self._resumable_source_manager = resumable_source_manager

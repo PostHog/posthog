@@ -288,7 +288,10 @@ class TestLogContextBinding:
     @pytest.mark.asyncio
     async def test_process_single_binds_log_context_for_syncs_panel(self):
         consumer = _make_consumer()
-        batch = _make_batch(latest_attempt=0)
+        batch = _make_batch(
+            latest_attempt=0,
+            metadata={"workflow_id": "cdc-extraction-source-123", "workflow_run_id": "wf-run-id-456"},
+        )
         seen: dict[str, Any] = {}
 
         async def capture_context(b):
@@ -296,16 +299,9 @@ class TestLogContextBinding:
 
         consumer._process_batch = capture_context
 
-        with (
-            patch.object(
-                consumer,
-                "_lookup_workflow_ids",
-                new=AsyncMock(return_value=("cdc-extraction-source-123", "wf-run-id-456")),
-            ),
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-                new_callable=AsyncMock,
-            ),
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
         ):
             await consumer._process_single(batch)
 
@@ -324,7 +320,13 @@ class TestLogContextBinding:
     async def test_process_single_binds_external_data_job_workflow_type_for_non_cdc(self):
         """Consumer also runs non-CDC syncs (`external-data-job` workflow_id prefix)."""
         consumer = _make_consumer()
-        batch = _make_batch(latest_attempt=0)
+        batch = _make_batch(
+            latest_attempt=0,
+            metadata={
+                "workflow_id": "019df430-765a-0000-0523-040f9c48be64-2026-05-21T00:00:00",
+                "workflow_run_id": "wf-run",
+            },
+        )
         seen: dict[str, Any] = {}
 
         async def capture_context(b):
@@ -332,101 +334,38 @@ class TestLogContextBinding:
 
         consumer._process_batch = capture_context
 
-        with (
-            patch.object(
-                consumer,
-                "_lookup_workflow_ids",
-                new=AsyncMock(return_value=("019df430-765a-0000-0523-040f9c48be64-2026-05-21T00:00:00", "wf-run")),
-            ),
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-                new_callable=AsyncMock,
-            ),
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
         ):
             await consumer._process_single(batch)
 
         assert seen.get("workflow_type") == "external-data-job"
 
     @pytest.mark.asyncio
+    async def test_process_single_handles_missing_workflow_ids_in_metadata(self):
+        """Old batches enqueued before this change have no workflow ids in metadata — must not crash."""
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
+        ):
+            await consumer._process_single(_make_batch(latest_attempt=0, metadata={}))
+
+        consumer._process_batch.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_process_single_clears_context_on_error(self):
         consumer = _make_consumer(max_attempts=3)
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
 
-        # Snapshot any contextvars set before the test (e.g. by other tests in the suite)
-        # so we can verify the consumer cleared its OWN bindings without false-failing on
-        # ambient state.
-        baseline_keys = set(structlog.contextvars.get_contextvars())
-
-        with (
-            patch.object(
-                consumer,
-                "_lookup_workflow_ids",
-                new=AsyncMock(return_value=("wf-id", "wf-run-id")),
-            ),
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-                new_callable=AsyncMock,
-            ),
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            new_callable=AsyncMock,
         ):
             await consumer._process_single(_make_batch(latest_attempt=0))
 
-        # `clear_contextvars` is unconditional — final state is empty regardless of baseline.
         assert "batch_id" not in structlog.contextvars.get_contextvars()
         assert "workflow_run_id" not in structlog.contextvars.get_contextvars()
-        del baseline_keys  # silence unused
-
-    @pytest.mark.asyncio
-    async def test_workflow_lookup_runs_per_batch(self):
-        """Pipelines reject in-memory caches: every batch hits Postgres for the workflow ids.
-
-        CDC produces single-digit batches per run, so an indexed PK lookup per batch is the
-        cheaper trade vs. an in-process cache that can serve stale data when contracts drift.
-        """
-        consumer = _make_consumer()
-        batch_a = _make_batch(id="00000000-0000-0000-0000-000000000a01", batch_index=0, latest_attempt=0)
-        batch_b = _make_batch(id="00000000-0000-0000-0000-000000000a02", batch_index=1, latest_attempt=0)
-
-        consumer._process_batch = AsyncMock()
-
-        call_count = {"n": 0}
-
-        def fake_load(job_id: str):
-            call_count["n"] += 1
-            return ("wf-id", "wf-run-id")
-
-        with (
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._load_job_workflow_ids",
-                side_effect=fake_load,
-            ),
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-                new_callable=AsyncMock,
-            ),
-        ):
-            await consumer._process_single(batch_a)
-            await consumer._process_single(batch_b)
-
-        assert call_count["n"] == 2
-
-    @pytest.mark.asyncio
-    async def test_workflow_lookup_missing_job_does_not_crash(self):
-        """If the ExternalDataJob row was deleted between produce and consume, we still
-        process the batch — the line just won't surface in the Syncs UI's log_entries view."""
-        consumer = _make_consumer()
-        consumer._process_batch = AsyncMock()
-
-        with (
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._load_job_workflow_ids",
-                return_value=(None, None),
-            ),
-            patch(
-                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-                new_callable=AsyncMock,
-            ),
-        ):
-            await consumer._process_single(_make_batch(latest_attempt=0))
-
-        # Still gets processed — error path isn't triggered.
-        consumer._process_batch.assert_awaited_once()

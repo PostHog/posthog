@@ -183,11 +183,14 @@ class BatchConsumer:
         schema_id = batch.schema_id
         attempt = batch.latest_attempt + 1
 
-        workflow_id, workflow_run_id = await self._lookup_workflow_ids(batch.job_id)
+        # Producer (running inside a Temporal activity) stamps workflow ids into batch metadata,
+        # so no DB round-trip is needed here.
+        workflow_id = batch.metadata.get("workflow_id") or ""
+        workflow_run_id = batch.metadata.get("workflow_run_id") or ""
 
         # Derive workflow_type from the workflow_id prefix so non-CDC syncs (regular
         # `external-data-job`) route to the right `log_entries` source too.
-        workflow_type = "cdc-extraction" if (workflow_id or "").startswith("cdc-extraction-") else "external-data-job"
+        workflow_type = "cdc-extraction" if workflow_id.startswith("cdc-extraction-") else "external-data-job"
 
         # LogMessagesRenderer needs workflow_type/id/run_id + team_id; log_source_id routes the line.
         structlog.contextvars.bind_contextvars(
@@ -199,8 +202,8 @@ class BatchConsumer:
             batch_id=batch.id,
             resource_name=batch.resource_name,
             workflow_type=workflow_type,
-            workflow_id=workflow_id or "",
-            workflow_run_id=workflow_run_id or "",
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
             log_source_id=batch.schema_id,
             attempt=attempt,
         )
@@ -208,10 +211,6 @@ class BatchConsumer:
             await self._process_single_inner(batch, attempt, team_id, schema_id)
         finally:
             structlog.contextvars.clear_contextvars()
-
-    async def _lookup_workflow_ids(self, job_id: str) -> tuple[str | None, str | None]:
-        """Look up `(workflow_id, workflow_run_id)` for a batch's job. One PK read per batch — no cache."""
-        return await sync_to_async(_load_job_workflow_ids, thread_sensitive=False)(job_id)
 
     async def _process_single_inner(self, batch: PendingBatch, attempt: int, team_id: str, schema_id: str) -> None:
         assert self._conn is not None
@@ -384,21 +383,6 @@ class BatchConsumer:
 
 
 ProcessBatchFn = Callable[[PendingBatch], Coroutine[Any, Any, None]]
-
-
-def _load_job_workflow_ids(job_id: str) -> tuple[str | None, str | None]:
-    """Look up `(workflow_id, workflow_run_id)` for a job. `(None, None)` on missing row or bad uuid."""
-    from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-
-    try:
-        row = ExternalDataJob.objects.filter(id=job_id).values("workflow_id", "workflow_run_id").first()
-    except Exception as e:
-        logger.warning("workflow_lookup_failed", job_id=job_id, error=str(e))
-        return (None, None)
-    if row is None:
-        logger.warning("workflow_lookup_missing_job_row", job_id=job_id)
-        return (None, None)
-    return (row.get("workflow_id"), row.get("workflow_run_id"))
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
