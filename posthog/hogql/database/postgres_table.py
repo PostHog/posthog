@@ -44,11 +44,23 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
         user = add_param(database["USER"])
         password = add_param(database["PASSWORD"])
     else:
-        host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST
-        port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT
-        database_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE
-        user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER
-        password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
+        # Persons-DB models (group_type_mapping, group, etc.) live on a different Postgres
+        # instance than the main DB. Pick the right RDS proxy env vars based on whether
+        # this table is in PERSONS_DB_MODELS. Hobby/self-hosted deployments without a
+        # dedicated persons proxy fall back to the main one.
+        model_name = postgres_table_name.replace("posthog_", "")
+        if model_name in PERSONS_DB_MODELS and settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_HOST:
+            host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_HOST
+            port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_PORT
+            database_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_DATABASE
+            user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_USER
+            password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_PASSWORD
+        else:
+            host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST
+            port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT
+            database_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE
+            user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER
+            password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
 
         if not host_var or not port_var or not database_var or not user_var or not password_var:
             raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars missing to create postgresql link from clickhouse")

@@ -2,6 +2,10 @@ from typing import Literal
 
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
+
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
@@ -13,7 +17,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     TableNode,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_table import PostgresTable, build_function_call
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -321,3 +325,90 @@ class TestPostgresTable(BaseTest):
             self._select("SELECT id FROM postgres_table LIMIT 10"),
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_15)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_16)s), 1)) LIMIT 10",
         )
+
+
+MAIN_PROXY_SETTINGS = {
+    "CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST": "main-host",
+    "CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT": "5432",
+    "CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE": "main-db",
+    "CLICKHOUSE_HOGQL_RDSPROXY_READ_USER": "main-user",
+    "CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD": "main-password",
+}
+
+PERSONS_PROXY_SETTINGS = {
+    "CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_HOST": "persons-host",
+    "CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_PORT": "5432",
+    "CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_DATABASE": "persons-db",
+    "CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_USER": "persons-user",
+    "CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_PASSWORD": "persons-password",
+}
+
+
+class TestPostgresTableProxyRouting(BaseTest):
+    """In production (DEBUG=False, TEST=False), `build_function_call` picks the persons
+    DB RDS proxy for tables in PERSONS_DB_MODELS, falling back to the main proxy when
+    the persons proxy env vars are unset (hobby/self-hosted)."""
+
+    @parameterized.expand(
+        [
+            (
+                "persons_table_with_persons_proxy_configured",
+                "posthog_grouptypemapping",
+                {**MAIN_PROXY_SETTINGS, **PERSONS_PROXY_SETTINGS},
+                "persons-host",
+                "persons-db",
+            ),
+            (
+                "persons_table_without_persons_proxy_falls_back_to_main",
+                "posthog_grouptypemapping",
+                MAIN_PROXY_SETTINGS,
+                "main-host",
+                "main-db",
+            ),
+            (
+                "non_persons_table_always_uses_main_proxy",
+                "posthog_team",
+                {**MAIN_PROXY_SETTINGS, **PERSONS_PROXY_SETTINGS},
+                "main-host",
+                "main-db",
+            ),
+            (
+                "persons_group_table_with_persons_proxy_configured",
+                "posthog_group",
+                {**MAIN_PROXY_SETTINGS, **PERSONS_PROXY_SETTINGS},
+                "persons-host",
+                "persons-db",
+            ),
+        ]
+    )
+    def test_routing(self, _name, postgres_table_name, settings_overrides, expected_host_port_prefix, expected_db):
+        context = HogQLContext(team_id=self.team.pk)
+        with override_settings(DEBUG=False, TEST=False, **settings_overrides):
+            build_function_call(postgres_table_name, context)
+        # The 5 positional args to `postgresql(...)` are stored in order: host:port, db,
+        # table, user, password. Assert the first two – that pins which proxy was picked.
+        ordered_values = [context.values[f"hogql_val_{i}_sensitive"] for i in range(5)]
+        self.assertEqual(ordered_values[0], postgres_table_name)
+        self.assertEqual(ordered_values[1], f"{expected_host_port_prefix}:5432")
+        self.assertEqual(ordered_values[2], expected_db)
+
+    def test_raises_when_no_proxy_env_vars_set(self):
+        context = HogQLContext(team_id=self.team.pk)
+        with (
+            override_settings(
+                DEBUG=False,
+                TEST=False,
+                CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_READ_USER=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_HOST=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_PORT=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_DATABASE=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_USER=None,
+                CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_PASSWORD=None,
+            ),
+            self.assertRaises(ValueError),
+        ):
+            build_function_call("posthog_team", context)
