@@ -109,6 +109,32 @@ create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJ
 
 _current_pipeline_mode = "non_dlt"
 
+# Module-scoped WorkflowEnvironment + Worker shared across every test in this file.
+# Booting WorkflowEnvironment.start_time_skipping() spawns the temporal-test-server
+# binary and Worker() registers all activities; doing that 83× per CI run was the
+# dominant cost here. Workflow execution is stateless across runs (each has its own
+# workflow_id) so the same Worker can service every test serially.
+_shared_workflow_env: Any = None
+
+
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")
+async def _shared_workflow_environment_and_worker():
+    global _shared_workflow_env
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+            workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
+            activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            max_concurrent_activities=50,
+            debug_mode=True,  # turn off sandbox/deadlock detector
+        ):
+            _shared_workflow_env = env
+            yield env
+            _shared_workflow_env = None
+
 
 @pytest.fixture(params=["non_dlt", "v3"], autouse=True)
 def pipeline_mode(request, _clean_sourcebatch_tables):
@@ -628,24 +654,15 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 )
             )
 
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow, DuckLakeCopyDataImportsWorkflow],
-                activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
-                workflow_runner=UnsandboxedWorkflowRunner(),
-                activity_executor=ThreadPoolExecutor(max_workers=50),
-                max_concurrent_activities=50,
-                debug_mode=True,  # turn off sandbox/deadlock detector
-            ):
-                await activity_environment.client.execute_workflow(
-                    ExternalDataJobWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+        # Reuses the module-scoped Worker booted in _shared_workflow_environment_and_worker.
+        assert _shared_workflow_env is not None, "module-scoped Worker fixture not active"
+        await _shared_workflow_env.client.execute_workflow(
+            ExternalDataJobWorkflow.run,
+            inputs,
+            id=workflow_id,
+            task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
 
 
 @pytest.mark.django_db(transaction=True)
