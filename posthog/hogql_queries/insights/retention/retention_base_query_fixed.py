@@ -392,10 +392,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 },
             )
             # interval must be same as first interval of in which start event happened
-            is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
-        else:
-            # start event must have happened in the interval
-            is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
+        is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
         retention_value_expr: ast.Expr | None
         intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
 
