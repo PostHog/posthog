@@ -62,14 +62,15 @@ class McpDispatcher {
             return jsonRpcError(null, -32700, 'Parse error: Invalid JSON')
         }
 
-        const messages: JsonRpcMessage[] = Array.isArray(body) ? body : [body as JsonRpcMessage]
+        const wasArray = Array.isArray(body)
+        const messages: JsonRpcMessage[] = wasArray ? body : [body as JsonRpcMessage]
 
         const requests = messages.filter(isRequest)
         if (requests.length === 0) {
             return new Response(null, { status: 202 })
         }
 
-        if (requests.length === 1) {
+        if (!wasArray && requests.length === 1) {
             const result = await this._dispatch(requests[0]!, props)
             return new Response(JSON.stringify(result), {
                 status: 200,

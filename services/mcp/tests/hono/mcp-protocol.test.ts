@@ -4,14 +4,10 @@ import { afterAll, beforeAll } from 'vitest'
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 
-import { defineMcpProtocolTests } from '../integration/mcp-protocol-suite'
-import { handlers } from '../workers/fixtures/handlers'
+import { defineMcpProtocolTests, defineResilienceTests } from '../integration/mcp-protocol-suite'
+import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
 
-// MSW intercepts the outbound PostHog API traffic the MCP server makes during
-// init() and tool calls, serving fixtures from the same set the workers harness
-// uses. Requests to our in-process Hono `app` go through `app.request()` and
-// don't touch globalThis.fetch, so we don't need a localhost passthrough rule.
-const mswServer = setupServer(...handlers)
+const mswServer = setupServer(...handlers, contextMillHandler)
 
 function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
     const store = new Map<string, string>()
@@ -53,18 +49,17 @@ afterAll(() => {
     mswServer.close()
 })
 
-// Custom fetch that routes through the Hono app's `request()` entry point —
-// the same WHATWG Request/Response pipeline the runtime uses, minus the TCP
-// socket. Keeps the test fully in-process so no port management or shutdown
-// races; still exercises every middleware, route, and the MCP transport.
 const fetchViaApp: typeof fetch = async (input, init) => {
     const url = input instanceof URL ? input : new URL(typeof input === 'string' ? input : input.url)
     return app.request(url.pathname + url.search, init ?? {})
 }
 
-defineMcpProtocolTests('Hono', () => ({
-    // baseUrl host is irrelevant — `fetchViaApp` extracts only path + query.
+const harness = () => ({
     baseUrl: new URL('http://hono.test'),
     fetch: fetchViaApp,
     token: 'phx_integration_test_token',
-}))
+    stateless: true,
+})
+
+defineMcpProtocolTests('Hono', harness)
+defineResilienceTests('Hono', harness)

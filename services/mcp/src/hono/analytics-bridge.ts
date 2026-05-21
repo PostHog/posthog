@@ -85,7 +85,6 @@ export class AnalyticsBridge {
                     Promise.resolve(redactSensitiveInformation(text)),
             })
         } catch {
-            // Analytics init failed — fall through to call unwrapped handler
         }
 
         const wrappedHandler = adapter._requestHandlers.get(request.method)

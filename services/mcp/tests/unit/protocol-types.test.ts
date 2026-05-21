@@ -11,6 +11,13 @@ describe('isRequest', () => {
     it('returns false for notifications (no id)', () => {
         expect(isRequest({ jsonrpc: '2.0', method: 'notifications/initialized' })).toBe(false)
     })
+
+    it('returns false for null or non-object values without throwing', () => {
+        expect(isRequest(null as any)).toBe(false)
+        expect(isRequest(42 as any)).toBe(false)
+        expect(isRequest('hello' as any)).toBe(false)
+        expect(isRequest(undefined as any)).toBe(false)
+    })
 })
 
 describe('jsonRpcError', () => {

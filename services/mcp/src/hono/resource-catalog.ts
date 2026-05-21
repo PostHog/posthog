@@ -1,4 +1,4 @@
-import { RESOURCE_URI_META_KEY, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
+import { RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive, clearResourceCache } from '@/resources/internals'
 import { getPromptsFromManifest } from '@/resources'

@@ -56,6 +56,11 @@ export class ToolExecutor {
             return this._handleExecToolCall(params, state, props)
         }
 
+        if (!state.allTools.some((t) => t.name === toolName)) {
+            toolCallsTotal.inc({ tool: toolName, status: 'error' })
+            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+        }
+
         const preBuilt = this.catalog.getToolByName(toolName)
         if (!preBuilt) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
@@ -66,7 +71,7 @@ export class ToolExecutor {
         const validation = preBuilt.base.schema.safeParse(toolArgs)
         if (!validation.success) {
             toolCallsTotal.inc({ tool: toolName, status: 'validation_error' })
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }] }
+            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: toolName })
@@ -150,7 +155,7 @@ export class ToolExecutor {
             if (!validation.success) {
                 toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
                 stop({ status: 'error' })
-                return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }] }
+                return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
             }
 
             const result = await execTool.handler(state.context, validation.data)

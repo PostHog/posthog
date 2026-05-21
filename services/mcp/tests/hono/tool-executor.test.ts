@@ -89,6 +89,19 @@ describe('ToolExecutor', () => {
             expect(result.content[0].text).toContain('not found')
         })
 
+        it('rejects tools not in the per-request filtered set', async () => {
+            const entries = catalog.getPreBuiltEntries()
+            const tool = entries[0]!
+
+            const result = (await executor.handleToolCall(
+                { name: tool.name, arguments: {} },
+                makeProps(),
+                makeState([])
+            )) as any
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('not found')
+        })
+
         it('returns validation error for invalid arguments', async () => {
             const knownTool = catalog.getPreBuiltEntries()[0]
             if (!knownTool) throw new Error('need at least one tool to test validation')
