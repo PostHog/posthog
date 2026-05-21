@@ -51,6 +51,21 @@ HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
 
+# Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
+# per install, so tenants who connected the Slack integration before the full scope set
+# was requested in prod (2026-05-04, #57177) must reconnect before mentions can work.
+POSTHOG_CODE_REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
+    {
+        "app_mentions:read",
+        "users:read",
+        "users:read.email",
+        "chat:write",
+        "channels:history",
+        "groups:history",
+        "reactions:write",
+    }
+)
+
 ROUTE_HANDLED_LOCALLY = "handled_locally"
 ROUTE_PROXIED = "proxied"
 ROUTE_PROXY_FAILED = "proxy_failed"
@@ -1220,6 +1235,41 @@ def _posthog_code_enabled_for_integration(integration: Integration) -> bool:
         return False
 
 
+def _notify_missing_slack_scopes(
+    slack: SlackIntegration,
+    event: dict,
+    missing: frozenset[str],
+) -> None:
+    """Tell the user the install is missing scopes and how to fix it.
+
+    `chat:write` has been part of the base Slack scope set since the integration existed,
+    so the feedback post itself is safe to attempt even when other scopes are absent.
+    """
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts") or event.get("ts", "")
+    slack_user_id = event.get("user", "")
+    integration = slack.integration
+
+    logger.warning(
+        "posthog_code_slack_missing_scopes",
+        integration_id=integration.id,
+        team_id=integration.team_id,
+        missing=sorted(missing),
+    )
+
+    if not channel or not thread_ts or not slack_user_id:
+        return
+
+    settings_url = f"{settings.SITE_URL}/settings/project-integrations"
+    text = (
+        ":warning: PostHog can't reply because the Slack integration is missing required "
+        f"permissions: `{', '.join(sorted(missing))}`.\n"
+        f"A project admin needs to reconnect Slack from project settings: {settings_url}"
+    )
+
+    _post_slack_user_feedback(slack, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1257,6 +1307,11 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id=slack_team_id,
                     organization_id=str(local_match.team.organization_id),
                 )
+                return ROUTE_HANDLED_LOCALLY
+            slack = SlackIntegration(local_match)
+            missing_scopes = slack.missing_scopes(POSTHOG_CODE_REQUIRED_SLACK_SCOPES)
+            if missing_scopes:
+                _notify_missing_slack_scopes(slack, event, missing_scopes)
                 return ROUTE_HANDLED_LOCALLY
             if _resolve_pending_repo_picker_from_followup(event, local_match):
                 return ROUTE_HANDLED_LOCALLY
