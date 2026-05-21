@@ -154,10 +154,10 @@ tools:
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. When changing the `query` payload, DO NOT edit JSON in place — first call
             insight-get to read the current query, then run the modified payload through the matching query-trends /
-            query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle tool to confirm the
-            schema and that it executes, then save the exact payload that succeeded. Skipping this step produces
-            invalid or wrong-shape insights. Returns insight metadata only — after updating the query, call the
-            insight-query tool with the same identifier if you want to see the recomputed results.
+            query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle tool to confirm the schema
+            and that it executes, then save the exact payload that succeeded. Skipping this step produces invalid or
+            wrong-shape insights. Returns insight metadata only — after updating the query, call the insight-query tool
+            with the same identifier if you want to see the recomputed results.
         exclude_params:
             - query
         include_params:
