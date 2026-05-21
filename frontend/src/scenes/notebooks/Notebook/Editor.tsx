@@ -179,7 +179,7 @@ export function Editor(): JSX.Element {
         RangeSelectedNodes,
     ]
 
-    if (useCollab && notebook) {
+    if (useCollab) {
         extensions.push(
             Extension.create({
                 name: 'collaboration',
