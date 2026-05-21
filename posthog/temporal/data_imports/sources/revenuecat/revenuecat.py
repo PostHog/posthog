@@ -9,7 +9,7 @@ calls show up in our HTTP logs, OTel metrics, and sample-capture pipeline.
 import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 
 import requests
 import structlog
@@ -173,9 +173,12 @@ def iterate_list_endpoint(
             if "created_at" in row:
                 row["created_at"] = _ms_to_seconds(row["created_at"])
             yield row
-            row_id = row.get("id")
-            if isinstance(row_id, str):
-                last_id = row_id
+            # `id` is the declared primary key for every RevenueCat list
+            # endpoint (see settings.py). Access it directly so a malformed
+            # response missing `id` raises `KeyError` here rather than
+            # silently advancing the cursor to a stale value — which would
+            # corrupt the merge/dedupe step downstream.
+            last_id = row["id"]
 
         next_page = payload.get("next_page")
         if last_id is not None and on_cursor_advance is not None:
@@ -189,7 +192,7 @@ def iterate_list_endpoint(
         # path already encodes the next cursor, so re-send it as-is with no
         # extra params — passing both `params=` and a query-bearing url would
         # produce duplicate `limit=` values.
-        url = next_page if next_page.startswith("http") else f"https://api.revenuecat.com{next_page}"
+        url = next_page if next_page.startswith("http") else urljoin(REVENUECAT_API_BASE_URL, next_page)
         params = {}
 
 
@@ -225,10 +228,24 @@ def create_webhook(
     try:
         existing = _find_webhook_integration(api_key, project_id, webhook_url)
         if existing is not None:
-            # Webhook for this URL already exists — treat as success so the user
-            # can finish setup by supplying the authorization header value. We
-            # don't list the existing auth header value: RevenueCat omits it
-            # from list responses.
+            if authorization_header_value:
+                # We were asked to bind a new authorization header but a webhook
+                # already exists. RevenueCat has no in-place update for the
+                # auth header — surface a failure so the caller (typically
+                # `webhook_inputs_updated`) can drive an explicit delete +
+                # recreate instead of silently leaving the existing webhook
+                # bound to a stale header.
+                return WebhookCreationResult(
+                    success=False,
+                    error=(
+                        "A RevenueCat webhook integration already exists for this URL. "
+                        "Delete it and reconnect to bind a new authorization header."
+                    ),
+                )
+            # No auth header supplied yet — treat the existing webhook as
+            # success so the user can finish setup by entering the header
+            # value. RevenueCat omits the configured header from list
+            # responses, so we can't tell whether one is already set.
             return WebhookCreationResult(success=True, pending_inputs=["authorization_header"])
 
         response = _session(api_key).post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -270,7 +287,7 @@ def _list_webhook_integrations(api_key: str, project_id: str) -> list[dict[str, 
         next_page = payload.get("next_page")
         if not next_page:
             return items
-        url = next_page if next_page.startswith("http") else f"https://api.revenuecat.com{next_page}"
+        url = next_page if next_page.startswith("http") else urljoin(REVENUECAT_API_BASE_URL, next_page)
         params = {}
 
 

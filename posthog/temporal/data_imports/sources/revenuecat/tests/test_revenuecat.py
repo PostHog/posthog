@@ -81,6 +81,32 @@ class TestValidateCredentials:
         assert error is not None
         assert "Could not reach RevenueCat" in error
 
+    @parameterized.expand(
+        [
+            (401, "rejected the API key"),
+            (403, "denied"),
+            (404, "could not find"),
+            (429, "rate-limited"),
+            (500, "RevenueCat API error"),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_returns_false_when_project_specific_call_fails(self, status_code, expected_substring, mock_session):
+        # The first call (`GET /projects`) succeeds, but the per-project follow-up
+        # (`GET /projects/{id}`) fails. `_format_http_error` is shared between
+        # both call sites, so without this branch a regression in the per-project
+        # path would go unnoticed.
+        mock_session.return_value.get.side_effect = [
+            _ok_json_response({"items": []}),
+            _http_error_response(status_code),
+        ]
+
+        success, error = api_client.validate_credentials("sk_test", project_id="proj_test")
+
+        assert success is False
+        assert error is not None
+        assert expected_substring.lower() in error.lower()
+
 
 class TestIterateListEndpoint:
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
@@ -265,6 +291,27 @@ class TestCreateWebhook:
 
         assert result.success is True
         assert result.pending_inputs == ["authorization_header"]
+        mock_session.return_value.post.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration")
+    @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    def test_fails_when_existing_webhook_and_new_authorization_header_supplied(self, mock_session, mock_find):
+        # RevenueCat has no in-place update for the auth header. If a webhook
+        # already exists and we're asked to bind a new header, fail loudly so
+        # the caller knows to delete + recreate explicitly — silently keeping
+        # the existing webhook would leave it bound to a stale header value.
+        mock_find.return_value = {"id": "wh_existing", "url": "https://example.com/h"}
+
+        result = api_client.create_webhook(
+            "sk_test",
+            project_id="proj_test",
+            webhook_url="https://example.com/h",
+            authorization_header_value="Bearer my-secret",
+        )
+
+        assert result.success is False
+        assert result.error is not None
+        assert "already exists" in result.error.lower()
         mock_session.return_value.post.assert_not_called()
 
     @patch("posthog.temporal.data_imports.sources.revenuecat.revenuecat._find_webhook_integration")
