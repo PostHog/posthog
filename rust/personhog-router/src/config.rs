@@ -14,6 +14,15 @@ pub enum RouterMode {
     Leader,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProxyMode {
+    /// Typed mode: deserialize/serialize every request through the PersonHogService trait.
+    Typed,
+    /// Raw mode: proxy raw bytes to replica for most methods, only deserialize
+    /// for GetPerson (STRONG) and UpdatePersonProperties which need leader routing.
+    Raw,
+}
+
 impl fmt::Display for RouterMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -37,6 +46,29 @@ impl FromStr for RouterMode {
     }
 }
 
+impl fmt::Display for ProxyMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ProxyMode::Typed => write!(f, "typed"),
+            ProxyMode::Raw => write!(f, "raw"),
+        }
+    }
+}
+
+impl FromStr for ProxyMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "typed" => Ok(ProxyMode::Typed),
+            "raw" => Ok(ProxyMode::Raw),
+            other => Err(format!(
+                "unknown proxy mode '{other}', expected 'typed' or 'raw'"
+            )),
+        }
+    }
+}
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     #[envconfig(default = "127.0.0.1:50052")]
@@ -45,6 +77,12 @@ pub struct Config {
     /// Router mode: "replica" (default) or "leader"
     #[envconfig(default = "replica")]
     pub router_mode: RouterMode,
+
+    /// Proxy mode: "typed" (default) or "raw"
+    /// Typed: full deserialization through PersonHogService trait
+    /// Raw: byte-level proxying for most methods, only typed for leader paths
+    #[envconfig(default = "typed")]
+    pub proxy_mode: ProxyMode,
 
     /// URL of the personhog-replica backend
     #[envconfig(default = "http://127.0.0.1:50051")]
