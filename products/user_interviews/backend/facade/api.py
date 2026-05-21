@@ -18,6 +18,15 @@ from uuid import UUID
 
 from products.user_interviews.backend import logic
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
+from products.user_interviews.backend.max_tools import AnalyzeUserInterviewsTool, CreateUserInterviewTopicTool
+
+__all__ = [
+    "AnalyzeUserInterviewsTool",
+    "CreateUserInterviewTopicTool",
+    "IntervieweeIdentity",
+    "has_replied",
+    "parse_interviewee_identifier",
+]
 
 
 def parse_interviewee_identifier(identifier: str) -> IntervieweeIdentity:

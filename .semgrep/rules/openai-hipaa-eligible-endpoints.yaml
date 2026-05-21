@@ -1,0 +1,120 @@
+# OpenAI endpoints that are NOT on the HIPAA-eligible list per
+# https://cdn.openai.com/osa/hipaa-endpoints.pdf:
+#   - Assistants API (/v1/assistants)
+#   - Threads API   (/v1/threads)
+#   - Fine-tuning   (/v1/fine_tuning/*)
+#   - Realtime API  (/v1/realtime)
+#   - Legacy text completions (/v1/completions — distinct from /v1/chat/completions)
+#
+# Anything PostHog routes through the OpenAI SDK must hit only HIPAA-eligible
+# endpoints while we are under the BAA. New code that needs one of the above
+# must be gated off the HIPAA-customer surface OR refactored onto an eligible
+# endpoint (chat completions, responses, embeddings, audio, moderation, ...).
+#
+# If a non-PHI flow legitimately needs an ineligible endpoint, suppress per-line
+# with `# nosemgrep: <rule-id>` and a short reason.
+rules:
+    - id: openai-non-hipaa-assistants-threads
+      patterns:
+          - pattern-either:
+                - pattern: $X.beta.assistants
+                - pattern: $X.beta.threads
+                - pattern: $X.assistants.$M(...)
+                - pattern: $X.threads.$M(...)
+      message: |
+          OpenAI Assistants / Threads APIs (`/v1/assistants`, `/v1/threads`) are
+          NOT on the HIPAA-eligible endpoints list. Use the Responses API
+          (`client.responses.create(...)`) or Chat Completions
+          (`client.chat.completions.create(...)`) instead.
+
+          For non-PHI flows that nonetheless need Assistants/Threads, add
+          `# nosemgrep: openai-non-hipaa-assistants-threads` with a reason.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: compliance
+          subcategory: hipaa
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+
+    - id: openai-non-hipaa-fine-tuning
+      patterns:
+          - pattern-either:
+                - pattern: $X.fine_tuning.$M(...)
+                - pattern: $X.fine_tuning.$Y.$M(...)
+                - pattern: $X.fine_tuning.$Y.$Z.$M(...)
+      message: |
+          OpenAI fine-tuning endpoints (`/v1/fine_tuning/*`) are NOT on the
+          HIPAA-eligible endpoints list. Customer data must not be uploaded
+          for fine-tuning under the BAA.
+
+          If you need a non-PHI fine-tuning job, suppress per-line with
+          `# nosemgrep: openai-non-hipaa-fine-tuning` and explain why.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: compliance
+          subcategory: hipaa
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+
+    - id: openai-non-hipaa-realtime
+      patterns:
+          - pattern-either:
+                - pattern: $X.realtime.$M(...)
+                - pattern: $X.beta.realtime.$M(...)
+                - pattern: $X.beta.realtime.$Y.$M(...)
+      message: |
+          OpenAI Realtime API (`/v1/realtime`) is NOT on the HIPAA-eligible
+          endpoints list. Use chat completions or the responses API instead.
+
+          For non-PHI realtime usage, suppress per-line with
+          `# nosemgrep: openai-non-hipaa-realtime` and explain why.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: compliance
+          subcategory: hipaa
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+
+    - id: openai-non-hipaa-legacy-completions
+      patterns:
+          - pattern: $X.completions.create(...)
+          - pattern-not: $Y.chat.completions.create(...)
+      message: |
+          Legacy text completions (`/v1/completions`) is NOT on the
+          HIPAA-eligible endpoints list. Use chat completions
+          (`client.chat.completions.create(...)`) or the responses API
+          (`client.responses.create(...)`) instead.
+
+          The legacy endpoint is also a deprecated surface — there is rarely
+          a good reason to use it. If you really need it for a non-PHI flow,
+          suppress per-line with `# nosemgrep: openai-non-hipaa-legacy-completions`.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: compliance
+          subcategory: hipaa
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
