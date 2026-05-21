@@ -262,6 +262,9 @@ class DashboardTileSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "refresh_attempt",
+            # Denormalization for HogQL printing; combined with depth=1, leaving it
+            # in expands `team` into a full nested Team dict on every tile response.
+            "team",
         ]
         read_only_fields = ["id", "insight"]
         depth = 1

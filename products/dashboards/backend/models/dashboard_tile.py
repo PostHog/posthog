@@ -128,10 +128,17 @@ class DashboardTile(models.Model):
         db_table = "posthog_dashboardtile"
 
     def save(self, *args, **kwargs) -> None:
+        # Django accepts update_fields as list or tuple; normalize to list so the
+        # branches below can append without crashing when a caller passes a tuple.
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = list(update_fields)
+            kwargs["update_fields"] = update_fields
+
         if self.team_id is None and self.dashboard_id is not None:
             self.team_id = self.dashboard.team_id
-            if "update_fields" in kwargs:
-                kwargs["update_fields"].append("team_id")
+            if update_fields is not None:
+                update_fields.append("team_id")
 
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
@@ -140,8 +147,8 @@ class DashboardTile(models.Model):
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
-                if "update_fields" in kwargs:
-                    kwargs["update_fields"].append("filters_hash")
+                if update_fields is not None:
+                    update_fields.append("filters_hash")
 
         super().save(*args, **kwargs)
 
@@ -217,6 +224,7 @@ class DashboardTile(models.Model):
             if existing.deleted is not True:
                 raise ValidationError("Tile already exists on destination dashboard")
             existing.deleted = False
+            existing.team_id = dashboard.team_id
             existing.layouts = self.layouts
             existing.color = self.color
             existing.show_description = self.show_description
