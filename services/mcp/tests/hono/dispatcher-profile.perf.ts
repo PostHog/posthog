@@ -124,7 +124,7 @@ function makeRequest(body: string): Request {
     })
 }
 
-function fmt(bytes: number): string {
+function _fmt(bytes: number): string {
     if (Math.abs(bytes) < 1024) {return `${bytes} B`}
     const kb = bytes / 1024
     if (Math.abs(kb) < 1024) {return `${kb.toFixed(1)} KB`}
@@ -217,8 +217,8 @@ describe('McpDispatcher profiling', () => {
             expect(resp.status).toBe(200)
         }
 
-        const s = stats(coldTimings)
-        const avgFetches = coldFetchCounts.reduce((a, b) => a + b, 0) / coldFetchCounts.length
+        const _s = stats(coldTimings)
+        const _avgFetches = coldFetchCounts.reduce((a, b) => a + b, 0) / coldFetchCounts.length
         
         
         
@@ -228,7 +228,7 @@ describe('McpDispatcher profiling', () => {
     it('measures warm cache request latency', async () => {
         
 
-        for (const [label, method, params] of [
+        for (const [_label, method, params] of [
             ['initialize', 'initialize', INIT_PARAMS],
             ['tools/list', 'tools/list', undefined],
             ['tools/call', 'tools/call', { name: 'user-get', arguments: {} }],
@@ -253,8 +253,8 @@ describe('McpDispatcher profiling', () => {
                 timings.push(performance.now() - start)
             }
 
-            const s = stats(timings)
-            
+            const _s = stats(timings)
+
         }
     }, 120_000)
 
@@ -267,7 +267,7 @@ describe('McpDispatcher profiling', () => {
             makeRequest(makeJsonRpcBody('tools/call', { name: 'user-get', arguments: {} })),
             makeColdProps()
         )
-        const coldFetches = fetchCallCount - coldBefore
+        const _coldFetches = fetchCallCount - coldBefore
 
         // Warm: reused userHash (cache hit)
         const warmBefore = fetchCallCount
@@ -275,7 +275,7 @@ describe('McpDispatcher profiling', () => {
             makeRequest(makeJsonRpcBody('tools/call', { name: 'user-get', arguments: {} })),
             makeProps()
         )
-        const warmFetches = fetchCallCount - warmBefore
+        const _warmFetches = fetchCallCount - warmBefore
 
         
         
@@ -299,18 +299,14 @@ describe('McpDispatcher profiling', () => {
                 )
             }
 
-            const elapsed = performance.now() - start
+            const _elapsed = performance.now() - start
             gc()
             const after = process.memoryUsage().heapUsed
-            const delta = after - before
-
-            
+            const _delta = after - before
         }
     }, 120_000)
 
     it('measures concurrent burst (warm cache)', async () => {
-        
-
         for (const burst of [10, 50, 100, 200]) {
             gc()
             await new Promise((r) => setTimeout(r, 50))
@@ -327,12 +323,10 @@ describe('McpDispatcher profiling', () => {
                 )
             )
 
-            const burstMs = performance.now() - burstStart
+            const _burstMs = performance.now() - burstStart
             gc()
             const after = process.memoryUsage().heapUsed
-            const delta = after - before
-
-            
+            const _delta = after - before
 
             for (const r of results) {
                 expect(r.status).toBe(200)
@@ -341,8 +335,6 @@ describe('McpDispatcher profiling', () => {
     }, 60_000)
 
     it('measures concurrent burst (cold cache)', async () => {
-        
-
         for (const burst of [10, 50, 100]) {
             gc()
             await new Promise((r) => setTimeout(r, 50))
@@ -359,12 +351,10 @@ describe('McpDispatcher profiling', () => {
                 )
             )
 
-            const burstMs = performance.now() - burstStart
+            const _burstMs = performance.now() - burstStart
             gc()
             const after = process.memoryUsage().heapUsed
-            const delta = after - before
-
-            
+            const _delta = after - before
 
             for (const r of results) {
                 expect(r.status).toBe(200)
@@ -373,8 +363,6 @@ describe('McpDispatcher profiling', () => {
     }, 60_000)
 
     it('measures batch JSON-RPC', async () => {
-        
-
         for (const batchSize of [5, 20, 50]) {
             gc()
             await new Promise((r) => setTimeout(r, 50))
@@ -405,13 +393,11 @@ describe('McpDispatcher profiling', () => {
             )
 
             const results = (await resp.json()) as unknown[]
-            const batchMs = performance.now() - batchStart
+            const _batchMs = performance.now() - batchStart
 
             gc()
             const after = process.memoryUsage().heapUsed
-            const delta = after - before
-
-            
+            const _delta = after - before
 
             expect(results.length).toBe(batchSize)
         }
@@ -419,11 +405,6 @@ describe('McpDispatcher profiling', () => {
 
     it('reports final memory', () => {
         gc()
-        const m = process.memoryUsage()
-        
-        
-        
-        
-        
+        const _m = process.memoryUsage()
     })
 })

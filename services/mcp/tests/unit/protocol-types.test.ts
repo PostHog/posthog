@@ -49,7 +49,7 @@ describe('jsonRpcError', () => {
     })
 
     it('uses null id when none provided', async () => {
-        const body = await jsonRpcError(null, -32700, 'Parse error').json()
+        const body = (await jsonRpcError(null, -32700, 'Parse error').json()) as { id: unknown }
         expect(body.id).toBeNull()
     })
 })

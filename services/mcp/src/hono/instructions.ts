@@ -69,7 +69,7 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecToolEntry(state: ResolvedState, props: RequestProperties): PreBuiltToolEntry {
+    buildExecToolEntry(state: ResolvedState, _props: RequestProperties): PreBuiltToolEntry {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         const ctx = this.buildContext(state)
         const commandReference = this.formatter.buildExecCommandReference(ctx, {

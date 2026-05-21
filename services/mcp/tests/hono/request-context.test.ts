@@ -22,7 +22,11 @@ function fakeRedis(): RedisLike {
         },
         del: async (...keys) => {
             let n = 0
-            for (const k of keys) {if (store.delete(k)) n++}
+            for (const k of keys) {
+                if (store.delete(k)) {
+                    n++
+                }
+            }
             return n
         },
         scan: async () => ['0', [...store.keys()]],

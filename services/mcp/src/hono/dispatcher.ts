@@ -72,7 +72,7 @@ class McpDispatcher {
         }
 
         const wasArray = Array.isArray(body)
-        const messages: JsonRpcMessage[] = wasArray ? body : [body as JsonRpcMessage]
+        const messages: JsonRpcMessage[] = wasArray ? (body as JsonRpcMessage[]) : [body as JsonRpcMessage]
 
         if (messages.length > MAX_BATCH_SIZE) {
             return jsonRpcError(null, -32600, 'Batch too large')

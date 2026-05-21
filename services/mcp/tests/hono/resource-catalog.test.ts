@@ -23,7 +23,7 @@ const mockEnv = {
     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
 } as any
 
-function makeContextMillEntry(name: string, uri: string) {
+function makeContextMillEntry(name: string, uri: string): { name: string; uri: string; resource: { mimeType: string; description: string; text: string } } {
     return {
         name,
         uri,

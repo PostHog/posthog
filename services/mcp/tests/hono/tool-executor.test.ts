@@ -112,10 +112,7 @@ describe('ToolExecutor', () => {
                 makeState([{ name: knownTool.name }])
             )) as any
 
-            // Zod strips unknown fields by default, so this should either succeed
-            // (if the schema has no required fields) or return a validation error.
-            // Either way it shouldn't throw.
-            expect(result).toBeDefined()
+            expect(result).not.toBeNull()
         })
 
         it('successfully calls a real tool from the catalog', async () => {
@@ -129,10 +126,8 @@ describe('ToolExecutor', () => {
                 makeState([{ name: 'user-get' }])
             )) as any
 
-            // user-get calls the API which will fail in tests, but the executor
-            // should catch it and return an error result, not throw
-            expect(result).toBeDefined()
-            expect(result.content).toBeDefined()
+            expect(result).not.toBeNull()
+            expect(result.content).not.toBeNull()
         })
     })
 
