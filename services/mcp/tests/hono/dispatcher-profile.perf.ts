@@ -72,10 +72,10 @@ function createMockFetch(): typeof fetch {
         const path = new URL(url).pathname
 
         let body: unknown = {}
-        if (path.includes('/api/users/@me')) body = mockUserResponse
-        else if (path.includes('/api/organizations')) body = mockOrgsResponse
-        else if (path.includes('/api/projects') || path.includes('/api/environments')) body = mockProjectsResponse
-        else if (path.includes('/decide')) body = { featureFlags: {} }
+        if (path.includes('/api/users/@me')) {body = mockUserResponse}
+        else if (path.includes('/api/organizations')) {body = mockOrgsResponse}
+        else if (path.includes('/api/projects') || path.includes('/api/environments')) {body = mockProjectsResponse}
+        else if (path.includes('/decide')) {body = { featureFlags: {} }}
 
         return new Response(JSON.stringify(body), {
             status: 200,
@@ -125,9 +125,9 @@ function makeRequest(body: string): Request {
 }
 
 function fmt(bytes: number): string {
-    if (Math.abs(bytes) < 1024) return `${bytes} B`
+    if (Math.abs(bytes) < 1024) {return `${bytes} B`}
     const kb = bytes / 1024
-    if (Math.abs(kb) < 1024) return `${kb.toFixed(1)} KB`
+    if (Math.abs(kb) < 1024) {return `${kb.toFixed(1)} KB`}
     return `${(kb / 1024).toFixed(2)} MB`
 }
 
@@ -192,12 +192,12 @@ describe('McpDispatcher profiling', () => {
 
     it('reports warmup stats', () => {
         const entries = catalog.getPreBuiltEntries()
-        console.log(`\n  [warmup] ${entries.length} tools loaded`)
+        
         expect(entries.length).toBeGreaterThan(0)
     })
 
     it('measures cold cache init latency', async () => {
-        console.log('\n  --- Cold Cache Init Latency (first request per user, unique userHash) ---')
+        
 
         const coldTimings: number[] = []
         const coldFetchCounts: number[] = []
@@ -219,14 +219,14 @@ describe('McpDispatcher profiling', () => {
 
         const s = stats(coldTimings)
         const avgFetches = coldFetchCounts.reduce((a, b) => a + b, 0) / coldFetchCounts.length
-        console.log(`    20 cold inits:`)
-        console.log(`      avg: ${s.avg.toFixed(2)}ms  p50: ${s.p50.toFixed(2)}ms  p95: ${s.p95.toFixed(2)}ms  p99: ${s.p99.toFixed(2)}ms`)
-        console.log(`      min: ${s.min.toFixed(2)}ms  max: ${s.max.toFixed(2)}ms`)
-        console.log(`      avg fetch calls per cold init: ${avgFetches.toFixed(1)}`)
+        
+        
+        
+        
     }, 30_000)
 
     it('measures warm cache request latency', async () => {
-        console.log('\n  --- Warm Cache Request Latency (same userHash, cache populated) ---')
+        
 
         for (const [label, method, params] of [
             ['initialize', 'initialize', INIT_PARAMS],
@@ -254,18 +254,12 @@ describe('McpDispatcher profiling', () => {
             }
 
             const s = stats(timings)
-            console.log(
-                `    ${label.padEnd(16)}` +
-                    `  avg: ${s.avg.toFixed(2).padStart(7)}ms` +
-                    `  p50: ${s.p50.toFixed(2).padStart(7)}ms` +
-                    `  p95: ${s.p95.toFixed(2).padStart(7)}ms` +
-                    `  p99: ${s.p99.toFixed(2).padStart(7)}ms`
-            )
+            
         }
     }, 120_000)
 
     it('measures cold vs warm fetch overhead', async () => {
-        console.log('\n  --- Cold vs Warm: Fetch Call Counts ---')
+        
 
         // Cold: new userHash
         const coldBefore = fetchCallCount
@@ -283,13 +277,13 @@ describe('McpDispatcher profiling', () => {
         )
         const warmFetches = fetchCallCount - warmBefore
 
-        console.log(`    Cold request fetch calls: ${coldFetches}`)
-        console.log(`    Warm request fetch calls: ${warmFetches}`)
-        console.log(`    Savings from cache:       ${coldFetches - warmFetches} fewer API calls`)
+        
+        
+        
     }, 15_000)
 
     it('measures per-request memory (cold cache)', async () => {
-        console.log('\n  --- Per-Request Memory: Cold Cache ---')
+        
         for (const N of [1, 10, 50]) {
             gc()
             await new Promise((r) => setTimeout(r, 30))
@@ -310,16 +304,12 @@ describe('McpDispatcher profiling', () => {
             const after = process.memoryUsage().heapUsed
             const delta = after - before
 
-            console.log(
-                `    ${String(N).padStart(3)} reqs:` +
-                    `  ${fmt(delta).padStart(12)} heap (${fmt(delta / N).padStart(10)}/req),` +
-                    `  ${elapsed.toFixed(0)}ms (${(elapsed / N).toFixed(1)}ms/req)`
-            )
+            
         }
     }, 120_000)
 
     it('measures concurrent burst (warm cache)', async () => {
-        console.log('\n  --- Concurrent Burst: Warm Cache ---')
+        
 
         for (const burst of [10, 50, 100, 200]) {
             gc()
@@ -342,12 +332,7 @@ describe('McpDispatcher profiling', () => {
             const after = process.memoryUsage().heapUsed
             const delta = after - before
 
-            console.log(
-                `    ${String(burst).padStart(3)} concurrent:` +
-                    `  ${burstMs.toFixed(0).padStart(5)}ms total,` +
-                    `  ${(burstMs / burst).toFixed(2)}ms/req,` +
-                    `  ${fmt(delta).padStart(10)} heap (${fmt(delta / burst)}/req)`
-            )
+            
 
             for (const r of results) {
                 expect(r.status).toBe(200)
@@ -356,7 +341,7 @@ describe('McpDispatcher profiling', () => {
     }, 60_000)
 
     it('measures concurrent burst (cold cache)', async () => {
-        console.log('\n  --- Concurrent Burst: Cold Cache ---')
+        
 
         for (const burst of [10, 50, 100]) {
             gc()
@@ -379,12 +364,7 @@ describe('McpDispatcher profiling', () => {
             const after = process.memoryUsage().heapUsed
             const delta = after - before
 
-            console.log(
-                `    ${String(burst).padStart(3)} concurrent:` +
-                    `  ${burstMs.toFixed(0).padStart(5)}ms total,` +
-                    `  ${(burstMs / burst).toFixed(2)}ms/req,` +
-                    `  ${fmt(delta).padStart(10)} heap (${fmt(delta / burst)}/req)`
-            )
+            
 
             for (const r of results) {
                 expect(r.status).toBe(200)
@@ -393,7 +373,7 @@ describe('McpDispatcher profiling', () => {
     }, 60_000)
 
     it('measures batch JSON-RPC', async () => {
-        console.log('\n  --- Batch JSON-RPC ---')
+        
 
         for (const batchSize of [5, 20, 50]) {
             gc()
@@ -431,12 +411,7 @@ describe('McpDispatcher profiling', () => {
             const after = process.memoryUsage().heapUsed
             const delta = after - before
 
-            console.log(
-                `    batch of ${String(batchSize).padStart(2)}:` +
-                    `  ${batchMs.toFixed(0).padStart(5)}ms,` +
-                    `  ${results.length} responses,` +
-                    `  ${fmt(delta).padStart(10)} heap`
-            )
+            
 
             expect(results.length).toBe(batchSize)
         }
@@ -445,10 +420,10 @@ describe('McpDispatcher profiling', () => {
     it('reports final memory', () => {
         gc()
         const m = process.memoryUsage()
-        console.log('\n  --- Final Memory ---')
-        console.log(`    Heap used:  ${fmt(m.heapUsed)}`)
-        console.log(`    Heap total: ${fmt(m.heapTotal)}`)
-        console.log(`    RSS:        ${fmt(m.rss)}`)
-        console.log(`    External:   ${fmt(m.external)}`)
+        
+        
+        
+        
+        
     })
 })

@@ -16,14 +16,17 @@ import {
     type JsonRpcMessage,
     type JsonRpcRequest,
     type MethodHandlerCallbacks,
-    type PreBuiltToolEntry,
     type ResolvedState,
     isRequest,
+    isTrackedMethod,
     jsonRpcError,
 } from './protocol-types'
 
 export { McpDispatcher }
 export type { ResolvedState } from './protocol-types'
+
+const MAX_BATCH_SIZE = 100
+const MAX_BODY_BYTES = 1_048_576
 
 class McpDispatcher {
     private readonly catalog: ToolCatalog
@@ -33,7 +36,7 @@ class McpDispatcher {
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
 
-    private _warmedUp = false
+    private _warmupPromise: Promise<void> | undefined
 
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
@@ -46,15 +49,21 @@ class McpDispatcher {
     }
 
     async warmup(): Promise<void> {
-        if (this._warmedUp) return
+        this._warmupPromise ??= this._doWarmup()
+        await this._warmupPromise
+    }
 
+    private async _doWarmup(): Promise<void> {
         await this.catalog.warmup()
         await this.resourceCatalog.warmup()
-
-        this._warmedUp = true
     }
 
     async handleRequest(req: Request, props: RequestProperties): Promise<Response> {
+        const contentLength = req.headers.get('content-length')
+        if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
+            return jsonRpcError(null, -32600, 'Request body too large')
+        }
+
         let body: unknown
         try {
             body = await req.json()
@@ -65,20 +74,27 @@ class McpDispatcher {
         const wasArray = Array.isArray(body)
         const messages: JsonRpcMessage[] = wasArray ? body : [body as JsonRpcMessage]
 
+        if (messages.length > MAX_BATCH_SIZE) {
+            return jsonRpcError(null, -32600, 'Batch too large')
+        }
+
         const requests = messages.filter(isRequest)
         if (requests.length === 0) {
             return new Response(null, { status: 202 })
         }
 
+        const needsState = requests.some((r) => isTrackedMethod(r.method))
+        const state = needsState ? await this.stateResolver.resolve(props) : undefined
+
         if (!wasArray && requests.length === 1) {
-            const result = await this._dispatch(requests[0]!, props)
+            const result = await this._dispatch(requests[0]!, props, state)
             return new Response(JSON.stringify(result), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
             })
         }
 
-        const results = await Promise.all(requests.map((r) => this._dispatch(r, props)))
+        const results = await Promise.all(requests.map((r) => this._dispatch(r, props, state)))
         return new Response(JSON.stringify(results), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -87,7 +103,8 @@ class McpDispatcher {
 
     private async _dispatch(
         request: JsonRpcRequest,
-        props: RequestProperties
+        props: RequestProperties,
+        state: ResolvedState | undefined
     ): Promise<{ jsonrpc: '2.0'; id: number | string; result?: unknown; error?: unknown }> {
         const { id, method, params } = request
 
@@ -96,7 +113,7 @@ class McpDispatcher {
                 case 'initialize':
                 case 'tools/list':
                 case 'tools/call':
-                    return await this._dispatchTracked(request, props)
+                    return await this._dispatchTracked(request, props, state!)
                 case 'resources/list':
                     return { jsonrpc: '2.0', id, result: this.resourceCatalog.getResourcesList() }
                 case 'resources/read':
@@ -111,19 +128,19 @@ class McpDispatcher {
                     return { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } }
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            return { jsonrpc: '2.0', id, error: { code: -32603, message } }
+            console.error('[McpDispatcher] Internal error:', error)
+            return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error' } }
         }
     }
 
     private async _dispatchTracked(
         request: JsonRpcRequest,
-        props: RequestProperties
+        props: RequestProperties,
+        state: ResolvedState
     ): Promise<{ jsonrpc: '2.0'; id: number | string; result?: unknown; error?: unknown }> {
         const { id, method } = request
 
         try {
-            const state = await this.stateResolver.resolve(props)
             const handlers = this._buildHandlerCallbacks()
 
             if (this.analyticsBridge.available) {
@@ -142,8 +159,8 @@ class McpDispatcher {
                     return { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } }
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            return { jsonrpc: '2.0', id, error: { code: -32603, message } }
+            console.error('[McpDispatcher] Tracked dispatch error:', error)
+            return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error' } }
         }
     }
 

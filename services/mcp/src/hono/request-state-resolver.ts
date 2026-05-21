@@ -1,11 +1,15 @@
 import { MCPClientProfile } from '@/lib/client-detection'
+import { evaluateFeatureFlags } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
 import type { Env } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
 import { type ResolvedState, resolveModeAndVersion } from './protocol-types'
 import { RequestContext } from './request-context'
 import type { ToolCatalog } from './tool-catalog'
+
+const SYSTEM_FLAGS = ['mcp-version-2', 'mcp-single-exec-tool'] as const
 
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
@@ -24,8 +28,8 @@ export class RequestStateResolver {
 
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly, mode } = props
 
-        if (organizationId) await reqCtx.cache.set('orgId', organizationId)
-        if (projectId) await reqCtx.cache.set('projectId', projectId)
+        if (organizationId) {await reqCtx.cache.set('orgId', organizationId)}
+        if (projectId) {await reqCtx.cache.set('projectId', projectId)}
 
         let cachedProjectId = projectId || (await reqCtx.cache.get('projectId'))
         if (!cachedProjectId) {
@@ -33,13 +37,20 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.cache.get('projectId')) ?? undefined
         }
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey, distinctId] = await Promise.all([
-            reqCtx.resolveVersionFlag(),
-            reqCtx.resolveToolFeatureFlags(clientVersion),
-            reqCtx.resolveSingleExecFlag(),
+        const toolFlagKeys = getRequiredFeatureFlags(clientVersion)
+        const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
+
+        const [allFlags, _apiKey, distinctId] = await Promise.all([
+            this._resolveAllFlags(reqCtx, allFlagKeys),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
+
+        const flagVersion = allFlags['mcp-version-2'] ? 2 : undefined
+        const singleExecFlagOn = !!allFlags['mcp-single-exec-tool']
+        const toolFeatureFlags = toolFlagKeys.length > 0
+            ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]]))
+            : undefined
 
         const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
         const clientProfile = new MCPClientProfile({
@@ -88,6 +99,19 @@ export class RequestStateResolver {
             clientProfile,
             allTools,
             distinctId,
+        }
+    }
+
+    private async _resolveAllFlags(
+        reqCtx: RequestContext,
+        flagKeys: string[]
+    ): Promise<Record<string, boolean>> {
+        if (flagKeys.length === 0) {return {}}
+        try {
+            const distinctId = await reqCtx.getDistinctId()
+            return await evaluateFeatureFlags(flagKeys, distinctId)
+        } catch {
+            return {}
         }
     }
 }

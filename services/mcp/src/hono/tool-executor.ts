@@ -136,7 +136,7 @@ export class ToolExecutor {
                         state.distinctId,
                         props
                     )
-                })()
+                })().catch(() => {})
             }
 
             const execToolDescription = this.instructionsBuilder.buildExecToolDescription()

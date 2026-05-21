@@ -110,7 +110,7 @@ export class ResourceCatalog {
 
     private async _warmupUiApps(): Promise<void> {
         const baseUrl = this.env.MCP_APPS_BASE_URL
-        if (!baseUrl) return
+        if (!baseUrl) {return}
 
         const analyticsBaseUrl = this.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
 

@@ -84,7 +84,8 @@ export class AnalyticsBridge {
                 redactSensitiveInformation: (text: string) =>
                     Promise.resolve(redactSensitiveInformation(text)),
             })
-        } catch {
+        } catch (e) {
+            console.warn('[AnalyticsBridge] track() setup failed:', e)
         }
 
         const wrappedHandler = adapter._requestHandlers.get(request.method)

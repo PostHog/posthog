@@ -76,7 +76,7 @@ export class RequestContext {
     }
 
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
-        if (!sessionId) return undefined
+        if (!sessionId) {return undefined}
         return this.sessionManager.getSessionUuid(sessionId)
     }
 
@@ -89,7 +89,7 @@ export class RequestContext {
 
     private async _resolveDistinctId(): Promise<string> {
         const cached = await this.cache.get('distinctId')
-        if (cached) return cached
+        if (cached) {return cached}
         const userResult = await (await this.api()).users().me()
         if (!userResult.success) {
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
@@ -133,7 +133,7 @@ export class RequestContext {
         previousContext: MCPAnalyticsContext | undefined
     ): Promise<void> {
         const resolvedContext = await this.getAnalyticsContextSafe(context)
-        if (!resolvedContext) return
+        if (!resolvedContext) {return}
 
         const event =
             toolName === 'switch-project'
@@ -141,7 +141,7 @@ export class RequestContext {
                 : toolName === 'switch-organization'
                   ? AnalyticsEvent.MCP_ORGANIZATION_SWITCHED
                   : undefined
-        if (!event) return
+        if (!event) {return}
 
         const distinctId = await this.getDistinctId()
         await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)
@@ -168,7 +168,7 @@ export class RequestContext {
     async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
         try {
             const flagKeys = getRequiredFeatureFlags(version)
-            if (flagKeys.length === 0) return undefined
+            if (flagKeys.length === 0) {return undefined}
             const distinctId = await this.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId)
         } catch {

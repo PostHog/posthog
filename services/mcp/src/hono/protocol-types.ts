@@ -58,7 +58,13 @@ interface JsonRpcNotification {
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification
 
 export function isRequest(msg: JsonRpcMessage): msg is JsonRpcRequest {
-    return typeof msg === 'object' && msg !== null && 'id' in msg
+    return typeof msg === 'object' && msg !== null && 'id' in msg && typeof (msg as any).method === 'string'
+}
+
+const TRACKED_METHODS = new Set(['initialize', 'tools/list', 'tools/call'])
+
+export function isTrackedMethod(method: string): boolean {
+    return TRACKED_METHODS.has(method)
 }
 
 export function jsonRpcError(id: unknown, code: number, message: string): Response {
