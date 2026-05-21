@@ -768,9 +768,6 @@
                             "math_property": {
                                 "type": "string"
                             },
-                            "math_property_type": {
-                                "type": "string"
-                            },
                             "name": {
                                 "type": "string"
                             },
@@ -1407,9 +1404,6 @@
                             "math_property": {
                                 "type": "string"
                             },
-                            "math_property_type": {
-                                "type": "string"
-                            },
                             "name": {
                                 "description": "Action name from the plan.",
                                 "type": "string"
@@ -2044,9 +2038,6 @@
                             "math_property": {
                                 "type": "string"
                             },
-                            "math_property_type": {
-                                "type": "string"
-                            },
                             "name": {
                                 "description": "Display name for the combined series.",
                                 "type": "string"
@@ -2185,9 +2176,6 @@
                                                     "type": "number"
                                                 },
                                                 "math_property": {
-                                                    "type": "string"
-                                                },
-                                                "math_property_type": {
                                                     "type": "string"
                                                 },
                                                 "name": {
@@ -2932,9 +2920,6 @@
                                                     "type": "number"
                                                 },
                                                 "math_property": {
-                                                    "type": "string"
-                                                },
-                                                "math_property_type": {
                                                     "type": "string"
                                                 },
                                                 "name": {

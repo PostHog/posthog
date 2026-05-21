@@ -384,13 +384,8 @@ def _fill_session_math_property_type(series: list[dict[str, Any]]) -> None:
     Mutates ``series`` in place.
     """
     for node in series:
-        if not isinstance(node, dict):
-            continue
         if node.get("kind") == "GroupNode":
             _fill_session_math_property_type(node.get("nodes") or [])
-            if node.get("math_property") in _SESSION_MATH_PROPERTIES:
-                node["math_property_type"] = "session_properties"
-            continue
         if node.get("math_property") in _SESSION_MATH_PROPERTIES:
             node["math_property_type"] = "session_properties"
 
