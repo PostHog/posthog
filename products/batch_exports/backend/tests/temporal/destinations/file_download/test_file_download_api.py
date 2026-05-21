@@ -23,6 +23,7 @@ from posthog.batch_exports.api.file_download import (
     _get_file_download_for_run,
 )
 from posthog.models import BatchExportDestination, BatchExportFileDownload, BatchExportOnDemand, BatchExportRun
+from posthog.models.scoping import team_scope
 
 from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 
@@ -55,7 +56,8 @@ async def test_get_file_download_for_run(team, data_interval_start, data_interva
     destination = await BatchExportDestination.objects.acreate(
         type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
     )
-    batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
     run = await BatchExportRun.objects.acreate(
         batch_export_on_demand=batch_export,
         data_interval_start=data_interval_start,
@@ -146,7 +148,8 @@ async def test_file_download_retrieve_returns_error(
     destination = await BatchExportDestination.objects.acreate(
         type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
     )
-    batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
     run = await BatchExportRun.objects.acreate(
         batch_export_on_demand=batch_export,
         data_interval_start=data_interval_start,
@@ -178,7 +181,8 @@ async def test_file_download_retrieve_returns_files(
     destination = await BatchExportDestination.objects.acreate(
         type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
     )
-    batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
     run = await BatchExportRun.objects.acreate(
         batch_export_on_demand=batch_export,
         data_interval_start=data_interval_start,
@@ -213,7 +217,8 @@ async def test_file_download_download_fails_when_not_completed(
     destination = await BatchExportDestination.objects.acreate(
         type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
     )
-    batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
 
     await async_client.aforce_login(user)
 
@@ -244,7 +249,8 @@ async def test_file_download_download(
     destination = await BatchExportDestination.objects.acreate(
         type=BatchExportDestination.Destination.FILE_DOWNLOAD, config={}
     )
-    batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
+    with team_scope(team_id=team.pk, canonical=True):
+        batch_export = await BatchExportOnDemand.objects.acreate(team=team, destination=destination, model="events")
     run = await BatchExportRun.objects.acreate(
         batch_export_on_demand=batch_export,
         data_interval_start=data_interval_start,
