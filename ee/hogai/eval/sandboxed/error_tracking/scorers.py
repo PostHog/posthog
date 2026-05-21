@@ -121,6 +121,12 @@ def _collect_session_ids(value: Any) -> set[str]:
         for item in value:
             session_ids.update(_collect_session_ids(item))
         return session_ids
+    if isinstance(value, str):
+        return {
+            match.group(1)
+            for match in _SESSION_ID_TEXT_RE.finditer(value)
+            if match.group(1) not in {"", "null", "None"}
+        }
     return set()
 
 
@@ -155,17 +161,23 @@ def _has_recordings_result(value: Any) -> bool:
         return any(_has_recordings_result(nested) for nested in value.values())
     if isinstance(value, list):
         return bool(value) and any(_has_recordings_result(item) for item in value)
+    if isinstance(value, str):
+        return _recordings_text_has_results(value)
     return False
+
+
+def _recordings_text_has_results(raw_output: str) -> bool:
+    return bool(
+        re.search(r"""(?m)^\s*(?:id|session_id)\s*[:=]\s*["']?[^"',\s}\]]+""", raw_output)
+        or _TOON_NON_EMPTY_RESULTS_RE.search(raw_output)
+    )
 
 
 def _recordings_output_has_results(raw_output: str) -> bool:
     try:
         decoded = json.loads(raw_output)
     except json.JSONDecodeError:
-        return bool(
-            re.search(r"""(?m)^\s*(?:id|session_id)\s*[:=]\s*["']?[^"',\s}\]]+""", raw_output)
-            or _TOON_NON_EMPTY_RESULTS_RE.search(raw_output)
-        )
+        return _recordings_text_has_results(raw_output)
     return _has_recordings_result(decoded)
 
 
