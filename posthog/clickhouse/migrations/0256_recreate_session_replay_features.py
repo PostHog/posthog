@@ -27,17 +27,9 @@ operations = [
             on_cluster=False,
             cluster=settings.CLICKHOUSE_AUX_CLUSTER,
         ),
-        node_roles=[NodeRole.AUX],
+        node_roles=[NodeRole.AUX, NodeRole.DATA],
     ),
-    # 3. Read-side Distributed on DATA pointing at AUX.
-    run_sql_with_exceptions(
-        DISTRIBUTED_SESSION_REPLAY_FEATURES_TABLE_SQL(
-            on_cluster=False,
-            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
-        ),
-        node_roles=[NodeRole.DATA],
-    ),
-    # 4. Writable Distributed on INGESTION_MEDIUM.
+    # 3. Writable Distributed on INGESTION_MEDIUM.
     run_sql_with_exceptions(
         WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL(
             on_cluster=False,
@@ -45,7 +37,7 @@ operations = [
         ),
         node_roles=[NodeRole.INGESTION_MEDIUM],
     ),
-    # 5. Kafka consumer + MV.
+    # 4. Kafka consumer + MV.
     *(
         [
             run_sql_with_exceptions(
