@@ -34,6 +34,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
@@ -658,6 +659,8 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     </>
                 }
             />
+
+            <AIObservabilityRenameBanner />
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>
