@@ -2,16 +2,21 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    """Adds Conversation.agent_runtime for the PostHog AI sandbox runtime.
+    """Adds Conversation.agent_runtime and Conversation.sandbox_task_fk.
 
     Strictly additive — the legacy `sandbox_task_id` and `sandbox_run_id` UUID columns
-    from the Redis-relay flow stay in place. The current Run is derived from those
-    fields via the `current_sandbox_run` property on the model rather than a stored
-    pointer; see docs/internal/posthog-ai-migration/02_CORE.md § 2.
+    from the Redis-relay flow stay in place. `sandbox_task_fk` is a real FK to the
+    cloud-agent Task model that coexists with the legacy UUID during the migration;
+    the spec name `sandbox_task` is reserved until the legacy column can be removed
+    (its FK auto-attname `sandbox_task_id` collides with the existing UUID field
+    today).
+
+    See docs/internal/posthog-ai-migration/02_CORE.md § 2.
     """
 
     dependencies = [
         ("ee", "0043_teamsessionsummariesconfig_custom_tags"),
+        ("tasks", "0031_task_github_user_integration"),
     ]
 
     operations = [
@@ -27,6 +32,26 @@ class Migration(migrations.Migration):
                     "from the posthog-ai-sandbox flag; never re-read on an existing row."
                 ),
                 max_length=16,
+            ),
+        ),
+        migrations.AddField(
+            model_name="conversation",
+            name="sandbox_task_fk",
+            field=models.ForeignKey(
+                blank=True,
+                help_text=(
+                    "Foreign key to the cloud-agent Task backing this conversation when "
+                    "agent_runtime is 'sandbox'. Coexists with the legacy `sandbox_task_id` "
+                    "UUID column during the migration to a real FK (the spec name "
+                    "`sandbox_task` is reserved until that column is removed — adding it "
+                    "now would collide on the FK's auto-generated `sandbox_task_id` "
+                    "attname). One Task per conversation; current Run is derived from "
+                    "the Task's latest TaskRun."
+                ),
+                null=True,
+                on_delete=models.deletion.SET_NULL,
+                related_name="+",
+                to="tasks.task",
             ),
         ),
     ]

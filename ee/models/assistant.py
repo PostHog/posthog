@@ -102,6 +102,22 @@ class Conversation(UUIDTModel):
         blank=True,
         help_text="Permanent link to current TaskRun for sandbox conversations.",
     )
+    sandbox_task_fk = models.ForeignKey(
+        "tasks.Task",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_index=True,
+        help_text=(
+            "Foreign key to the cloud-agent Task backing this conversation when "
+            "agent_runtime is 'sandbox'. Coexists with the legacy `sandbox_task_id` "
+            "UUID column during the migration to a real FK (the spec name `sandbox_task` "
+            "is reserved until that column is removed — adding it now would collide on "
+            "the FK's auto-generated `sandbox_task_id` attname). One Task per "
+            "conversation; current Run is derived from the Task's latest TaskRun."
+        ),
+    )
     agent_runtime = models.CharField(
         max_length=16,
         choices=AgentRuntime.choices,
@@ -118,10 +134,15 @@ class Conversation(UUIDTModel):
         terminal predecessor would race a stored pointer update; deriving from the data
         closes that hole — ORDER BY created_at DESC LIMIT 1 always picks the most recent
         Run deterministically.
+
+        Prefers the new FK (`sandbox_task_fk`); falls back to the legacy UUID column so
+        existing rows from the Redis-relay flow keep resolving while writers are
+        migrated.
         """
-        if self.sandbox_task_id is None:
+        task_id = self.sandbox_task_fk_id or self.sandbox_task_id
+        if task_id is None:
             return None
-        return TaskRun.objects.filter(task_id=self.sandbox_task_id).order_by("-created_at").first()
+        return TaskRun.objects.filter(task_id=task_id).order_by("-created_at").first()
 
 
 class ConversationCheckpoint(UUIDTModel):
