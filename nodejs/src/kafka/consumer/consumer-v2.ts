@@ -69,9 +69,11 @@ type TaskEntry = {
 
 /**
  * Single-coroutine Kafka consumer. The loop is the only mutator; the rebalance callback
- * just enqueues events. On REVOKE the loop synchronously drains in-flight settle promises
- * (post-storeOffsets, not raw user tasks), bumps `generation` so any laggard task skips
- * its now-invalid storeOffsets, then calls incrementalUnassign.
+ * just enqueues events. On REVOKE the loop drains in-flight settle promises (post-
+ * storeOffsets, not raw user tasks) — tasks that finish within drain still store their
+ * offsets, which librdkafka commits on incrementalUnassign. Only after drain returns do
+ * we bump `generation` so any laggard task (drain timeout case) skips its now-invalid
+ * storeOffsets, then call incrementalUnassign.
  */
 export class KafkaConsumerV2 {
     private rdKafkaConsumer: RdKafkaConsumer
@@ -412,13 +414,18 @@ export class KafkaConsumerV2 {
         }
 
         if (event.type === 'REVOKE') {
-            this.generation++
             logger.info('🔁', 'kafka_consumer_v2_revoke_starting', {
                 inFlight: this.inFlight.length,
                 generation: this.generation,
                 partitions: event.partitions.map((p) => `${p.topic}/${p.partition}`),
             })
+            // Drain BEFORE bumping generation. Tasks that finish within drain see the
+            // current generation, store their offsets, and librdkafka commits them as part
+            // of incrementalUnassign. Bumping after drain still fences any laggard task
+            // that crosses the drain timeout (Node is single-threaded, so the bump + unassign
+            // below run synchronously — no late storeOffsets can sneak in).
             await this.drainAll('revoke')
+            this.generation++
 
             try {
                 if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
