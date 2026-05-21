@@ -75,7 +75,7 @@ def get_partitions(
         partition_query += f" AND partition >= '{start_partition}' AND partition < '{end_partition}'"
 
     partitions_result = cluster.any_host_by_roles(
-        lambda client: client.execute(partition_query), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+        lambda client: client.execute(partition_query), node_roles=[NodeRole.DATA]
     ).result()
     context.log.info(f"Found {len(partitions_result)} partitions for {table_name}: {partitions_result}")
     return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
@@ -95,7 +95,7 @@ def drop_partitions_for_date_range(
 
         try:
             cluster.any_host_by_roles(
-                partial(drop_partition, pid=partition_id), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+                partial(drop_partition, pid=partition_id), node_roles=[NodeRole.DATA]
             ).result()
             context.log.info(f"Dropped partition {partition_id} from {table_name}")
         except Exception as e:
@@ -110,7 +110,7 @@ def sync_partitions_on_replicas(
     context.log.info(f"Syncing replicas for {target_table} on all hosts")
     cluster.map_hosts_by_roles(
         lambda client: client.execute(f"SYSTEM SYNC REPLICA {target_table}"),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ).result()
 
 
@@ -125,7 +125,7 @@ def swap_partitions_from_staging(
 
     for partition_id in staging_partitions:
         cluster.any_host_by_roles(
-            partial(replace_partition, pid=partition_id), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+            partial(replace_partition, pid=partition_id), node_roles=[NodeRole.DATA]
         ).result()
 
 
@@ -146,7 +146,7 @@ def clear_all_staging_partitions(
     for partition_id in all_partitions:
         try:
             cluster.any_host_by_roles(
-                partial(drop_partition, pid=partition_id), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+                partial(drop_partition, pid=partition_id), node_roles=[NodeRole.DATA]
             ).result()
             context.log.info(f"Dropped partition {partition_id} from {staging_table}")
         except Exception as e:
@@ -167,7 +167,7 @@ def recreate_staging_table(
     # woudn't kick in.
     sql_statement = replace_sql_func()
     cluster.map_hosts_by_roles(
-        lambda client: client.execute(sql_statement), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+        lambda client: client.execute(sql_statement), node_roles=[NodeRole.DATA]
     ).result()
 
 
