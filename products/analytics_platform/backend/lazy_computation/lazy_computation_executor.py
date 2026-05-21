@@ -289,10 +289,18 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
 
 
 def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) -> datetime:
-    """Compute the ClickHouse expires_at for a job, accounting for the table's column type."""
+    """Compute the ClickHouse expires_at for a job, accounting for the table's column type.
+
+    ClickHouse evaluates TTL against the real system clock, not any frozen test
+    time. To prevent data from being immediately evicted when tests run with
+    freeze_time (where job.expires_at is anchored to a past date), the buffer is
+    applied on top of the later of job.expires_at and the real current time.
+    """
     assert job.expires_at is not None
     extra_days = 1 if table in _DATE_EXPIRES_AT_TABLES else 0
-    return job.expires_at + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=extra_days)
+    real_now = datetime.now(UTC)
+    base = max(job.expires_at.astimezone(UTC), real_now)
+    return base + timedelta(seconds=EXPIRY_BUFFER_SECONDS, days=extra_days)
 
 
 @dataclass
@@ -1053,6 +1061,72 @@ def ensure_precomputed(
     ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
     executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
+
+
+def read_precomputed_jobs_if_ready(
+    team: Team,
+    insert_query: str,
+    time_range_start: datetime,
+    time_range_end: datetime,
+    ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
+    table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
+    placeholders: dict[str, ast.Expr] | None = None,
+    sentinel_placeholders: set[str] | None = None,
+) -> LazyComputationResult:
+    """Look up existing READY jobs without triggering any INSERTs.
+
+    Returns ready=True with job_ids if all windows are fully covered by READY jobs.
+    Returns ready=False with empty job_ids if any window is missing or only PENDING.
+
+    This is the read-only counterpart to ensure_precomputed — used by the eager
+    precompute path where a Dagster job pre-warms the table and the query path
+    only reads (falling back to ensure_precomputed if a miss occurs).
+    """
+    base_placeholders = placeholders or {}
+    _validate_no_reserved_placeholders(base_placeholders)
+
+    if sentinel_placeholders:
+        missing = sentinel_placeholders - set(base_placeholders)
+        if missing:
+            raise ValueError(
+                f"sentinel_placeholders {missing} must also be present in placeholders "
+                "so real values are available at INSERT time."
+            )
+
+    caller_sentinels: dict[str, ast.Expr] = {
+        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
+    }
+    hash_placeholders: dict[str, ast.Expr] = {
+        **base_placeholders,
+        "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
+        "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+        **caller_sentinels,
+    }
+    parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
+    assert isinstance(parsed_for_hash, ast.SelectQuery)
+
+    query_info = QueryInfo(
+        query=parsed_for_hash,
+        table=table,
+        timezone=team.timezone,
+    )
+    query_hash = compute_query_hash(query_info)
+    ttl_schedule = parse_ttl_schedule(ttl_seconds, team.timezone)
+
+    existing_jobs = find_existing_jobs(team, query_hash, time_range_start, time_range_end)
+
+    executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
+    fresh_jobs = executor._filter_by_freshness(existing_jobs)
+    missing_ranges = find_missing_contiguous_windows(fresh_jobs, time_range_start, time_range_end)
+
+    if missing_ranges:
+        return LazyComputationResult(ready=False, job_ids=[])
+
+    ready_jobs = filter_overlapping_jobs([j for j in fresh_jobs if j.status == PreaggregationJob.Status.READY])
+    if not ready_jobs:
+        return LazyComputationResult(ready=False, job_ids=[])
+
+    return LazyComputationResult(ready=True, job_ids=[j.id for j in ready_jobs])
 
 
 def _build_manual_insert_sql(

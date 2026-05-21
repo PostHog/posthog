@@ -284,6 +284,11 @@ CONSTANCE_CONFIG = {
         "Team IDs enrolled in the web_overview_query lazy precompute path. Admin-controlled rollout gate.",
         list[int],
     ),
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_TEAM_IDS": (
+        get_from_env("WEB_ANALYTICS_EAGER_PRECOMPUTE_TEAM_IDS", default=[], type_cast=list[int]),
+        "Team IDs enrolled in the web_overview_query eager precompute path (Dagster pre-warms, query reads without INSERT).",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -334,6 +339,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_HEDGED_APP_QUERIES",
     "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",
     "WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS",
+    "WEB_ANALYTICS_EAGER_PRECOMPUTE_TEAM_IDS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
