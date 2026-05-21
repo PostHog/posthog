@@ -242,7 +242,7 @@ Direct `git commit` and `git push` commands are blocked in the sandbox to ensure
 
 If an agent attempts to run `git commit` or `git push`, it will see:
 
-```
+```text
 git commit is disabled in PostHog Code: commits must be signed.
 Stage changes with 'git add', then call the git_signed_commit tool.
 ```
