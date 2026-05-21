@@ -1,5 +1,6 @@
-import re
 from typing import Any
+
+import re2
 
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
@@ -109,9 +110,16 @@ def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
     if operator == "not_icontains":
         return _FALSE if str(value).lower() in sn.lower() else _TRUE
     if operator in ("regex", "not_regex"):
+        # RE2 (linear-time, no catastrophic backtracking) — same engine the Node
+        # ingestion worker uses via `tracked-re2`. A project member can pick the
+        # regex operator on the drop-rule form, so a pathological pattern run
+        # through Python's backtracking `re` engine here would be a ReDoS vector
+        # on every Services-tab request.
         try:
-            matched = bool(re.search(str(value), sn, re.IGNORECASE | re.DOTALL))
-        except re.error:
+            # `(?is)` inline flags = case-insensitive + DOTALL, matching the worker's
+            # `re.IGNORECASE | re.DOTALL` and `compileLeafRegex`'s `is` flags.
+            matched = re2.compile(f"(?is){str(value)}").search(sn) is not None
+        except re2.error:
             # Invalid regex: for `regex` it can never match → FALSE.
             # For `not_regex` it trivially never matches → the "not" condition is
             # always satisfied → INDETERMINATE (shown on every service row), which
