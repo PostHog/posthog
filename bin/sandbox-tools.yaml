@@ -41,3 +41,10 @@ tools:
           npm install -g @withgraphite/graphite-cli@stable
       copy:
           - ~/.config/graphite
+
+    - name: metabase
+      description: 'Metabase SSO cookies for the query-clickhouse-via-metabase skill (hogli metabase:*, regions us/eu/dev)'
+      copy:
+          - ~/.config/posthog/metabase/cookie-us
+          - ~/.config/posthog/metabase/cookie-eu
+          - ~/.config/posthog/metabase/cookie-dev
