@@ -260,8 +260,15 @@ describe('createXAxisTickCallback', () => {
     })
 
     describe('fallbacks', () => {
-        it('returns null when allDays is empty, deferring to Chart.js default label rendering', () => {
-            const callback = createXAxisTickCallback({ interval: 'day', allDays: [], timezone: 'UTC' })
+        it.each([
+            { scenario: 'allDays is empty', allDays: [] as (string | number)[] },
+            { scenario: 'allDays contains numbers (non-date axis)', allDays: [1, 2, 3, 4, 5] as (string | number)[] },
+            {
+                scenario: 'allDays contains unparseable date strings',
+                allDays: ['not-a-date'] as (string | number)[],
+            },
+        ])('returns null when $scenario, deferring to Chart.js default label rendering', ({ allDays }) => {
+            const callback = createXAxisTickCallback({ interval: 'day', allDays, timezone: 'UTC' })
             expect(callback).toBeNull()
         })
 
@@ -272,24 +279,6 @@ describe('createXAxisTickCallback', () => {
                 timezone: 'UTC',
             })
             expect(callback?.('some-label', 5)).toBe('some-label')
-        })
-
-        it('returns null when days are numbers (non-date axis)', () => {
-            const callback = createXAxisTickCallback({
-                interval: 'day',
-                allDays: [1, 2, 3, 4, 5],
-                timezone: 'UTC',
-            })
-            expect(callback).toBeNull()
-        })
-
-        it('returns null for unparseable date strings', () => {
-            const callback = createXAxisTickCallback({
-                interval: 'day',
-                allDays: ['not-a-date'],
-                timezone: 'UTC',
-            })
-            expect(callback).toBeNull()
         })
     })
 })
