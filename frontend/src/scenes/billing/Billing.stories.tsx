@@ -6,10 +6,22 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { BillingType } from '~/types'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+
+// Mirrors prod payloads where the billing API omits icon_key — exercises the productType fallback
+// in getProductIcon so each product still renders its own icon.
+const billingJsonWithoutIconKeys: BillingType = {
+    ...billingJson,
+    products: billingJson.products.map((product) => ({
+        ...product,
+        icon_key: null,
+        addons: product.addons.map((addon) => ({ ...addon, icon_key: undefined })),
+    })),
+}
 
 const meta: Meta = {
     title: 'Scenes-Other/Billing',
@@ -145,6 +157,20 @@ export const BillingPurchaseCreditsModal: Story = {
         })
 
         return <PurchaseCreditsModal />
+    },
+}
+
+export const BillingWithoutIconKeys: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJsonWithoutIconKeys,
+                },
+            },
+        })
+
+        return <Billing />
     },
 }
 

@@ -11,13 +11,18 @@ from posthog.schema import (
     EmptyPropertyFilter,
     FlagPropertyFilter,
     HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
     PropertyOperator,
     RetentionEntity,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
     entity_to_expr,
     has_aggregation,
@@ -939,12 +944,13 @@ class TestProperty(BaseTest):
 
     @parameterized.expand(
         [
-            ("event_scope", "event", "person.pdi.distinct_id = 'abc'"),
+            ("event_scope", "event", "distinct_id = 'abc'"),
             ("person_scope", "person", "pdi.distinct_id = 'abc'"),
         ]
     )
     def test_person_distinct_id_property(self, _name, scope, expected_expr):
-        # distinct_id is not stored in person.properties — it's exposed via the pdi lazy join.
+        # distinct_id is not stored in person.properties — it's the events.distinct_id column
+        # in event scope, and reachable via the pdi lazy join in person scope.
         self.assertEqual(
             self._property_to_expr(
                 {"type": "person", "key": "distinct_id", "value": "abc", "operator": "exact"},
@@ -953,9 +959,42 @@ class TestProperty(BaseTest):
             self._parse_expr(expected_expr),
         )
 
+    @parameterized.expand(
+        [
+            ("disabled", PersonsOnEventsMode.DISABLED),
+            ("no_override_props_on_events", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("override_props_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+            ("override_props_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        ]
+    )
+    def test_person_distinct_id_property_resolves_under_all_poe_modes(self, _name, mode):
+        # Regression test for "Field not found: pdi" — previously, the special case for
+        # {type: person, key: distinct_id} routed through events.person.pdi, which broke under
+        # person-on-events modes that rebind events.person to the `poe` virtual table.
+        expr = property_to_expr(
+            {"type": "person", "key": "distinct_id", "value": "abc", "operator": "is_not"},
+            team=self.team,
+            scope="event",
+        )
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=expr,
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team, HogQLQueryModifiers(personsOnEventsMode=mode)),
+        )
+        sql, _ = prepare_and_print_ast(query_ast, context=context, dialect="clickhouse")
+        # Used to raise QueryError("Field not found: pdi") under PoE modes that rebind
+        # events.person to the `poe` virtual table.
+        assert "distinct_id" in sql
+        assert "pdi" not in sql
+
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
-        with patch("posthog.models.Action.objects.get", return_value=action_mock):
+        with patch("products.actions.backend.models.action.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
             result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)
@@ -1126,6 +1165,41 @@ class TestProperty(BaseTest):
                 scope="event",
             ),
             self._parse_expr("distinct_id in ('p3', 'p4')"),
+        )
+
+    def test_property_to_expr_group_key_numeric_value(self):
+        # Group keys ($group_0–$group_4) are string columns. A numeric filter value
+        # would crash ClickHouse with NO_COMMON_TYPE, so it is coerced to a string.
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_0", "value": 13, "operator": "exact"}, scope="event"
+            ),
+            self._parse_expr("$group_0 = '13'"),
+        )
+        # an integer-valued float coerces to the plain integer string (13.0 -> '13')
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_2", "value": 13.0, "operator": "is_not"}, scope="event"
+            ),
+            self._parse_expr("$group_2 != '13'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_0", "value": [13, 14], "operator": "exact"}, scope="event"
+            ),
+            self._parse_expr("$group_0 in ('13', '14')"),
+        )
+        # a string value is unchanged
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_0", "value": "13", "operator": "exact"}, scope="event"
+            ),
+            self._parse_expr("$group_0 = '13'"),
+        )
+        # a non-group-key property is left alone — the coercion is scoped to group keys
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "price", "value": 13, "operator": "exact"}),
+            self._parse_expr("properties.price = 13"),
         )
 
     def test_property_to_expr_event_metadata_invalid_scope(self):

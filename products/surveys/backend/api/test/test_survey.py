@@ -16,15 +16,19 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.test import override_settings
+
 from nanoid import generate
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Action, FeatureFlag, Person, Team
+from posthog.models import FeatureFlag, Insight, Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.actions.backend.models.action import Action
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import nh3_clean_with_allow_list
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
@@ -134,6 +138,178 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
+
+    def test_can_create_survey_with_custom_language_code_translations(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Customer feedback survey",
+                "description": "Help us improve",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "single_choice",
+                        "question": "How satisfied are you?",
+                        "choices": ["Happy", "Unhappy"],
+                        "translations": {
+                            "ro-RO": {
+                                "question": "Cat de multumit esti?",
+                                "choices": ["Multumit", "Nemultumit"],
+                            },
+                            "custom-customer-locale": {
+                                "question": "Custom localized question",
+                                "choices": ["Custom happy", "Custom unhappy"],
+                            },
+                        },
+                    }
+                ],
+                "translations": {
+                    "ro-RO": {
+                        "name": "Sondaj de feedback",
+                        "thankYouMessageHeader": "Multumim!",
+                    },
+                    "custom-customer-locale": {
+                        "name": "Custom localized survey",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        questions = cast(list[dict[str, Any]], survey.questions)
+
+        assert survey.translations is not None
+        assert survey.translations["ro-RO"]["name"] == "Sondaj de feedback"
+        assert survey.translations["custom-customer-locale"]["name"] == "Custom localized survey"
+        assert questions[0]["translations"]["ro-RO"]["question"] == "Cat de multumit esti?"
+        assert questions[0]["translations"]["custom-customer-locale"]["choices"] == [
+            "Custom happy",
+            "Custom unhappy",
+        ]
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_returns_draft_patch(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Customer feedback",
+            type="popover",
+            questions=[
+                {
+                    "id": "question-1",
+                    "type": "rating",
+                    "question": "How satisfied are you?",
+                    "lowerBoundLabel": "Not satisfied",
+                    "upperBoundLabel": "Very satisfied",
+                }
+            ],
+        )
+        mock_generate_survey_translation.return_value = (
+            {"pt-BR": {"name": "Feedback do cliente"}},
+            [{"id": "question-1", "translations": {"pt-BR": {"question": "Quão satisfeito você está?"}}}],
+            ["translations.pt-BR.name", "questions.0.translations.pt-BR.question"],
+            "trace-1",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={
+                "target_language": "pt-BR",
+                "survey": {"name": "Draft feedback", "linked_flag": None, "questions": survey.questions},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["translations"]["pt-BR"]["name"] == "Feedback do cliente"
+        assert response.json()["generated_field_paths"] == [
+            "translations.pt-BR.name",
+            "questions.0.translations.pt-BR.question",
+        ]
+        assert mock_generate_survey_translation.call_args.kwargs["survey"]["name"] == "Draft feedback"
+        assert "linked_flag" not in mock_generate_survey_translation.call_args.kwargs["survey"]
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_requires_ai_data_processing_approval(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        survey = Survey.objects.create(team=self.team, name="Customer feedback", type="popover", questions=[])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={"target_language": "pt-BR"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_generate_survey_translation.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_enforces_object_access_control(self, mock_generate_survey_translation):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        user2 = self._create_user("survey2@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="secret survey",
+            type="popover",
+            questions=[],
+        )
+        AccessControl.objects.create(resource="survey", resource_id=survey.id, team=self.team, access_level="none")
+        mock_generate_survey_translation.return_value = ({}, [], [], "trace-id")
+
+        self.client.force_login(user2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
+            data={
+                "target_language": "pt-BR",
+                "survey": {"name": "Draft", "questions": []},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_generate_survey_translation.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.generate_survey_translation")
+    def test_generate_translations_rejects_cross_organization_survey_id(self, mock_generate_survey_translation):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        other_org = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_org, name="Other team")
+        other_survey = Survey.objects.create(
+            team=other_team,
+            name="foreign survey",
+            type="popover",
+            questions=[],
+        )
+        mock_generate_survey_translation.return_value = ({}, [], [], "trace-id")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{other_survey.id}/generate_translations/",
+            data={
+                "target_language": "pt-BR",
+                "survey": {"name": "Draft", "questions": []},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        mock_generate_survey_translation.assert_not_called()
 
     def test_can_create_survey_without_translations(self):
         response = self.client.post(
@@ -1489,6 +1665,83 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Feature Flag with this ID does not exist" in str(response.json())
 
+    def test_creating_survey_with_linked_insight_from_different_team_returns_400(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_insight = Insight.objects.create(team=other_team, name="other-team-insight", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": other_insight.id,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Insight with this ID does not exist" in str(response.json())
+        assert not Survey.objects.filter(linked_insight_id=other_insight.id).exists()
+
+    def test_updating_survey_with_linked_insight_from_different_team_returns_400(self):
+        own_insight = Insight.objects.create(team=self.team, name="own-insight", created_by=self.user)
+        survey = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": own_insight.id,
+            },
+            format="json",
+        ).json()
+
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_insight = Insight.objects.create(team=other_team, name="other-team-insight", created_by=self.user)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey['id']}/",
+            data={"linked_insight_id": other_insight.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Insight with this ID does not exist" in str(response.json())
+        assert Survey.objects.get(id=survey["id"]).linked_insight_id == own_insight.id
+
+    def test_creating_survey_with_nonexistent_linked_insight_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": 999999,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Insight with this ID does not exist" in str(response.json())
+
+    def test_can_create_survey_with_linked_insight_in_same_team(self):
+        own_insight = Insight.objects.create(team=self.team, name="own-insight", created_by=self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Test Survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "Test?"}],
+                "linked_insight_id": own_insight.id,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert Survey.objects.get(id=response.json()["id"]).linked_insight_id == own_insight.id
+
     def test_deleting_survey_deletes_targeting_flag(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -2142,7 +2395,6 @@ class TestSurvey(APIBaseTest):
                         "deleted": False,
                         "active": False,
                         "ensure_experience_continuity": False,
-                        "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_contexts": [],
@@ -2795,7 +3047,7 @@ class TestSurvey(APIBaseTest):
 
     def test_survey_activity_respects_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -2816,6 +3068,125 @@ class TestSurvey(APIBaseTest):
 
         activity_response = self.client.get(f"/api/projects/{self.team.pk}/surveys/{survey.id}/activity/")
         self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            (
+                "exact match wins over partial matches",
+                ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Weekly Sales", "Unrelated"],
+                "Sales",
+                "Sales",
+                ["Unrelated"],
+            ),
+            (
+                "typo / transposition still matches via trigram",
+                ["Customer feedback", "Unrelated"],
+                "feeback",
+                "Customer feedback",
+                ["Unrelated"],
+            ),
+            (
+                "prefix-as-you-type",
+                ["Marketing survey", "Engineering survey"],
+                "Marke",
+                "Marketing survey",
+                ["Engineering survey"],
+            ),
+            (
+                "case-insensitive: lower",
+                ["NPS Survey", "Engineering survey"],
+                "nps",
+                "NPS Survey",
+                ["Engineering survey"],
+            ),
+            (
+                "case-insensitive: upper",
+                ["NPS Survey", "Engineering survey"],
+                "NPS",
+                "NPS Survey",
+                ["Engineering survey"],
+            ),
+        ]
+    )
+    def test_list_filter_by_search_relevance(self, _name, survey_names, search, expected_first, excluded):
+        for name in survey_names:
+            Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+
+        assert result_names, f"expected at least one match for {search!r}, got nothing"
+        assert result_names[0] == expected_first, f"expected {expected_first!r} first, got {result_names}"
+        for name in excluded:
+            assert name not in result_names, f"expected {name!r} excluded, got {result_names}"
+
+    def test_list_filter_by_search_matches_description_with_lower_rank_than_name(self):
+        name_match = Survey.objects.create(team=self.team, name="revenue", type="popover", questions=[])
+        description_match = Survey.objects.create(
+            team=self.team,
+            name="Q4 review",
+            description="Quarterly revenue survey",
+            type="popover",
+            questions=[],
+        )
+        Survey.objects.create(team=self.team, name="Unrelated", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=revenue")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids[:2] == [str(name_match.id), str(description_match.id)]
+        assert all(r["name"] != "Unrelated" for r in response.json()["results"])
+
+    @parameterized.expand(
+        [
+            ("whitespace-only", "   "),
+            ("empty", ""),
+        ]
+    )
+    def test_list_filter_by_search_blank_returns_all(self, _name, search):
+        a = Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
+        b = Survey.objects.create(team=self.team, name="Beta", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = {r["id"] for r in response.json()["results"]}
+
+        assert {str(a.id), str(b.id)}.issubset(result_ids)
+
+    @parameterized.expand(
+        [
+            ("plain symbols", "&|!"),
+            ("sql-injection-shaped", "'; DROP TABLE--"),
+        ]
+    )
+    def test_list_filter_by_search_pathological_input_does_not_500(self, _name, search):
+        Survey.objects.create(team=self.team, name="Survey overview", type="popover", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_list_filter_by_search_nul_bytes_do_not_500(self):
+        Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": "\x00\x00\x00"})
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("at cap (200)", 200, status.HTTP_200_OK),
+            ("just over cap (201)", 201, status.HTTP_400_BAD_REQUEST),
+            ("very long (10k)", 10_000, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_list_filter_by_search_enforces_length_cap(self, _name, length, expected_status):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/", {"search": "a" * length})
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
+            assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -5034,6 +5405,137 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Available variants: option_1, option_2", error_data["detail"])
 
 
+class TestSurveyQuestionLabels(APIBaseTest):
+    """`surveys/question_labels/` is the slim taxonomy endpoint the frontend uses to
+    resolve `$survey_response_<question-id>` property keys into the actual question
+    text. Regression guard: the viewset's class-level queryset pre-joins several FKs
+    via `select_related`, which silently conflicts with `.only(...)` on those FK
+    columns and raises `FieldError` at iteration time. These tests pin the happy
+    path, the question-shape edge cases, and the team-scoping boundary so that
+    conflict can't sneak back in undetected."""
+
+    def _question_labels(self, team_id: int | None = None):
+        team_id = team_id if team_id is not None else self.team.id
+        return self.client.get(f"/api/projects/{team_id}/surveys/question_labels/")
+
+    def test_returns_question_labels_for_team_surveys(self):
+        # Two surveys, three questions across them — covers the iterator + index logic.
+        Survey.objects.create(
+            team=self.team,
+            name="NPS",
+            created_by=self.user,
+            questions=[
+                {"type": "rating", "id": "q-nps-score", "question": "How likely to recommend?"},
+                {"type": "open", "id": "q-nps-followup", "question": "Why that score?"},
+            ],
+        )
+        Survey.objects.create(
+            team=self.team,
+            name="Feedback",
+            created_by=self.user,
+            questions=[
+                {"type": "open", "id": "q-feedback", "question": "Anything else?"},
+            ],
+        )
+
+        response = self._question_labels()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        labels = response.json()["labels"]
+        self.assertEqual(len(labels), 3)
+
+        by_id = {entry["question_id"]: entry for entry in labels}
+        self.assertEqual(by_id["q-nps-score"]["question_text"], "How likely to recommend?")
+        self.assertEqual(by_id["q-nps-score"]["question_index"], 0)
+        self.assertEqual(by_id["q-nps-score"]["survey_name"], "NPS")
+        self.assertEqual(by_id["q-nps-followup"]["question_index"], 1)
+        self.assertEqual(by_id["q-feedback"]["survey_name"], "Feedback")
+        # Every entry must carry the keys the frontend resolver indexes on — guards
+        # against accidental serializer field removal.
+        for entry in labels:
+            self.assertIn("question_id", entry)
+            self.assertIn("question_text", entry)
+            self.assertIn("question_index", entry)
+            self.assertIn("survey_id", entry)
+            self.assertIn("survey_name", entry)
+
+    def test_skips_questions_without_ids(self):
+        # `Survey.save()` auto-assigns UUIDs via `ensure_question_ids`, so under
+        # normal use every question has an `id`. But manual SQL edits, legacy
+        # rows pre-dating that hook, or `.update(questions=...)` bypass the
+        # hook entirely. The endpoint must drop those rows rather than emit
+        # entries with `question_id: null` (the frontend resolver keys on the
+        # id, so a null id would mask every other row at lookup time).
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Mixed",
+            created_by=self.user,
+            questions=[{"type": "open", "id": "q-with-id", "question": "Has id"}],
+        )
+        Survey.objects.filter(pk=survey.pk).update(
+            questions=[
+                {"type": "open", "id": "q-with-id", "question": "Has id"},
+                {"type": "open", "question": "No id"},
+                {"type": "open", "id": "", "question": "Blank id"},
+            ]
+        )
+
+        response = self._question_labels()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        labels = response.json()["labels"]
+        self.assertEqual([entry["question_id"] for entry in labels], ["q-with-id"])
+
+    def test_returns_empty_for_team_without_surveys(self):
+        response = self._question_labels()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"labels": []})
+
+    def test_does_not_leak_other_team_surveys(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        Survey.objects.create(
+            team=other_team,
+            name="Other team survey",
+            created_by=self.user,
+            questions=[{"type": "open", "id": "q-other-team", "question": "Other team question"}],
+        )
+        Survey.objects.create(
+            team=self.team,
+            name="Mine",
+            created_by=self.user,
+            questions=[{"type": "open", "id": "q-mine", "question": "My question"}],
+        )
+
+        response = self._question_labels()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [entry["question_id"] for entry in response.json()["labels"]]
+        self.assertEqual(ids, ["q-mine"])
+
+    def test_runs_without_select_related_only_conflict(self):
+        # Regression: the viewset's class-level queryset pre-joins `linked_flag`,
+        # `linked_insight`, `targeting_flag`, `internal_targeting_flag` via
+        # `select_related`. Calling `.only("id", "name", "questions")` on top of
+        # that raises `FieldError: Field Survey.linked_flag cannot be both
+        # deferred and traversed using select_related at the same time` the moment
+        # the queryset is iterated. The previous version of this endpoint did
+        # exactly that and returned 500 on every call — silently broken because
+        # the frontend's kea-loaders swallows API errors. This test exists
+        # specifically to fail loudly if anyone re-introduces that conflict.
+        survey = Survey.objects.create(
+            team=self.team,
+            name="With FKs",
+            created_by=self.user,
+            questions=[{"type": "open", "id": "q-fk", "question": "Question with FKs attached"}],
+        )
+        survey.linked_flag = FeatureFlag.objects.create(team=self.team, key="linked", created_by=self.user)
+        survey.targeting_flag = FeatureFlag.objects.create(team=self.team, key="targeting", created_by=self.user)
+        survey.save()
+
+        response = self._question_labels()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        labels = response.json()["labels"]
+        self.assertEqual(len(labels), 1)
+        self.assertEqual(labels[0]["question_id"], "q-fk")
+
+
 class TestExternalSurveyValidation(APIBaseTest):
     """Test external survey specific validation logic"""
 
@@ -5692,3 +6194,185 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(uuid1, uuids)
         self.assertIn(uuid2, uuids)
         self.assertNotIn(uuid3, uuids)
+
+
+class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
+    SURVEY_PAYLOAD = {
+        "name": "Scope warning survey",
+        "type": "popover",
+        "questions": [{"type": "open", "question": "Q?"}],
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+
+    def _warning_events(self, mock_logger):
+        return [
+            call
+            for call in mock_logger.warning.call_args_list
+            if call.args and call.args[0] == "feature_flag_write_via_other_scope"
+        ]
+
+    def _create_survey(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={**self.SURVEY_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def test_create_with_survey_write_only_logs_warning(self):
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        extra = events[0].kwargs
+        assert extra["action"] == "survey.create"
+        assert extra["team_id"] == self.team.id
+        assert extra["scopes"] == ["survey:write"]
+        assert extra["auth_kind"] == "personal_api_key"
+        assert extra["auth_id"] == self.key.id
+        assert extra["user_id"] == self.user.id
+
+    def test_create_with_feature_flag_write_does_not_log(self):
+        self.key.scopes = ["survey:write", "feature_flag:write"]
+        self.key.save()
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []
+
+    def test_create_with_wildcard_scope_does_not_log(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []
+
+    def test_update_payload_only_does_not_log(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey().json()["id"]
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+                data={"name": "renamed"},
+                format="json",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._warning_events(mock_logger) == []
+
+    def test_update_targeting_flag_filters_logs_warning(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey().json()["id"]
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+                data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 75}]}},
+                format="json",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        assert events[0].kwargs["action"] == "survey.update.targeting_flag_filters"
+
+    def test_update_remove_targeting_flag_logs_warning(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey(
+            targeting_flag_filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        ).json()["id"]
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+                data={"remove_targeting_flag": True},
+                format="json",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        assert events[0].kwargs["action"] == "survey.update.remove_targeting_flag"
+
+    def test_destroy_with_targeting_flag_logs_warning(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        create_response = self._create_survey(
+            targeting_flag_filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
+        survey_id = create_response.json()["id"]
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        assert events[0].kwargs["action"] == "survey.destroy"
+
+    def test_destroy_with_only_internal_targeting_flag_logs_warning(self):
+        survey_id = self._create_survey().json()["id"]
+        survey = Survey.objects.get(pk=survey_id)
+        assert survey.targeting_flag_id is None
+        assert survey.internal_targeting_flag_id is not None
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        assert events[0].kwargs["action"] == "survey.destroy"
+        assert events[0].kwargs["feature_flag_id"] == survey.internal_targeting_flag_id
+
+    def test_destroy_without_any_flag_does_not_log(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="No flag",
+            type="popover",
+            questions=[{"type": "open", "question": "Q?"}],
+        )
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._warning_events(mock_logger) == []
+
+    def test_session_auth_does_not_log(self):
+        self.client.force_login(self.user)
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys/",
+                data=self.SURVEY_PAYLOAD,
+                format="json",
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []

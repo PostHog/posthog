@@ -19,7 +19,7 @@ from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
 from django.dispatch import receiver
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -52,6 +52,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.two_factor_session import (
     _obfuscate_token,
     clear_two_factor_session_flags,
@@ -154,11 +155,11 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # This is the default case - for regular login, we flush the session (log out)
         request.session.flush()
     else:
-        # For linking a social provider, we keep the session and set the next URL to the /account/social-connected page
-        # (see frontend AccountSocialConnected). QueryDict must be copied before mutation (GET is often immutable).
+        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+        # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
-            f"/account/social-connected?{urlencode({'provider': backend, 'connect_from': connect_from})}"
+            f"/account-connected/github-login?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
         request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
@@ -445,6 +446,61 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             if e.__class__.__name__ == "AxesBackendPermissionDenied":
                 return axes_locked_out(request)
             raise
+
+
+# Known good emails seeded by setup_dev / generate_demo_data so the frontend can
+# label them. Anything else is shown without a label.
+DEV_LOGIN_KNOWN_EMAIL_LABELS = {
+    "test@posthog.com": "Default test user",
+}
+
+
+class DevLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        write_only=True,
+        help_text="Email of the active user to log in as. Only honored when dev login is allowed (DEBUG and ALLOW_DEV_LOGIN).",
+    )
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        return {"success": True}
+
+    def create(self, validated_data: dict[str, str]) -> Any:
+        if not is_dev_login_allowed():
+            raise Http404()
+
+        request = self.context["request"]
+        try:
+            user = User.objects.get(email__iexact=validated_data["email"], is_active=True)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User not found", code="user_not_found")
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        request.session["reauth"] = "false"
+        request.session.save()
+        report_user_logged_in(user, social_provider="")
+        return user
+
+
+class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    """
+    Dev-only convenience endpoint. Lists active users and lets the login UI
+    one-click sign in as any of them without a password. Returns 404 unless
+    both DEBUG and ALLOW_DEV_LOGIN are enabled.
+    """
+
+    queryset = User.objects.none()
+    serializer_class = DevLoginSerializer
+    permission_classes = (permissions.AllowAny,)
+
+    def list(self, request: Request) -> Response:
+        if not is_dev_login_allowed():
+            raise Http404()
+
+        users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])
+        for entry in users:
+            entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
+
+        return Response({"users": users})
 
 
 class TwoFactorSerializer(serializers.Serializer):

@@ -6,6 +6,8 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
+from products.tasks.backend.metrics import observe_task_run_failed
+
 logger = get_logger(__name__)
 
 
@@ -21,6 +23,9 @@ class TrackWorkflowEventInput:
 def track_workflow_event(input: TrackWorkflowEventInput) -> None:
     """Track workflow-level events to PostHog."""
     try:
+        if input.event_name == "task_run_failed":
+            observe_task_run_failed(input.properties)
+
         posthoganalytics.capture(
             distinct_id=input.distinct_id,
             event=input.event_name,

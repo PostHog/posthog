@@ -1,6 +1,9 @@
 from django.contrib import admin
 
+from posthog.models import DuckLakeCatalog
 
+
+@admin.register(DuckLakeCatalog)
 class DuckLakeCatalogAdmin(admin.ModelAdmin):
     list_display = (
         "id",

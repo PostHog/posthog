@@ -42,10 +42,12 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
             [] as SavedTicketView[],
             {
                 loadViews: async () => {
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(viewsUrl(values.currentTeamId))
                     return response.results
                 },
                 createView: async ({ name, filters }: { name: string; filters: TicketViewFilters }) => {
+                    // nosemgrep: prefer-codegen-api
                     const created: SavedTicketView = await api.create(viewsUrl(values.currentTeamId), {
                         name,
                         filters,
@@ -100,6 +102,7 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
         },
         deleteView: async ({ shortId }) => {
             try {
+                // nosemgrep: prefer-codegen-api
                 await api.delete(`${viewsUrl(values.currentTeamId)}/${shortId}`)
                 lemonToast.success('View deleted')
             } catch {

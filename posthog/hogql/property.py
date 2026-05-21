@@ -43,19 +43,19 @@ from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
-from posthog.models.action.action import ActionStepJSON
+from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
+from products.actions.backend.models.action import Action, ActionStepJSON
 from products.data_warehouse.backend.models import DataWarehouseJoin
 from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -195,6 +195,22 @@ def _wildcard_bounds(value: str) -> tuple[str, str]:
 
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
+
+
+def _stringify_group_key_value(value: object) -> str | list[str]:
+    """Group keys ($group_0–$group_4) are always stored as strings. A numeric filter
+    value would produce equals(<string column>, <number>), which ClickHouse rejects
+    with NO_COMMON_TYPE — so coerce a group-key filter value to its string form."""
+
+    def _scalar(v: object) -> str:
+        # An integer-valued float ('13.0') stringifies to the plain integer ('13')
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    if isinstance(value, list):
+        return [_scalar(v) for v in value]
+    return _scalar(value)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -735,7 +751,7 @@ def property_to_expr(
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
-        return parse_expr(property.key)
+        return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -744,6 +760,8 @@ def property_to_expr(
             if len(property.value) > 1:
                 raise QueryError(f"The '{property.key}' property filter only supports one value in 'group' scope")
             value = property.value[0]
+
+        value = _stringify_group_key_value(value)
 
         # For groups table, $group_N filters should match both index and key
         # index should equal N, and key should match the value
@@ -796,10 +814,21 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
+        if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+            value = _stringify_group_key_value(value)
+
         if property.type == "person" and property.key == "distinct_id":
-            # distinct_id is not stored in person.properties — it lives in the
-            # person_distinct_id2 table and is exposed via the `pdi` lazy join on persons.
-            chain = ["person", "pdi"] if scope != "person" else ["pdi"]
+            # distinct_id is not stored in person.properties.
+            # - In event scope, events.distinct_id is a real column — no join needed.
+            # - In person scope, persons.pdi.distinct_id resolves via the lazy join on persons.
+            # Routing through `events.person.pdi` would break under person-on-events mode,
+            # where `events.person` is rebound to the `poe` virtual table which has no `pdi` field.
+            if scope == "event":
+                chain = []
+            elif scope == "person":
+                chain = ["pdi"]
+            else:
+                chain = ["person", "pdi"]
         elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
@@ -891,7 +920,7 @@ def property_to_expr(
         is_visited_page_property = property.type == "recording" and property.key == "visited_page"
         if is_visited_page_property:
             # Use the all_urls array field to filter for pages visited during recording.
-            all_urls_field = ast.Field(chain=["all_urls"])
+            all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",

@@ -17,12 +17,12 @@ export const HogFlowsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
-    created_at: zod.iso.datetime({}).optional(),
+    created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.number().optional(),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    updated_at: zod.iso.datetime({}).optional(),
+    updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
 
 export const HogFlowsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -47,8 +47,11 @@ export const hogFlowsLogsRetrieveQueryLimitDefault = 50
 export const hogFlowsLogsRetrieveQueryLimitMax = 500
 
 export const HogFlowsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    after: zod.iso.datetime({}).optional().describe('Only return entries after this ISO 8601 timestamp.'),
-    before: zod.iso.datetime({}).optional().describe('Only return entries before this ISO 8601 timestamp.'),
+    after: zod.iso.datetime({ offset: true }).optional().describe('Only return entries after this ISO 8601 timestamp.'),
+    before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return entries before this ISO 8601 timestamp.'),
     instance_id: zod.string().min(1).optional().describe('Filter logs to a specific execution instance.'),
     level: zod
         .string()

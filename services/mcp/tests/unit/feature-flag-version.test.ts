@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockIsFeatureEnabled = vi.fn()
-
 vi.mock('posthog-node', () => ({
     PostHog: vi.fn().mockImplementation(() => ({
         isFeatureEnabled: mockIsFeatureEnabled,
@@ -9,7 +8,7 @@ vi.mock('posthog-node', () => ({
 }))
 
 // Must import after vi.mock
-import { isFeatureFlagEnabled } from '@/lib/analytics'
+import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 
 describe('isFeatureFlagEnabled', () => {
     beforeEach(() => {
@@ -21,7 +20,7 @@ describe('isFeatureFlagEnabled', () => {
 
         const result = await isFeatureFlagEnabled('mcp-version-2', 'user-123')
         expect(result).toBe(true)
-        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('mcp-version-2', 'user-123')
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('mcp-version-2', 'user-123', undefined)
     })
 
     it('should return false when the flag is disabled', async () => {
@@ -43,5 +42,50 @@ describe('isFeatureFlagEnabled', () => {
 
         const result = await isFeatureFlagEnabled('mcp-version-2', 'user-123')
         expect(result).toBe(false)
+    })
+
+    it('should forward groups as options when provided', async () => {
+        mockIsFeatureEnabled.mockResolvedValue(true)
+
+        await isFeatureFlagEnabled('notebooks-collaboration', 'user-123', { organization: 'org-abc' })
+
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('notebooks-collaboration', 'user-123', {
+            groups: { organization: 'org-abc' },
+        })
+    })
+
+    it('should omit the options arg when groups is an empty object', async () => {
+        mockIsFeatureEnabled.mockResolvedValue(true)
+
+        await isFeatureFlagEnabled('flag-x', 'user-123', {})
+
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-x', 'user-123', undefined)
+    })
+})
+
+describe('evaluateFeatureFlags', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+    })
+
+    it('should evaluate multiple flags and forward groups on each call', async () => {
+        mockIsFeatureEnabled.mockImplementation((flagKey: string) => Promise.resolve(flagKey === 'flag-on'))
+
+        const result = await evaluateFeatureFlags(['flag-on', 'flag-off'], 'user-123', { organization: 'org-abc' })
+
+        expect(result).toEqual({ 'flag-on': true, 'flag-off': false })
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-on', 'user-123', {
+            groups: { organization: 'org-abc' },
+        })
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-off', 'user-123', {
+            groups: { organization: 'org-abc' },
+        })
+    })
+
+    it('should short-circuit when no flag keys are requested', async () => {
+        const result = await evaluateFeatureFlags([], 'user-123', { organization: 'org-abc' })
+
+        expect(result).toEqual({})
+        expect(mockIsFeatureEnabled).not.toHaveBeenCalled()
     })
 })

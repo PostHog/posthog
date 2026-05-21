@@ -48,6 +48,87 @@ const MOCK_RECENTS = [
     },
 ]
 
+const MOCK_PRODUCT_RECENTS = [
+    {
+        id: 'pr-1',
+        path: 'Product analytics',
+        type: 'product_analytics',
+        ref: 'product_analytics',
+        href: '/project/2/insights',
+        last_viewed_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+    },
+    {
+        id: 'pr-2',
+        path: 'Web analytics',
+        type: 'web_analytics',
+        ref: 'web_analytics',
+        href: '/project/2/web',
+        last_viewed_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    },
+    {
+        id: 'pr-3',
+        path: 'LLM analytics',
+        type: 'llm_analytics',
+        ref: 'llm_analytics',
+        href: '/project/2/llm-analytics',
+        last_viewed_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
+    },
+    {
+        id: 'pr-4',
+        path: 'Surveys',
+        type: 'surveys',
+        ref: 'surveys',
+        href: '/project/2/surveys',
+        last_viewed_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+    },
+    {
+        id: 'pr-5',
+        path: 'Error tracking',
+        type: 'error_tracking',
+        ref: 'error_tracking',
+        href: '/project/2/error_tracking',
+        last_viewed_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
+    },
+]
+
+const MOCK_PRODUCT_STARRED = [
+    {
+        id: 'st-1',
+        path: 'Session replay',
+        type: 'session_replay',
+        ref: 'session_replay',
+        href: '/project/2/replay',
+    },
+    {
+        id: 'st-2',
+        path: 'Feature flags',
+        type: 'feature_flags',
+        ref: 'feature_flags',
+        href: '/project/2/feature_flags',
+    },
+    {
+        id: 'st-3',
+        path: 'Experiments',
+        type: 'experiments',
+        ref: 'experiments',
+        href: '/project/2/experiments',
+    },
+    {
+        id: 'st-4',
+        path: 'Data warehouse',
+        type: 'data_warehouse',
+        ref: 'data_warehouse',
+        href: '/project/2/data-warehouse',
+    },
+    {
+        id: 'st-5',
+        path: 'Workflows',
+        type: 'workflows',
+        ref: 'workflows',
+        href: '/project/2/workflows',
+    },
+]
+
 const MOCK_SEARCH_RESULTS = {
     results: [
         {
@@ -128,6 +209,41 @@ export const Default: Story = {
     },
     parameters: {
         docs: { description: { story: 'Shows 5 recent items and apps when no search query is entered.' } },
+    },
+}
+
+export const ProductRecentsAndStarred: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/file_system/': (_req, res, ctx) => {
+                    return res(ctx.delay(10), ctx.json(toPaginatedResponse(MOCK_PRODUCT_RECENTS)))
+                },
+                '/api/environments/:team_id/file_system_shortcut/': (_req, res, ctx) => {
+                    return res(ctx.delay(10), ctx.json(toPaginatedResponse(MOCK_PRODUCT_STARRED)))
+                },
+                '/api/environments/:team_id/search/': () => [200, { results: [], counts: {} }],
+                ...SHARED_MOCKS,
+            },
+        })
+
+        return (
+            <SearchContainer>
+                <Search.Root logicKey="storybook-product-recents-starred" isActive showAskAiLink={false}>
+                    <Search.Input autoFocus />
+                    <Search.Separator />
+                    <Search.Results />
+                    <Search.Footer />
+                </Search.Root>
+            </SearchContainer>
+        )
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Recents and starred entries whose `type` matches an entry in `availableOnboardingProducts` render with the manifest brand colour (e.g. green for web analytics, purple for LLM analytics) instead of falling back to `currentColor`. Demonstrates the fix for product icons in recents/starred shortcuts.',
+            },
+        },
     },
 }
 

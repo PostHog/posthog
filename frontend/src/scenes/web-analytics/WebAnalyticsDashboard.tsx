@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
@@ -27,7 +27,6 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { BotDetail } from 'scenes/web-analytics/BotDetail'
 import {
     ProductTab,
     QueryTile,
@@ -44,6 +43,7 @@ import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAna
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 
@@ -52,10 +52,13 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { BotAnalyticsFilters } from './BotAnalyticsFilters'
+import { botAnalyticsLogic } from './botAnalyticsLogic'
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
+import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
-import { BotAnalyticsFilters, WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -70,7 +73,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                'mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
             data-attr="web-analytics-dashboard"
@@ -137,9 +140,9 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? 'md:col-span-6',
+                layout.colSpanClassName ?? 'md:col-span-1',
                 layout.rowSpanClassName ?? 'md:row-span-1',
-                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                layout.orderWhenLargeClassName ?? '2xl:order-12',
                 layout.className
             )}
         >
@@ -178,7 +181,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 'col-span-1 row-span-1',
                 layout.colSpanClassName || 'md:col-span-1',
                 layout.rowSpanClassName || 'md:row-span-1',
-                layout.orderWhenLargeClassName || 'xxl:order-12',
+                layout.orderWhenLargeClassName || '2xl:order-12',
                 layout.className
             )}
             activeTabId={tile.activeTabId}
@@ -424,7 +427,7 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
 }
 
 const MainContent = (): JSX.Element => {
-    const { productTab, botDetailName } = useValues(webAnalyticsLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
 
     if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
@@ -438,25 +441,31 @@ const MainContent = (): JSX.Element => {
         return <LiveWebAnalyticsMetrics />
     }
 
-    if (productTab === ProductTab.BOT_ANALYTICS && botDetailName) {
-        return <BotDetail />
-    }
-
     if (productTab === ProductTab.BOT_ANALYTICS) {
-        return (
-            <>
-                <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
-                    Bot detection is based on user agent pattern matching. Events with no user agent are excluded from
-                    these results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events —
-                    most bots don't execute JavaScript, so client-side tracking alone misses the majority of crawler
-                    traffic.
-                </LemonBanner>
-                <Tiles />
-            </>
-        )
+        return <BotAnalyticsTiles />
     }
 
     return <Tiles />
+}
+
+const BotAnalyticsTiles = (): JSX.Element => {
+    // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
+    useMountedLogic(botAnalyticsLogic)
+    const { tiles } = useValues(botAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const showLiveTiles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]
+
+    return (
+        <>
+            <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
+                Bot detection is based on user agent pattern matching. Events with no user agent are excluded from these
+                results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
+                don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
+            </LemonBanner>
+            {showLiveTiles && <LiveBotTiles />}
+            <Tiles tiles={tiles} />
+        </>
+    )
 }
 
 const HealthTabLabel = (): JSX.Element => {
@@ -496,14 +505,7 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     return [
         {
             key: ProductTab.LIVE,
-            label: (
-                <div className="flex items-center gap-1">
-                    Live
-                    <LemonTag type="highlight" className="uppercase">
-                        Alpha
-                    </LemonTag>
-                </div>
-            ),
+            label: 'Live',
             link: '/web/live',
         },
     ]
@@ -521,9 +523,9 @@ const botAnalyticsTab = (
             key: ProductTab.BOT_ANALYTICS,
             label: (
                 <div className="flex items-center gap-1">
-                    Bot analytics
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
+                    Bots
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
                     </LemonTag>
                 </div>
             ),
@@ -560,6 +562,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
@@ -575,6 +578,11 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             </BindLogic>
         </BindLogic>
     )
+}
+
+const WebAnalyticsLoadTimeTracker = (): null => {
+    useMountedLogic(webAnalyticsLoadTimeLogic)
+    return null
 }
 
 const WebAnalyticsTabs = (): JSX.Element => {
@@ -634,21 +642,10 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                {
-                    key: ProductTab.PAGE_REPORTS,
-                    label: (
-                        <div className="flex items-center gap-1">
-                            Page reports
-                            <LemonTag type="warning" className="uppercase">
-                                Beta
-                            </LemonTag>
-                        </div>
-                    ),
-                    link: '/web/page-reports',
-                },
+                { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
                 ...liveTab(featureFlags),
-                ...healthTab(featureFlags),
                 ...botAnalyticsTab(featureFlags),
+                ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"

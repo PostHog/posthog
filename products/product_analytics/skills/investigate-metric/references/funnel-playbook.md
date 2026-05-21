@@ -48,7 +48,7 @@ diff — users present in the first but not the second are the drop-offs.
 
 ## 4. Errors / logs
 
-Filter `posthog:error-tracking-issues-list` and `posthog:query-logs` to the surface
+Filter `posthog:query-error-tracking-issues-list` and `posthog:query-logs` to the surface
 where step N lives — a 500 on the submit endpoint can plausibly cause failures; a
 console warning elsewhere usually can't.
 

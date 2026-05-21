@@ -411,3 +411,134 @@ class TestTiptapDocToText(SimpleTestCase):
         assert "# Report" in result
         assert "Summary below." in result
         assert "- item" in result
+
+    def test_ph_query_node_with_stringified_query(self):
+        # Some persisted notebooks store `attrs.query` as a JSON-encoded string rather than a dict.
+        # The formatter must parse it instead of crashing with AttributeError.
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "title": "Pages les plus touchées",
+                        "query": '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}',
+                    },
+                }
+            ],
+        }
+        result = tiptap_doc_to_text(doc)
+        assert '<insight title="Pages les plus touchées"' in result
+        assert 'query_kind="InsightVizNode"' in result
+        assert 'source_kind="TrendsQuery"' in result
+
+    def test_ph_query_node_with_unparseable_query_string(self):
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {"title": "Broken", "query": "not-json"},
+                }
+            ],
+        }
+        result = tiptap_doc_to_text(doc)
+        assert '<insight title="Broken"' in result
+        assert 'query_kind="unknown"' in result
+        assert "source_kind=" not in result
+
+    def test_ph_query_node_with_string_source(self):
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "title": "Edgy",
+                        "query": {"kind": "InsightVizNode", "source": "TrendsQuery"},
+                    },
+                }
+            ],
+        }
+        result = tiptap_doc_to_text(doc)
+        assert 'query_kind="InsightVizNode"' in result
+        assert "source_kind=" not in result
+
+    def test_ph_query_node_missing_attrs(self):
+        doc = {"type": "doc", "content": [{"type": "ph-query"}]}
+        result = tiptap_doc_to_text(doc)
+        assert '<insight title="Untitled"' in result
+        assert 'query_kind="unknown"' in result
+
+    @parameterized.expand(
+        [
+            ("string_node", "stray string"),
+            ("none_node", None),
+            ("number_node", 42),
+            ("list_node", ["unexpected"]),
+        ]
+    )
+    def test_non_dict_top_level_node_is_skipped(self, _name, bad_node):
+        doc = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "before"}]},
+                bad_node,
+                {"type": "paragraph", "content": [{"type": "text", "text": "after"}]},
+            ],
+        }
+        result = tiptap_doc_to_text(doc)
+        assert "before" in result
+        assert "after" in result
+
+    def test_non_dict_inline_node_is_skipped(self):
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "kept"},
+                        "stray inline string",
+                        {"type": "text", "text": " also kept"},
+                    ],
+                },
+            ],
+        }
+        result = tiptap_doc_to_text(doc)
+        assert result == "kept also kept"
+
+    def test_non_dict_list_item_is_skipped(self):
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        "stray",
+                        {
+                            "type": "listItem",
+                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "real"}]}],
+                        },
+                    ],
+                }
+            ],
+        }
+        result = tiptap_doc_to_text(doc)
+        assert "- real" in result
+
+    def test_string_attrs_are_coerced_or_ignored(self):
+        # Even if `attrs` itself is a string, we should not crash.
+        doc = {
+            "type": "doc",
+            "content": [
+                {"type": "ph-recording", "attrs": "not-a-dict"},
+                {
+                    "type": "ph-recording",
+                    "attrs": '{"id": "sess-json"}',
+                },
+            ],
+        }
+        result = tiptap_doc_to_text(doc)
+        assert '<session_replay id="unknown" />' in result
+        assert '<session_replay id="sess-json" />' in result

@@ -15,11 +15,13 @@ import {
 } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { createElement } from 'react'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -27,7 +29,7 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { slugify } from 'lib/utils'
+import { objectsEqual, slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -336,27 +338,21 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
+// Reverse of `variantKeyToIndexFeatureFlagPayloads`: converts form-state payloads
+// (keyed by variant index) back to API-shape payloads (keyed by variant key).
+// Inputs MUST be index-keyed — passing variant-key-keyed payloads here will drop them.
+// This matters when variant keys are numeric strings (e.g. "0", "1"), which would
+// otherwise collide with index keys.
 export const convertIndexBasedPayloadsToVariantKeys = (
     variants: MultivariateFlagVariant[] = [],
-    payloads?: Record<string | number, JsonType>
+    payloads?: Record<number, JsonType>
 ): Record<string, JsonType> => {
     const newPayloads: Record<string, JsonType> = {}
-    const variantKeys = new Set(variants.map(({ key }) => key))
 
-    Object.entries(payloads || {}).forEach(([payloadKey, payloadValue]) => {
-        if (variantKeys.has(payloadKey)) {
-            newPayloads[payloadKey] = payloadValue
-            return
-        }
-
-        const payloadIndex = Number(payloadKey)
-        if (!Number.isInteger(payloadIndex) || String(payloadIndex) !== payloadKey) {
-            return
-        }
-
-        const variantKey = variants[payloadIndex]?.key
-        if (variantKey && newPayloads[variantKey] === undefined) {
-            newPayloads[variantKey] = payloadValue
+    variants.forEach((variant, index) => {
+        const payload = payloads?.[index]
+        if (payload !== undefined && variant.key) {
+            newPayloads[variant.key] = payload
         }
     })
 
@@ -633,6 +629,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             isBeingDisabled?: boolean
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
+        saveTagsInline: (tags: string[]) => ({ tags }),
         // V2 form UI actions
         setShowImplementation: (show: boolean) => ({ show }),
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
@@ -1794,7 +1791,31 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            scrollToFormError()
+            // Collapsed LemonCollapse panels don't render their children, so any inline error
+            // and its `.Field--error` scroll target won't exist in the DOM until the panel is open.
+            const formErrors = values.featureFlagErrors as DeepPartialMap<FeatureFlagType, ValidationErrorType>
+            const filtersErrors = formErrors?.filters as any
+            const variantErrorsList = filtersErrors?.multivariate?.variants as
+                | Array<{ key?: string } | undefined>
+                | undefined
+            const variantKeysWithErrors =
+                variantErrorsList
+                    ?.map((err, index) => (err?.key ? `variant-${index}` : null))
+                    .filter((key): key is string => key !== null) ?? []
+            if (variantKeysWithErrors.length) {
+                actions.setOpenVariants(Array.from(new Set([...values.openVariants, ...variantKeysWithErrors])))
+            }
+            if (filtersErrors?.payloads?.true && !values.payloadExpanded) {
+                actions.setPayloadExpanded(true)
+            }
+            // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
+            // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
+            // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
+            // fires instead of scrolling to the error.
+            await Promise.resolve()
+            scrollToFormError({
+                fallbackErrorMessage: 'This flag has validation errors. Please review the highlighted fields above.',
+            })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
@@ -1805,6 +1826,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
+            tryShowMCPHint(props.id === 'new' ? 'feature_flags.create' : 'feature_flags.update')
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
@@ -1925,6 +1947,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const templateGroups = templateValues.filters?.groups ?? []
             const mergedGroups = defaultGroups.length > 0 ? [...defaultGroups, ...templateGroups] : templateGroups
 
+            const leavingRemoteConfigEncrypted =
+                values.featureFlag.is_remote_configuration === true &&
+                templateValues.is_remote_configuration === false &&
+                values.featureFlag.has_encrypted_payloads === true
+
             actions.setFeatureFlag({
                 ...values.featureFlag,
                 ...templateValues,
@@ -1934,6 +1961,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     groups: mergedGroups,
                 },
             } as FeatureFlagType)
+
+            if (leavingRemoteConfigEncrypted) {
+                // Leaving remote config: the backend invariant requires
+                // has_encrypted_payloads=true only on remote config flags,
+                // and the prior ciphertext is no longer valid.
+                actions.resetEncryptedPayload()
+            }
 
             actions.setTemplateExpanded(false)
             actions.applyUrlTemplate(templateId)
@@ -2085,6 +2119,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                     {}
                 )
+            } else if (values.featureFlag.has_encrypted_payloads) {
+                // Leaving remote config: the backend invariant requires
+                // has_encrypted_payloads=true only on remote config flags,
+                // and the prior ciphertext is no longer valid.
+                actions.resetEncryptedPayload()
             }
         },
         saveDescriptionInline: async ({ name }) => {
@@ -2101,6 +2140,52 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 lemonToast.success('Description saved')
             } catch {
                 lemonToast.error('Failed to save description')
+            }
+        },
+        saveTagsInline: async ({ tags }, breakpoint) => {
+            const flag = values.featureFlag
+            if (!flag.id) {
+                return
+            }
+            // Optimistic update applies immediately on every call so the chips reflect the
+            // user's intent without waiting for the API.
+            const previousTags = flag.tags
+            actions.setFeatureFlag({ ...flag, tags })
+            actions.updateFlag({ ...flag, tags })
+
+            // Debounce — rapid changes (e.g. quickly removing several chips) collapse into a
+            // single API call with the final tag set. Without this, overlapping requests
+            // can land out-of-order and stomp the latest local state when their responses
+            // resolve.
+            await breakpoint(250)
+
+            try {
+                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                    tags,
+                })
+                // If the listener has been invoked again since this await started, bail out
+                // — the newer call owns reconciliation.
+                breakpoint()
+
+                // Reconcile with server only if the *set* of tags differs (e.g. server-side
+                // normalization added/removed a tag). Avoid blindly overwriting — the
+                // server may return tags in a different order which would re-shuffle chips.
+                const localSet = new Set(tags)
+                const serverTags = savedFlag.tags ?? []
+                const serverSet = new Set(serverTags)
+                const setsEqual = localSet.size === serverSet.size && tags.every((t) => serverSet.has(t))
+                if (!setsEqual) {
+                    actions.setFeatureFlag({ ...flag, tags: serverTags })
+                    actions.updateFlag({ ...flag, tags: serverTags })
+                }
+            } catch (error: any) {
+                // Re-throw breakpoint cancellation so kea swallows it silently.
+                if (error?.isBreakpoint) {
+                    throw error
+                }
+                actions.setFeatureFlag({ ...flag, tags: previousTags })
+                actions.updateFlag({ ...flag, tags: previousTags })
+                lemonToast.error('Failed to save tags')
             }
         },
         editFeatureFlag: async ({ editing }) => {
@@ -2179,6 +2264,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     })),
     selectors({
         props: [() => [(_, props) => props], (props) => props],
+        hasUnsavedChanges: [
+            (s) => [s.featureFlag, s.originalFeatureFlag],
+            (featureFlag, originalFeatureFlag): boolean => {
+                if (!originalFeatureFlag) {
+                    // New flag — compare against form defaults via featureFlagChanged instead
+                    return false
+                }
+                const currentCleaned = indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag))
+                return !objectsEqual(currentCleaned, originalFeatureFlag)
+            },
+        ],
+        isFormDirty: [
+            (s) => [s.originalFeatureFlag, s.hasUnsavedChanges, s.featureFlagChanged],
+            (originalFeatureFlag, hasUnsavedChanges, featureFlagChanged): boolean =>
+                // Existing flags compare against server state; new flags fall back to the
+                // form-defaults check from kea-forms (NEW_FLAG would otherwise always read dirty).
+                originalFeatureFlag ? hasUnsavedChanges : featureFlagChanged,
+        ],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         flagType: [
             (s) => [s.featureFlag],
@@ -2511,6 +2614,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method, initial }) => {
+            // Don't disturb in-progress edits when a same-pathname PUSH slips through
+            // (e.g. the beforeUnload prompt was shown and cancelled, but the route still
+            // reaches this handler). This must run before `editFeatureFlag` is dispatched,
+            // because its listener calls `loadFeatureFlag()` whenever `editing === true` —
+            // which would wipe the form on any re-push carrying `?edit=true`.
+            // The `initial` mount must still run so first-load setup happens.
+            if (method === 'PUSH' && values.isFormDirty) {
+                return
+            }
+
             // Set editing state on initial mount or PUSH navigation
             if (method === 'PUSH' || initial) {
                 actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
@@ -2556,6 +2669,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
     })),
+
+    // TODO(#58936): this block is missing the scene-tab-cache guard that
+    // `actionEditLogic.tsx` (L305-332) uses, so the prompt can fire twice on tab
+    // switches. Fix requires making this scene tab-aware (`/making-scenes-tab-aware`).
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            if (!logic.values.isFormDirty) {
+                return false
+            }
+
+            // Ignore in-page URL updates such as opening the side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+
+            return true
+        },
+        message: 'Leave feature flag?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            logic.actions.resetFeatureFlag((logic.values.originalFeatureFlag as any) ?? undefined)
+        },
+    })),
+
     afterMount(({ props, actions }) => {
         // Open the History tab when deep-linking to a specific activity item on initial page load
         if (router.values.searchParams.activity != null) {

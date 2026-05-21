@@ -37,21 +37,20 @@ AI-generated summary of pass/fail/N/A patterns across many runs.
 
 ## Tools
 
-| Tool                                              | Purpose                                                        |
-| ------------------------------------------------- | -------------------------------------------------------------- |
-| `posthog:evaluations-get`                         | List/search evaluation configs (filter by name, enabled flag)  |
-| `posthog:evaluation-get`                          | Get a single evaluation config by UUID                         |
-| `posthog:evaluation-create`                       | Create a new `llm_judge` or `hog` evaluation                   |
-| `posthog:evaluation-update`                       | Update an existing evaluation (name, prompt, enabled, …)       |
-| `posthog:evaluation-delete`                       | Soft-delete an evaluation                                      |
-| `posthog:evaluation-run`                          | Run an evaluation against a specific `$ai_generation` event    |
-| `posthog:evaluation-test-hog`                     | Dry-run Hog source against recent generations (no save)        |
-| `posthog:llm-analytics-evaluation-summary-create` | AI-powered summary of pass/fail/N/A patterns across runs       |
-| `posthog:execute-sql`                             | Ad-hoc HogQL over `$ai_evaluation` events                      |
-| `posthog:query-llm-trace`                         | Drill into the underlying generation that an evaluation scored |
+| Tool                                     | Purpose                                                        |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| `posthog:llma-evaluation-list`           | List/search evaluation configs (filter by name, enabled flag)  |
+| `posthog:llma-evaluation-get`            | Get a single evaluation config by UUID                         |
+| `posthog:llma-evaluation-create`         | Create a new `llm_judge` or `hog` evaluation                   |
+| `posthog:llma-evaluation-update`         | Update an existing evaluation (name, prompt, enabled, …)       |
+| `posthog:llma-evaluation-delete`         | Soft-delete an evaluation                                      |
+| `posthog:llma-evaluation-run`            | Run an evaluation against a specific `$ai_generation` event    |
+| `posthog:llma-evaluation-test-hog`       | Dry-run Hog source against recent generations (no save)        |
+| `posthog:llma-evaluation-summary-create` | AI-powered summary of pass/fail/N/A patterns across runs       |
+| `posthog:execute-sql`                    | Ad-hoc HogQL over `$ai_evaluation` events                      |
+| `posthog:query-llm-trace`                | Drill into the underlying generation that an evaluation scored |
 
-The first seven `evaluation-*` tools are hand-coded; `llm-analytics-evaluation-summary-create`
-is generated from `products/llm_analytics/mcp/tools.yaml`.
+All `llma-evaluation-*` tools are defined in `products/llm_analytics/mcp/tools.yaml`.
 
 ## Event schema
 
@@ -78,7 +77,7 @@ when you eventually go to fix the evaluator (edit the prompt vs. edit the Hog so
 ### Step 1 — Find the evaluation
 
 ```json
-posthog:evaluations-get
+posthog:llma-evaluation-list
 { "search": "hallucination", "enabled": true }
 ```
 
@@ -93,7 +92,7 @@ before assuming the failure is in the generation.
 ### Step 2 — Get the AI-generated summary
 
 ```json
-posthog:llm-analytics-evaluation-summary-create
+posthog:llma-evaluation-summary-create
 {
   "evaluation_id": "<uuid>",
   "filter": "fail"
@@ -115,7 +114,7 @@ Pass `force_refresh: true` to recompute.
 **Compare filters in two calls** to spot what's distinctive about failures vs passes:
 
 ```json
-posthog:llm-analytics-evaluation-summary-create
+posthog:llma-evaluation-summary-create
 { "evaluation_id": "<uuid>", "filter": "pass" }
 ```
 
@@ -168,7 +167,7 @@ Use this when the user pastes a trace/generation URL and asks "what would evalua
 say about this?".
 
 ```json
-posthog:evaluation-run
+posthog:llma-evaluation-run
 {
   "evaluationId": "<eval_uuid>",
   "target_event_id": "<generation_event_uuid>",
@@ -185,10 +184,10 @@ Pass `distinct_id` if you have it — it speeds up the lookup further.
 ### Hog evaluator (deterministic, code-based)
 
 Reach for this first when the criterion is rule-based — it's cheaper, faster, and
-reproducible. Prototype with `evaluation-test-hog` (no save):
+reproducible. Prototype with `llma-evaluation-test-hog` (no save):
 
 ```json
-posthog:evaluation-test-hog
+posthog:llma-evaluation-test-hog
 {
   "source": "return event.properties.$ai_output_choices[1].content contains 'sorry';",
   "sample_count": 5,
@@ -198,10 +197,10 @@ posthog:evaluation-test-hog
 
 The handler returns the boolean result for each of the most recent N `$ai_generation`
 events. Iterate on the source until it behaves as expected, then promote it via
-`evaluation-create`:
+`llma-evaluation-create`:
 
 ```json
-posthog:evaluation-create
+posthog:llma-evaluation-create
 {
   "name": "Output is valid JSON",
   "description": "Fails when the assistant message can't be parsed as JSON",
@@ -222,14 +221,14 @@ trivially diff-able.
 ### LLM-judge evaluator (subjective, prompt-based)
 
 Use this when the criterion is fuzzy and a code rule would be brittle (tone, factuality,
-helpfulness, on-topic-ness). There's no equivalent of `evaluation-test-hog` for LLM
+helpfulness, on-topic-ness). There's no equivalent of `llma-evaluation-test-hog` for LLM
 judges — the typical loop is to create the evaluator with `enabled: false`, run it
-manually against a handful of representative generations via `evaluation-run`, inspect
-the results, refine the prompt with `evaluation-update`, and then flip `enabled: true`
+manually against a handful of representative generations via `llma-evaluation-run`, inspect
+the results, refine the prompt with `llma-evaluation-update`, and then flip `enabled: true`
 when you're satisfied:
 
 ```json
-posthog:evaluation-create
+posthog:llma-evaluation-create
 {
   "name": "Response stays on-topic",
   "description": "LLM judge — fails if the assistant changes topic from the user's question",
@@ -250,7 +249,7 @@ posthog:evaluation-create
 Then dry-run against a known-good and a known-bad generation:
 
 ```json
-posthog:evaluation-run
+posthog:llma-evaluation-run
 {
   "evaluationId": "<new_eval_uuid>",
   "target_event_id": "<generation_uuid>",
@@ -262,18 +261,18 @@ LLM judges require organisation AI data processing approval. Hog evaluators do n
 
 ## Workflow: manage the evaluation lifecycle
 
-| Action                     | Tool                                                                                                             |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Add a Hog evaluator        | `evaluation-create` with `evaluation_type: "hog"` and `evaluation_config.source`                                 |
-| Add an LLM-judge evaluator | `evaluation-create` with `evaluation_type: "llm_judge"`, `evaluation_config.prompt`, and a `model_configuration` |
-| Tweak the source or prompt | `evaluation-update` (edits `evaluation_config.source` for Hog, `evaluation_config.prompt` for LLM judge)         |
-| Toggle N/A handling        | `evaluation-update` with `output_config.allows_na`                                                               |
-| Disable temporarily        | `evaluation-update` with `enabled: false`                                                                        |
-| Remove                     | `evaluation-delete` (soft-delete via PATCH `{deleted: true}`)                                                    |
+| Action                     | Tool                                                                                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Add a Hog evaluator        | `llma-evaluation-create` with `evaluation_type: "hog"` and `evaluation_config.source`                                 |
+| Add an LLM-judge evaluator | `llma-evaluation-create` with `evaluation_type: "llm_judge"`, `evaluation_config.prompt`, and a `model_configuration` |
+| Tweak the source or prompt | `llma-evaluation-update` (edits `evaluation_config.source` for Hog, `evaluation_config.prompt` for LLM judge)         |
+| Toggle N/A handling        | `llma-evaluation-update` with `output_config.allows_na`                                                               |
+| Disable temporarily        | `llma-evaluation-update` with `enabled: false`                                                                        |
+| Remove                     | `llma-evaluation-delete` (soft-delete via PATCH `{deleted: true}`)                                                    |
 
 `llm_judge` evaluations require AI data processing approval at the org level
 (`is_ai_data_processing_approved`). The same gate applies to
-`llm-analytics-evaluation-summary-create`. Hog evaluations do **not** require this gate
+`llma-evaluation-summary-create`. Hog evaluations do **not** require this gate
 — they run as plain code on the ingestion pipeline.
 
 ## When to use Hog vs LLM judge
@@ -303,10 +302,10 @@ identical.
 
 ### "Why is evaluation X suddenly failing more?"
 
-1. `evaluations-get` — confirm the evaluation is still enabled and unchanged
+1. `llma-evaluation-list` — confirm the evaluation is still enabled and unchanged
    (compare `evaluation_config.source` or `evaluation_config.prompt` to the version you
    expect)
-2. `llm-analytics-evaluation-summary-create` with `filter: "fail"` — get the dominant
+2. `llma-evaluation-summary-create` with `filter: "fail"` — get the dominant
    failure patterns and example IDs
 3. SQL count of fails per day to confirm the regression window:
 
@@ -328,19 +327,19 @@ identical.
 1. Generate two summaries: one with `filter: "pass"`, one with `filter: "fail"`
 2. If `pass_patterns` and `fail_patterns` describe similar content:
    - For an `llm_judge`: the prompt or rubric is probably ambiguous — reword
-     `evaluation_config.prompt` and use `evaluation-update`
+     `evaluation_config.prompt` and use `llma-evaluation-update`
    - For a `hog` evaluator: the rule is probably under- or over-matching — read the
-     source via `evaluation-get`, narrow the predicate, and retest with
-     `evaluation-test-hog` before pushing the fix via `evaluation-update`
+     source via `llma-evaluation-get`, narrow the predicate, and retest with
+     `llma-evaluation-test-hog` before pushing the fix via `llma-evaluation-update`
 
 ### "Did a Hog evaluator regression after a code change?"
 
 Hog evaluators are reproducible — if the source hasn't changed, identical inputs should
 yield identical outputs. When fail rates jump for a Hog evaluator:
 
-1. `evaluation-get` — note the current source and `updated_at`
+1. `llma-evaluation-get` — note the current source and `updated_at`
 2. Spot-check the latest failing runs with the SQL query from Step 4 above
-3. Re-run the source against those exact generations using `evaluation-test-hog` with a
+3. Re-run the source against those exact generations using `llma-evaluation-test-hog` with a
    modified `conditions` filter that targets them
 4. If the test results match the live results, the change is in the _generations_, not
    the evaluator (a model upgrade, prompt change upstream, etc.) — investigate the
@@ -351,7 +350,7 @@ yield identical outputs. When fail rates jump for a Hog evaluator:
 ### "What kinds of generations does this evaluator skip as N/A?"
 
 ```json
-posthog:llm-analytics-evaluation-summary-create
+posthog:llma-evaluation-summary-create
 { "evaluation_id": "<uuid>", "filter": "na" }
 ```
 
@@ -365,7 +364,7 @@ pattern in `na_patterns` looks like something that should have been scored:
 
 ### "Score this single generation right now"
 
-`evaluation-run` with the trace's generation ID and timestamp. Useful for spot-checking
+`llma-evaluation-run` with the trace's generation ID and timestamp. Useful for spot-checking
 or wiring evaluations into a larger agent loop.
 
 ## Constructing UI links
@@ -384,15 +383,14 @@ Always surface the relevant link so the user can verify in the UI.
 - Pass `generation_ids: [...]` to scope a summary to a specific cohort of runs (max 250)
 - The `statistics` block in the summary response is computed from raw data, not the LLM
   — trust those counts even if a pattern's `frequency` field is qualitative
-- For rich filtering not supported by `evaluations-get` (e.g. by author or model
+- For rich filtering not supported by `llma-evaluation-list` (e.g. by author or model
   configuration), fall back to `execute-sql` against the `evaluations` Postgres table or
   the `$ai_evaluation` ClickHouse events
 - When showing failure patterns to the user, always include 1-2 example trace links so
   they can validate the pattern visually
-- Hand-coded `evaluation-*` tools and the codegen `llm-analytics-evaluation-summary-create`
-  share the same scope object (`llm_analytics`) — `evaluation:read` for read tools,
-  `evaluation:write` for mutating tools, and `llm_analytics:write` for the summary tool
-- Hog evaluators are reproducible — if you suspect a regression, `evaluation-test-hog`
+- `llma-evaluation-*` tools use `evaluation:read` for read tools and `evaluation:write` for
+  mutating tools; `llma-evaluation-summary-create` uses `llm_analytics:write`
+- Hog evaluators are reproducible — if you suspect a regression, `llma-evaluation-test-hog`
   with the suspect source against the failing generations is the fastest way to bisect
   whether the change is in the evaluator or in the producer of the generations
 - LLM-judge evaluators are non-deterministic across reruns; expect 1-5% noise even with

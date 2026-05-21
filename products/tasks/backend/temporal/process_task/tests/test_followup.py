@@ -119,7 +119,7 @@ class TestFollowupDeliveryFailure:
     async def test_failed_followup_marks_run_as_failed_promptly(self):
         """The workflow must exit its main loop and mark the run as failed
         within seconds when a followup delivery fails — not after the
-        5-minute inactivity timeout."""
+        2-hour inactivity timeout."""
         _status_updates.clear()
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -338,12 +338,12 @@ class TestCIFollowUpLoop:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(hours=2),
+                    execution_timeout=timedelta(hours=3),
                 )
                 # With CI gated off, the inactivity timer stays at its default
-                # 5m and is not extended to cover CI_FOLLOW_UP_DELAY (15m). The
-                # workflow therefore terminates via inactivity well before the
-                # CI deadline — which itself proves no follow-up could fire.
+                # 2h and is not extended to cover CI_FOLLOW_UP_DELAY (15m). No
+                # CI follow-up scheduler is armed, so the workflow terminates
+                # via inactivity — which itself proves no follow-up could fire.
                 await handle.result()
 
         assert _ci_followup_calls == []
@@ -443,7 +443,7 @@ class TestFollowupGuards:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(hours=2),
+                    execution_timeout=timedelta(hours=3),
                 )
                 # The CI loop stops after finding no PR, then the workflow
                 # exits via inactivity timeout — no signal needed.
@@ -566,7 +566,7 @@ class TestFollowupGuards:
                     id=f"test-{uuid.uuid4()}",
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=timedelta(hours=2),
+                    execution_timeout=timedelta(hours=3),
                 )
                 # No heartbeats sent — agent is idle. The CI loop should stop
                 # after one check and the workflow exits via inactivity timeout.

@@ -276,14 +276,14 @@ function SeedRecents({ count }: { count: number }): null {
     useOnMountEffect(() => {
         recentTaxonomicFiltersLogic.actions.clearRecentFilters()
         for (const recent of RECENT_ITEMS.slice(0, count)) {
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
-                recent.groupType,
-                recent.groupName,
-                recent.value,
-                recent.item,
-                MOCK_TEAM_ID,
-                recent.propertyFilter
-            )
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: recent.groupType,
+                groupName: recent.groupName,
+                value: recent.value,
+                item: recent.item,
+                teamId: MOCK_TEAM_ID,
+                propertyFilter: recent.propertyFilter,
+            })
         }
     })
 
@@ -497,20 +497,6 @@ export const CategoryDropdownPill: Story = {
         docs: {
             description: {
                 story: 'Test variant "pill": left-hand Categories column is hidden; the current category is shown as a pill in the right-hand suffix of the search input.',
-            },
-        },
-    },
-}
-
-export const CategoryDropdownIcon: Story = {
-    render: (args) => <CategoryDropdownStoryRender {...args} variant="icon" />,
-    args: CATEGORY_DROPDOWN_ARGS,
-    tags: ['test-skip'], // featureFlagLogic setup via useEffect races with the visual-regression runner — verified manually in storybook
-    parameters: {
-        ...CATEGORY_DROPDOWN_PARAMETERS,
-        docs: {
-            description: {
-                story: 'Test variant "icon": left-hand Categories column is hidden; a generic filter icon in the right-hand suffix opens the category dropdown.',
             },
         },
     },

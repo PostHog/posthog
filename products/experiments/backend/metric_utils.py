@@ -4,8 +4,9 @@ import copy
 import logging
 from typing import Any
 
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 
 def _get_source_name(source: dict) -> str:

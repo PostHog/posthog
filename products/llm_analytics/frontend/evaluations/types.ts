@@ -59,15 +59,19 @@ export type EvaluationConfig = LLMJudgeEvaluation | HogEvaluation
 
 export interface EvaluationConditionSet {
     id: string
-    rollout_percentage: number
-    properties: AnyPropertyFilter[]
+    // Optional because the backend serializer has `default=100` (not `required=True`), so legacy
+    // condition rows stored in the JSONField before the field existed read back without the key.
+    rollout_percentage?: number
+    // Optional for the same reason: conditions live in a free-form JSONField and the inner shape
+    // isn't validated, so legacy rows can come back without a `properties` key.
+    properties?: AnyPropertyFilter[]
 }
 
 export interface EvaluationRun {
     id: string
     evaluation_id: string
     evaluation_name: string
-    generation_id: string
+    generation_id: string | null
     trace_id: string
     timestamp: string
     result: boolean | null

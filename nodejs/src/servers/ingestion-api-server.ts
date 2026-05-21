@@ -123,6 +123,11 @@ const batchErrors = new Counter({
     help: 'Total number of batch processing errors',
 })
 
+const batchCapacityRejections = new Counter({
+    name: 'ingestion_api_batch_capacity_rejections_total',
+    help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
+})
+
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -329,7 +334,8 @@ export class IngestionApiServer implements NodeServer {
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -339,6 +345,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
+            concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
@@ -375,7 +382,9 @@ export class IngestionApiServer implements NodeServer {
 
     private async handleIngestRequest(
         req: { body: IngestBatchRequest },
-        res: { status: (code: number) => { json: (body: IngestBatchResponse) => void } }
+        res: {
+            status: (code: number) => { json: (body: IngestBatchResponse) => void }
+        }
     ): Promise<void> {
         const { batch_id, messages: serializedMessages } = req.body
 
@@ -392,6 +401,29 @@ export class IngestionApiServer implements NodeServer {
             const batch = messages.map((message) => createOkContext({ message }, { message }))
             const feedResult = await this.joinedPipeline.feed(batch)
             if (!feedResult.ok) {
+                // Capacity rejection should not happen under correct consumer
+                // behavior — the Rust consumer holds a per-worker Semaphore
+                // sized to INGESTION_WORKER_CONCURRENT_BATCHES and is supposed
+                // to wait (natural backpressure) before sending a batch that
+                // would exceed the worker's capacity. If we land here, the
+                // consumer's tracking is wrong or its env-var value disagrees
+                // with ours. Respond 503 so the consumer surfaces it as a
+                // distinct error (TransportError::WorkerBusy) and the alarm is
+                // visible in `ingestion_api_batch_capacity_rejections_total`.
+                // Use the typed `kind` discriminator (not the human-readable
+                // `reason` string) so a future BatchingPipeline message tweak
+                // can't silently downgrade us to a fall-through 500 — which
+                // the Rust transport treats as retriable.
+                if (feedResult.kind === 'at_capacity') {
+                    batchCapacityRejections.inc()
+                    res.status(503).json({
+                        batch_id: batch_id ?? '',
+                        status: 'error',
+                        accepted: 0,
+                        error: feedResult.reason,
+                    })
+                    return
+                }
                 throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
             }
 
@@ -405,9 +437,6 @@ export class IngestionApiServer implements NodeServer {
 
             // Wait for all side effects — the HTTP response is the ACK to the
             // Rust consumer, so all work must finish before responding.
-            // Note: the joined pipeline has a hardcoded concurrency of 1, so
-            // feed() will reject if a batch is already being processed. This
-            // is fine for now since we process each request sequentially.
             await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
 
             batchesProcessed.inc()

@@ -597,20 +597,96 @@
             ],
             "label": "AI stream (LLM)"
         },
+        "$ai_tag_count": {
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [
+                1,
+                3
+            ],
+            "label": "AI Tag Count (LLM)"
+        },
+        "$ai_tag_reasoning": {
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": [
+                "The generation discussed billing and feature flag configuration"
+            ],
+            "label": "AI Tag Reasoning (LLM)"
+        },
+        "$ai_tagger_id": {
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger ID (LLM)"
+        },
+        "$ai_tagger_key_id": {
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger Key ID (LLM)"
+        },
+        "$ai_tagger_key_type": {
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": [
+                "byok",
+                "posthog"
+            ],
+            "label": "AI Tagger Key Type (LLM)"
+        },
+        "$ai_tagger_name": {
+            "description": "The name of the tagger configuration used.",
+            "examples": [
+                "Product feature tagger",
+                "Intent classifier"
+            ],
+            "label": "AI Tagger Name (LLM)"
+        },
+        "$ai_tagger_start_time": {
+            "description": "The timestamp when the tagger started executing.",
+            "examples": [
+                "2025-01-15T10:30:00Z"
+            ],
+            "label": "AI Tagger Start Time (LLM)"
+        },
+        "$ai_tags": {
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": [
+                "billing",
+                "feature-flags",
+                "onboarding"
+            ],
+            "label": "AI Tags (LLM)"
+        },
         "$ai_target_event_id": {
-            "description": "The unique identifier of the event being evaluated.",
+            "description": "Deprecated \u2014 use $ai_target_id with $ai_target_type instead. The unique identifier of the event being evaluated.",
             "examples": [
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Target Event ID (LLM)"
         },
         "$ai_target_event_type": {
-            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "description": "Deprecated \u2014 use $ai_target_type instead. The type of event being evaluated (e.g., $ai_generation).",
             "examples": [
                 "$ai_generation",
                 "$ai_span"
             ],
             "label": "AI Target Event Type (LLM)"
+        },
+        "$ai_target_id": {
+            "description": "Identifier of the entity this evaluation targets. Pair with $ai_target_type to know which ID space it belongs to (event UUID, trace ID, etc.).",
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
+            "label": "AI Target ID (LLM)"
+        },
+        "$ai_target_type": {
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "examples": [
+                "generation_uuid",
+                "trace_id"
+            ],
+            "label": "AI Target Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",
@@ -1061,6 +1137,16 @@
             "label": "Dead click selection changed timeout",
             "system": true
         },
+        "$dead_click_visibility_changed_delay_ms": {
+            "description": "the delay between a click and the next visibility change event",
+            "label": "Dead click visibility changed delay in milliseconds",
+            "system": true
+        },
+        "$dead_click_visibility_changed_timeout": {
+            "description": "whether the dead click autocapture passed the threshold for waiting for a visibility change event",
+            "label": "Dead click visibility changed timeout",
+            "system": true
+        },
         "$dead_clicks_enabled_server_side": {
             "description": "Whether dead clicks were enabled in remote config",
             "label": "Dead clicks enabled server side",
@@ -1136,6 +1222,18 @@
             ],
             "label": "Enabled feature flags"
         },
+        "$event_time_override_provided": {
+            "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
+            "label": "Event time was overridden",
+            "system": true,
+            "used_for_debug": true
+        },
+        "$event_time_override_system_time": {
+            "description": "The system time that the SDK fell back to when overriding the event timestamp.",
+            "label": "Event time override system time",
+            "system": true,
+            "used_for_debug": true
+        },
         "$event_type": {
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": [
@@ -1174,6 +1272,10 @@
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
+        },
+        "$exception_fingerprint_record": {
+            "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
+            "label": "Exception fingerprint record"
         },
         "$exception_functions": {
             "description": "A function contained in the exception.",
@@ -1248,6 +1350,13 @@
             "description": "The description of the exception.",
             "label": "Exception message"
         },
+        "$external_click_url": {
+            "description": "The URL of an external link that was clicked during autocapture. External meaning the URL points to a different host than the page the user was on.",
+            "examples": [
+                "https://example.com/some-article"
+            ],
+            "label": "External click URL"
+        },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
@@ -1255,12 +1364,36 @@
             ],
             "label": "Feature flag"
         },
+        "$feature_flag_bootstrapped_payload": {
+            "description": "The payload value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped payload"
+        },
+        "$feature_flag_bootstrapped_response": {
+            "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped response"
+        },
+        "$feature_flag_error": {
+            "description": "The error encountered while evaluating the feature flag, if any.",
+            "label": "Feature flag error",
+            "system": true
+        },
         "$feature_flag_evaluated_at": {
             "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
             "examples": [
                 "1732051200000"
             ],
             "label": "Feature flag evaluated at"
+        },
+        "$feature_flag_id": {
+            "description": "The numeric identifier of the feature flag that was called.",
+            "examples": [
+                "1234"
+            ],
+            "label": "Feature flag ID"
+        },
+        "$feature_flag_original_response": {
+            "description": "The original feature flag response from PostHog, before any local override was applied.",
+            "label": "Feature flag original response"
         },
         "$feature_flag_payload": {
             "description": "The JSON payload that the call to feature flag responded with (if any)",
@@ -1534,10 +1667,26 @@
             ],
             "label": "Host"
         },
+        "$initial_host": {
+            "description": "Hostname of the URL the user first visited.",
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
+            "label": "Initial host"
+        },
         "$initial_person_info": {
             "description": "posthog-js initial person information. used in the $set_once flow",
             "label": "Initial person info",
             "system": true
+        },
+        "$initial_search_engine": {
+            "description": "Search engine the user came from on their first visit, if any.",
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
+            "label": "Initial search engine"
         },
         "$initial_utm_source": {
             "description": "UTM source tag.",
@@ -1669,6 +1818,208 @@
             ],
             "label": "Locale"
         },
+        "$mcp_client_name": {
+            "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client name"
+        },
+        "$mcp_client_user_agent": {
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode \u2014 useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "examples": [
+                "claude-code/2.1.141 (cli)",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client user agent"
+        },
+        "$mcp_client_version": {
+            "description": "The version of the MCP client that initiated the connection.",
+            "label": "MCP client version"
+        },
+        "$mcp_consumer": {
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP consumer"
+        },
+        "$mcp_conversation_id": {
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+            "label": "MCP conversation ID"
+        },
+        "$mcp_duration_ms": {
+            "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
+            "examples": [
+                42,
+                1280
+            ],
+            "label": "MCP duration (ms)",
+            "type": "Numeric"
+        },
+        "$mcp_exec_inner_tool_names": {
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool catalog"
+        },
+        "$mcp_exec_tool_call_description": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "List feature flags in the project."
+            ],
+            "label": "MCP exec inner tool description"
+        },
+        "$mcp_exec_tool_call_name": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so by itself it doesn't tell you which inner tool the agent was actually invoking. This property carries the inner tool's name \u2014 derived server-side by parsing the exec command's `call <tool> ...` form and looking it up in our catalog. Use it for breakdowns / funnels that should pivot on the real tool rather than the dispatcher. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool name"
+        },
+        "$mcp_intent": {
+            "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
+            "examples": [
+                "Listing recent error tracking issues to triage a spike in 500s.",
+                "Fetching the trace referenced by the inbox signal to inspect the user message."
+            ],
+            "label": "MCP intent"
+        },
+        "$mcp_intent_source": {
+            "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
+            "examples": [
+                "context_parameter",
+                "inferred"
+            ],
+            "label": "MCP intent source"
+        },
+        "$mcp_is_error": {
+            "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
+            "label": "MCP is error"
+        },
+        "$mcp_mode": {
+            "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
+            "examples": [
+                "cli",
+                "tools"
+            ],
+            "label": "MCP mode"
+        },
+        "$mcp_oauth_client_name": {
+            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
+            "label": "MCP OAuth client name"
+        },
+        "$mcp_organization_id": {
+            "description": "PostHog organization ID resolved for the authenticated MCP session.",
+            "label": "MCP organization ID"
+        },
+        "$mcp_parameters": {
+            "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
+            "label": "MCP parameters"
+        },
+        "$mcp_project_id": {
+            "description": "PostHog project (team) numeric ID for the active project on the MCP session.",
+            "label": "MCP project ID"
+        },
+        "$mcp_project_name": {
+            "description": "Display name of the active PostHog project on the MCP session.",
+            "label": "MCP project name"
+        },
+        "$mcp_project_uuid": {
+            "description": "PostHog project UUID for the active project on the MCP session.",
+            "label": "MCP project UUID"
+        },
+        "$mcp_protocol_version": {
+            "description": "The MCP protocol version negotiated between client and server during initialize.",
+            "examples": [
+                "2025-11-25",
+                "2025-06-18"
+            ],
+            "label": "MCP protocol version"
+        },
+        "$mcp_read_only": {
+            "description": "Whether the MCP session is operating in read-only mode. When true, write/mutation tools are not registered on the server.",
+            "label": "MCP read-only"
+        },
+        "$mcp_region": {
+            "description": "The PostHog cloud region the MCP server routed the request to.",
+            "examples": [
+                "us",
+                "eu"
+            ],
+            "label": "MCP region"
+        },
+        "$mcp_resource_name": {
+            "description": "The name of the MCP resource, prompt, or tool the event refers to.",
+            "label": "MCP resource name"
+        },
+        "$mcp_response": {
+            "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
+            "label": "MCP response"
+        },
+        "$mcp_server_name": {
+            "description": "The advertised name of the MCP server that handled the request.",
+            "examples": [
+                "PostHog"
+            ],
+            "label": "MCP server name"
+        },
+        "$mcp_server_version": {
+            "description": "The advertised version of the MCP server that handled the request.",
+            "label": "MCP server version"
+        },
+        "$mcp_session_id": {
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
+            "label": "MCP session ID"
+        },
+        "$mcp_source": {
+            "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
+            "examples": [
+                "posthog_mcp_analytics"
+            ],
+            "label": "MCP source"
+        },
+        "$mcp_tool_description": {
+            "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "Fetch the trace referenced by an LLM analytics URL."
+            ],
+            "label": "MCP tool description"
+        },
+        "$mcp_tool_name": {
+            "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP tool name"
+        },
+        "$mcp_transport": {
+            "description": "The transport the MCP client used to connect to the server.",
+            "examples": [
+                "stdio",
+                "sse",
+                "streamable-http"
+            ],
+            "label": "MCP transport"
+        },
+        "$mcp_version": {
+            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "examples": [
+                1,
+                2
+            ],
+            "label": "MCP server version (internal)",
+            "type": "Numeric"
+        },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
             "examples": [
@@ -1732,6 +2083,11 @@
                 "15.5"
             ],
             "label": "OS version"
+        },
+        "$override_feature_flags": {
+            "description": "Locally overridden feature flag values, typically set via the toolbar or SDK override APIs.",
+            "label": "Override feature flags",
+            "system": true
         },
         "$pageview_id": {
             "description": "PostHog's internal ID for matching events to a pageview.",
@@ -2056,6 +2412,11 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_rrweb_error": {
+            "description": "An error reported by the rrweb session recording library while capturing the replay.",
+            "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_url_trigger_status": {
             "description": "The status of the recording url trigger.",
             "examples": [
@@ -2206,6 +2567,11 @@
             ],
             "ignored_in_assistant": true,
             "label": "Session entry Path name"
+        },
+        "$session_entry_ph_keyword": {
+            "description": "PostHog keyword tracking parameter. Captured at the start of the session and remains constant for the duration of the session.",
+            "ignored_in_assistant": true,
+            "label": "Session entry ph_keyword"
         },
         "$session_entry_qclid": {
             "description": "Quora Click ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -2659,6 +3025,11 @@
             ],
             "label": "Distinct ID"
         },
+        "duration_ms": {
+            "description": "Older unprefixed variant of $mcp_duration_ms. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_duration_ms for new dashboards.",
+            "label": "Duration (ms, unprefixed)",
+            "type": "Numeric"
+        },
         "epik": {
             "description": "Pinterest Click ID",
             "label": "epik"
@@ -2699,6 +3070,10 @@
             "description": "Impact Click ID",
             "label": "irclid"
         },
+        "is_error": {
+            "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
+            "label": "Is error (unprefixed)"
+        },
         "li_fat_id": {
             "description": "LinkedIn First-Party Ad Tracking ID",
             "label": "li_fat_id"
@@ -2706,6 +3081,51 @@
         "mc_cid": {
             "description": "Mailchimp Campaign ID",
             "label": "mc_cid"
+        },
+        "mcp_client_name": {
+            "description": "Older unprefixed variant of $mcp_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_name for new dashboards.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client"
+            ],
+            "label": "MCP client name (unprefixed)"
+        },
+        "mcp_client_version": {
+            "description": "Older unprefixed variant of $mcp_client_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_version for new dashboards.",
+            "label": "MCP client version (unprefixed)"
+        },
+        "mcp_consumer": {
+            "description": "Older unprefixed variant of $mcp_consumer. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_consumer for new dashboards.",
+            "label": "MCP consumer (unprefixed)"
+        },
+        "mcp_conversation_id": {
+            "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
+            "label": "MCP conversation ID (unprefixed)"
+        },
+        "mcp_mode": {
+            "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
+            "label": "MCP mode (unprefixed)"
+        },
+        "mcp_oauth_client_name": {
+            "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
+            "label": "MCP OAuth client name (unprefixed)"
+        },
+        "mcp_protocol_version": {
+            "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
+            "label": "MCP protocol version (unprefixed)"
+        },
+        "mcp_session_id": {
+            "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
+            "label": "MCP session ID (unprefixed)"
+        },
+        "mcp_transport": {
+            "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
+            "label": "MCP transport (unprefixed)"
+        },
+        "mcp_version": {
+            "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
+            "label": "MCP server version (unprefixed, internal)",
+            "type": "Numeric"
         },
         "msclkid": {
             "description": "Microsoft Click ID",
@@ -2740,6 +3160,10 @@
             ],
             "label": "Referrer application"
         },
+        "resource_name": {
+            "description": "Older unprefixed variant of $mcp_resource_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_resource_name for new dashboards.",
+            "label": "Resource name (unprefixed)"
+        },
         "revenue": {
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
             "examples": [
@@ -2758,6 +3182,10 @@
             ],
             "ignored_in_assistant": true,
             "label": "Token"
+        },
+        "tool_name": {
+            "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
+            "label": "Tool name (unprefixed)"
         },
         "ttclid": {
             "description": "TikTok Click ID",
@@ -2867,6 +3295,10 @@
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
             "label": "AI span (LLM)"
         },
+        "$ai_tag": {
+            "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
+            "label": "AI tag (LLM)"
+        },
         "$ai_trace": {
             "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
             "label": "AI trace (LLM)"
@@ -2927,7 +3359,7 @@
             ],
             "ignored_in_assistant": true,
             "label": "Feature flag called",
-            "promoted_property": "$feature_flag"
+            "primary_property": "$feature_flag"
         },
         "$feature_interaction": {
             "description": "When a user interacts with a feature.",
@@ -2963,12 +3395,12 @@
             "description": "When a user leaves a page.",
             "ignored_in_assistant": true,
             "label": "Pageleave",
-            "promoted_property": "$pathname"
+            "primary_property": "$pathname"
         },
         "$pageview": {
             "description": "When a user loads (or reloads) a page.",
             "label": "Pageview",
-            "promoted_property": "$pathname"
+            "primary_property": "$pathname"
         },
         "$rageclick": {
             "description": "A user has rapidly and repeatedly clicked in a single place.",
@@ -2977,7 +3409,7 @@
         "$screen": {
             "description": "When a user loads a screen in a mobile app.",
             "label": "Screen",
-            "promoted_property": "$screen_name"
+            "primary_property": "$screen_name"
         },
         "$set": {
             "description": "Setting person properties. Sent as `$set`.",
@@ -3015,6 +3447,78 @@
         "Deep link opened": {
             "description": "When a user opens the mobile app via a deep link.",
             "label": "Deep link opened"
+        },
+        "mcp feedback submitted": {
+            "description": "Fires when a user submits feedback through the MCP server's feedback tool.",
+            "label": "MCP feedback submitted"
+        },
+        "mcp init": {
+            "description": "MCP initialization event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_initialize where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_initialize if you only want the @posthog/mcp-enabled slice.",
+            "label": "MCP init"
+        },
+        "mcp organization switched": {
+            "description": "Fires when a user switches the active organization in their MCP session.",
+            "label": "MCP organization switched"
+        },
+        "mcp project switched": {
+            "description": "Fires when a user switches the active project in their MCP session.",
+            "label": "MCP project switched"
+        },
+        "mcp tool call": {
+            "description": "Tool-call event emitted by the mcpcat library. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP tool call (mcpcat)"
+        },
+        "mcp tool response": {
+            "description": "Tool-response event emitted by the mcpcat library. Tool responses are also carried inline on mcp_tool_call (under $mcp_response) for @posthog/mcp-enabled traffic. Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP tool response (mcpcat)"
+        },
+        "mcp_custom": {
+            "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
+            "label": "MCP custom event"
+        },
+        "mcp_initialize": {
+            "description": "Fires when an MCP client completes the handshake with the server. Carries the client and server name/version so you can break down usage by client.",
+            "label": "MCP initialize"
+        },
+        "mcp_mcpcat:identify": {
+            "description": "Identify event emitted by the mcpcat library. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP identify (mcpcat)"
+        },
+        "mcp_posthog:identify": {
+            "description": "Identify event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside posthog_identify where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability.",
+            "label": "MCP identify (in-tree)"
+        },
+        "mcp_prompt_get": {
+            "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
+            "label": "MCP prompt fetched"
+        },
+        "mcp_prompts_list": {
+            "description": "Fires when an MCP client requests the list of available prompts.",
+            "label": "MCP prompts listed"
+        },
+        "mcp_resource_read": {
+            "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
+            "label": "MCP resource read"
+        },
+        "mcp_resources_list": {
+            "description": "Fires when an MCP client requests the list of available resources.",
+            "label": "MCP resources listed"
+        },
+        "mcp_tool_call": {
+            "description": "Fires every time an MCP server tool is invoked. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent.",
+            "label": "MCP tool call"
+        },
+        "mcp_tool_called": {
+            "description": "Tool-call event emitted by PostHog's in-tree MCP analytics path. Fires for all traffic today (alongside mcp_tool_call where @posthog/mcp is enabled). Will be retired once @posthog/mcp reaches general availability; until then, filter on this event if you need coverage across all clients, or on mcp_tool_call if you only want the @posthog/mcp-enabled slice.",
+            "label": "MCP tool called (in-tree)"
+        },
+        "mcp_tools_list": {
+            "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery \u2014 i.e. whether new clients are finding the server.",
+            "label": "MCP tools listed"
+        },
+        "posthog_identify": {
+            "description": "Fires when an MCP session becomes associated with an identified user, or when the identity changes for an existing session. Used to attribute subsequent events to a real user instead of an anonymous session.",
+            "label": "MCP identify"
         }
     },
     "groups": {
@@ -3598,20 +4102,96 @@
             ],
             "label": "AI stream (LLM)"
         },
+        "$ai_tag_count": {
+            "description": "The number of tags assigned to the AI event.",
+            "examples": [
+                1,
+                3
+            ],
+            "label": "AI Tag Count (LLM)"
+        },
+        "$ai_tag_reasoning": {
+            "description": "The LLM's explanation for why it assigned the selected tags.",
+            "examples": [
+                "The generation discussed billing and feature flag configuration"
+            ],
+            "label": "AI Tag Reasoning (LLM)"
+        },
+        "$ai_tagger_id": {
+            "description": "The unique identifier of the tagger configuration used to classify the AI event.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger ID (LLM)"
+        },
+        "$ai_tagger_key_id": {
+            "description": "The ID of the LLM provider key used for the tagger.",
+            "examples": [
+                "550e8400-e29b-41d4-a716-446655440000"
+            ],
+            "label": "AI Tagger Key ID (LLM)"
+        },
+        "$ai_tagger_key_type": {
+            "description": "The type of API key used for the tagger (byok = user's own key, posthog = PostHog default).",
+            "examples": [
+                "byok",
+                "posthog"
+            ],
+            "label": "AI Tagger Key Type (LLM)"
+        },
+        "$ai_tagger_name": {
+            "description": "The name of the tagger configuration used.",
+            "examples": [
+                "Product feature tagger",
+                "Intent classifier"
+            ],
+            "label": "AI Tagger Name (LLM)"
+        },
+        "$ai_tagger_start_time": {
+            "description": "The timestamp when the tagger started executing.",
+            "examples": [
+                "2025-01-15T10:30:00Z"
+            ],
+            "label": "AI Tagger Start Time (LLM)"
+        },
+        "$ai_tags": {
+            "description": "The list of tags assigned to the AI event by the tagger.",
+            "examples": [
+                "billing",
+                "feature-flags",
+                "onboarding"
+            ],
+            "label": "AI Tags (LLM)"
+        },
         "$ai_target_event_id": {
-            "description": "The unique identifier of the event being evaluated.",
+            "description": "Deprecated \u2014 use $ai_target_id with $ai_target_type instead. The unique identifier of the event being evaluated.",
             "examples": [
                 "c9222e05-8708-41b8-98ea-d4a21849e761"
             ],
             "label": "AI Target Event ID (LLM)"
         },
         "$ai_target_event_type": {
-            "description": "The type of event being evaluated (e.g., $ai_generation).",
+            "description": "Deprecated \u2014 use $ai_target_type instead. The type of event being evaluated (e.g., $ai_generation).",
             "examples": [
                 "$ai_generation",
                 "$ai_span"
             ],
             "label": "AI Target Event Type (LLM)"
+        },
+        "$ai_target_id": {
+            "description": "Identifier of the entity this evaluation targets. Pair with $ai_target_type to know which ID space it belongs to (event UUID, trace ID, etc.).",
+            "examples": [
+                "c9222e05-8708-41b8-98ea-d4a21849e761"
+            ],
+            "label": "AI Target ID (LLM)"
+        },
+        "$ai_target_type": {
+            "description": "ID space of $ai_target_id. `generation_uuid` resolves against `events.uuid`; `trace_id` resolves against the `$ai_trace_id` property.",
+            "examples": [
+                "generation_uuid",
+                "trace_id"
+            ],
+            "label": "AI Target Type (LLM)"
         },
         "$ai_temperature": {
             "description": "The temperature parameter used in the request to the LLM API.",
@@ -4062,6 +4642,16 @@
             "label": "Dead click selection changed timeout",
             "system": true
         },
+        "$dead_click_visibility_changed_delay_ms": {
+            "description": "the delay between a click and the next visibility change event",
+            "label": "Dead click visibility changed delay in milliseconds",
+            "system": true
+        },
+        "$dead_click_visibility_changed_timeout": {
+            "description": "whether the dead click autocapture passed the threshold for waiting for a visibility change event",
+            "label": "Dead click visibility changed timeout",
+            "system": true
+        },
         "$dead_clicks_enabled_server_side": {
             "description": "Whether dead clicks were enabled in remote config",
             "label": "Dead clicks enabled server side",
@@ -4137,6 +4727,18 @@
             ],
             "label": "Enabled feature flags"
         },
+        "$event_time_override_provided": {
+            "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",
+            "label": "Event time was overridden",
+            "system": true,
+            "used_for_debug": true
+        },
+        "$event_time_override_system_time": {
+            "description": "The system time that the SDK fell back to when overriding the event timestamp.",
+            "label": "Event time override system time",
+            "system": true,
+            "used_for_debug": true
+        },
         "$event_type": {
             "description": "When the event is an $autocapture event, this specifies what the action was against the element.",
             "examples": [
@@ -4175,6 +4777,10 @@
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
             "label": "Exception fingerprint"
+        },
+        "$exception_fingerprint_record": {
+            "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
+            "label": "Exception fingerprint record"
         },
         "$exception_functions": {
             "description": "A function contained in the exception.",
@@ -4249,6 +4855,13 @@
             "description": "The description of the exception.",
             "label": "Exception message"
         },
+        "$external_click_url": {
+            "description": "The URL of an external link that was clicked during autocapture. External meaning the URL points to a different host than the page the user was on.",
+            "examples": [
+                "https://example.com/some-article"
+            ],
+            "label": "External click URL"
+        },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
@@ -4256,12 +4869,36 @@
             ],
             "label": "Feature flag"
         },
+        "$feature_flag_bootstrapped_payload": {
+            "description": "The payload value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped payload"
+        },
+        "$feature_flag_bootstrapped_response": {
+            "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
+            "label": "Feature flag bootstrapped response"
+        },
+        "$feature_flag_error": {
+            "description": "The error encountered while evaluating the feature flag, if any.",
+            "label": "Feature flag error",
+            "system": true
+        },
         "$feature_flag_evaluated_at": {
             "description": "The timestamp (in milliseconds since Unix epoch) when the feature flag was evaluated.",
             "examples": [
                 "1732051200000"
             ],
             "label": "Feature flag evaluated at"
+        },
+        "$feature_flag_id": {
+            "description": "The numeric identifier of the feature flag that was called.",
+            "examples": [
+                "1234"
+            ],
+            "label": "Feature flag ID"
+        },
+        "$feature_flag_original_response": {
+            "description": "The original feature flag response from PostHog, before any local override was applied.",
+            "label": "Feature flag original response"
         },
         "$feature_flag_payload": {
             "description": "The JSON payload that the call to feature flag responded with (if any)",
@@ -4785,6 +5422,14 @@
             ],
             "label": "Initial timezone"
         },
+        "$initial_host": {
+            "description": "Hostname of the URL the user first visited.",
+            "examples": [
+                "example.com",
+                "localhost:8000"
+            ],
+            "label": "Initial host"
+        },
         "$initial_igshid": {
             "description": "Instagram Share ID Data from the first time this user was seen.",
             "label": "Initial igshid"
@@ -4882,6 +5527,14 @@
                 "1920"
             ],
             "label": "Initial screen width"
+        },
+        "$initial_search_engine": {
+            "description": "Search engine the user came from on their first visit, if any.",
+            "examples": [
+                "Google",
+                "DuckDuckGo"
+            ],
+            "label": "Initial search engine"
         },
         "$initial_ttclid": {
             "description": "TikTok Click ID Data from the first time this user was seen.",
@@ -5074,6 +5727,208 @@
             ],
             "label": "Locale"
         },
+        "$mcp_client_name": {
+            "description": "The MCP client that initiated the connection. Common values are coding agents (Claude Code, Codex) and chat clients (Claude desktop, Claude on web).",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client name"
+        },
+        "$mcp_client_user_agent": {
+            "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode \u2014 useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
+            "examples": [
+                "claude-code/2.1.141 (cli)",
+                "Anthropic/ClaudeAI"
+            ],
+            "label": "MCP client user agent"
+        },
+        "$mcp_client_version": {
+            "description": "The version of the MCP client that initiated the connection.",
+            "label": "MCP client version"
+        },
+        "$mcp_consumer": {
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "examples": [
+                "posthog-code",
+                "slack"
+            ],
+            "label": "MCP consumer"
+        },
+        "$mcp_conversation_id": {
+            "description": "Stable, agent-echoed conversation identifier that stitches multiple tool calls into a single logical session. The MCP server mints a UUID when the agent omits one and prompts the agent to reuse it on subsequent calls; subsequent calls within the same conversation carry the same value. Unlike $mcp_session_id this survives reconnects and process restarts. Only present when the server has `enableConversationId` turned on.",
+            "label": "MCP conversation ID"
+        },
+        "$mcp_duration_ms": {
+            "description": "Wall-clock duration of the MCP tool or resource call, in milliseconds.",
+            "examples": [
+                42,
+                1280
+            ],
+            "label": "MCP duration (ms)",
+            "type": "Numeric"
+        },
+        "$mcp_exec_inner_tool_names": {
+            "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool catalog"
+        },
+        "$mcp_exec_tool_call_description": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so the SDK's $mcp_tool_description is the dispatcher's static text on every call. This property carries the description of the inner tool the agent was actually invoking via 'call <tool> ...' \u2014 derived server-side by parsing the exec command and looking the inner tool up in our catalog. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "List feature flags in the project."
+            ],
+            "label": "MCP exec inner tool description"
+        },
+        "$mcp_exec_tool_call_name": {
+            "description": "In single-exec mode, $mcp_tool_name is always 'exec' (the dispatcher), so by itself it doesn't tell you which inner tool the agent was actually invoking. This property carries the inner tool's name \u2014 derived server-side by parsing the exec command's `call <tool> ...` form and looking it up in our catalog. Use it for breakdowns / funnels that should pivot on the real tool rather than the dispatcher. Only present when an exec call targets a recognized inner tool.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP exec inner tool name"
+        },
+        "$mcp_intent": {
+            "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or \u2014 if none was supplied \u2014 from an intentFallback the MCP server provides.",
+            "examples": [
+                "Listing recent error tracking issues to triage a spike in 500s.",
+                "Fetching the trace referenced by the inbox signal to inspect the user message."
+            ],
+            "label": "MCP intent"
+        },
+        "$mcp_intent_source": {
+            "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
+            "examples": [
+                "context_parameter",
+                "inferred"
+            ],
+            "label": "MCP intent source"
+        },
+        "$mcp_is_error": {
+            "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
+            "label": "MCP is error"
+        },
+        "$mcp_mode": {
+            "description": "Which tool-registration mode the MCP server ran in for this request. 'cli' is single-exec mode (the v2 wrapper that exposes one dispatcher tool taking a `call <tool> ...` command); 'tools' exposes every tool individually.",
+            "examples": [
+                "cli",
+                "tools"
+            ],
+            "label": "MCP mode"
+        },
+        "$mcp_oauth_client_name": {
+            "description": "The OAuth client name captured during the MCP handshake, when the connection used OAuth instead of a personal API key.",
+            "label": "MCP OAuth client name"
+        },
+        "$mcp_organization_id": {
+            "description": "PostHog organization ID resolved for the authenticated MCP session.",
+            "label": "MCP organization ID"
+        },
+        "$mcp_parameters": {
+            "description": "The arguments the client passed when invoking the tool. Large strings and sensitive keys (tokens, API keys, etc.) are redacted before capture.",
+            "label": "MCP parameters"
+        },
+        "$mcp_project_id": {
+            "description": "PostHog project (team) numeric ID for the active project on the MCP session.",
+            "label": "MCP project ID"
+        },
+        "$mcp_project_name": {
+            "description": "Display name of the active PostHog project on the MCP session.",
+            "label": "MCP project name"
+        },
+        "$mcp_project_uuid": {
+            "description": "PostHog project UUID for the active project on the MCP session.",
+            "label": "MCP project UUID"
+        },
+        "$mcp_protocol_version": {
+            "description": "The MCP protocol version negotiated between client and server during initialize.",
+            "examples": [
+                "2025-11-25",
+                "2025-06-18"
+            ],
+            "label": "MCP protocol version"
+        },
+        "$mcp_read_only": {
+            "description": "Whether the MCP session is operating in read-only mode. When true, write/mutation tools are not registered on the server.",
+            "label": "MCP read-only"
+        },
+        "$mcp_region": {
+            "description": "The PostHog cloud region the MCP server routed the request to.",
+            "examples": [
+                "us",
+                "eu"
+            ],
+            "label": "MCP region"
+        },
+        "$mcp_resource_name": {
+            "description": "The name of the MCP resource, prompt, or tool the event refers to.",
+            "label": "MCP resource name"
+        },
+        "$mcp_response": {
+            "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
+            "label": "MCP response"
+        },
+        "$mcp_server_name": {
+            "description": "The advertised name of the MCP server that handled the request.",
+            "examples": [
+                "PostHog"
+            ],
+            "label": "MCP server name"
+        },
+        "$mcp_server_version": {
+            "description": "The advertised version of the MCP server that handled the request.",
+            "label": "MCP server version"
+        },
+        "$mcp_session_id": {
+            "description": "Transport-level session handle the MCP SDK observed for this request (e.g. MCP `extra.sessionId` or a framework session cookie). Rotates per process restart, reconnect, or framework boundary \u2014 use $mcp_conversation_id when you need a stable identifier across reconnects.",
+            "label": "MCP session ID"
+        },
+        "$mcp_source": {
+            "description": "Constant identifier for the analytics SDK that emitted the event. Lets you separate events from different SDK versions or unrelated MCP servers.",
+            "examples": [
+                "posthog_mcp_analytics"
+            ],
+            "label": "MCP source"
+        },
+        "$mcp_tool_description": {
+            "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
+            "examples": [
+                "Run a HogQL/SQL query against PostHog.",
+                "Fetch the trace referenced by an LLM analytics URL."
+            ],
+            "label": "MCP tool description"
+        },
+        "$mcp_tool_name": {
+            "description": "The name of the MCP tool that was invoked. Only present on mcp_tool_call.",
+            "examples": [
+                "execute-sql",
+                "feature-flag-get-all"
+            ],
+            "label": "MCP tool name"
+        },
+        "$mcp_transport": {
+            "description": "The transport the MCP client used to connect to the server.",
+            "examples": [
+                "stdio",
+                "sse",
+                "streamable-http"
+            ],
+            "label": "MCP transport"
+        },
+        "$mcp_version": {
+            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "examples": [
+                1,
+                2
+            ],
+            "label": "MCP server version (internal)",
+            "type": "Numeric"
+        },
         "$network_bluetooth": {
             "description": "Whether the user was on Bluetooth when the event was sent.",
             "examples": [
@@ -5137,6 +5992,11 @@
                 "15.5"
             ],
             "label": "Latest OS version"
+        },
+        "$override_feature_flags": {
+            "description": "Locally overridden feature flag values, typically set via the toolbar or SDK override APIs.",
+            "label": "Override feature flags",
+            "system": true
         },
         "$pageview_id": {
             "description": "PostHog's internal ID for matching events to a pageview.",
@@ -5461,6 +6321,11 @@
             "type": "String",
             "used_for_debug": true
         },
+        "$sdk_debug_replay_rrweb_error": {
+            "description": "An error reported by the rrweb session recording library while capturing the replay.",
+            "label": "Replay rrweb error",
+            "used_for_debug": true
+        },
         "$sdk_debug_replay_url_trigger_status": {
             "description": "The status of the recording url trigger.",
             "examples": [
@@ -5611,6 +6476,11 @@
             ],
             "ignored_in_assistant": true,
             "label": "Session entry Path name"
+        },
+        "$session_entry_ph_keyword": {
+            "description": "PostHog keyword tracking parameter. Captured at the start of the session and remains constant for the duration of the session.",
+            "ignored_in_assistant": true,
+            "label": "Session entry ph_keyword"
         },
         "$session_entry_qclid": {
             "description": "Quora Click ID Captured at the start of the session and remains constant for the duration of the session.",
@@ -6034,6 +6904,11 @@
             ],
             "label": "Distinct ID"
         },
+        "duration_ms": {
+            "description": "Older unprefixed variant of $mcp_duration_ms. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_duration_ms for new dashboards.",
+            "label": "Duration (ms, unprefixed)",
+            "type": "Numeric"
+        },
         "email": {
             "description": "The email address of the user.",
             "examples": [
@@ -6084,6 +6959,10 @@
             "description": "Impact Click ID Data from the last time this user was seen.",
             "label": "Latest irclid"
         },
+        "is_error": {
+            "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
+            "label": "Is error (unprefixed)"
+        },
         "li_fat_id": {
             "description": "LinkedIn First-Party Ad Tracking ID Data from the last time this user was seen.",
             "label": "Latest li_fat_id"
@@ -6091,6 +6970,51 @@
         "mc_cid": {
             "description": "Mailchimp Campaign ID Data from the last time this user was seen.",
             "label": "Latest mc_cid"
+        },
+        "mcp_client_name": {
+            "description": "Older unprefixed variant of $mcp_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_name for new dashboards.",
+            "examples": [
+                "claude-code",
+                "codex-mcp-client"
+            ],
+            "label": "MCP client name (unprefixed)"
+        },
+        "mcp_client_version": {
+            "description": "Older unprefixed variant of $mcp_client_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_version for new dashboards.",
+            "label": "MCP client version (unprefixed)"
+        },
+        "mcp_consumer": {
+            "description": "Older unprefixed variant of $mcp_consumer. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_consumer for new dashboards.",
+            "label": "MCP consumer (unprefixed)"
+        },
+        "mcp_conversation_id": {
+            "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
+            "label": "MCP conversation ID (unprefixed)"
+        },
+        "mcp_mode": {
+            "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
+            "label": "MCP mode (unprefixed)"
+        },
+        "mcp_oauth_client_name": {
+            "description": "Older unprefixed variant of $mcp_oauth_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_oauth_client_name for new dashboards.",
+            "label": "MCP OAuth client name (unprefixed)"
+        },
+        "mcp_protocol_version": {
+            "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
+            "label": "MCP protocol version (unprefixed)"
+        },
+        "mcp_session_id": {
+            "description": "Older unprefixed variant of $mcp_session_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_session_id for new dashboards.",
+            "label": "MCP session ID (unprefixed)"
+        },
+        "mcp_transport": {
+            "description": "Older unprefixed variant of $mcp_transport. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_transport for new dashboards.",
+            "label": "MCP transport (unprefixed)"
+        },
+        "mcp_version": {
+            "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
+            "label": "MCP server version (unprefixed, internal)",
+            "type": "Numeric"
         },
         "msclkid": {
             "description": "Microsoft Click ID Data from the last time this user was seen.",
@@ -6125,6 +7049,10 @@
             ],
             "label": "Referrer application"
         },
+        "resource_name": {
+            "description": "Older unprefixed variant of $mcp_resource_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_resource_name for new dashboards.",
+            "label": "Resource name (unprefixed)"
+        },
         "revenue": {
             "description": "The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.",
             "examples": [
@@ -6143,6 +7071,10 @@
             ],
             "ignored_in_assistant": true,
             "label": "Token"
+        },
+        "tool_name": {
+            "description": "Older unprefixed variant of $mcp_tool_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_tool_name for new dashboards.",
+            "label": "Tool name (unprefixed)"
         },
         "ttclid": {
             "description": "TikTok Click ID Data from the last time this user was seen.",
@@ -6402,6 +7334,14 @@
             "label": "End URL",
             "type": "String"
         },
+        "$end_hostname": {
+            "description": "The hostname of the last URL visited in this session.",
+            "examples": [
+                "example.com"
+            ],
+            "label": "End hostname",
+            "type": "String"
+        },
         "$end_pathname": {
             "description": "The last pathname visited in this session.",
             "examples": [
@@ -6457,6 +7397,14 @@
         "$entry_gclsrc": {
             "description": "Google Click Source Data from the first event in this session.",
             "label": "Entry gclsrc"
+        },
+        "$entry_hostname": {
+            "description": "The hostname of the first URL visited in this session.",
+            "examples": [
+                "example.com"
+            ],
+            "label": "Entry hostname",
+            "type": "String"
         },
         "$entry_igshid": {
             "description": "Instagram Share ID Data from the first event in this session.",

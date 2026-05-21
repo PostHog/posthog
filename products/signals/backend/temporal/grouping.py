@@ -26,6 +26,7 @@ from posthog.api.embedding_worker import async_generate_embedding, emit_embeddin
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -80,6 +81,7 @@ class GenerateEmbeddingOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
@@ -185,6 +187,7 @@ class GenerateSearchQueriesOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def generate_search_queries_activity(input: GenerateSearchQueriesInput) -> GenerateSearchQueriesOutput:
     """Use LLM to generate 1-3 search queries for finding related signals."""
     try:
@@ -471,6 +474,7 @@ class MatchSignalToReportInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> MatchResult:
     """Determine if a new signal matches an existing report or needs a new one."""
     try:
@@ -510,6 +514,7 @@ class FetchReportContextsOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def fetch_report_contexts_activity(input: FetchReportContextsInput) -> FetchReportContextsOutput:
     """Fetch lightweight context (title, signal count) for reports from Postgres."""
     if not input.report_ids:
@@ -587,6 +592,7 @@ async def verify_match_specificity(
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
@@ -642,6 +648,7 @@ class AssignAndEmitSignalOutput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
@@ -707,12 +714,16 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             # - SUPPRESSED reports gather signals indefinitely but are never promoted.
             # - POTENTIAL reports are promoted once signal_count >= signals_at_run (snooze gate;
             #   signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
-            # - READY reports are re-promoted on every new signal so the agentic report
-            #   always reflects the latest evidence.
-            if report.status == SignalReport.Status.READY or (
-                report.status == SignalReport.Status.POTENTIAL
-                and report.total_weight >= WEIGHT_THRESHOLD
-                and report.signal_count >= report.signals_at_run
+            # - READY and RESOLVED reports are re-promoted on every new signal so the pipeline
+            #   reruns with latest evidence (resolved: issue recurred post-merge fix).
+            if (
+                report.status == SignalReport.Status.READY
+                or report.status == SignalReport.Status.RESOLVED
+                or (
+                    report.status == SignalReport.Status.POTENTIAL
+                    and report.total_weight >= WEIGHT_THRESHOLD
+                    and report.signal_count >= report.signals_at_run
+                )
             ):
                 updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=updated_fields)
@@ -784,7 +795,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     },
                     groups=groups(team.organization, team),
                 )
-            except Exception:
+            except Exception as e:
+                posthoganalytics.capture_exception(e)
                 # Swallow the exception, to avoid breaking the flow over failed analytics event
                 logger.exception(
                     "Failed to capture signal_assigned_to_report event",
@@ -1186,8 +1198,9 @@ async def _process_signal_batch(
             # Include run_count in the workflow ID to allow re-generating READY reports when enough new signals arrive,
             # as without it ALLOW_DUPLICATE_FAILED_ONLY will prevent the re-report from starting
             workflow_id = base_id if run_count == 0 else f"{base_id}:run-{run_count + 1}"
-            # Concurrent report generation of the same report can't happen, as the promotion gate only allows
-            # POTENTIAL and READY, so IN_PROGRESS reports are never re-promoted.
+            # Concurrent report generation of the same report can't happen: promotion only fires for
+            # READY/RESOLVED (every new qualifying signal) or POTENTIAL past weight/snooze gates—never while
+            # CANDIDATE/IN_PROGRESS/PENDING_INPUT/etc.
             await workflow.start_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 report_input,
@@ -1247,6 +1260,12 @@ class TeamSignalGroupingWorkflow:
 
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingInput) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", input.team_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(input)
+
+    async def _run_impl(self, input: TeamSignalGroupingInput) -> None:
         self._signal_buffer.extend(input.pending_signals)
         self._buffer_size_gauge.set(len(self._signal_buffer))
 

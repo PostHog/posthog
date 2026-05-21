@@ -7,6 +7,129 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * @nullable
+ */
+export type AccountApiProperties = {
+    /** @nullable */
+    csm?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_executive?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_owner?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
+} | null
+
+export interface AccountApi {
+    readonly id: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    properties?: AccountApiProperties
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedAccountListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountApi[]
+}
+
+/**
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * @nullable
+ */
+export type PatchedAccountApiProperties = {
+    /** @nullable */
+    csm?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_executive?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_owner?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
+} | null
+
+export interface PatchedAccountApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    properties?: PatchedAccountApiProperties
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 export interface CustomerJourneyApi {
     readonly id: string
     insight: number
@@ -53,8 +176,8 @@ export const CustomerProfileConfigScopeEnumApi = {
 export interface CustomerProfileConfigApi {
     readonly id: string
     scope: CustomerProfileConfigScopeEnumApi
-    content?: unknown | null
-    sidebar?: unknown | null
+    content?: unknown
+    sidebar?: unknown
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -105,7 +228,11 @@ export const MathEnumApi = {
 } as const
 
 /**
- * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+ * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
  */
 export type GroupUsageMetricApiFilters = { [key: string]: unknown }
 
@@ -118,25 +245,29 @@ export interface GroupUsageMetricApi {
     name: string
     /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
 
-* `numeric` - numeric
-* `currency` - currency */
+  * `numeric` - numeric
+  * `currency` - currency */
     format?: GroupUsageMetricFormatEnumApi
     /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
     /** Visual representation in the UI. One of `number` or `sparkline`.
 
-* `number` - number
-* `sparkline` - sparkline */
+  * `number` - number
+  * `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
-    /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+    /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+  **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+  **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
     filters: GroupUsageMetricApiFilters
     /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
-* `count` - count
-* `sum` - sum */
+  * `count` - count
+  * `sum` - sum */
     math?: MathEnumApi
     /**
-     * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
+     * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
      * @maxLength 255
      * @nullable
      */
@@ -153,7 +284,11 @@ export interface PaginatedGroupUsageMetricListApi {
 }
 
 /**
- * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+ * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
  */
 export type PatchedGroupUsageMetricApiFilters = { [key: string]: unknown }
 
@@ -166,29 +301,44 @@ export interface PatchedGroupUsageMetricApi {
     name?: string
     /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
 
-* `numeric` - numeric
-* `currency` - currency */
+  * `numeric` - numeric
+  * `currency` - currency */
     format?: GroupUsageMetricFormatEnumApi
     /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
     /** Visual representation in the UI. One of `number` or `sparkline`.
 
-* `number` - number
-* `sparkline` - sparkline */
+  * `number` - number
+  * `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
-    /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+    /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
+
+  **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+
+  **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
     filters?: PatchedGroupUsageMetricApiFilters
     /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
 
-* `count` - count
-* `sum` - sum */
+  * `count` - count
+  * `sum` - sum */
     math?: MathEnumApi
     /**
-     * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
+     * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
      * @maxLength 255
      * @nullable
      */
     math_property?: string | null
+}
+
+export type AccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type CustomerJourneysListParams = {

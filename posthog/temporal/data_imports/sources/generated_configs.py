@@ -237,6 +237,7 @@ class ClickHouseSourceConfig(config.Config):
     database: str
     user: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     password: str | None = None
     secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     verify: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
@@ -281,7 +282,8 @@ class CopperSourceConfig(config.Config):
 
 @config.config
 class CustomerIOSourceConfig(config.Config):
-    pass
+    app_api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -415,7 +417,7 @@ class InstagramSourceConfig(config.Config):
 
 @config.config
 class IntercomSourceConfig(config.Config):
-    pass
+    intercom_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -467,6 +469,7 @@ class MSSQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -525,6 +528,7 @@ class MySQLSourceConfig(config.Config):
     password: str
     schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
     using_ssl: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
     ssh_tunnel: SSHTunnelConfig | None = None
 
@@ -590,6 +594,13 @@ class PendoSourceConfig(config.Config):
 
 
 @config.config
+class PgAnalyzeSourceConfig(config.Config):
+    api_key: str
+    organization_slug: str
+    api_url: str | None = None
+
+
+@config.config
 class PinterestAdsSourceConfig(config.Config):
     ad_account_id: str
     pinterest_ads_integration_id: int = config.value(converter=config.str_to_int)
@@ -612,7 +623,7 @@ class PlainSourceConfig(config.Config):
 
 @config.config
 class PolarSourceConfig(config.Config):
-    pass
+    polar_api_key: str
 
 
 @config.config
@@ -759,6 +770,7 @@ class SnowflakeSourceConfig(config.Config):
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
     schema: str
+    connection_string: str | None = None
     role: str | None = None
 
 
@@ -984,6 +996,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PARDOT: PardotSourceConfig,
         ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
         ExternalDataSourceType.PENDO: PendoSourceConfig,
+        ExternalDataSourceType.PGANALYZE: PgAnalyzeSourceConfig,
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,

@@ -19,7 +19,7 @@ export const notebooksCreateBodyVersionMax = 2147483647
 
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -34,6 +34,21 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create a new password for the sharing configuration.
+ */
+export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().optional(),
+    password_required: zod.boolean().optional(),
+})
+
+export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().optional(),
+    password_required: zod.boolean().optional(),
+})
+
+/**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
 export const notebooksUpdateBodyTitleMax = 256
@@ -43,7 +58,7 @@ export const notebooksUpdateBodyVersionMax = 2147483647
 
 export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -67,7 +82,7 @@ export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -109,7 +124,7 @@ export const notebooksHogqlExecuteCreateBodyVersionMax = 2147483647
 
 export const NotebooksHogqlExecuteCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksHogqlExecuteCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -133,7 +148,7 @@ export const notebooksKernelConfigCreateBodyVersionMax = 2147483647
 
 export const NotebooksKernelConfigCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelConfigCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -157,7 +172,7 @@ export const notebooksKernelExecuteCreateBodyVersionMax = 2147483647
 
 export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelExecuteCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -185,7 +200,7 @@ export const NotebooksKernelExecuteStreamCreateBody = /* @__PURE__ */ zod.object
         .max(notebooksKernelExecuteStreamCreateBodyTitleMax)
         .nullish()
         .describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -209,7 +224,7 @@ export const notebooksKernelRestartCreateBodyVersionMax = 2147483647
 
 export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelRestartCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -233,7 +248,7 @@ export const notebooksKernelStartCreateBodyVersionMax = 2147483647
 
 export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelStartCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -257,7 +272,7 @@ export const notebooksKernelStopCreateBodyVersionMax = 2147483647
 
 export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksKernelStopCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()

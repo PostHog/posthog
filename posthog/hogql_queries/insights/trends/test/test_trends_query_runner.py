@@ -62,19 +62,20 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql_queries.insights.trends.breakdown import (
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_OTHER_DISPLAY, TrendsQueryRunner
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -2882,6 +2883,86 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert modifiers.inCohortVia == InCohortVia.AUTO
+
+    @parameterized.expand(
+        [
+            ("flag_off_no_breakdown", False, None, False),
+            (
+                "flag_off_session_multi",
+                False,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                False,
+            ),
+            ("flag_on_no_breakdown", True, None, False),
+            (
+                "flag_on_event_multi",
+                True,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]),
+                False,
+            ),
+            (
+                "flag_on_session_multi",
+                True,
+                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
+                True,
+            ),
+            (
+                "flag_on_session_legacy",
+                True,
+                BreakdownFilter(breakdown_type=BreakdownType.SESSION, breakdown="$channel_type"),
+                True,
+            ),
+            (
+                "flag_on_event_legacy",
+                True,
+                BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+                False,
+            ),
+        ]
+    )
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    def test_session_property_pre_aggregation_modifier_gate(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        breakdown_filter: Optional[BreakdownFilter],
+        expected: bool,
+        patch_feature_enabled,
+    ):
+        patch_feature_enabled.return_value = flag_enabled
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")], breakdownFilter=breakdown_filter),
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is expected
+
+    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.posthoganalytics.feature_enabled")
+    def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
+        # apply_dashboard_filters re-runs __post_init__. The modifier must reflect the *current*
+        # query state, not the initial one — so a session-breakdown query that gets overridden
+        # with an event breakdown must clear the modifier back to False.
+        from posthog.schema import DashboardFilter
+
+        patch_feature_enabled.return_value = True
+        runner = TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                breakdownFilter=BreakdownFilter(
+                    breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]
+                ),
+            ),
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is True
+
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(
+                    breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]
+                )
+            )
+        )
+        assert runner.modifiers.sessionPropertyPreAggregation is False
 
     def test_raises_for_empty_series(self):
         query_runner = TrendsQueryRunner(

@@ -1,5 +1,4 @@
 import type { GroupType } from '@/api/client'
-import { formatPrompt } from '@/lib/utils'
 import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
@@ -21,11 +20,15 @@ export function buildActiveEnvironmentContextPrompt(
     if (org || project) {
         const projectName = project?.name ?? 'Unknown'
         const projectId = project?.id ?? 'unknown'
-        const orgName = org?.name ?? 'Unknown'
-        const orgId = org?.id ?? 'unknown'
-        lines.push(
-            `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
-        )
+        if (org) {
+            const orgName = org.name ?? 'Unknown'
+            const orgId = org.id ?? 'unknown'
+            lines.push(
+                `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+            )
+        } else {
+            lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
+        }
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
@@ -45,13 +48,6 @@ export function buildActiveEnvironmentContextPrompt(
         lines.push(`The user's name is ${fullName} (${user.email}).`)
     }
     return `### Active environment\n\nAll tool calls and queries are scoped to this environment.\n\n${lines.join('\n')}`
-}
-
-export function buildInstructionsV1(template: string, metadata?: string): string {
-    if (!metadata) {
-        return template
-    }
-    return `${template}\n\n${metadata}`
 }
 
 export interface ToolInfo {
@@ -284,35 +280,4 @@ export function buildQueryToolsBlock(tools: QueryToolInfo[]): string {
 
 export function buildQueryToolsCompact(tools: QueryToolInfo[]): string {
     return new QueryToolCatalog(tools).toCompact()
-}
-
-export interface BuildInstructionsV2Options {
-    /**
-     * Render `{tool_domains}` and `{query_tools}` as a single pipe-separated
-     * line (and strip the `query-` prefix from query tool names) instead of
-     * markdown bullet lists. Used by the single-exec instructions template
-     * where every byte counts against the 2048-char `instructions` budget.
-     */
-    compact?: boolean
-}
-
-export function buildInstructionsV2(
-    template: string,
-    guidelines: string,
-    groupTypes?: GroupType[],
-    metadata?: string,
-    tools?: ToolInfo[],
-    queryTools?: QueryToolInfo[],
-    options?: BuildInstructionsV2Options
-): string {
-    const compact = options?.compact ?? false
-    const renderToolDomains = compact ? buildToolDomainsCompact : buildToolDomainsBlock
-    const renderQueryTools = compact ? buildQueryToolsCompact : buildQueryToolsBlock
-    return formatPrompt(template, {
-        guidelines: guidelines.trim(),
-        defined_groups: buildDefinedGroupsBlock(groupTypes),
-        metadata: metadata?.trim() ?? '',
-        tool_domains: tools ? renderToolDomains(tools) : '',
-        query_tools: queryTools ? renderQueryTools(queryTools) : '',
-    })
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonModal,
@@ -862,6 +863,12 @@ export function LLMProviderKeysSettings(): JSX.Element {
                     <LemonSkeleton className="w-full h-64" />
                 ) : (
                     <>
+                        {restrictionReason && (
+                            <LemonBanner type="info">
+                                {restrictionReason} Ask a project admin to add or manage API keys on your behalf.
+                            </LemonBanner>
+                        )}
+
                         <div className="flex justify-between items-start">
                             <LemonButton
                                 type="primary"
@@ -882,18 +889,29 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <IconKey className="text-muted text-4xl mb-4" />
                                 <h3 className="font-semibold mb-2">No API keys configured</h3>
                                 <p className="text-muted mb-4 text-center">
-                                    Add your API key for LLM analytics features with your own account.
-                                    <br />
-                                    Used for evaluations and the playground.
+                                    {restrictionReason ? (
+                                        <>
+                                            Only project admins can add API keys for LLM analytics.
+                                            <br />
+                                            Ask a project admin to add a key for evaluations and the playground.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Add your API key for LLM analytics features with your own account.
+                                            <br />
+                                            Used for evaluations and the playground.
+                                        </>
+                                    )}
                                 </p>
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    onClick={() => setNewKeyModalOpen(true)}
-                                    disabledReason={restrictionReason}
-                                >
-                                    Add API key
-                                </LemonButton>
+                                {!restrictionReason && (
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconPlus />}
+                                        onClick={() => setNewKeyModalOpen(true)}
+                                    >
+                                        Add API key
+                                    </LemonButton>
+                                )}
                             </div>
                         ) : (
                             <LemonTable

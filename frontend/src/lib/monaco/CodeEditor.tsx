@@ -59,6 +59,10 @@ export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltL
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
 }
 
+export function clearLogicReference(model: editor.ITextModel): void {
+    ;(model as any).codeEditorLogic = undefined
+}
+
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -228,12 +232,14 @@ export function CodeEditor({
         // model — disposing would break that editor, and nulling its
         // `codeEditorLogic` would silently break HogQL autocomplete /
         // metadata providers in the surviving editor.
-        const otherEditors = (monacoApi?.editor.getEditors?.() ?? []).filter((e) => e !== editorRef.current)
+        const otherEditors = (monacoApi?.editor.getEditors?.() ?? []).filter(
+            (e: importedEditor.ICodeEditor) => e !== editorRef.current
+        )
         for (const model of models) {
             if (model.isDisposed()) {
                 continue
             }
-            const stillInUse = otherEditors.some((e) => e.getModel() === model)
+            const stillInUse = otherEditors.some((e: importedEditor.ICodeEditor) => e.getModel() === model)
             if (stillInUse) {
                 continue
             }
@@ -241,7 +247,7 @@ export function CodeEditor({
             // dispose. Doing it for shared models would break consumers
             // (e.g. hogQLAutocompleteProvider, hogQLMetadataProvider) that
             // read `model.codeEditorLogic` to look up logic state.
-            ;(model as any).codeEditorLogic = undefined
+            clearLogicReference(model)
             try {
                 model.dispose()
             } catch {
@@ -442,7 +448,7 @@ export function CodeEditor({
         })
 
         monacoDisposables.current.push(
-            monaco.editor.registerCommand('posthog.hogql.fixWithAI', (_, prompt) => {
+            monaco.editor.registerCommand('posthog.hogql.fixWithAI', (_: unknown, prompt: unknown) => {
                 if (typeof prompt === 'string' && prompt.length > 0) {
                     onFixWithAI?.(prompt)
                 }

@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
+PI_IMAGE_NAME = "posthog-sandbox-pi"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 
 
@@ -146,7 +147,11 @@ class DockerSandbox(SandboxBase):
         return agent_path, shared_path, git_path, enricher_path
 
     @staticmethod
-    def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
+    def _build_image_if_needed(
+        image_name: str,
+        dockerfile_path: str,
+        build_args: dict[str, str] | None = None,
+    ) -> None:
         """Build a sandbox image if it doesn't exist."""
         result = DockerSandbox._run(["docker", "images", "-q", image_name])
         if result.stdout.strip():
@@ -161,18 +166,19 @@ class DockerSandbox(SandboxBase):
         # hogli build:skills.
         LocalSkillsCache().ensure_built()
 
-        DockerSandbox._run(
-            [
-                "docker",
-                "build",
-                "-f",
-                dockerfile_path,
-                "-t",
-                image_name,
-                str(settings.BASE_DIR),
-            ],
-            check=True,
-        )
+        argv = [
+            "docker",
+            "build",
+            "-f",
+            dockerfile_path,
+            "-t",
+            image_name,
+        ]
+        for key, value in (build_args or {}).items():
+            argv.extend(["--build-arg", f"{key}={value}"])
+        argv.append(str(settings.BASE_DIR))
+
+        DockerSandbox._run(argv, check=True)
 
     @staticmethod
     def _build_local_image(agent_path: str, shared_path: str, git_path: str, enricher_path: str) -> None:
@@ -231,6 +237,17 @@ class DockerSandbox(SandboxBase):
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
         )
         DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
+
+        if template == SandboxTemplate.PI_BASE:
+            pi_dockerfile = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi"
+            )
+            DockerSandbox._build_image_if_needed(
+                PI_IMAGE_NAME,
+                pi_dockerfile,
+                build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
+            )
+            return PI_IMAGE_NAME
 
         local_packages = DockerSandbox._get_local_posthog_code_packages()
         if local_packages:
@@ -314,6 +331,10 @@ class DockerSandbox(SandboxBase):
                     container_skill = f"/scripts/plugins/posthog/skills/{entry}"
                     volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
 
+            cap_args = ["--cap-add", "SYS_PTRACE"]
+            if config.template == SandboxTemplate.PI_BASE:
+                cap_args.extend(["--cap-add", "NET_ADMIN"])
+
             docker_args = [
                 "docker",
                 "run",
@@ -322,8 +343,7 @@ class DockerSandbox(SandboxBase):
                 container_name,
                 "--add-host",
                 "host.docker.internal:host-gateway",
-                "--cap-add",
-                "SYS_PTRACE",
+                *cap_args,
                 "-w",
                 WORKING_DIR,
                 f"--memory={config.memory_gb}g",

@@ -255,6 +255,81 @@ describe('Surveys generated tools', { concurrent: false }, () => {
         expect(surveyData.targeting_flag).toBeTruthy()
     })
 
+    it('creates an in-app survey with conditions and scheduling in a single create call', async () => {
+        const createTool = GENERATED_TOOLS['survey-create']!()
+        const getTool = GENERATED_TOOLS['survey-get']!()
+
+        const createResult = await createTool.handler(context, {
+            name: `Pricing Feedback ${Date.now()}`,
+            description: 'Feedback survey targeted to the pricing page',
+            type: 'popover',
+            schedule: 'once',
+            questions: [
+                {
+                    type: 'single_choice',
+                    question: 'What is the main thing blocking you from upgrading today?',
+                    choices: ['Price', 'Missing feature', 'Need approval', 'Other'],
+                },
+            ],
+            conditions: {
+                url: '/pricing',
+                urlMatchType: 'icontains',
+            },
+        })
+        const createdSurvey = parseToolResponse(createResult)
+        createdResources.surveys.push(createdSurvey.id)
+
+        const getResult = await getTool.handler(context, { id: createdSurvey.id })
+        const surveyData = parseToolResponse(getResult)
+
+        expect(surveyData.conditions?.url).toBe('/pricing')
+        expect(surveyData.conditions?.urlMatchType).toBe('icontains')
+        expect(surveyData.schedule).toBe('once')
+    })
+
+    it('creates a hosted form with iframe embedding, form content, and translations', async () => {
+        const createTool = GENERATED_TOOLS['survey-create']!()
+        const getTool = GENERATED_TOOLS['survey-get']!()
+
+        const createResult = await createTool.handler(context, {
+            name: `Hosted Form ${Date.now()}`,
+            description: 'Shareable feedback form',
+            type: 'external_survey',
+            enable_iframe_embedding: true,
+            form_content: {
+                intro: 'Tell us what to build next.',
+            },
+            translations: {
+                es: {
+                    name: 'Formulario de comentarios',
+                    description: 'Ayudanos a mejorar',
+                },
+            },
+            questions: [
+                {
+                    type: 'open',
+                    question: 'What should we improve first?',
+                    translations: {
+                        es: {
+                            question: 'Que deberiamos mejorar primero?',
+                        },
+                    },
+                },
+            ],
+        })
+        const createdSurvey = parseToolResponse(createResult)
+        createdResources.surveys.push(createdSurvey.id)
+
+        const getResult = await getTool.handler(context, { id: createdSurvey.id })
+        const surveyData = parseToolResponse(getResult)
+
+        expect(surveyData.type).toBe('external_survey')
+        expect(surveyData.enable_iframe_embedding).toBe(true)
+        expect(surveyData.form_content).toEqual({ intro: 'Tell us what to build next.' })
+        expect(surveyData.translations.es.name).toBe('Formulario de comentarios')
+        expect(surveyData.questions[0].translations.es.question).toBe('Que deberiamos mejorar primero?')
+    })
+
     it('returns error for non-existent survey ID', async () => {
         const getTool = GENERATED_TOOLS['survey-get']!()
         const nonExistentId = generateUniqueKey('non-existent')
@@ -566,6 +641,74 @@ describe('Surveys generated tools', { concurrent: false }, () => {
         expect(updated.questions[1].type).toBe('multiple_choice')
         expect(updated.questions[2].type).toBe('rating')
         expect(updated.questions[2].display).toBe('emoji')
+    })
+
+    it('updates translations and preserves existing question IDs when editing questions', async () => {
+        const createTool = GENERATED_TOOLS['survey-create']!()
+        const updateTool = GENERATED_TOOLS['survey-update']!()
+        const getTool = GENERATED_TOOLS['survey-get']!()
+
+        const createResult = await createTool.handler(context, {
+            name: `Translated Survey ${Date.now()}`,
+            description: 'Original translated survey',
+            type: 'popover',
+            translations: {
+                es: {
+                    name: 'Encuesta original',
+                    description: 'Descripcion original',
+                },
+            },
+            questions: [
+                {
+                    type: 'single_choice',
+                    question: 'What brought you here?',
+                    choices: ['Search', 'Referral', 'Other'],
+                    translations: {
+                        es: {
+                            question: 'Que te trajo aqui?',
+                            choices: ['Busqueda', 'Referencia', 'Otro'],
+                        },
+                    },
+                },
+                {
+                    type: 'open',
+                    question: 'Anything else?',
+                },
+            ],
+        })
+        const survey = parseToolResponse(createResult)
+        createdResources.surveys.push(survey.id)
+
+        const [firstQuestion, secondQuestion] = survey.questions
+
+        await updateTool.handler(context, {
+            id: survey.id,
+            translations: {
+                es: {
+                    name: 'Encuesta actualizada',
+                    description: 'Descripcion actualizada',
+                },
+            },
+            questions: [
+                {
+                    ...secondQuestion,
+                    question: 'Anything else we should know?',
+                },
+                {
+                    ...firstQuestion,
+                    question: 'What brought you here today?',
+                },
+            ],
+        })
+
+        const getResult = await getTool.handler(context, { id: survey.id })
+        const updated = parseToolResponse(getResult)
+
+        expect(updated.translations.es.name).toBe('Encuesta actualizada')
+        expect(updated.questions).toHaveLength(2)
+        expect(updated.questions[0].id).toBe(secondQuestion.id)
+        expect(updated.questions[1].id).toBe(firstQuestion.id)
+        expect(updated.questions[1].translations.es.choices).toEqual(['Busqueda', 'Referencia', 'Otro'])
     })
 
     it('accepts branching on open questions (backend does not validate response keys)', async () => {
