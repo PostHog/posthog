@@ -16,12 +16,20 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ProductKey
 
+from posthog.api.documentation import (
+    ArrayPropertyFilterSerializer,
+    DatePropertyFilterSerializer,
+    ExistencePropertyFilterSerializer,
+    NumericPropertyFilterSerializer,
+    StringPropertyFilterSerializer,
+)
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
-from posthog.models import Action, Cohort, Insight, Team
-from posthog.models.action.action import ACTION_STEP_MATCHING_OPTIONS
+from posthog.models import Cohort, Insight, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.event.event import Selector
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -31,17 +39,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.resource_limits import LimitKey, check_count_limit
 
+from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
 from products.experiments.backend.models.experiment import Experiment
-
-from .documentation import (
-    ArrayPropertyFilterSerializer,
-    DatePropertyFilterSerializer,
-    ExistencePropertyFilterSerializer,
-    NumericPropertyFilterSerializer,
-    StringPropertyFilterSerializer,
-)
-from .forbid_destroy_model import ForbidDestroyModel
-from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 
 _PropertyFilterUnion = PolymorphicProxySerializer(
     component_name="ActionStepPropertyFilter",
@@ -198,7 +197,7 @@ class ActionSerializer(
         return False
 
     @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_creation_context(self, obj):
+    def get_creation_context(self, obj) -> None:
         return None
 
     def validate(self, attrs):
@@ -580,7 +579,9 @@ class ActionViewSet(
 
 
 @mutable_receiver(model_activity_signal, sender=Action)
-def handle_action_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+def handle_action_change(
+    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+) -> None:
     # Detect soft delete/restore by checking the deleted field
     if before_update and after_update:
         if not before_update.deleted and after_update.deleted:

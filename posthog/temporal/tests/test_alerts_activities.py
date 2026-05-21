@@ -22,8 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.models import AlertConfiguration, Insight, User
-from posthog.models.alert import AlertCheck
+from posthog.models import Insight, User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
@@ -33,6 +32,8 @@ from posthog.temporal.alerts.types import (
     PrepareAlertActivityInputs,
     SkipReason,
 )
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 
 def _valid_trends_query() -> dict:

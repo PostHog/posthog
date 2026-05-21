@@ -1,1 +1,1 @@
-1167_remove_alertconfiguration_is_calculating
+1168_migrate_alerts_actions_models
