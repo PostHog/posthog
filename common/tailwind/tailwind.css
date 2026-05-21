@@ -3,6 +3,9 @@
 /* if this shows a warning, change the type of file in vscode to 'tailwind CSS' */
 @config "./tailwind.config.js";
 
+/* Edge-fade utilities (`scroll-mask-*`) for scrollable lists/popups — matches @posthog/quill. */
+@import 'tailwindcss-scroll-mask';
+
 /*
  * Scan @posthog/quill source so utilities used in primitive/component
  * authoring (including arbitrary values like `w-[601px]`) get emitted

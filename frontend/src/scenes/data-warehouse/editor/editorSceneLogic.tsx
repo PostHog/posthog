@@ -13,12 +13,7 @@ import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } fro
 import { Breadcrumb } from '~/types'
 
 import type { editorSceneLogicType } from './editorSceneLogicType'
-import {
-    getCurrentVisualizationQuery,
-    normalizeFiltersForUrl,
-    sqlEditorLogic,
-    toDataVisualizationNode,
-} from './sqlEditorLogic'
+import { normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 
 export interface SaveAsMenuItem {
     action: 'insight' | 'endpoint' | 'view'
@@ -282,16 +277,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.dataLogicKey],
-            (sourceQuery, activeTab, editingInsight, dataLogicKey) => {
+            (s) => [s.sourceQuery, s.activeTab, s.editingInsight],
+            (sourceQuery, activeTab, editingInsight) => {
                 if (!editingInsight?.query) {
                     return false
                 }
 
                 const updatedName = activeTab?.name !== editingInsight.name
-                const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
-
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
                 // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
                 const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
 

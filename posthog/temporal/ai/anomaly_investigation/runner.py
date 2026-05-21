@@ -12,16 +12,20 @@ message with no tool calls, or on budget exhaustion.
 from __future__ import annotations
 
 import json
+import uuid
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+import posthoganalytics
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
-from posthog.models.alert import AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
@@ -33,10 +37,13 @@ from posthog.temporal.ai.anomaly_investigation.tools import (
     TopBreakdownArgs,
 )
 
+from products.alerts.backend.models.alert import AlertConfiguration
+
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS = 10
 AGENT_MODEL = "claude-sonnet-4-6"
+FINAL_REPORT_TOOL_NAME = "submit_investigation_report"
 MAX_TOOL_RESULT_CHARS = 12_000  # ~3K tokens per call — keeps 10 calls well under the context limit.
 # Per-request cap. The surrounding Temporal activity has its own (longer) deadline;
 # this guards against a single stuck HTTP call hanging for the whole activity budget.
@@ -117,6 +124,15 @@ async def run_investigation(
         ),
     ]
 
+    final_report_tool = {
+        "name": FINAL_REPORT_TOOL_NAME,
+        "description": (
+            "Submit the final anomaly investigation report. Use this instead of writing "
+            "JSON as plain text when you have finished investigating."
+        ),
+        "input_schema": InvestigationReport.model_json_schema(),
+    }
+
     llm = MaxChatAnthropic(
         model=AGENT_MODEL,
         team=team,
@@ -126,17 +142,29 @@ async def run_investigation(
         max_retries=2,
         temperature=0,
         default_request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+        posthog_properties={"ai_product": "alert_investigation_agent"},
     )
     llm_with_tools = llm.bind_tools(
         [
-            {
-                "name": name,
-                "description": description,
-                "input_schema": schema.model_json_schema(),
-            }
-            for name, description, schema in tools_spec
+            *(
+                {
+                    "name": name,
+                    "description": description,
+                    "input_schema": schema.model_json_schema(),
+                }
+                for name, description, schema in tools_spec
+            ),
+            final_report_tool,
         ]
     )
+    llm_with_final_report = llm.bind_tools([final_report_tool], tool_choice=FINAL_REPORT_TOOL_NAME)
+
+    # Without a langchain CallbackHandler attached, MaxChatAnthropic's posthog_properties
+    # never reach LLM analytics — langchain-anthropic itself doesn't emit $ai_* events.
+    # Attach one here so every generation/span this agent makes shows up under
+    # ai_product=alert_investigation_agent, matching the convention used by other
+    # Temporal-driven agents (see llma_eval_reports/report_agent/graph.py).
+    config: RunnableConfig = {"callbacks": _build_callbacks(team=team, alert=alert)}
 
     messages: list[Any] = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -155,7 +183,7 @@ async def run_investigation(
             messages.append(
                 HumanMessage(
                     content=(
-                        "Tool call budget exhausted. Emit the final InvestigationReport JSON "
+                        "Tool call budget exhausted. Submit the final InvestigationReport "
                         "now using whatever evidence you have."
                     )
                 )
@@ -163,7 +191,7 @@ async def run_investigation(
             if heartbeat is not None:
                 heartbeat()
             try:
-                final = await llm.ainvoke(messages)
+                final = await llm_with_final_report.ainvoke(messages, config=config)
             except Exception as err:
                 # Swallow final-turn failures and return an inconclusive report rather than
                 # bouncing off Temporal retries — MaxChatAnthropic already exhausted its
@@ -175,10 +203,14 @@ async def run_investigation(
                     model=AGENT_MODEL,
                 )
             messages.append(final)
+            forced_report = _parse_report_message(final)
+            if forced_report is not None:
+                forced_report.tool_calls_used = tool_calls_used
+                return InvestigationRunResult(report=forced_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
             break
 
         try:
-            response = await llm_with_tools.ainvoke(messages)
+            response = await llm_with_tools.ainvoke(messages, config=config)
         except Exception as err:
             logger.warning("anomaly_investigation.llm_invoke_error", extra={"error": str(err)})
             return InvestigationRunResult(
@@ -189,6 +221,10 @@ async def run_investigation(
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []
+        structured_report = _report_from_tool_calls(tool_calls)
+        if structured_report is not None:
+            structured_report.tool_calls_used = tool_calls_used
+            return InvestigationRunResult(report=structured_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
         if not tool_calls:
             break
 
@@ -198,7 +234,9 @@ async def run_investigation(
             tool_call_id = call.get("id") or call.get("tool_call_id") or ""
             # Enforce the cap per-call, not just per-turn — a single assistant
             # response can emit several parallel tool_use blocks.
-            if tool_calls_used >= MAX_TOOL_CALLS:
+            if name == FINAL_REPORT_TOOL_NAME:
+                content = "Final report tool call was invalid. Submit it again with all required fields."
+            elif tool_calls_used >= MAX_TOOL_CALLS:
                 content = "[skipped — tool call budget exhausted]"
             else:
                 tool_calls_used += 1
@@ -222,6 +260,43 @@ async def run_investigation(
     report = _parse_report(getattr(final_message, "content", ""))
     report.tool_calls_used = tool_calls_used
     return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+
+
+def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[BaseCallbackHandler]:
+    callbacks: list[BaseCallbackHandler] = []
+    client = posthoganalytics.default_client
+    if client is None:
+        return callbacks
+    properties: dict[str, Any] = {
+        "ai_product": "alert_investigation_agent",
+        "team_id": team.id,
+    }
+    if alert is not None:
+        properties["alert_id"] = str(alert.id)
+    callbacks.append(
+        CallbackHandler(
+            client,
+            distinct_id=str(team.id),
+            trace_id=f"alert-investigation-{uuid.uuid4()}",
+            properties=properties,
+        )
+    )
+    return callbacks
+
+
+def _parse_report_message(message: Any) -> InvestigationReport | None:
+    return _report_from_tool_calls(getattr(message, "tool_calls", None) or [])
+
+
+def _report_from_tool_calls(tool_calls: list[dict[str, Any]]) -> InvestigationReport | None:
+    for call in tool_calls:
+        if call.get("name") != FINAL_REPORT_TOOL_NAME:
+            continue
+        try:
+            return InvestigationReport.model_validate(call.get("args") or {})
+        except ValidationError:
+            return None
+    return None
 
 
 def _parse_report(content: Any) -> InvestigationReport:

@@ -1483,11 +1483,23 @@ export type TrendsFilterApiResultCustomizations =
     | null
 
 export interface TrendsFilterApi {
+    /** Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
+
+  - `numeric` (default): raw numbers, e.g. `1,234`.
+  - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+  - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+  - `percentage`: values are already in the 0-100 range; appends `%`.
+  - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+  - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+  - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
     aggregationAxisFormat?: AggregationAxisFormatApi | null
+    /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
     aggregationAxisPostfix?: string | null
+    /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
     breakdown_histogram_bin_count?: number | null
     confidenceLevel?: number | null
+    /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: number | null
     /** detailed results table */
     detailedResultsAggregationType?: DetailedResultsAggregationTypeApi | null
@@ -6537,10 +6549,17 @@ export interface ChartAxisApi {
     settings?: SettingsApi | null
 }
 
+/**
+ * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+ */
+export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
+
 export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+    resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null

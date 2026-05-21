@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArchive, IconCode, IconCopy, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -25,7 +25,13 @@ import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackBu
 import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
 import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import { useSurveyResponseColumns } from 'scenes/surveys/hooks/useSurveyResponseColumns'
+import {
+    canDeleteSurvey,
+    openArchiveSurveyDialog,
+    openDeleteSurveyDialog,
+    openResumeSurveyDialog,
+} from 'scenes/surveys/surveyDialogs'
 import { SurveyHeadline } from 'scenes/surveys/SurveyHeadline'
 import { SurveyTab, surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
@@ -67,12 +73,13 @@ import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshSt
 import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
 import { SurveyResultsFiltersBar } from './SurveyFilters'
+import { SurveyResponseExpandedRow } from './SurveyResponseExpandedRow'
 import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
 
 export function SurveyViewRedesign(): JSX.Element {
-    const { survey, surveyLoading, activeTab } = useValues(surveyLogic)
+    const { survey, surveyLoading, activeTab, surveyNotifications } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
@@ -445,7 +452,16 @@ export function SurveyViewRedesign(): JSX.Element {
                             : []),
                         {
                             key: SurveyTab.NOTIFICATIONS,
-                            label: 'Notifications',
+                            label: (
+                                <span className="flex items-center gap-1.5">
+                                    Notifications
+                                    {surveyNotifications.length > 0 && (
+                                        <LemonTag type="completion" size="small">
+                                            {surveyNotifications.length}
+                                        </LemonTag>
+                                    )}
+                                </span>
+                            ),
                             content: <SurveyNotificationsContent />,
                         },
                         {
@@ -505,27 +521,7 @@ function SurveyStatusAction(): JSX.Element | null {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Resume this survey?',
-                            content: (
-                                <div className="text-sm text-secondary">
-                                    Once resumed, the survey will be visible to your users again.
-                                </div>
-                            ),
-                            primaryButton: {
-                                children: 'Resume',
-                                type: 'primary',
-                                onClick: () => resumeSurvey(),
-                                size: 'small',
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                                type: 'tertiary',
-                                size: 'small',
-                            },
-                        })
-                    }}
+                    onClick={() => openResumeSurveyDialog(survey, () => resumeSurvey())}
                 >
                     Resume
                 </LemonButton>
@@ -655,17 +651,32 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     )
 }
 
+function getUuidFromExpandableRecord(record: { result?: unknown }): string | undefined {
+    const result = record?.result
+    if (!Array.isArray(result)) {
+        return undefined
+    }
+    const event = result[0] as { uuid?: string } | undefined
+    return event?.uuid
+}
+
+// Don't trigger row expansion when the click originated from an interactive element inside the row.
+const INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role="button"], [data-skip-row-expand]'
+
 function SurveyResponsesContent(): JSX.Element {
     const {
         dataTableQuery,
         survey,
         surveyLoading,
         archivedResponseUuids,
+        expandedResponseUuids,
         isAnyResultsLoading,
         resultsRequeryInProgress,
     } = useValues(surveyLogic)
+    const { setResponseExpanded, toggleResponseExpansion } = useActions(surveyLogic)
     const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
     const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
+    const surveyColumnRenderers = useSurveyResponseColumns()
 
     return (
         <div className="px-4 pb-4 space-y-4">
@@ -686,20 +697,50 @@ function SurveyResponsesContent(): JSX.Element {
                     <Query
                         query={dataTableQuery}
                         context={{
+                            columns: surveyColumnRenderers,
                             rowProps: (record: unknown) => {
                                 if (typeof record !== 'object' || !record || !('result' in record)) {
                                     return {}
                                 }
-                                const result = record.result
+                                const result = (record as { result?: unknown }).result
                                 if (!Array.isArray(result)) {
                                     return {}
                                 }
+                                const uuid = (result[0] as { uuid?: string } | undefined)?.uuid
+                                const isArchived = uuid ? archivedResponseUuids.has(uuid) : false
                                 return {
-                                    className:
-                                        result[0]?.uuid && archivedResponseUuids.has(result[0].uuid)
-                                            ? 'opacity-50'
-                                            : undefined,
+                                    className: `cursor-pointer ${isArchived ? 'opacity-50' : ''}`.trim(),
+                                    onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
+                                        if (!uuid) {
+                                            return
+                                        }
+                                        if ((e.target as HTMLElement).closest(INTERACTIVE_SELECTOR)) {
+                                            return
+                                        }
+                                        toggleResponseExpansion(uuid)
+                                    },
                                 }
+                            },
+                            expandable: {
+                                expandedRowRender: ({ result }) => <SurveyResponseExpandedRow result={result} />,
+                                rowExpandable: ({ result }) => !!result,
+                                isRowExpanded: (record) => {
+                                    const uuid = getUuidFromExpandableRecord(record)
+                                    return uuid ? expandedResponseUuids.has(uuid) : false
+                                },
+                                onRowExpand: (record) => {
+                                    const uuid = getUuidFromExpandableRecord(record)
+                                    if (uuid) {
+                                        setResponseExpanded(uuid, true)
+                                    }
+                                },
+                                onRowCollapse: (record) => {
+                                    const uuid = getUuidFromExpandableRecord(record)
+                                    if (uuid) {
+                                        setResponseExpanded(uuid, false)
+                                    }
+                                },
+                                noIndent: true,
                             },
                         }}
                     />

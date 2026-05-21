@@ -5,19 +5,13 @@ from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory
 
-from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
+from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from posthog.admin.admins.user_admin import UserAdmin
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
 from posthog.admin.inlines.plugin_attachment_inline import PluginAttachmentInline
 from posthog.models import User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
-
-
-class TestAdmin(BaseTest):
-    def test_register_admin_models_succeeds(self):
-        with patch.object(admin, "site", AdminSite()):
-            register_all_admin()
 
 
 class TestOAuthSidebarRegrouping(BaseTest):

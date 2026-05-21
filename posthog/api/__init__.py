@@ -11,6 +11,7 @@ from posthog.api import (
     my_notifications,
     project,
     user_integration,
+    user_push_token,
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -21,7 +22,7 @@ from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
-from posthog.settings import EE_AVAILABLE
+from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
 import products.links.backend.api as link
@@ -29,6 +30,8 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
+import products.deployments.backend.api as deployments
+import products.alerts.backend.api.alert as alert
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
@@ -95,6 +98,7 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    PersonalSpendViewSet,
     ReviewQueueItemViewSet,
     ReviewQueueViewSet,
     ScoreDefinitionViewSet,
@@ -112,7 +116,11 @@ from products.product_tours.backend.api import ProductTourViewSet
 from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
-from products.user_interviews.backend.api import UserInterviewViewSet
+from products.user_interviews.backend.presentation.views import (
+    IntervieweeContextViewSet,
+    UserInterviewTopicViewSet,
+    UserInterviewViewSet,
+)
 from products.visual_review.backend.presentation.views import (
     RepoRunsViewSet as VisualReviewRepoRunsViewSet,
     RepoViewSet as VisualReviewRepoViewSet,
@@ -130,7 +138,6 @@ from ..session_recordings.session_recording_playlist_api import SessionRecording
 from ..taxonomy import property_definition_api
 from . import (
     advanced_activity_logs,
-    alert,
     annotation,
     async_migration,
     authentication,
@@ -212,6 +219,12 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
+# Personal LLM spend data lives only in PostHog Cloud US's internal team — register
+# the endpoint there plus dev/test envs so it stays reachable in development. EU
+# adds a redirect (declared in posthog/urls.py) so callers get a discoverable
+# pointer instead of a silent 404.
+if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
+    router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
 router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -312,6 +325,21 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
+# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
+# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
+project_deployment_projects_router = projects_router.register(
+    r"deployment_projects",
+    deployments.DeploymentProjectViewSet,
+    "project_deployment_projects",
+    ["project_id"],
+)
+project_deployment_projects_router.register(
+    r"deployments",
+    deployments.DeploymentViewSet,
+    "project_deployment_projects_deployments",
+    ["project_id", "deployment_project_id"],
+)
 
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
@@ -401,6 +429,13 @@ environments_router.register(
     r"customer_journeys",
     customer_analytics.CustomerJourneyViewSet,
     "environment_customer_journeys",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"accounts",
+    customer_analytics.AccountViewSet,
+    "environment_accounts",
     ["team_id"],
 )
 
@@ -732,6 +767,7 @@ organizations_router.register(
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
+router.register(r"login/dev", authentication.DevLoginViewSet, "login_dev")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
 router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
@@ -748,6 +784,12 @@ users_router.register(
     "user_integration",
     ["uuid"],
 )
+users_router.register(
+    r"push_tokens",
+    user_push_token.UserPushTokenViewSet,
+    "user_push_token",
+    ["uuid"],
+)
 router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
@@ -762,13 +804,14 @@ router.register(r"instance_settings", instance_settings.InstanceSettingsViewset,
 router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 router.register(r"query_performance_proxy", QueryPerformanceProxyViewSet, "query_performance_proxy")
 
-from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
+
+from products.actions.backend.api.action import ActionViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
@@ -1301,6 +1344,19 @@ environments_router.register(
     UserInterviewViewSet,
     "environment_user_interviews",
     ["team_id"],
+)
+
+user_interview_topics_router = environments_router.register(
+    r"user_interview_topics",
+    UserInterviewTopicViewSet,
+    "environment_user_interview_topics",
+    ["team_id"],
+)
+user_interview_topics_router.register(
+    r"interviewees",
+    IntervieweeContextViewSet,
+    "environment_user_interview_topic_interviewees",
+    ["team_id", "topic_id"],
 )
 
 visual_review_repos_router = projects_router.register(

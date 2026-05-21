@@ -72,8 +72,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
 
@@ -834,7 +834,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard_id)
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
-        self.assertEqual(response["tiles"][0]["insight"]["filters"]["date_from"], "-14d")
+        self.assertEqual(response["tiles"][0]["insight"]["query"]["source"]["dateRange"]["date_from"], "-14d")
 
         item_response = self.client.get(f"/api/projects/{self.team.id}/insights/").json()
         self.assertEqual(item_response["results"][0]["name"], "some_item")
@@ -1128,7 +1128,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tile = response["tiles"][0]
 
         assert tile["insight"]["id"] == insight_id
-        assert tile["insight"]["filters"]["date_from"] == "-14d"
+        assert tile["insight"]["query"]["source"]["dateRange"]["date_from"] == "-14d"
 
     def test_dashboard_filtering_on_properties(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
@@ -1156,8 +1156,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(response["tiles"][0]["insight"]["name"], "some_item")
         self.assertEqual(
-            response["tiles"][0]["insight"]["filters"]["properties"],
-            [{"key": "prop", "value": "val"}],
+            response["tiles"][0]["insight"]["query"]["source"]["properties"],
+            [
+                {
+                    "key": "prop",
+                    "label": None,
+                    "operator": "exact",
+                    "type": "event",
+                    "value": "val",
+                }
+            ],
         )
 
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
@@ -1171,11 +1179,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
         response = self.dashboard_api.get_dashboard(dashboard_id)
-        self.assertEqual(response["tiles"][0]["insight"]["filters"]["date_from"], "-14d")
+        self.assertEqual(response["tiles"][0]["insight"]["query"]["source"]["dateRange"]["date_from"], "-14d")
 
         # which doesn't change the insight's filter
         response = self.dashboard_api.get_insight(insight_id)
-        self.assertEqual(response["filters"]["date_from"], "-7d")
+        self.assertEqual(response["query"]["source"]["dateRange"]["date_from"], "-7d")
 
     def test_dashboard_items_history_per_user(self):
         test_user = User.objects.create_and_join(self.organization, "test@test.com", None)
@@ -1282,7 +1290,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": None,
                 "duplicated": False,
                 "from_template": True,
-                "has_description": False,
+                "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
@@ -1845,15 +1853,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         DashboardTile.objects.create(insight=item, dashboard=dashboard)
         response = self.dashboard_api.get_dashboard(dashboard.pk)
-        self.assertEqual(
-            response["tiles"][0]["insight"]["filters"],
-            {
-                "events": [{"id": "$pageview"}],
-                "insight": "TRENDS",
-                "date_from": None,
-                "date_to": None,
-            },
-        )
+        self.assertEqual(response["tiles"][0]["insight"]["filters"], {})
+        query_source = response["tiles"][0]["insight"]["query"]["source"]
+        self.assertEqual(query_source["kind"], "TrendsQuery")
+        self.assertEqual(query_source["series"][0]["event"], "$pageview")
 
     def test_retrieve_dashboard_different_team(self):
         team2 = Team.objects.create(organization=Organization.objects.create(name="a"))
@@ -2136,7 +2139,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     @parameterized.expand([("source",), ("target",)])
     def test_move_tile_respects_access_control(self, blocked_dashboard: str) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()

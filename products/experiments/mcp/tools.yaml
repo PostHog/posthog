@@ -412,19 +412,107 @@ tools:
         ui_app: experiment
     experiment-saved-metrics-create:
         operation: experiment_saved_metrics_create
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create shared experiment metric
+        description: >
+            Create a reusable shared metric. Requires name (unique per project, case-insensitive) and query
+            (kind='ExperimentMetric', metric_type one of 'mean', 'funnel', 'ratio', 'retention'). Optional: description,
+            tags.
+
+
+            Load the configuring-experiment-analytics skill before constructing the query, and use read-data-schema to
+            confirm event names. Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected.
+
+
+            To attach to an experiment, call experiment-update with saved_metrics_ids — each item has 'id' and
+            'metadata.type' ('primary' or 'secondary').
     experiment-saved-metrics-destroy:
         operation: experiment_saved_metrics_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete shared experiment metric
+        description: >
+            Delete a shared metric by ID. REQUIRES EXPLICIT USER CONFIRMATION — confirm by name first, and warn that any
+            experiments using it will lose access.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-saved-metrics-list:
         operation: experiment_saved_metrics_list
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List shared experiment metrics
+        description: >
+            List shared metrics in the current project. Returns paginated results with id, name, description, query,
+            created_at, updated_at, tags. Use experiment-saved-metrics-retrieve for a single metric by ID, or this
+            listing to resolve by name.
+        param_overrides:
+            limit:
+                cast: string-int
+            offset:
+                cast: string-int
+        response:
+            include:
+                - id
+                - name
+                - description
+                - query
+                - created_at
+                - updated_at
+                - tags
     experiment-saved-metrics-partial-update:
         operation: experiment_saved_metrics_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update shared experiment metric
+        description: >
+            Partially update a shared metric. Only name, description, and query are mutable. Edits propagate to every
+            experiment the metric is attached to — REQUIRES EXPLICIT USER CONFIRMATION before changing query or name on
+            a metric attached to running experiments.
+
+
+            Legacy-format metrics (kind=ExperimentTrendsQuery / ExperimentFunnelsQuery) cannot be updated.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-saved-metrics-retrieve:
         operation: experiment_saved_metrics_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_saved_metric:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get shared experiment metric
+        description: >
+            Get a single shared metric by ID. Returns the full query JSON (metric_type, source, math, filters, etc.). If
+            you don't have the ID, call experiment-saved-metrics-list first.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-saved-metrics-update:
         operation: experiment_saved_metrics_update
         enabled: false
@@ -444,9 +532,23 @@ tools:
             user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
-            REQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the feature flag for 100% of
-            users and cannot be undone via the API. Even when the user has asked you to ship a specific variant, ask
-            them to confirm with the variant key and target experiment before invoking this tool.
+            REQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the linked feature flag and
+            cannot be undone via the API. Two release modes — confirm which one the user wants before invoking:
+
+
+            - Default (release_to_everyone=false): updates only the variant distribution so the selected variant gets
+            100%. Existing release conditions and per-user variant overrides on the flag are preserved untouched — the
+            variant is served only to users who already match them.
+
+
+            - release_to_everyone=true: in addition to flipping the variant distribution, prepends a catch-all release
+            condition that rolls the variant out to 100% of users. This OVERRIDES any existing release conditions and
+            per-user variant overrides on the flag. Only use this when the user explicitly wants to release beyond the
+            experiment's existing population.
+
+
+            Even when the user has asked you to ship a specific variant, ask them to confirm with the variant key,
+            target experiment, and release mode before invoking this tool.
 
 
             Ship a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant
@@ -616,8 +718,14 @@ tools:
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
+    experiments-create-from-prompt-create:
+        operation: experiments_create_from_prompt_create
+        enabled: false
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
+    experiments-prompt-templates-retrieve:
+        operation: experiments_prompt_templates_retrieve
         enabled: false
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create

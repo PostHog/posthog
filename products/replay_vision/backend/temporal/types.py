@@ -1,9 +1,52 @@
+import datetime as dt
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, model_validator
+from temporalio.exceptions import ApplicationError
 
+from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.temporal.lenses.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.lenses.indexer import IndexerOutput
+from products.replay_vision.backend.temporal.lenses.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.lenses.scorer import ScorerOutput
+from products.replay_vision.backend.temporal.lenses.summarizer import SummarizerOutput
+
+AnyLensOutput = Annotated[
+    ClassifierOutput | IndexerOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    Field(discriminator="lens_type"),
+]
+
+
+class LensSnapshot(BaseModel, frozen=True):
+    """Frozen view of a `ReplayLens` at observation-create time, persisted into `ReplayObservation.lens_snapshot`."""
+
+    name: str
+    lens_type: LensType
+    lens_version: int = Field(ge=1)
+    model: LensModel
+    provider: LensProvider
+    emits_signals: bool
+    lens_config: dict[str, Any]
+
+    @classmethod
+    def load_for(cls, observation_id: UUID, raw: dict[str, Any] | None) -> "LensSnapshot":
+        """Validate a persisted `lens_snapshot` blob, raising a non-retryable error tagged with the observation id."""
+        try:
+            return cls.model_validate(raw or {})
+        except ValidationError as exc:
+            raise ApplicationError(
+                f"ReplayObservation {observation_id} has malformed lens_snapshot: {exc}", non_retryable=True
+            ) from exc
+
+
+class LensResult(BaseModel, frozen=True):
+    """Result data of a completed observation, persisted into `ReplayObservation.lens_result`."""
+
+    model_output: AnyLensOutput
+    signals_count: int = Field(default=0, ge=0)
 
 
 class ApplyLensInputs(BaseModel, frozen=True):
@@ -39,3 +82,109 @@ class MarkObservationRunningInputs(BaseModel, frozen=True):
 class MarkObservationFailedInputs(BaseModel, frozen=True):
     observation_id: UUID
     error_reason: str
+
+
+class FetchSessionEventsInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    team_id: int
+    session_id: str
+
+
+class EventTable(BaseModel, frozen=True):
+    """A column-oriented analytics-event table; every row's arity matches `len(columns)`."""
+
+    columns: list[str]
+    rows: list[list[Any]]
+
+    @model_validator(mode="after")
+    def _rows_match_columns(self) -> "EventTable":
+        column_count = len(self.columns)
+        for index, row in enumerate(self.rows):
+            if len(row) != column_count:
+                raise ValueError(f"rows[{index}] has {len(row)} values but columns has {column_count}")
+        return self
+
+    def as_dicts(self) -> list[dict[str, Any]]:
+        """Zip columns and rows into per-event dicts for prompt-template rendering."""
+        return [dict(zip(self.columns, row)) for row in self.rows]
+
+
+class SessionMetadata(BaseModel, frozen=True):
+    """Session-level context exposed to the LLM prompt."""
+
+    start_time: dt.datetime
+    end_time: dt.datetime
+    duration_seconds: float
+    # ClickHouse derives these from `sum(active_milliseconds)/1000`, so they're floats in practice (e.g. 30.5s).
+    active_seconds: float | None = None
+    inactive_seconds: float | None = None
+    click_count: int | None = None
+    keypress_count: int | None = None
+    mouse_activity_count: int | None = None
+    start_url: str | None = None
+    console_error_count: int | None = None
+    events_truncated: bool = False
+
+    def as_prompt_dict(self) -> dict[str, Any]:
+        """Drop unset (None) fields so the prompt isn't padded with `null`s."""
+        return self.model_dump(mode="json", exclude_none=True)
+
+
+class LensLlmInputs(BaseModel, frozen=True):
+    """Per-session analytics events + recording metadata, stashed in Redis between activities."""
+
+    session_id: str
+    team_id: int
+    events: EventTable
+    # Reverse mappings: `url_1` -> actual URL, `window_1` -> actual window UUID.
+    url_mapping: dict[str, str] = Field(default_factory=dict)
+    window_mapping: dict[str, str] = Field(default_factory=dict)
+    metadata: SessionMetadata
+
+
+class EnsureSessionAssetInputs(BaseModel, frozen=True):
+    team_id: int
+    session_id: str
+
+
+class EnsureSessionAssetOutput(BaseModel, frozen=True):
+    asset_id: int
+
+
+class UploadVideoToGeminiInputs(BaseModel, frozen=True):
+    asset_id: int
+
+
+class UploadedVideo(BaseModel, frozen=True):
+    file_uri: str
+    mime_type: str
+    gemini_file_name: str  # opaque ID for `files.delete`
+
+
+class CallLensProviderInputs(BaseModel, frozen=True):
+    team_id: int
+    observation_id: UUID  # locates the LensLlmInputs blob in Redis AND the lens_snapshot on the row
+    file_uri: str
+    mime_type: str
+
+
+class LensCallOutput(BaseModel, frozen=True):
+    """Result of one `call_lens_provider` invocation."""
+
+    model_output: AnyLensOutput
+
+
+class CleanupGeminiFileInputs(BaseModel, frozen=True):
+    gemini_file_name: str
+
+
+class MarkObservationSucceededInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    lens_result: LensResult
+
+
+class EmitObservationEventInputs(BaseModel, frozen=True):
+    """Payload for the `$recording_observed` capture."""
+
+    observation_id: UUID
+    model_output: AnyLensOutput

@@ -1,6 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
 import { isExternalLink } from 'lib/utils'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 
 export function Property({ value }: { value: any }): JSX.Element {
     let valueString: string
@@ -11,9 +12,11 @@ export function Property({ value }: { value: any }): JSX.Element {
         if (isExternalLink(value)) {
             valueString = value
             valueComponent = (
-                <Link to={valueString} target="_blank">
-                    {value}
-                </Link>
+                <span className="line-clamp-3 whitespace-normal">
+                    <Link to={valueString} target="_blank" className="value-link font-medium">
+                        {stringWithWBR(valueString, 20)}
+                    </Link>
+                </span>
             )
         } else {
             valueString = valueComponent = String(value)

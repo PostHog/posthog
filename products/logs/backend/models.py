@@ -205,6 +205,7 @@ class LogsAlertEvent(UUIDModel):
         SNOOZE = "snooze", "Snooze"
         UNSNOOZE = "unsnooze", "Unsnooze"
         THRESHOLD_CHANGE = "threshold_change", "Threshold change"
+        BROKEN_CONFIG = "broken_config", "Broken config"
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,

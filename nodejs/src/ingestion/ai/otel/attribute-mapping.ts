@@ -1,7 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { parseJSON } from '../../../utils/json-parse'
-import { aiOtelOlderSpecEventsCounter } from '../metrics'
+import { aiOtelOlderSpecEventsCounter, aiOtelSystemInstructionsCounter } from '../metrics'
 
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',
@@ -98,6 +98,7 @@ export function mapOtelAttributes(event: PluginEvent): void {
     }
 
     convertOlderSpecEvents(event)
+    convertSystemInstructions(event)
 
     computeLatency(event)
     promoteRootSpanToTrace(event)
@@ -201,6 +202,114 @@ function reconstructOutputChoice(entry: Record<string, unknown>): Record<string,
         return message
     }
     return null
+}
+
+type SystemInstructionsOutcome =
+    | 'absent'
+    | 'too_large'
+    | 'empty'
+    | 'prepended'
+    | 'created'
+    | 'already_system'
+    | 'conflict'
+    | 'unexpected_error'
+
+// Gemini's OTel auto-instrumentor emits the system prompt as a top-level
+// `gen_ai.system_instructions` attribute (a string or a parts array like
+// `[{type:'text', content:'...'}]`) rather than as a `role:'system'` entry
+// inside `gen_ai.input.messages`. Promote it into `$ai_input` as a leading
+// system message so the conversation tab and the playground both see it.
+//
+// Mirrors the structure of `convertOlderSpecEvents`: skip entirely when the
+// attribute key is missing (no counter emitted), otherwise route every
+// branch through a single counter in `finally` so prod can observe how
+// often each outcome fires — including the `absent` case (key present but
+// value null/undefined), the silent-drop `empty`, and the unexpected
+// `conflict` case where `$ai_input` is set to a non-array value upstream.
+function convertSystemInstructions(event: PluginEvent): void {
+    const props = event.properties!
+    if (!('gen_ai.system_instructions' in props)) {
+        return
+    }
+
+    let outcome: SystemInstructionsOutcome = 'unexpected_error'
+    try {
+        const raw = props['gen_ai.system_instructions']
+        if (raw === undefined || raw === null) {
+            outcome = 'absent'
+            return
+        }
+
+        let value: unknown = raw
+        if (typeof value === 'string') {
+            // Same size ceiling as `convertOlderSpecEvents` — defensive against
+            // pathological payloads that would pressure the ingestion worker.
+            if (value.length > MAX_OLDER_SPEC_EVENTS_LENGTH) {
+                outcome = 'too_large'
+                return
+            }
+            try {
+                value = parseJSON(value)
+            } catch {
+                // Keep the original string — it's already the system text.
+            }
+        }
+
+        let text: string
+        if (typeof value === 'string') {
+            text = value
+        } else if (Array.isArray(value)) {
+            text = value
+                .filter(
+                    (part): part is { type: string; content: unknown } =>
+                        typeof part === 'object' &&
+                        part !== null &&
+                        'type' in part &&
+                        (part as { type: unknown }).type === 'text'
+                )
+                .map((part) => (typeof part.content === 'string' ? part.content : ''))
+                .filter((s) => s.length > 0)
+                .join('\n\n')
+        } else {
+            try {
+                text = JSON.stringify(value)
+            } catch {
+                text = String(value)
+            }
+        }
+
+        if (!text) {
+            outcome = 'empty'
+            return
+        }
+
+        const systemMessage = { role: 'system', content: text }
+        const existing = props.$ai_input
+        if (Array.isArray(existing)) {
+            const first = existing[0]
+            const firstIsSystem =
+                typeof first === 'object' && first !== null && (first as { role?: unknown }).role === 'system'
+            if (firstIsSystem) {
+                outcome = 'already_system'
+            } else {
+                props.$ai_input = [systemMessage, ...existing]
+                outcome = 'prepended'
+            }
+        } else if (existing === undefined) {
+            props.$ai_input = [systemMessage]
+            outcome = 'created'
+        } else {
+            // `$ai_input` was set to a non-array value (a string, a single
+            // object, etc.) — don't replace it, but flag the unexpected shape
+            // so prod can surface upstream bugs we'd otherwise silently absorb.
+            outcome = 'conflict'
+        }
+    } catch {
+        outcome = 'unexpected_error'
+    } finally {
+        delete props['gen_ai.system_instructions']
+        aiOtelSystemInstructionsCounter.labels({ outcome }).inc()
+    }
 }
 
 function convertOlderSpecEvents(event: PluginEvent): void {

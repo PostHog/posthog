@@ -148,7 +148,7 @@ describe('editor sync', () => {
             surveyChanged: true,
         })
 
-        router.actions.push('/surveys/test-survey?edit=true#preserveLocalChanges=true')
+        router.actions.push('/surveys/test-survey?edit=true')
 
         await expectLogic(logic).toFinishAllListeners()
 
@@ -2309,9 +2309,9 @@ describe('processOpenEndedResults', () => {
             'open-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.Open },
         }
         const rows = [
-            ['Great product!', 'user123', '2024-01-15T10:30:00Z'],
-            ['Could be better', 'user456', '2024-01-15T11:45:00Z'],
-            ['', 'user789', '2024-01-15T12:00:00Z'],
+            ['Great product!', 'user123', '2024-01-15T10:30:00Z', 'session-abc'],
+            ['Could be better', 'user456', '2024-01-15T11:45:00Z', ''],
+            ['', 'user789', '2024-01-15T12:00:00Z', 'session-xyz'],
         ]
 
         const result = processOpenEndedResults(questions, columnMap, rows)
@@ -2324,11 +2324,13 @@ describe('processOpenEndedResults', () => {
             distinctId: 'user123',
             response: 'Great product!',
             timestamp: '2024-01-15T10:30:00Z',
+            sessionId: 'session-abc',
         })
         expect(openData.data[1]).toEqual({
             distinctId: 'user456',
             response: 'Could be better',
             timestamp: '2024-01-15T11:45:00Z',
+            sessionId: undefined,
         })
     })
 

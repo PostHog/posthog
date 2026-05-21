@@ -34,6 +34,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from '../../products/llm_analytics/frontend/clusters/constants'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
+import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -70,6 +71,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
+    Deployments: () => import('../../products/deployments/frontend/Deployments'),
+    DeploymentProject: () => import('../../products/deployments/frontend/DeploymentProject'),
+    Deployment: () => import('../../products/deployments/frontend/Deployment'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -115,7 +119,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
+    MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
+    MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    ReplayVision: () => import('../../products/replay_vision/frontend/replay_lenses/ReplayLensesScene'),
+    ReplayVisionLens: () => import('../../products/replay_vision/frontend/replay_lenses/ReplayLens'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
@@ -124,6 +132,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
+    UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
@@ -156,6 +165,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
+    '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
@@ -169,6 +179,9 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    '/deployments': ['Deployments', 'deployments'],
+    '/deployments/:projectId': ['DeploymentProject', 'deploymentProject'],
+    '/deployments/:projectId/:deploymentId': ['Deployment', 'deployment'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -223,15 +236,23 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
+    '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
+    '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
+    '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
+    '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/metrics': ['Metrics', 'metrics'],
+    '/replay-vision': ['ReplayVision', 'replayVision'],
+    '/replay-vision/:id': ['ReplayVisionLens', 'replayVision'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/tracing': ['Tracing', 'tracing'],
-    '/user_interviews': ['UserInterviews', 'userInterviews'],
-    '/user_interviews/:id': ['UserInterview', 'userInterview'],
+    '/user_research': ['UserInterviews', 'userInterviews'],
+    '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
+    '/user_research/:id': ['UserInterview', 'userInterview'],
     '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
     '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
@@ -296,6 +317,7 @@ export const productRedirects: Record<
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
+    '/user_interviews': '/user_research',
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -370,6 +392,14 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
+    Deployments: {
+        projectBased: true,
+        name: 'Deployments',
+        iconType: 'deployments',
+        description: 'Connect a GitHub repository to start deploying your site.',
+    },
+    DeploymentProject: { projectBased: true, name: 'Deployment project' },
+    Deployment: { projectBased: true, name: 'Deployment' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -542,6 +572,19 @@ export const productConfiguration: Record<string, any> = {
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
+    MCPAnalytics: {
+        projectBased: true,
+        name: 'MCP analytics',
+        layout: 'app-container',
+        description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
+        iconType: 'llm_analytics',
+    },
+    MCPAnalyticsToolDetail: {
+        projectBased: true,
+        name: 'MCP tool',
+        layout: 'app-container',
+        iconType: 'llm_analytics',
+    },
     Metrics: {
         name: 'Metrics',
         projectBased: true,
@@ -549,6 +592,20 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Metrics',
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
+    },
+    ReplayVision: {
+        name: 'Replay vision',
+        projectBased: true,
+        description:
+            'Configure named lenses that PostHog applies to completed session recordings. Results land as queryable events.',
+        iconType: 'replay_vision',
+        layout: 'app-container',
+    },
+    ReplayVisionLens: {
+        name: 'Replay vision lens',
+        projectBased: true,
+        iconType: 'replay_vision',
+        layout: 'app-container',
     },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
@@ -592,13 +649,14 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'tracing',
     },
     UserInterviews: {
-        name: 'User interviews',
+        name: 'User research',
         projectBased: true,
         activityScope: 'UserInterview',
-        description: 'Record and analyze user interviews with PostHog.',
+        description: 'Run AI-powered voice research campaigns to gather user insights at scale.',
         iconType: 'user_interview',
     },
-    UserInterview: { name: 'User interview', projectBased: true, activityScope: 'UserInterview' },
+    UserInterview: { name: 'Interview topic', projectBased: true, activityScope: 'UserInterview' },
+    UserInterviewResponse: { name: 'Interview response', projectBased: true, activityScope: 'UserInterview' },
     VisualReviewIndex: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
     VisualReviewRuns: { name: 'Runs', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
@@ -657,7 +715,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
-    models: (): string => '/models',
+    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     nodeDetail: (id: string): string => `/models/${id}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
@@ -696,6 +754,9 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    deployments: (): string => '/deployments',
+    deploymentProject: (projectId: string): string => `/deployments/${projectId}`,
+    deployment: (projectId: string, deploymentId: string): string => `/deployments/${projectId}/${deploymentId}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -862,7 +923,13 @@ export const productUrls = {
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
     llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
     llmAnalyticsSkills: (): string => '/llm-analytics/skills',
-    llmAnalyticsSkill: (name: string): string => `/llm-analytics/skills/${name}`,
+    llmAnalyticsSkill: (
+        name: string,
+        params?: {
+            file?: string
+            version?: number
+        }
+    ): string => combineUrl(`/llm-analytics/skills/${name}`, params).url,
     llmAnalyticsClusters: (runId?: string): string =>
         runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
     llmAnalyticsCluster: (runId: string, clusterId: number): string =>
@@ -875,6 +942,11 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
+    mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
+    mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
+    mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
+    mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
     metrics: (): string => '/metrics',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
@@ -975,6 +1047,7 @@ export const productUrls = {
     replayFilePlayback: (): string => '/replay/file-playback',
     replayKiosk: (): string => '/replay/kiosk',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
+    replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
@@ -987,8 +1060,10 @@ export const productUrls = {
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
-    userInterviews: (): string => '/user_interviews',
-    userInterview: (id: string): string => `/user_interviews/${id}`,
+    userInterviews: (): string => '/user_research',
+    userInterview: (id: string): string => `/user_research/${id}`,
+    userInterviewResponse: (topicId: string, responseId: string): string =>
+        `/user_research/${topicId}/response/${responseId}`,
     visualReviewRuns: (): string => '/visual_review',
     visualReviewSettings: (): string => '/visual_review/settings',
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
@@ -1034,6 +1109,13 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.dashboard(ref),
         iconColor: ['var(--color-product-dashboards-light)'],
         filterKey: 'dashboard',
+    },
+    deployments: {
+        name: 'Deployment',
+        iconType: 'deployments',
+        iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
+        href: () => urls.deployments(),
+        filterKey: 'deployments',
     },
     early_access_feature: {
         name: 'Early access feature',
@@ -1133,7 +1215,7 @@ export const fileSystemTypes = {
         flag: FEATURE_FLAGS.TASKS,
     },
     user_interview: {
-        name: 'User interview',
+        name: 'User research',
         iconType: 'user_interview',
         href: (ref: string) => urls.userInterview(ref),
         iconColor: ['var(--color-product-user-interviews-light)'],
@@ -1415,6 +1497,22 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
+        path: 'Deployments',
+        intents: [ProductKey.DEPLOYMENTS],
+        category: ProductItemCategory.TOOLS,
+        href: urls.deployments(),
+        type: 'deployments',
+        iconType: 'deployments' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-deployments-light)',
+            'var(--color-product-deployments-dark)',
+        ] as FileSystemIconColor,
+        sceneKey: 'Deployments',
+        sceneKeys: ['Deployments', 'DeploymentProject', 'Deployment'],
+        flag: FEATURE_FLAGS.DEPLOYMENTS,
+        tags: ['alpha'],
+    },
+    {
         path: 'Early access features',
         intents: [ProductKey.EARLY_ACCESS_FEATURES],
         category: ProductItemCategory.FEATURES,
@@ -1587,6 +1685,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
     },
     {
+        path: 'MCP analytics',
+        intents: [ProductKey.LLM_ANALYTICS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        visualOrder: 2,
+        type: 'mcp_analytics',
+        iconType: 'llm_analytics' as FileSystemIconType,
+        iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+        href: urls.mcpAnalyticsDashboard(),
+        flag: FEATURE_FLAGS.MCP_ANALYTICS,
+        tags: ['alpha'],
+        sceneKey: 'MCPAnalytics',
+        sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
+    },
+    {
         path: 'Marketing analytics',
         intents: [ProductKey.MARKETING_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
@@ -1704,6 +1816,22 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsClusters',
             'LLMAnalyticsCluster',
         ],
+    },
+    {
+        path: 'Replay vision',
+        category: ProductItemCategory.BEHAVIOR,
+        intents: [ProductKey.REPLAY_VISION],
+        type: 'replay_vision',
+        iconType: 'replay_vision' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-session-replay-light)',
+            'var(--color-product-session-replay-dark)',
+        ] as FileSystemIconColor,
+        href: urls.replayVision(),
+        tags: ['beta'],
+        flag: FEATURE_FLAGS.REPLAY_VISION,
+        sceneKey: 'ReplayVision',
+        sceneKeys: ['ReplayVision', 'ReplayVisionLens'],
     },
     {
         path: 'Revenue analytics',
@@ -1848,7 +1976,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Tracing'],
     },
     {
-        path: 'User interviews',
+        path: 'User research',
         intents: [ProductKey.USER_INTERVIEWS],
         category: ProductItemCategory.UNRELEASED,
         href: urls.userInterviews(),
@@ -1858,7 +1986,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'user_interview',
         iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
         sceneKey: 'UserInterviews',
-        sceneKeys: ['UserInterviews', 'UserInterview'],
+        sceneKeys: ['UserInterviews', 'UserInterview', 'UserInterviewResponse'],
     },
     {
         path: 'Visual review',

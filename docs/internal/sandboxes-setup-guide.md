@@ -35,12 +35,13 @@ Steps:
    localhost is fine; the value just has to be a valid URL since it's
    required when creating the App.
 4. Set the permissions above
-5. Generate a **client secret** under "Client secrets" on the App page —
+5. Under "Identifying and authorizing users", check **Request user authorization (OAuth) during installation** — required for the personal user-link flow
+6. Generate a **client secret** under "Client secrets" on the App page —
    this is required (added a couple of releases back). If your local setup
    stopped working recently, this is most likely what's missing.
-6. Generate a private key
-7. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
-8. Add to your `.env`:
+7. Generate a private key
+8. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
+9. Add to your `.env`:
 
 ```bash
 # The OAuth Client ID (starts with Iv1 or Iv23) — NOT the numeric App ID.

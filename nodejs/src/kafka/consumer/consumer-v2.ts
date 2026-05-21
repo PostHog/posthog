@@ -86,6 +86,10 @@ export class KafkaConsumerV2 {
     private inFlight: TaskEntry[] = []
     private loopDone: Promise<void> | undefined
 
+    // Latched on the first backgroundTask failure: blocks further offset stores and
+    // makes the loop exit on the next tick so the pod replays from the last good commit.
+    private fatalError: unknown | undefined
+
     // Tunables (resolved at construction)
     private fetchBatchSize: number
     private batchTimeoutMs: number
@@ -241,6 +245,12 @@ export class KafkaConsumerV2 {
             while (this.running) {
                 this.lastLoopTickAt = Date.now()
 
+                // Check before fetching another batch — any further offset commit after a
+                // task failure is the silent-drop bug.
+                if (this.fatalError) {
+                    throw this.fatalError
+                }
+
                 // 1. Drain rebalance events. handleRebalanceEvent on REVOKE awaits drainAll
                 // and calls incrementalUnassign before returning.
                 while (this.rebalanceQueue.length > 0) {
@@ -306,6 +316,11 @@ export class KafkaConsumerV2 {
               })
             : undefined
 
+        // Serialize store decisions in batch order: without this a faster later batch
+        // could store its (higher) offset before an earlier failed batch latches fatalError.
+        const predecessorSettled =
+            this.inFlight.length > 0 ? this.inFlight[this.inFlight.length - 1].settled : undefined
+
         const settled: Promise<void> = (async () => {
             try {
                 const { timedOut } = await raceWithTimeout(Promise.resolve(raw), this.backgroundTaskTimeoutMs)
@@ -315,10 +330,17 @@ export class KafkaConsumerV2 {
             } catch (error) {
                 logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
                 captureException(error)
-                // Do not store offsets when the task failed.
-                return
+                this.fatalError ??= error
             } finally {
                 stopBackgroundTimer?.()
+            }
+
+            if (predecessorSettled) {
+                await predecessorSettled
+            }
+
+            if (this.fatalError) {
+                return
             }
 
             if (this.config.autoCommit && this.config.autoOffsetStore) {
