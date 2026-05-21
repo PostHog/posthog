@@ -213,6 +213,8 @@ def _apply_reorder_layout(
         w = max(1, min(existing_w, DASHBOARD_GRID_COLUMN_COUNT))
         h = max(1, existing_h)
 
+        # x=0 is the baseline candidate; scan the remaining start positions for a lower segment top,
+        # keeping the leftmost on ties (the loop only updates on a strictly lower top).
         best_x = 0
         best_y = max(column_heights[0:w])
         for x in range(1, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
