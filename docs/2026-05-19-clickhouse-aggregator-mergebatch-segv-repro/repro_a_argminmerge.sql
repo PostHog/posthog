@@ -94,5 +94,6 @@ SETTINGS readonly = 2,
          group_by_two_level_threshold = 1000,
          group_by_two_level_threshold_bytes = 50000,
          max_threads = 8,
-         prefer_localhost_replica = 0
+         prefer_localhost_replica = 0,
+         allow_experimental_analyzer = 0
 FORMAT TSV;

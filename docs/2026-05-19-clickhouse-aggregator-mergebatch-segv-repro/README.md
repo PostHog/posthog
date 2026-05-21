@@ -5,7 +5,7 @@ Companion to [../2026-05-19-clickhouse-aggregator-mergebatch-segv.md](../2026-05
 The production crash log on `prod-us-iad-ch-1e-offline` (CH `26.3.10.60`,
 aarch64, git `6a6d2d137d…`) shows four SIGSEGVs with this signature:
 
-```
+```text
 top  : IAggregateFunctionHelper<...>::mergeBatch
        (AggregateFunctionMerge   for Row 1 — argMinMerge(Nullable(String), DateTime64))
        (AggregateFunctionAny<SingleValueDataString>  for Rows 2–4 — anyIf(String, ...))
@@ -20,11 +20,11 @@ and the same non-pointer fault address (`0x010001000100`) as production.
 
 ## Files
 
-| File | Maps to | Aggregate the bug hits |
-|---|---|---|
-| [`run_repro.sh`](run_repro.sh) | driver — starts a fresh container and runs the repros | — |
-| [`repro_a_argminmerge.sql`](repro_a_argminmerge.sql) | row 1 (HogQL session_replay_events listing) | `AggregateFunctionMerge` over `AggregateFunction(argMin, Nullable(String), DateTime64)` |
-| [`repro_b_anyif_string.sql`](repro_b_anyif_string.sql) | rows 2–4 (delete-recordings activity) | `AggregateFunctionAny<SingleValueDataString>` over plain `String` |
+| File                                                   | Maps to                                               | Aggregate the bug hits                                                                  |
+| ------------------------------------------------------ | ----------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [`run_repro.sh`](run_repro.sh)                         | driver — starts a fresh container and runs the repros | —                                                                                       |
+| [`repro_a_argminmerge.sql`](repro_a_argminmerge.sql)   | row 1 (HogQL session_replay_events listing)           | `AggregateFunctionMerge` over `AggregateFunction(argMin, Nullable(String), DateTime64)` |
+| [`repro_b_anyif_string.sql`](repro_b_anyif_string.sql) | rows 2–4 (delete-recordings activity)                 | `AggregateFunctionAny<SingleValueDataString>` over plain `String`                       |
 
 ## How to run
 
@@ -44,7 +44,7 @@ cd docs/2026-05-19-clickhouse-aggregator-mergebatch-segv-repro
 
 Expected tail of the output:
 
-```
+```text
 ==> Latest system.crash_log entry:
 event_time:    …
 signal:        11
@@ -86,7 +86,7 @@ docker exec posthog-clickhouse-1 clickhouse-client -q \
 ```
 
 Repro A is split into two sections. The single-session `--multiquery` path
-occasionally trips an *unrelated* `LOGICAL_ERROR` ("Columns are assumed to be
+occasionally trips an _unrelated_ `LOGICAL_ERROR` ("Columns are assumed to be
 of identical types … in Nullable") on `max(UInt8) = 0` over `remote()`, which
 masks the crash. Run setup and the crashing query separately:
 
@@ -121,10 +121,17 @@ the local 26.3.10.60 container. The minimum set of conditions:
 3. **Two-level aggregation** (`group_by_two_level_threshold` must be exceeded
    — easiest way is high-cardinality GROUP BY + a low threshold setting).
 4. **The bucket-merge path** (`MergingAggregatedBucketTransform`). On a
-   single node this requires a *distributed* query — the repros use
+   single node this requires a _distributed_ query — the repros use
    `remote('clickhouse,clickhouse', …)` so the same server addresses itself
    twice as two pseudo-shards. `distributed_aggregation_memory_efficient = 1`
    is the default and must stay on.
+5. **Legacy query planner** (`allow_experimental_analyzer = 0`). ClickHouse
+   26.3.10.60 ships with `allow_experimental_analyzer = 1` as the **default**,
+   and the new analyzer avoids the crashing code path entirely. The production
+   node that crashed was running with the legacy planner. The repro SQL files
+   explicitly set `allow_experimental_analyzer = 0` to match production. If
+   you omit this setting (or run against a fresh container), the query will
+   return results instead of crashing.
 
 In addition, **the trigger is layout-dependent in the arena**:
 
@@ -132,7 +139,7 @@ In addition, **the trigger is layout-dependent in the arena**:
   `min(t), max(d), anyIf(v)` crashes, but `max(d), anyIf(v), min(t)` does not.
 - Dropping `max(d)` (`max(UInt8)`) from Repro B makes it stop crashing —
   even though that aggregate has no String state of its own. The crash
-  needs the *combination* of state slot sizes/layout that put the
+  needs the _combination_ of state slot sizes/layout that put the
   `SingleValueDataString` pointer at the offset the bug touches.
 - Empirically: `min(DateTime64) + max(UInt8) + anyIf(String, ...)` reliably
   crashes; `anyIf(String, ...)` alone does not.
@@ -143,15 +150,15 @@ during two-level merge.
 
 ## Mitigations: what works and what doesn't
 
-The parent doc *hypothesized* two server-side workarounds; the local repro
+The parent doc _hypothesized_ two server-side workarounds; the local repro
 falsifies both and validates a third.
 
-| Setting | Result on local repro |
-|---|---|
-| `distributed_aggregation_memory_efficient = 0` | **Still crashes.** The crash just moves from `MergingAggregatedBucketTransform → mergeStreamsImpl<AggregationMethodString>` to `Aggregator::mergeBlocks → mergeStreamsImpl<AggregationMethodStringNoCache<TwoLevelStringHashMap>>`. The bug is in *any* two-level String-keyed merge path, not specifically the bucket transform. |
-| `group_by_two_level_threshold = 100000000` (huge) | **Still crashes.** The two-level buckets are produced on the remote shards and shipped to the initiator regardless of the initiator's threshold setting. |
-| `max_threads = 1` | **Still crashes.** |
-| `allow_experimental_analyzer = 1` | ✅ **No crash.** Both repros return results. The new query analyzer plans the same SQL through a different code path that does not hit this bug. |
+| Setting                                           | Result on local repro                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `distributed_aggregation_memory_efficient = 0`    | **Still crashes.** The crash just moves from `MergingAggregatedBucketTransform → mergeStreamsImpl<AggregationMethodString>` to `Aggregator::mergeBlocks → mergeStreamsImpl<AggregationMethodStringNoCache<TwoLevelStringHashMap>>`. The bug is in _any_ two-level String-keyed merge path, not specifically the bucket transform.       |
+| `group_by_two_level_threshold = 100000000` (huge) | **Still crashes.** The two-level buckets are produced on the remote shards and shipped to the initiator regardless of the initiator's threshold setting.                                                                                                                                                                                |
+| `max_threads = 1`                                 | **Still crashes.**                                                                                                                                                                                                                                                                                                                      |
+| `allow_experimental_analyzer = 1`                 | ✅ **No crash.** Both repros return results. The new query analyzer plans the same SQL through a different code path that does not hit this bug. **Note:** this is the _default_ in a fresh 26.3.10.60 container, which is why the repro SQL explicitly forces `allow_experimental_analyzer = 0` to match the production configuration. |
 
 So the actually-verified non-rollback mitigation on `26.3.10.60` is:
 
@@ -174,7 +181,7 @@ previous CH version.
 Search/file at `github.com/ClickHouse/ClickHouse/issues` with these
 keywords:
 
-```
+```text
 MergingAggregatedBucketTransform mergeBatch SEGV AggregationMethodString
 SingleValueDataString AggregateFunctionMerge 26.3
 ```

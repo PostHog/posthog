@@ -62,4 +62,5 @@ LIMIT 10
 SETTINGS distributed_aggregation_memory_efficient = 1,
          group_by_two_level_threshold = 1000,
          max_threads = 8,
-         prefer_localhost_replica = 0;
+         prefer_localhost_replica = 0,
+         allow_experimental_analyzer = 0;
