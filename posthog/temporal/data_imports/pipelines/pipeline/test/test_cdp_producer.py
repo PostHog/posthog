@@ -32,7 +32,7 @@ def _patch_async_producer_scope(mock_producer):
     )
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_should_produce_table_no_hog_function(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -49,7 +49,7 @@ async def test_should_produce_table_no_hog_function(team):
     assert await producer.should_produce_table() is False
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_should_produce_table_with_matching_hog_function(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -72,7 +72,7 @@ async def test_should_produce_table_with_matching_hog_function(team):
     assert await producer.should_produce_table() is True
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_should_not_produce_table_with_disabled_matching_hog_function(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -95,7 +95,7 @@ async def test_should_not_produce_table_with_disabled_matching_hog_function(team
     assert await producer.should_produce_table() is False
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_should_not_produce_table_with_deleted_matching_hog_function(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -119,7 +119,7 @@ async def test_should_not_produce_table_with_deleted_matching_hog_function(team)
     assert await producer.should_produce_table() is False
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_should_produce_table_with_new_style_table_name(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -142,7 +142,7 @@ async def test_should_produce_table_with_new_style_table_name(team):
     assert await producer.should_produce_table() is True
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_should_produce_table_with_source_prefix(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -165,7 +165,7 @@ async def test_should_produce_table_with_source_prefix(team):
     assert await producer.should_produce_table() is True
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_should_produce_table_with_leading_underscore_source_prefix(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -188,7 +188,7 @@ async def test_should_produce_table_with_leading_underscore_source_prefix(team):
     assert await producer.should_produce_table() is True
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
@@ -245,7 +245,7 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
     assert "id" in first_call_kwargs["data"]["properties"]
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
@@ -281,7 +281,7 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
     mock_kafka_producer.produce.assert_not_called()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
@@ -330,7 +330,7 @@ async def test_produce_to_kafka_from_s3_kafka_failure(mock_capture_exception, mo
     mock_fs.delete_file.assert_called_once()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
@@ -372,7 +372,7 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, 
     mock_fs.delete_file.assert_called_once()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, team):
@@ -421,7 +421,7 @@ async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, tea
     mock_fs.delete_file.assert_called_once()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_write_chunk_for_cdp_producer(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -452,7 +452,7 @@ async def test_write_chunk_for_cdp_producer(team):
     assert call_args[1]["use_dictionary"] is True
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_write_chunk_for_cdp_producer_with_empty_table(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -477,7 +477,7 @@ async def test_write_chunk_for_cdp_producer_with_empty_table(team):
     mock_write_table.assert_called_once()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
@@ -506,7 +506,7 @@ async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
     mock_s3_client._rm.assert_called_once()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
@@ -532,7 +532,7 @@ async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
     mock_s3_client._rm.assert_not_called()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_handles_file_not_found_on_delete(mock_get_s3_client, team):
@@ -560,7 +560,7 @@ async def test_clear_s3_chunks_handles_file_not_found_on_delete(mock_get_s3_clie
         await producer.clear_s3_chunks()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_serialize_json_with_orjson_success(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -582,7 +582,7 @@ async def test_serialize_json_with_orjson_success(team):
     assert json.loads(result) == record
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_serialize_json_fallback_to_standard_json(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -613,7 +613,7 @@ async def test_serialize_json_fallback_to_standard_json(team):
     assert deserialized["custom"] == "custom_value"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_serialize_json_fallback_with_stringify(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
@@ -647,7 +647,7 @@ async def test_serialize_json_fallback_with_stringify(team):
     assert deserialized["key_1"] == "value_1"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_serialize_json_raises_on_non_dict_unsupported(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(

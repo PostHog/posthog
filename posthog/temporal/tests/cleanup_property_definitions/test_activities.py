@@ -44,7 +44,7 @@ def create_property_definition(team, name: str, property_type: int) -> PropertyD
         (PropertyDefinition.Type.SESSION, 4),
     ],
 )
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestDeletePropertyDefinitionsFromPostgres:
     property_type: int
     property_type_int: int
@@ -250,7 +250,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
         assert remaining == 3
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestDeleteEventPropertiesFromPostgres:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -372,7 +372,7 @@ class TestDeleteEventPropertiesFromPostgres:
         (PropertyDefinition.Type.SESSION, 4),
     ],
 )
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 class TestDeletePropertyDefinitionsFromClickHouse:
     property_type: int
     property_type_int: int

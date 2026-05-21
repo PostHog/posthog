@@ -13,7 +13,7 @@ from products.signals.backend.models import SignalSourceConfig
 from .conftest import enable_signal_source
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_returns_empty_when_no_config(activity_environment, team):
     result = await activity_environment.run(
@@ -24,7 +24,7 @@ async def test_find_sessions_returns_empty_when_no_config(activity_environment, 
     assert result.user_id is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_returns_empty_when_config_disabled(activity_environment, team):
     await sync_to_async(enable_signal_source)(team, enabled=False)
@@ -36,7 +36,7 @@ async def test_find_sessions_returns_empty_when_config_disabled(activity_environ
     assert result.user_id is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_no_recent_sessions(activity_environment, team):
     await sync_to_async(enable_signal_source)(team)
@@ -53,7 +53,7 @@ async def test_find_sessions_no_recent_sessions(activity_environment, team):
     assert result.user_id is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_filters_summarized(activity_environment, organization, team):
     from posthog.models.user import User
@@ -88,7 +88,7 @@ async def test_find_sessions_filters_summarized(activity_environment, organizati
         await sync_to_async(user.delete)()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_environment, organization, team):
     from posthog.models.user import User
@@ -122,7 +122,7 @@ async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_env
         await sync_to_async(user.delete)()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, organization, team):
     from posthog.models.user import User
@@ -161,7 +161,7 @@ async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, o
         await sync_to_async(user.delete)()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_returns_empty_when_team_has_no_user(activity_environment):
     lonely_org = await sync_to_async(Organization.objects.create)(name="lonely-org")
@@ -183,7 +183,7 @@ async def test_find_sessions_returns_empty_when_team_has_no_user(activity_enviro
         await sync_to_async(lonely_org.delete)()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_handles_config_disabled_between_check_and_ch_query(activity_environment, team):
     # Race: _is_team_enabled returns True, then the config is disabled before
@@ -206,7 +206,7 @@ async def test_find_sessions_handles_config_disabled_between_check_and_ch_query(
     assert result.session_ids == []
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_returns_empty_when_ai_consent_revoked(activity_environment, team):
     await sync_to_async(enable_signal_source)(team, enabled=True)
@@ -223,7 +223,7 @@ async def test_find_sessions_returns_empty_when_ai_consent_revoked(activity_envi
     assert result.session_ids == []
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_prefers_created_by_user(activity_environment, organization, team):
     from posthog.models.user import User
@@ -258,7 +258,7 @@ async def test_find_sessions_prefers_created_by_user(activity_environment, organ
         await sync_to_async(second_user.delete)()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_falls_back_when_created_by_is_null(activity_environment, organization, team):
     from posthog.models.user import User
@@ -289,7 +289,7 @@ async def test_find_sessions_falls_back_when_created_by_is_null(activity_environ
         await sync_to_async(user.delete)()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_list_enabled_teams_filters_ai_consent(activity_environment, organization):
     from posthog.temporal.session_replay.summarization_sweep.activities import list_enabled_teams_activity
@@ -312,7 +312,7 @@ async def test_list_enabled_teams_filters_ai_consent(activity_environment, organ
     assert t_revoked.id not in result
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_skips_recordings_with_too_many_failures(activity_environment, organization, team):
     from posthog.models.user import User
@@ -357,7 +357,7 @@ async def test_find_sessions_skips_recordings_with_too_many_failures(activity_en
     ],
     ids=["mixed", "all_have_events", "none_have_events"],
 )
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_drops_sessions_without_events(
     activity_environment, organization, team, candidate_ids, sessions_with_events, expected_kept
@@ -407,7 +407,7 @@ async def test_find_sessions_drops_sessions_without_events(
         await sync_to_async(user.delete)()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_find_sessions_skips_events_filter_when_all_summarized(activity_environment, organization, team):
     from posthog.models.user import User

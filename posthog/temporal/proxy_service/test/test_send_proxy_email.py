@@ -9,6 +9,18 @@ from posthog.models.user import User
 from posthog.temporal.proxy_service.common import SendProxyCreatedEmailInputs, activity_send_proxy_created_email
 
 
+@pytest.fixture(autouse=True)
+def _no_temporal_worker_reconnect(monkeypatch):
+    # The activity calls django.db.connection.connect() to recover from stale
+    # worker connections in production. Under test that drops the test's
+    # wrapping atomic transaction (and the freshly-opened connection can't see
+    # data the test just wrote). Stub it out so tests can stay on fast
+    # transaction-rollback isolation instead of needing transaction=True.
+    from django.db import connection
+
+    monkeypatch.setattr(connection, "connect", lambda: None)
+
+
 def _make_inputs(**overrides):
     defaults = {
         "organization_id": uuid.uuid4(),
