@@ -21,6 +21,7 @@ rather than discover the gap from scratch.
 
 import json
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any, Literal
 
 from posthog.test.base import (
@@ -428,6 +429,118 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             self._filter(operator, value),
             expected_used={index} if should_use else set(),
             expected_not_used=set() if should_use else {index},
+        )
+
+    # ----- mat col, NULLABLE, minmax index — `<` against various constant TYPES ----
+    # Documents what happens when the filter value's Python type doesn't line up
+    # with the materialized column's String storage. Mat columns are typed
+    # ``Nullable(String)`` (or ``String``); the printer hands the constant to
+    # ClickHouse as-is. There's no type coercion in our rewrite — that's left
+    # to ClickHouse, which refuses to compare mismatched types.
+
+    @parameterized.expand(
+        [
+            # String constants — compared lexically against the String column.
+            # All flavors of string (alphabetic, digit-like, datetime-like) work and minmax fires.
+            ("string_pure_alpha", "apple"),
+            ("string_numeric_looking", "5"),
+            ("string_date_looking", "2024-01-15"),
+            ("string_iso_datetime_looking", "2024-01-15T10:30:00Z"),
+        ]
+    )
+    def test_mat_col_nullable_minmax_lt_string_constant_flavors(self, _name: str, value: str) -> None:
+        self._seed()
+        mat_col = self._materialize_with(is_nullable=True, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        self._assert_indexes(
+            self._filter(PropertyOperator.LT, value),
+            expected_used={index},
+        )
+
+    @parameterized.expand(
+        [
+            # Numeric and datetime Python constants — the printer emits the constant raw
+            # (e.g. ``less(events.mat_test_prop, 5)`` or
+            # ``less(events.mat_test_prop, toDateTime64('2024-01-15 ...'))``).
+            # ClickHouse refuses to compare String to UInt8 / Float64 / DateTime64 and the
+            # query fails to execute. The rewrite is what the existing equality / IN rewrites
+            # do too — none of them gate on constant type. If you mean a numeric/datetime
+            # comparison, define the property's ``property_type`` so PropertySwapper coerces
+            # the column appropriately (see ``test_mat_col_lt_typed_*`` below).
+            ("int", 5),
+            ("float", 5.5),
+            ("datetime", datetime(2024, 1, 15, 10, 30)),
+        ]
+    )
+    def test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors(
+        self, _name: str, value: Any
+    ) -> None:
+        self._seed()
+        self._materialize_with(is_nullable=True, create_minmax_index=True)
+        query, values = self._filter_to_sql(self._filter(PropertyOperator.LT, value))
+        with self.assertRaises(Exception) as ctx:
+            sync_execute(query, values)
+        # ClickHouse: ``No supertype for types String, UInt8`` or
+        # ``No operation less between String and DateTime64``.
+        message = str(ctx.exception).lower()
+        assert "supertype" in message or "no operation" in message, (
+            f"Expected a type-mismatch error from ClickHouse, got: {ctx.exception}"
+        )
+
+    def test_mat_col_lt_typed_numeric_property(self) -> None:
+        # PropertyDefinition.property_type=Numeric tells PropertySwapper to wrap the
+        # column in ``toFloat(...)``. That coerces the stored String to a Float and lets
+        # ``less(toFloat(col), 5)`` evaluate, but the ``toFloat`` Call hides the column
+        # from minmax — the index doesn't fire.
+        self._seed()
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=EVENT_PROP_KEY,
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mat_col = self._materialize_with(is_nullable=True, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        self._assert_indexes(
+            self._filter(PropertyOperator.LT, 5),
+            expected_used=set(),
+            expected_not_used={index},
+        )
+
+    def test_mat_col_lt_typed_datetime_property(self) -> None:
+        # PropertyDefinition.property_type=DateTime triggers a ``toDateTime(col)`` wrap.
+        # Same shape as the Numeric case — the column is hidden behind a Call so minmax
+        # never fires. We don't execute the query here because the seed values aren't
+        # datetime-parsable; the EXPLAIN plan still tells us what we need.
+        DT_PROP = "lt_datetime_prop"
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                distinct_id=f"d{i}",
+                event="test_event",
+                properties={DT_PROP: f"2024-01-{i + 1:02d}"},
+            )
+        flush_persons_and_events()
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=DT_PROP,
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mat_col = materialize("events", DT_PROP, table_column="properties", is_nullable=True, create_minmax_index=True)
+        index = get_minmax_index_name(mat_col.name)
+        self._assert_indexes(
+            {
+                "type": "event",
+                "key": DT_PROP,
+                "operator": PropertyOperator.LT.value,
+                "value": datetime(2024, 1, 15, 10, 30),
+            },
+            expected_used=set(),
+            expected_not_used={index},
         )
 
     # ----- mat col, NULLABLE, bloom_filter index ----------------------------

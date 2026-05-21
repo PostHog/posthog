@@ -72,6 +72,22 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_mat_col_lt_typed_datetime_property
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(parseDateTime64BestEffortOrNull(events.mat_lt_datetime_prop, 6, 'UTC'), toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC')), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_lt_typed_numeric_property
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(events.mat_test_prop, 'Float64'), 5), 0))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_mat_col_non_nullable_bloom_filter_0_eq
   '''
   SELECT count() AS `count()`
@@ -331,6 +347,69 @@
   SELECT count() AS `count()`
   FROM events
   WHERE and(equals(events.team_id, 99999), isNull(events.mat_test_prop))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_0_int
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 5)
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_1_float
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 5.5)
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_non_string_constant_against_string_column_errors_2_datetime
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, toDateTime64('2024-01-15 10:30:00.000000', 6, 'UTC'))
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_0_string_pure_alpha
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, 'apple')
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_1_string_numeric_looking
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '5')
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_2_string_date_looking
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '2024-01-15')
+                                            AND (events.mat_test_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_string_constant_flavors_3_string_iso_datetime_looking
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_test_prop, '2024-01-15T10:30:00Z')
+                                            AND (events.mat_test_prop IS NOT NULL)))
   LIMIT 50000
   '''
 # ---
