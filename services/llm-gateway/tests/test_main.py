@@ -87,7 +87,10 @@ class TestExportProviderCredentials:
         expected_env: str,
         expected_value: str,
     ) -> None:
-        settings = Settings(**{setting_name: setting_value})
+        # model_validate lets us construct from a parametrized dict without
+        # tripping mypy on the kwargs spread (Settings has per-field types,
+        # so dict[str, str] is rejected by **kwargs typing).
+        settings = Settings.model_validate({setting_name: setting_value})
 
         export_provider_credentials(settings)
 
