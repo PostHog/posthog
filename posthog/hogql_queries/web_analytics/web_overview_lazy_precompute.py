@@ -71,6 +71,10 @@ class TeamNotInAllowlist(LazyPrecomputeIneligible):
     pass
 
 
+class PerQueryOptInNotSet(LazyPrecomputeIneligible):
+    pass
+
+
 class NonIntegerTimezone(LazyPrecomputeIneligible):
     pass
 
@@ -156,7 +160,7 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
         raise TeamNotInAllowlist()
 
     if query.useWebAnalyticsPrecompute is not True:
-        raise TeamNotInAllowlist()
+        raise PerQueryOptInNotSet()
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
     # can't be served by UTC hourly buckets without sub-hour precision. Skip them
@@ -483,6 +487,8 @@ def execute_lazy_precomputed_read(
         if not result.job_ids:
             return None
 
+        job_ids: list[str] = [str(jid) for jid in result.job_ids]
+
         previous_start_utc: Optional[datetime] = None
         previous_end_utc: Optional[datetime] = None
         if runner.query_compare_to_date_range is not None:
@@ -492,10 +498,26 @@ def execute_lazy_precomputed_read(
                 previous_start_utc = prev_from.astimezone(UTC)
                 previous_end_utc = prev_to.astimezone(UTC)
 
+                # Precompute the previous period too — without this, the read
+                # query's `WHERE job_id IN %(job_ids)s` filter has no rows
+                # covering the previous window and every `*MergeIf(..., prev_*)`
+                # returns 0/NaN, silently breaking compare-period metrics.
+                prev_range_start = _floor_utc_day(previous_start_utc)
+                prev_range_end = _ceil_utc_day(previous_end_utc)
+                if prev_range_start < prev_range_end:
+                    prev_ensure_started = time.perf_counter()
+                    prev_result = ensure_web_overview_precomputed(
+                        runner=runner,
+                        time_range_start=prev_range_start,
+                        time_range_end=prev_range_end,
+                    )
+                    ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
+                    job_ids.extend(str(jid) for jid in prev_result.job_ids)
+
         read_started = time.perf_counter()
         rows = execute_read_query(
             team_id=team_id,
-            job_ids=[str(jid) for jid in result.job_ids],
+            job_ids=job_ids,
             current_start_utc=current_start_utc,
             current_end_utc=current_end_utc,
             previous_start_utc=previous_start_utc,

@@ -274,6 +274,55 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # it should reuse existing jobs and not multiply them.
         assert no_compare_jobs.issubset(after_compare_jobs)
 
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_compare_to_period_returns_real_previous_values(self):
+        """Regression: ensure compare-period metrics come from real precomputed
+        previous-period data, not 0/NaN. The bug surfaced when the lazy path
+        only precomputed the current window, leaving the read query with no
+        rows to merge for the `prev_*` columns. Compare to the same query
+        evaluated through the raw events path to assert parity."""
+        # Current period: standard 2-session fixture (Jan 2 + Jan 3).
+        self._seed_two_sessions()
+        # Previous period: 1 extra session in the 7 days before Jan 1.
+        _create_person(team_id=self.team.pk, distinct_ids=["prev_p1"], properties={"name": "prev_p1"})
+        prev_session = str(uuid7("2023-12-28"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="prev_p1",
+            timestamp="2023-12-28T10:00:00Z",
+            properties={
+                "$session_id": prev_session,
+                "$host": "example.com",
+                "$current_url": "https://example.com/old",
+            },
+        )
+
+        # Path A: raw events scan, compare=True. Ground truth for previous values.
+        raw_response = self._run(self._build_query(compare=True))
+        raw_visitors = raw_response.results[0]
+        raw_sessions = raw_response.results[2]
+
+        # Path B: lazy precompute, compare=True. Must match the raw response.
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(compare=True))
+        lazy_visitors = lazy_response.results[0]
+        lazy_sessions = lazy_response.results[2]
+
+        assert lazy_visitors.previous == raw_visitors.previous, (
+            f"previous visitors mismatch: lazy={lazy_visitors.previous}, raw={raw_visitors.previous}. "
+            f"If lazy is 0/None, the previous-period precompute is missing."
+        )
+        assert lazy_sessions.previous == raw_sessions.previous, (
+            f"previous sessions mismatch: lazy={lazy_sessions.previous}, raw={raw_sessions.previous}."
+        )
+        # Sanity: the raw path must actually report > 0 in the previous period
+        # — otherwise the assertion above could be a vacuous 0 == 0 and miss the
+        # regression we're trying to catch.
+        assert raw_visitors.previous and raw_visitors.previous > 0, (
+            f"raw previous visitors should be > 0 with seeded prev_p1 event, got {raw_visitors.previous}"
+        )
+
     # --- Group A: timezone correctness --------------------------------------
 
     @parameterized.expand(
