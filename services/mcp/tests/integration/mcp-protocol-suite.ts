@@ -74,6 +74,13 @@ export function defineMcpProtocolTests(
             expect(info?.version).toBeTruthy()
         })
 
+        it('returns instructions in the initialize response', () => {
+            const instructions = client.getInstructions()
+            expect(instructions).toBeTruthy()
+            expect(typeof instructions).toBe('string')
+            expect(instructions!.length).toBeGreaterThan(0)
+        })
+
         it('lists available tools with non-empty schemas', async () => {
             const { tools } = await client.listTools()
             expect(tools.length).toBeGreaterThan(0)
@@ -116,6 +123,20 @@ export function defineMcpProtocolTests(
             const result = await client.readResource({ uri: uiApp.uri })
             expect(result.contents.length).toBeGreaterThan(0)
             expect(result.contents[0]?.uri).toBe(uiApp.uri)
+        })
+
+        it('reads a context-mill resource by URI', async () => {
+            const { resources } = await client.listResources()
+            const cmResource = resources.find((r) => r.uri.startsWith('posthog://'))
+            if (!cmResource) {
+                throw new Error('expected at least one posthog:// resource from context-mill')
+            }
+
+            const result = await client.readResource({ uri: cmResource.uri })
+            expect(result.contents.length).toBeGreaterThan(0)
+            expect(result.contents[0]?.uri).toBe(cmResource.uri)
+            const text = 'text' in result.contents[0]! ? result.contents[0].text : ''
+            expect(text).toBeTruthy()
         })
 
         it('returns empty contents for an unknown resource URI', async () => {
