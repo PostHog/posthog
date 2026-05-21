@@ -2,6 +2,8 @@ import { EventSourceMessage } from '@microsoft/fetch-event-source'
 import { getVersion, receiveTransaction } from '@tiptap/pm/collab'
 import { Step } from '@tiptap/pm/transform'
 import { actions, beforeUnmount, kea, key, listeners, path, props, reducers } from 'kea'
+
+const RECONNECT_DELAY_MS = 1000
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -92,6 +94,8 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         rebaseFailed: (params: { localContent: JSONContent; localText: string }) => params,
         connectStream: true,
         disconnectStream: true,
+        streamOpened: true,
+        streamClosed: (error: string | null = null) => ({ error }),
     }),
 
     reducers({
@@ -104,6 +108,24 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         ],
         // Stable per-logic clientID; shared with the PM collab plugin for self-event filtering.
         clientID: [uuid() as string, {}],
+        // Optimistic: true while the SSE await is in flight. Flips false on close/error so
+        // the UI can show a "live updates paused" indicator during the brief reconnect gap.
+        streamConnected: [
+            false,
+            {
+                streamOpened: () => true,
+                streamClosed: () => false,
+                disconnectStream: () => false,
+            },
+        ],
+        streamError: [
+            null as string | null,
+            {
+                streamOpened: () => null,
+                streamClosed: (_, { error }) => error,
+                disconnectStream: () => null,
+            },
+        ],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
@@ -159,6 +181,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
 
         connectStream: async () => {
             cache.abortController?.abort()
+            cache.disposables.dispose('reconnectTimer')
             const controller = new AbortController()
             cache.abortController = controller
 
@@ -168,6 +191,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 }
                 // SSE id is the Redis stream id `N-0` and N is the prosemirror version.
                 // We use it for both reconnection (Last-Event-ID) and idempotency.
+                cache.lastEventId = msg.id
                 const version = parseInt(msg.id.split('-', 1)[0], 10)
                 if (!Number.isFinite(version)) {
                     return
@@ -209,29 +233,65 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 if (controller.signal.aborted) {
                     return
                 }
-                posthog.captureException(error instanceof Error ? error : new Error(String(error)), {
+                const message = error instanceof Error ? error.message : String(error)
+                actions.streamClosed(message)
+                posthog.captureException(error instanceof Error ? error : new Error(message), {
                     action: 'notebook collab stream',
                 })
             }
 
-            // fetchEventSource handles reconnection via Last-Event-ID; this awaits for the connection's lifetime.
+            // The await runs for the connection's lifetime. fetch-event-source retries
+            // internal errors on its own, but resolves silently when the server closes the
+            // body cleanly — which the backend does every STREAM_LIFETIME_SECONDS (5 min)
+            // by design. We have to schedule the reconnect ourselves, passing the last
+            // seen event id so the resumed stream picks up where this one left off.
+            // onOpen fires on every successful fetch — including fetch-event-source's
+            // internal retries — so the UI flips back to "live" once we're reconnected.
+            const onOpen = (): void => {
+                if (controller.signal.aborted) {
+                    return
+                }
+                actions.streamOpened()
+            }
             try {
                 await api.notebooks.collabStream(props.shortId, {
                     onMessage,
                     onError,
+                    onOpen,
                     signal: controller.signal,
+                    lastEventId: cache.lastEventId,
                 })
             } catch (e) {
                 if (controller.signal.aborted) {
                     return
                 }
+                actions.streamClosed(e instanceof Error ? e.message : String(e))
                 posthog.captureException(e as Error, { action: 'notebook collab stream open' })
             }
+
+            if (controller.signal.aborted) {
+                return
+            }
+
+            actions.streamClosed()
+
+            // pauseOnPageHidden: false so a server-side lifetime cap that hits while the tab
+            // is backgrounded still triggers a reconnect — the underlying SSE uses
+            // openWhenHidden: true and is expected to stay live regardless of visibility.
+            cache.disposables.add(
+                () => {
+                    const id = window.setTimeout(() => actions.connectStream(), RECONNECT_DELAY_MS)
+                    return () => window.clearTimeout(id)
+                },
+                'reconnectTimer',
+                { pauseOnPageHidden: false }
+            )
         },
 
         disconnectStream: () => {
             cache.abortController?.abort()
             cache.abortController = null
+            cache.disposables.dispose('reconnectTimer')
         },
     })),
 
