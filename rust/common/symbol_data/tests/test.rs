@@ -1,6 +1,6 @@
 use posthog_symbol_data::{
     read_symbol_data, sniff_data_type, write_symbol_data, write_symbol_data_uncompressed,
-    HermesMap, ProguardMapping, SourceAndMap, SymbolDataType,
+    AppleDsym, HermesMap, ProguardMapping, SourceAndMap, SymbolDataType,
 };
 
 const MAGIC_LEN: usize = b"posthog_error_tracking".len();
@@ -108,19 +108,39 @@ fn test_v2_compressed_large_payload() {
 
 #[test]
 fn test_sniff_data_type() {
-    let sourcemap = write_symbol_data(SourceAndMap {
-        minified_source: "minified_source".to_string(),
-        sourcemap: "sourcemap".to_string(),
-    })
-    .unwrap();
-    let hermes = write_symbol_data(HermesMap {
-        sourcemap: "hermes map data".to_string(),
-    })
-    .unwrap();
+    let cases = [
+        (
+            SymbolDataType::SourceAndMap,
+            write_symbol_data(SourceAndMap {
+                minified_source: "minified_source".to_string(),
+                sourcemap: "sourcemap".to_string(),
+            })
+            .unwrap(),
+        ),
+        (
+            SymbolDataType::HermesMap,
+            write_symbol_data(HermesMap {
+                sourcemap: "hermes map data".to_string(),
+            })
+            .unwrap(),
+        ),
+        (
+            SymbolDataType::ProguardMapping,
+            write_symbol_data(ProguardMapping {
+                content: "proguard mapping data".to_string(),
+            })
+            .unwrap(),
+        ),
+        (
+            SymbolDataType::AppleDsym,
+            write_symbol_data(AppleDsym {
+                data: b"dsym data".to_vec(),
+            })
+            .unwrap(),
+        ),
+    ];
 
-    assert_eq!(
-        sniff_data_type(&sourcemap).unwrap(),
-        SymbolDataType::SourceAndMap
-    );
-    assert_eq!(sniff_data_type(&hermes).unwrap(), SymbolDataType::HermesMap);
+    for (expected_type, data) in cases {
+        assert_eq!(sniff_data_type(&data).unwrap(), expected_type);
+    }
 }

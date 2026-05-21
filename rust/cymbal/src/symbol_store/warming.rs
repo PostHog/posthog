@@ -175,12 +175,12 @@ async fn load_warming_candidates(
         FROM posthog_errortrackingsymbolset
         WHERE content_hash IS NOT NULL
           AND storage_ptr IS NOT NULL
-          AND last_used > NOW() - make_interval(hours => $1::integer)
+          AND last_used > NOW() - ($1::double precision * INTERVAL '1 hour')
         ORDER BY last_used DESC
         LIMIT $2
         "#,
     )
-    .bind(config.cache_warming_lookback_hours as i32)
+    .bind(config.cache_warming_lookback_hours as f64)
     .bind(config.cache_warming_max_entries as i64)
     .fetch_all(pool)
     .await?;
@@ -220,25 +220,25 @@ async fn warm_single_entry(
             let parsed = parsers.sourcemap.parse(data).await.map_err(|error| {
                 UnhandledError::Other(format!("sourcemap parse failed: {error}"))
             })?;
-            insert_warmed_entry::<OwnedSourceMapCache>(cache, cache_key, parsed).await
+            insert_warmed_entry::<OwnedSourceMapCache>(cache, cache_key, parsed, byte_budget).await
         }
         SymbolDataType::HermesMap => {
             let parsed = parsers.hermes.parse(data).await.map_err(|error| {
                 UnhandledError::Other(format!("hermes map parse failed: {error}"))
             })?;
-            insert_warmed_entry::<ParsedHermesMap>(cache, cache_key, parsed).await
+            insert_warmed_entry::<ParsedHermesMap>(cache, cache_key, parsed, byte_budget).await
         }
         SymbolDataType::ProguardMapping => {
             let parsed = parsers.proguard.parse(data).await.map_err(|error| {
                 UnhandledError::Other(format!("proguard mapping parse failed: {error}"))
             })?;
-            insert_warmed_entry::<FetchedMapping>(cache, cache_key, parsed).await
+            insert_warmed_entry::<FetchedMapping>(cache, cache_key, parsed, byte_budget).await
         }
         SymbolDataType::AppleDsym => {
             let parsed = parsers.apple.parse(data).await.map_err(|error| {
                 UnhandledError::Other(format!("apple symbols parse failed: {error}"))
             })?;
-            insert_warmed_entry::<ParsedAppleSymbols>(cache, cache_key, parsed).await
+            insert_warmed_entry::<ParsedAppleSymbols>(cache, cache_key, parsed, byte_budget).await
         }
     }
 }
@@ -247,15 +247,18 @@ async fn insert_warmed_entry<T>(
     cache: &Arc<Mutex<SymbolSetCache>>,
     cache_key: String,
     parsed: T,
+    byte_budget: usize,
 ) -> Result<Option<usize>, UnhandledError>
 where
     T: Countable + Send + Sync + 'static,
 {
     let bytes = parsed.byte_count();
-    cache
-        .lock()
-        .await
-        .insert::<T>(cache_key, Arc::new(parsed), bytes);
+    let mut cache_guard = cache.lock().await;
+    if cache_guard.held_bytes() >= byte_budget {
+        return Ok(None);
+    }
+
+    cache_guard.insert::<T>(cache_key, Arc::new(parsed), bytes);
     Ok(Some(bytes))
 }
 
