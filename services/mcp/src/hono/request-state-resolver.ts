@@ -1,5 +1,6 @@
 import { MCPClientProfile } from '@/lib/client-detection'
-import { evaluateFeatureFlags } from '@/lib/posthog/flags'
+import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
+import { evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
@@ -77,8 +78,11 @@ export class RequestStateResolver {
         const toolFlagKeys = getRequiredFeatureFlags(clientVersion)
         const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
 
+        const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
+        const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
+
         const [allFlags, _apiKey, distinctId] = await Promise.all([
-            this._resolveAllFlags(reqCtx, allFlagKeys),
+            this._resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
@@ -141,12 +145,13 @@ export class RequestStateResolver {
 
     private async _resolveAllFlags(
         reqCtx: RequestContext,
-        flagKeys: string[]
+        flagKeys: string[],
+        groups?: FlagGroups
     ): Promise<Record<string, boolean>> {
         if (flagKeys.length === 0) {return {}}
         try {
             const distinctId = await reqCtx.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId)
+            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
             return {}
         }
