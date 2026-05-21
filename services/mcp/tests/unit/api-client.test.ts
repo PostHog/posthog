@@ -132,18 +132,13 @@ describe('ApiClient', () => {
         [
             'both ids set',
             { mcpSessionId: 'abc123session', mcpConversationId: '01984ad9-bda4-7000-8000-abcdef012345' },
-            { 'x-posthog-mcp-session-id': 'abc123session', 'x-posthog-mcp-conversation-id': '01984ad9-bda4-7000-8000-abcdef012345' },
+            {
+                'x-posthog-mcp-session-id': 'abc123session',
+                'x-posthog-mcp-conversation-id': '01984ad9-bda4-7000-8000-abcdef012345',
+            },
         ],
-        [
-            'only session id set',
-            { mcpSessionId: 'only-session' },
-            { 'x-posthog-mcp-session-id': 'only-session' },
-        ],
-        [
-            'neither id set',
-            {},
-            {},
-        ],
+        ['only session id set', { mcpSessionId: 'only-session' }, { 'x-posthog-mcp-session-id': 'only-session' }],
+        ['neither id set', {}, {}],
     ] as const)('forwards mcp id headers — %s', async (_label, extraConfig, expectedHeaders) => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)

@@ -131,6 +131,37 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     },
 }
 
+const FLAG_ACTOR_NAME = "{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}"
+
+function buildFlagChangeVerbPhrase(): string {
+    const activity = 'event.properties.activity'
+    const change = 'event.properties.detail.changes[1]'
+    const afterGroups = `length(ifNull(${change}.after.groups, []))`
+    const beforeGroups = `length(ifNull(${change}.before.groups, []))`
+
+    const activeFieldVerb = `${change}.after == 'true' ? 'enabled' : 'disabled'`
+
+    const filtersFieldVerb = [
+        `${change}.after.multivariate != null ? 'updated variant rollout for'`,
+        `${afterGroups} > ${beforeGroups} ? 'added a release condition to'`,
+        `${afterGroups} < ${beforeGroups} ? 'removed a release condition from'`,
+        `'updated release conditions on'`,
+    ].join(' : ')
+
+    const verbPhrase = [
+        `${activity} == 'created' ? 'created'`,
+        `${activity} == 'deleted' ? 'deleted'`,
+        `${activity} == 'restored' ? 'restored'`,
+        `${change}.field == 'active' ? (${activeFieldVerb})`,
+        `${change}.field == 'filters' ? (${filtersFieldVerb})`,
+        `'updated'`,
+    ].join(' : ')
+
+    return `{${verbPhrase}}`
+}
+
+const FLAG_CHANGE_VERB_PHRASE = buildFlagChangeVerbPhrase()
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'survey-response': [
         {
@@ -327,7 +358,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Send a webhook when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -338,7 +369,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -349,7 +380,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when a feature flag is changed',
             inputs: {
                 content: {
-                    value: "**{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}** {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `**${FLAG_ACTOR_NAME}** ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },
@@ -363,7 +394,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         {
                             text: {
-                                text: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                                text: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                                 type: 'mrkdwn',
                             },
                             type: 'section',
@@ -381,7 +412,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: "*{event.properties.user.first_name ? event.properties.user.first_name : 'PostHog'}* {event.properties.activity} feature flag `{event.properties.detail.name}`",
+                    value: `*${FLAG_ACTOR_NAME}* ${FLAG_CHANGE_VERB_PHRASE} feature flag \`{event.properties.detail.name}\``,
                 },
             },
         },

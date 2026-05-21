@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.batch_exports.http import resolve_and_validate_url
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.batch_import_utils import (
     extract_batch_import_info,
@@ -57,6 +58,15 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "status",
         ]
 
+    def validate_endpoint_url(self, value: str | None) -> str | None:
+        if not value or not value.strip():
+            return None
+        try:
+            resolve_and_validate_url(value)
+        except ValueError:
+            raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")
+        return value
+
     def create(self, validated_data: dict) -> BatchImport:
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by_id"] = self.context["request"].user.id
@@ -94,6 +104,13 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
     s3_region = serializers.CharField(write_only=True, required=False)
     access_key = serializers.CharField(write_only=True, required=False)
     secret_key = serializers.CharField(write_only=True, required=False)
+    endpoint_url = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default=None,
+        help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
+    )
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -116,6 +133,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "s3_region",
             "access_key",
             "secret_key",
+            "endpoint_url",
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
@@ -152,6 +170,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             region=validated_data["s3_region"],
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
+            endpoint_url=validated_data.get("endpoint_url"),
         )
 
         if content_type == ContentType.AMPLITUDE:
@@ -185,6 +204,13 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
     s3_region = serializers.CharField(write_only=True, required=False)
     access_key = serializers.CharField(write_only=True, required=False)
     secret_key = serializers.CharField(write_only=True, required=False)
+    endpoint_url = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default=None,
+        help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
+    )
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -207,6 +233,7 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
             "s3_region",
             "access_key",
             "secret_key",
+            "endpoint_url",
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
@@ -243,6 +270,7 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
             region=validated_data["s3_region"],
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
+            endpoint_url=validated_data.get("endpoint_url"),
         )
 
         if content_type == ContentType.AMPLITUDE:
