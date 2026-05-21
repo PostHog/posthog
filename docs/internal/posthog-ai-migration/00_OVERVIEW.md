@@ -1,238 +1,260 @@
 # PostHog AI → Sandbox Agent Migration — Overview
 
-Migration of `frontend/src/scenes/max/` (PostHog AI, "Max") onto the cloud-agent / sandbox architecture documented in [`CLOUD_AGENTS_FRONTEND_SPEC.md`](../CLOUD_AGENTS_FRONTEND_SPEC.md). The new UI will live in `frontend/src/scenes/posthog-ai/` and speak REST + SSE directly to PostHog cloud, which relays to an in-sandbox `@posthog/agent` server.
+Migration of PostHog AI ("Max") from the LangGraph-backed `ee/hogai/chat_agent/` runtime onto the cloud-agent / sandbox architecture documented in [`CLOUD_AGENTS_FRONTEND_SPEC.md`](../CLOUD_AGENTS_FRONTEND_SPEC.md).
 
-This document is the integration layer. Each numbered topic has a dedicated spec; read this first to understand the target architecture, what's invariant across all four areas, and the phasing order.
+**The frontend stays in `frontend/src/scenes/max/`.** The public `/api/.../conversations/*` contract stays. The migration is a *backend* swap: Django gains a server-side SSE relay (`ee/hogai/sandbox/sse_relay.py`) that proxies the existing `/conversations/stream/` endpoint to a cloud-agent Task/Run running in a sandbox. Raw ACP frames pass through wrapped in a `StoredLogEntry` envelope (one `event: acp` per frame), like PostHog Code's reference impl. A new frontend module (`sandboxStreamLogic.ts`) parses those frames into thread-shaped state without touching today's LangGraph event handlers.
+
+This shifts the migration from "rewrite the chat UI" to "build the relay + a frontend stream processor + a small handful of additive `maxThreadLogic` cases".
 
 | # | Topic | Spec |
 |---|---|---|
 | 1 | Context (passing context to the agent) | [`01_CONTEXT.md`](./01_CONTEXT.md) |
-| 2 | Core functionality (chat, streaming, history, queue) | [`02_CORE.md`](./02_CORE.md) |
-| 3 | Rich UI (MCP tool intercepts → existing renderers) | [`03_RICH_UI.md`](./03_RICH_UI.md) |
-| 4 | Prompts (`ee/hogai/chat_agent/prompts/` → `@posthog/agent`) | [`04_PROMPTS.md`](./04_PROMPTS.md) |
+| 2 | Core functionality (the SSE relay + frontend stream processor) | [`02_CORE.md`](./02_CORE.md) |
+| 3 | Rich UI (MCP tool dispatch → existing renderers) | [`03_RICH_UI.md`](./03_RICH_UI.md) |
+| 4 | Prompts (`ee/hogai/chat_agent/prompts/` → sandbox `systemPrompt`) | [`04_PROMPTS.md`](./04_PROMPTS.md) |
+| — | **Backward-compatibility audit** (read before any spec) | [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) |
+| — | Open backfill items | [`TODO.md`](./TODO.md) |
+
+> **⚠ Coexistence mode.** The migration runs behind a per-user feature flag (`posthog-ai-sandbox`). Users without the flag must see today's Max exactly as today. Sub-specs `01_CONTEXT.md`, `03_RICH_UI.md`, and `04_PROMPTS.md` describe the *end-state* code shape; [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) overrides them for the rollout window — sandbox logic lives **alongside** the existing code, not in place of it. `maxContextLogic.ts`, `maxBillingContextLogic.tsx`, `MaxTool.tsx`, `useMaxTool.ts`, all 38 `useMaxTool` call sites, and every existing `messages/*.tsx` renderer stay untouched during the migration. Cleanup is a follow-up phase after default-on.
 
 ---
 
 ## 1. Why migrate
 
-Today's stack:
+Today the agent runtime is a LangGraph DAG in `ee/hogai/`; tools are Python classes registered in `chat_agent/toolkit.py`; streaming uses a custom SSE protocol assembled by graph nodes; conversation state lives in a `Conversation` model.
 
-- Django backend `ee/hogai/` orchestrates a LangGraph agent with custom tools (`ReadTaxonomyTool`, `ReadDataTool`, `SearchTool`, `CreateNotebookTool`, …).
-- The frontend hits `POST /api/environments/{team_id}/conversations/stream/` and consumes a custom SSE protocol that carries assistant messages, tool calls with `ui_payload`s, planning steps, generation status, approvals.
-- All agent state (conversation, messages, approvals, tools) is owned by `posthog`.
-
-Target stack:
-
-- The agent is `@posthog/agent` (the same package powering PostHog Code in the Twig repo), running inside a sandbox. It speaks ACP to a tapped read/write stream which the agent-server fans out as PostHog cloud SSE.
-- PostHog data tools (`read_taxonomy`, `read_data`, `search`, `create_notebook`, …) become MCP servers the sandbox connects to. The agent talks to them via ACP `tool_call` events; the frontend intercepts those events and renders rich PostHog UI inline.
-- The chat surface (history, threading, streaming) is replaced by the Task / TaskRun model: each "conversation" becomes a Task; each user turn streams as a Run (or follow-up `POST /command/` `user_message`).
-- The frontend speaks REST + SSE directly. There is no Electron `main`/tRPC layer between the browser and PostHog cloud — the desktop's `CloudTaskService` becomes a Kea logic in the browser (see `02_CORE.md`).
+We want the runtime to be `@posthog/agent` (the same package powering PostHog Code) running inside a sandbox, with tools exposed as MCP servers. The frontend doesn't need to know any of this — it keeps talking to `/conversations/*`. The backend mediates.
 
 Wins:
 
-- **Single agent runtime.** PostHog AI and PostHog Code share `@posthog/agent`. Bug-fixes, model upgrades, ACP improvements land in one place.
-- **MCP-first tool model.** Internal tools become MCP servers, externally extensible. Customer-installed MCPs become first-class citizens for PostHog AI without per-tool plumbing.
-- **Long-running, resumable conversations.** The Task/Run + SSE backfill model handles disconnects, multi-turn queueing, terminal-then-resume, and history rehydration in one place.
-- **Permission modes / sandboxing.** Dangerous-operation approvals reuse the sandbox's `permission_request` channel instead of a parallel approval reducer in `maxThreadLogic`.
+- **Shared agent runtime.** PostHog AI and PostHog Code converge on `@posthog/agent`. Bug-fixes, model upgrades, ACP improvements land in one place.
+- **MCP-first tools.** Tools live in MCP servers. Customer-installed MCPs become first-class for PostHog AI without per-tool plumbing on our side.
+- **Resumable conversations.** The Task/Run + SSE backfill model handles disconnects, multi-turn queueing, terminal-then-resume in one place.
+- **Permission modes / sandboxing.** Dangerous-operation approvals reuse the sandbox's `permission_request` channel instead of a parallel reducer.
+- **Smaller blast radius.** Frontend stays. Tests stay green. The migration ships behind a single per-conversation routing decision.
 
 ---
 
 ## 2. Architecture target
 
 ```
-┌────────────────────────────────────────┐
-│ scenes/posthog-ai (browser)            │
-│  - posthogAiLogic (top-level + history)│
-│  - posthogAiThreadLogic (per-Task)     │
-│  - sseWatcherLogic (per-Run)           │
-│  - posthogAiContextLogic (scene ctx)   │
-└──────────────┬─────────────────────────┘
-               │ REST + SSE + POST /command/
-               ▼
-┌────────────────────────────────────────┐
-│ PostHog cloud (Django)                 │
-│  - /api/projects/{tid}/tasks/...       │   ← new: task model wrapping PostHog AI runs
-│  - relay: SSE ↔ in-sandbox agent       │
-│  - persisted log (S3 NDJSON)           │
-│  - command channel (JSON-RPC)          │
-└──────────────┬─────────────────────────┘
-               │ ACP (via JWT)
-               ▼
-┌────────────────────────────────────────┐
-│ Sandbox: @posthog/agent + Claude/Codex │
-│  - systemPrompt: ported from chat_agent│
-│  - MCP servers:                        │
-│    - posthog-data (taxonomy, hogql, …) │
-│    - posthog-search                    │
-│    - posthog-notebook                  │
-│    - posthog-tasks (todo)              │
-│    - user-installed MCPs               │
-└────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│ frontend/src/scenes/max  (mostly unchanged)  │
+│  LangGraph path: existing handlers verbatim  │
+│  Sandbox path: + sandboxStreamLogic.ts       │
+│    (raw ACP → ToolInvocation / thread items) │
+│  - Thread.tsx + mcpToolRegistry adapter      │
+│  - DangerousOperationApprovalCard (variant)  │
+│  - Slash commands, history, FeedbackPrompt   │
+└───────────────────┬──────────────────────────┘
+                    │ POST /conversations/stream/   (same as today)
+                    │ GET  /conversations/
+                    │ POST /conversations/{id}/cancel/   (existing)
+                    ▼
+┌──────────────────────────────────────────────┐
+│ Django (ee/hogai/sandbox/)                   │
+│  - Conversation.agent_runtime: 'langgraph'   │
+│       | 'sandbox'   ◀── routing decision     │
+│  - Conversation.sandbox_task (FK)            │
+│  - Conversation.sandbox_run  (FK)            │
+│  - sandbox-route only:                       │
+│    - creates Task + Run on first message     │
+│    - opens upstream SSE to cloud-agent       │
+│    - PASSES ACP THROUGH raw, wrapped in      │
+│      StoredLogEntry → event: acp             │
+│    - hoists 3 convenience events:            │
+│      permission_request, status, error       │
+│    - relays user messages to POST /command/  │
+│    - wraps user content in <posthog_context> │
+└───────────────────┬──────────────────────────┘
+                    │ REST + SSE + POST /command/    (cloud-agent spec)
+                    ▼
+┌──────────────────────────────────────────────┐
+│ Cloud agent relay (existing)                 │
+│  - /api/projects/{tid}/tasks/{tid}/runs/...  │
+│  - SSE relay + JWT-scoped sandbox connection │
+└───────────────────┬──────────────────────────┘
+                    │ ACP via JWT
+                    ▼
+┌──────────────────────────────────────────────┐
+│ Sandbox: @posthog/agent + Claude/Codex       │
+│  - systemPrompt built by adapter at Run-start│
+│  - MCP servers:                              │
+│    - posthog-data (taxonomy, hogql, search)  │
+│    - posthog-notebook                        │
+│    - posthog-tasks (todos)                   │
+│    - posthog-code (PostHog Code integration) │
+│    - user-installed MCPs                     │
+└──────────────────────────────────────────────┘
 ```
 
-The browser never talks to the sandbox directly. Everything flows through the cloud's REST + SSE proxy. Authentication is `Authorization: Bearer <token>` (project-scoped personal API key or OAuth token).
+The browser never talks to the sandbox directly. `/conversations/*` is Django's contract; everything beyond is implementation detail.
 
 ---
 
-## 3. Concept mapping — PostHog AI today ↔ cloud agents tomorrow
+## 3. Concept mapping — PostHog AI today ↔ sandbox tomorrow
 
-| PostHog AI today | Cloud agent equivalent | Notes |
+| PostHog AI today | Backed by tomorrow (when `agent_runtime === 'sandbox'`) | Note |
 |---|---|---|
-| `Conversation` | `Task` | One Task per chat. `task.title` = chat title. |
-| Single conversation thread | One or more `TaskRun`s | Each "turn-after-terminal" becomes a new Run with `resume_from_run_id` (§ 4.3). For in-progress turns the same Run accepts multiple `user_message` commands. |
-| `POST /conversations/stream/` | `POST /tasks/` + `POST /tasks/{id}/run/` for first message; `POST /command/` `user_message` for subsequent messages | See `02_CORE.md` § 2. |
-| `ui_context: MaxUIContext` in stream body | Pre-interpolated into `systemPrompt`, OR injected as ACP `resource_link` blocks in the initial prompt, OR served via a `posthog-context` MCP server | See `01_CONTEXT.md` for the decision; recommended: hybrid (static slices in prompt + live MCP). |
-| `contextual_tools` (from `useMaxTool`) | MCP servers passed to `--mcpServers` at sandbox start, or hot-loaded via `_posthog/refresh_session` | See `02_CORE.md` § 7 and `03_RICH_UI.md` § 4. |
-| Tool result `ui_payload` | ACP `tool_call` / `tool_call_update` content blocks parsed in browser | `03_RICH_UI.md` defines the dispatcher. |
-| Approval (`DangerousOperationApprovalCard`) | `permission_request` event + `permission_response` command | Same UI component, different wiring. `02_CORE.md` § 6. |
-| `agent_mode` (`plan`, `sql`, `product_analytics`, …) | Either (a) collapsed into one general agent with a system-prompt section, (b) different `--claudeCodeConfig` presets per mode, or (c) modeled as a `permission_mode` toggle | See `04_PROMPTS.md` § 4. |
-| `is_sandbox` flag | Always true | The new architecture *is* sandboxed. |
-| `trace_id` per turn | Reuse `runId` + ACP `sessionId`; emit `trace_id` on `_posthog/run_started` for parity | Telemetry layer is unchanged. |
-| Slash commands (`/init`, `/remember`, `/usage`, `/feedback`, `/ticket`) | Half stay in the browser, half become MCP tool invocations or backend pre-processing of `user_message` content | See `02_CORE.md` § 8 and `04_PROMPTS.md` § 3. |
-| Conversation history (`GET /conversations/`) | `GET /tasks/?origin_product=posthog_ai` filtered + sorted | `02_CORE.md` § 3. |
-| `core_memory`, `billing_context`, `groups_prompt` | Resolved server-side, pre-interpolated into `systemPrompt` per Run | `04_PROMPTS.md` § 2. |
-
-Two things have **no equivalent** in the cloud model and need explicit decisions:
-
-1. **No repository.** PostHog AI Tasks don't have a `repository`. Either (a) extend the Task model to allow `repository: null` and `github_integration: null` (cheap), or (b) introduce a `origin_product: "posthog_ai"` discriminator that the backend treats as a no-repo Task (cleaner). The Twig spec mentions `origin_product` in `Task` already (§ 2.3) — use it.
-2. **No PR creation, no git.** The agent-server's session prompt currently mandates branch creation + draft PR (`agent-server.ts:1572-1726`). For PostHog AI we want `--createPr=false` and "No Repository Mode" (`agent-server.ts:1529-1726`, the branch documented in `04_PROMPTS.md` § 5).
+| `Conversation` row | `Conversation` row **+** linked `Task` + first `TaskRun` | The conversation stays the user-facing entity. Task/Run are storage for the agent runtime. |
+| Conversation message thread | Conversation messages (unchanged on the wire) **+** the Task's persisted log (NDJSON in S3, source-of-truth for replay) | The chat UI reads conversation messages exactly as today. |
+| `POST /conversations/stream/` | Same endpoint; new branch in the view that opens the cloud-agent SSE upstream and passes ACP frames through verbatim per `02_CORE.md` § 4 | Public API unchanged. |
+| Conversation continuation (next user message) | Same endpoint; relay sends `POST /command/` `user_message` on the existing Run | Same Task, same Run, additive ACP turn. |
+| Terminal conversation + new prompt | A new `TaskRun` with `resume_from_run_id` pointing at the prior Run | Relay handles transparently — frontend just sees a normal next-message. |
+| `ui_context: MaxUIContext` (rich serialized entities) | `attached_context: AttachedContext[]` (typed IDs + labels) | See `01_CONTEXT.md`. Wrapping into `<posthog_context>` happens in the relay. |
+| `contextual_tools` registered via `useMaxTool` | **Removed for sandbox runtime.** Only the static MCP tool set is available. | Scenes can still subscribe to thread state read-only; they can no longer expose callbacks the agent calls. LangGraph path keeps using `useMaxTool` unchanged — see `BACKWARD_COMPAT.md` #6. |
+| Tool result `ui_payload.kind` dispatch | Tool dispatch on **MCP qualified tool name** (`server.tool`) via a frontend `mcpToolRegistry` consuming `ToolInvocation` records emitted by `sandboxStreamLogic` | See `03_RICH_UI.md`. Existing `messages/*Answer.tsx` components survive behind thin adapters that read raw `rawInput` / output. |
+| `DangerousOperationApprovalCard` | Same component; bound to ACP `permission_request` events (hoisted by the relay as a convenience event) | Wiring layer changes; UI doesn't. |
+| `agent_mode` (`plan`, `sql`, `product_analytics`, …) | Collapsed to one unified prompt + tool gating; `plan` maps to ACP `permission_mode: 'plan'` | See `04_PROMPTS.md` § 4. |
+| `is_sandbox` flag | Always true when `agent_runtime === 'sandbox'` | Becomes a read of `agent_runtime`. |
+| `trace_id` per turn | Same (generated server-side at message create) | Telemetry plumbing untouched. |
+| Slash commands (`/init`, `/remember`, `/usage`, `/feedback`, `/ticket`) | Same client behavior; `/remember` becomes a no-op for the sandbox path (core memory is dropped — see `TODO.md`) or routes to an MCP tool if/when one exists | See `02_CORE.md` § 7. |
+| Conversation history (`GET /conversations/`) | Same endpoint, same shape, optionally filtered by `agent_runtime` | Sandbox runs surface in the same list. |
+| `core_memory` / `ManageMemoriesTool` | **Dropped.** | See `TODO.md` for backfill. |
+| `maxBillingContextLogic` / billing in systemPrompt | **Dropped.** | See `TODO.md` for backfill (likely a billing MCP tool). |
 
 ---
 
-## 4. Surfaces preserved as-is
+## 4. What stays on the frontend (i.e., does **not** change)
 
-These survive the migration unchanged or with cosmetic updates:
+Everything in `frontend/src/scenes/max/` that isn't explicitly called out below.
+
+Concretely:
 
 | Surface | File(s) | Why preserved |
 |---|---|---|
-| Markdown rendering | `MarkdownMessage.tsx`, `utils/markdownToTiptap.ts` | Render layer agnostic to transport. |
-| Approval UI | `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts` | Same visual; rewired to `permission_request` (`03_RICH_UI.md` § 5). |
-| Feedback / ticketing | `FeedbackPrompt.tsx`, `useFeedback.ts`, `TicketPrompt.tsx`, `ticketUtils.ts` | Orthogonal to chat transport. Stay as-is. |
-| AI liability notice | `components/AILiabilityNotice.tsx` | Static. |
-| Hedgehog intro | `Intro.tsx`, `MaxChangelog.tsx`, `maxChangelogLogic.ts` | Move verbatim. |
-| Floating position | `floatingMaxPositionLogic.tsx` | Move verbatim. |
-| Slash command autocomplete | `components/SlashCommandAutocomplete.tsx`, `slash-commands.tsx` | Same registry; some commands re-route to MCP tools (`02_CORE.md` § 8). |
-| Tool-render components | `messages/VisualizationArtifactAnswer.tsx`, `NotebookArtifactAnswer.tsx`, `UIPayloadAnswer.tsx`, `ErrorTrackingIssueCard.tsx`, `MultiQuestionForm.tsx`, `SessionSummarizationProgress.tsx`, `RecordingsFiltersSummary.tsx`, `ErrorTrackingFiltersSummary.tsx`, `MessageTemplate.tsx` | These are the "rich UI" payoff. The MCP tool intercept layer in `03_RICH_UI.md` feeds them. |
-| Thinking messages | `utils/thinkingMessages.ts` | Drive the same "Pondering…" / "Hobsnobbing…" loading copy from ACP `_posthog/progress` notifications. |
-| Type shapes | `maxTypes.ts` (entity types: `MaxInsightContext`, `MaxDashboardContext`, …) | Re-export from `posthog-ai/types.ts`; the *helpers* (`createMaxContextHelpers`) remain unchanged. `01_CONTEXT.md` § 2. |
+| Scene shell | `Max.tsx`, `Intro.tsx`, `MaxChangelog.tsx`, `floatingMaxPositionLogic.tsx` | Pure shell — agnostic to runtime |
+| Conversation list + thread state | `maxLogic.tsx`, `maxThreadLogic.tsx`, `maxGlobalLogic.tsx` | EventSource SSE consumer keeps working; we just add a few new event-name cases (see `02_CORE.md` § 4) |
+| Thread + message dispatch | `Thread.tsx`, `MarkdownMessage.tsx`, `messages/MessageTemplate.tsx` | New dispatch path for MCP tool calls layered on top — see `03_RICH_UI.md` § 2 |
+| Tool-output renderers | `messages/VisualizationArtifactAnswer.tsx`, `NotebookArtifactAnswer.tsx`, `UIPayloadAnswer.tsx`, `ErrorTrackingIssueCard.tsx`, `ErrorTrackingFiltersSummary.tsx`, `MultiQuestionForm.tsx`, `RecordingsFiltersSummary.tsx`, `SessionSummarizationProgress.tsx`, `maxErrorTrackingWidgetLogic.ts` | Reused behind ~5–15-line adapters that pull props from raw MCP `rawInput`/output — see `03_RICH_UI.md` § 3 |
+| Approval flow | `DangerousOperationApprovalCard.tsx`, `approvalOperationUtils.ts` | Wired to ACP `permission_request` (hoisted by adapter) — see `02_CORE.md` § 5 and `03_RICH_UI.md` § 5 |
+| Feedback + ticketing | `FeedbackPrompt.tsx`, `useFeedback.ts`, `TicketPrompt.tsx`, `ticketUtils.ts` | Orthogonal to runtime |
+| Input area + slash commands | `components/InputFormArea.tsx`, `QuestionInput.tsx`, `SidebarQuestionInput.tsx`, `components/SlashCommandAutocomplete.tsx`, `slash-commands.tsx` | UI unchanged; `/remember` becomes a no-op for sandbox runs (see `02_CORE.md` § 7) |
+| Thinking messages | `utils/thinkingMessages.ts` | Driven by ACP `_posthog/progress` notifications — see `03_RICH_UI.md` § 6 |
+| Type shapes (entity contexts) | `maxTypes.ts` | Slimmed to `AttachedContext` shape — see `01_CONTEXT.md` § 1 |
+| Tab-aware scene integration | `Max.tsx` + `tabAwareScene` plumbing | Unchanged |
 
 ---
 
-## 5. Surfaces that get a complete rewrite
+## 5. What changes on the frontend (additive, mostly small)
 
-| Surface | Replaced by | Spec |
+| Change | Where | Spec |
 |---|---|---|
-| `maxLogic.tsx` (conversation list + UI shell) | `posthogAiLogic.ts` | `02_CORE.md` § 4 |
-| `maxThreadLogic.tsx` (streaming, message state, approvals, queue) | `posthogAiThreadLogic.ts` + `runWatcherLogic.ts` (the SSE watcher, ported from `cloud-task/service.ts`) | `02_CORE.md` § 5–6 |
-| `maxGlobalLogic.tsx` (tool registry, conversation cache) | `posthogAiGlobalLogic.ts` (tool registry stays; conversation cache becomes a Task cache) | `02_CORE.md` § 4 |
-| `Thread.tsx` (message dispatch) | `Thread.tsx` in `scenes/posthog-ai/` — rebuilt around ACP `session/update` + intercepted `tool_call` events | `03_RICH_UI.md` § 2 |
-| `Max.tsx` (scene shell) | `PostHogAi.tsx` (new scene export, tab-aware) | `02_CORE.md` § 4 |
-| EventSource parser in `maxThreadLogic` (lines 661–673) | Reuse `Twig/apps/code/src/main/services/cloud-task/sse-parser.ts` logic (port to Kea listeners) | `02_CORE.md` § 5 |
-| `maxContextLogic.ts` (compilation + scene-context auto-detection) | `posthogAiContextLogic.ts` — same compilation semantics, different output (see § 3 above) | `01_CONTEXT.md` § 3 |
-| `useMaxTool.ts` (tool registration) | `usePostHogAiTool.ts` (registers MCP-style tools — see `03_RICH_UI.md` § 4) | `03_RICH_UI.md` |
-| `maxBillingContextLogic.tsx` | Backend-side resolution (server pre-interpolates into systemPrompt). The logic disappears from the frontend. | `04_PROMPTS.md` § 2 |
+| Add new SSE event-name handlers (`acp`, `permission_request`, `status`, `error`) | `maxThreadLogic.tsx` SSE event-handler section. `acp` delegates to `sandboxStreamLogic`; the others reuse existing handlers with sandbox-runtime branches. | `02_CORE.md` § 7 |
+| New ACP stream processor — parses raw `StoredLogEntry` frames into `ToolInvocation` / `ThreadItem` state for the renderer | New file: `frontend/src/scenes/max/sandboxStreamLogic.ts` | `02_CORE.md` § 6 |
+| Tool-name → renderer registry | New file: `frontend/src/scenes/max/mcpToolRegistry.tsx` | `03_RICH_UI.md` § 3 |
+| Thread.tsx dispatch on MCP tool call messages (registry lookup, fallback for unknown tools) | `Thread.tsx` (single new switch case) | `03_RICH_UI.md` § 2 |
+| Renderer adapters per existing `messages/*.tsx` (turn raw `rawInput`/output into the props the component expects) | `frontend/src/scenes/max/messages/adapters/` (new directory) | `03_RICH_UI.md` § 3 |
+| `AttachedContext` collection (replaces `MaxContextInput` compilation) | `maxContextLogic.ts` simplification — drop helpers, drop nested data, return flat list | `01_CONTEXT.md` § 3 |
+| Send `attached_context: AttachedContext[]` field on conversation create/message endpoints | `maxThreadLogic.tsx` request body | `01_CONTEXT.md` § 3.5 |
 
-`MaxTool.tsx` is already `@deprecated` (line 25-110); do not port — emit a deprecation removal task instead.
+## 6. What gets deleted on the frontend
 
----
+| Surface | File(s) |
+|---|---|
+| Dynamic tool registration (no longer applicable — only static MCP tools exist) | `MaxTool.tsx` (already `@deprecated`), `useMaxTool.ts`, `maxGlobalLogic.toolMap` reducer, `max-constants.tsx` `TOOL_DEFINITIONS` / `ToolDefinition` / `ToolRegistration` types |
+| All `useMaxTool(…)` call sites across the codebase | Various scenes (grep for `useMaxTool`) — replaced with read-only thread-state subscriptions where they actually need something |
+| Billing context resolution on the frontend | `maxBillingContextLogic.tsx` + `*Type.ts` companion |
+| Pre-interpolated context payloads | `MaxUIContext`, `compiledContext` selector, `createMaxContextHelpers` (helpers serialize nested entity data — no longer needed); the lightweight `MaxContextItem` types stay for the chip UI |
 
-## 6. Surfaces removed entirely
-
-- **Conversation queue endpoint** `GET /conversations/{id}/queue/`. The Task model already has SSE + `_posthog/turn_complete` for ordering. Multi-message queueing (combine pending follow-ups while a turn is running) becomes a client-side concern, matching the desktop's `combineQueuedCloudPrompts` (Twig § 13.11). Spec'd in `02_CORE.md` § 6.
-- **`is_sandbox` flag.** Always true.
-- **`agent_mode` round-tripping.** See `04_PROMPTS.md` § 4 for what replaces it.
-- **`MaxTool.tsx` and call sites.** Delete; replace with `usePostHogAiTool.ts` (`03_RICH_UI.md` § 4).
+For now these stay co-located with `scenes/max/` for ease of rollback during the soak. They're flagged for deletion in the cleanup PR after the sandbox path defaults on.
 
 ---
 
-## 7. Spec dependencies
+## 7. What changes on the backend (the bulk of the work)
+
+| Change | Where | Spec |
+|---|---|---|
+| `Conversation.agent_runtime: 'langgraph' \| 'sandbox'` + nullable `Conversation.task_run_id` FK | Conversation model + migration | `02_CORE.md` § 2 |
+| `POST /conversations/stream/` branches on `agent_runtime` | Conversation view | `02_CORE.md` § 3 |
+| New sandbox SSE relay (`ee/hogai/sandbox/sse_relay.py`): creates Task+Run on first message; opens upstream SSE; passes ACP frames through as `event: acp` + `StoredLogEntry`; hoists 3 convenience events (`permission_request`, `status`, `error`); relays user messages to `POST /command/` | `ee/hogai/sandbox/` (mostly new) | `02_CORE.md` §§ 3–5 |
+| `<posthog_context>` wrapper builder | `ee/hogai/sandbox/context_wrapper.py` | `01_CONTEXT.md` § 4 |
+| `build_posthog_ai_system_prompt(team, user, conversation)` — composes the sandbox `systemPrompt` from the migrated chat_agent prompts | `ee/hogai/sandbox/system_prompt.py` | `04_PROMPTS.md` § 6 |
+| MCP servers exposing the existing toolkit tools (`posthog-data`, `posthog-notebook`, `posthog-tasks`, etc.) | New module per server | `04_PROMPTS.md` § 5 |
+| Conversation rollover: when a Run goes terminal, a follow-up message creates a new Run with `resume_from_run_id`; conversation gets re-pointed to the new run | Adapter | `02_CORE.md` § 6 |
+| Feature flag `posthog-ai-sandbox` chooses `agent_runtime` at Conversation create | Conversation create view | `02_CORE.md` § 2 + `00_OVERVIEW.md` § 9 |
+
+---
+
+## 8. Spec dependencies and reading order
 
 ```
 00_OVERVIEW (this doc)
         │
-        ├── 04_PROMPTS  ◀── leaf, can start immediately (backend pre-interpolation work)
+        ├── 04_PROMPTS    ◀── leaf, can start immediately (backend prompt builder)
         │
-        ├── 01_CONTEXT  ◀── depends on 04 (some context is best baked into systemPrompt)
+        ├── 01_CONTEXT    ◀── needs the AttachedContext field on the conversation
+        │                     create/message request body (defined here, used by 02)
         │
-        ├── 02_CORE     ◀── depends on 01 (knows what context payload to pass)
-        │                   depends on 04 (knows what systemPrompt shape is)
+        ├── 02_CORE       ◀── depends on 04 (knows how the systemPrompt is built)
+        │                     depends on 01 (knows how attached_context lands)
         │
-        └── 03_RICH_UI  ◀── depends on 02 (tool_call events come through the SSE watcher)
-                            depends on 04 (knows which MCP tools exist)
+        └── 03_RICH_UI    ◀── depends on 02 (event shapes the registry consumes)
 ```
 
-Suggested **phasing** (each phase ships behind a feature flag):
+Suggested phasing (each phase ships behind the `posthog-ai-sandbox` flag):
 
-1. **Phase 0 — Prompts** (`04_PROMPTS.md`): build the server-side `build_posthog_ai_system_prompt(team, user)` function. No UI changes. Verified by snapshot tests of the produced prompt against canonical examples.
+1. **Phase 0 — Prompts** (`04_PROMPTS.md`): `build_posthog_ai_system_prompt()` + the 5–6 MCP server stubs (just enough to return tool descriptions, even with empty implementations). Verified by snapshot tests of the produced prompt.
 
-2. **Phase 1 — Core transport** (`02_CORE.md`): scaffolds `scenes/posthog-ai/` with `posthogAiLogic`, `posthogAiThreadLogic`, `runWatcherLogic`. Hardcoded one tool (a simple echo MCP server) to prove the pipeline. Send/receive a string round-trip. No PostHog data access yet.
+2. **Phase 1 — Relay happy path** (`02_CORE.md`): relay creates Task + Run, opens upstream SSE, passes ACP frames straight through wrapped in `StoredLogEntry`. Frontend `sandboxStreamLogic` parses them. End-to-end: user says "hello", agent responds. No tools yet beyond a heartbeat MCP server.
 
-3. **Phase 2 — Context** (`01_CONTEXT.md`): port `maxContextLogic` semantics; wire scene `maxContext` selectors into the new prompt-prepend / MCP server.
+3. **Phase 2 — Context** (`01_CONTEXT.md`): `<posthog_context>` wrapping in the relay; `attached_context` field on the conversation request shape; new sandbox context logic on the frontend.
 
-4. **Phase 3 — Rich UI** (`03_RICH_UI.md`): intercept tool calls in the SSE watcher; map to existing renderers. This unlocks visualization, notebooks, error tracking, etc.
+4. **Phase 3 — Tools** (`04_PROMPTS.md` § 5 + `03_RICH_UI.md`): turn on real MCP server implementations one at a time, each with a frontend renderer adapter behind a sub-flag (`posthog-ai-sandbox-tool-{slug}`). Tools roll out individually to bound risk.
 
-5. **Phase 4 — Tool parity** (`03_RICH_UI.md` § 6): stand up MCP servers for every existing `ee/hogai/chat_agent/toolkit.py` tool. Once all green, flip the feature flag.
+5. **Phase 4 — Approval flow** (`02_CORE.md` § 5, `03_RICH_UI.md` § 5): `permission_request` ↔ `DangerousOperationApprovalCard` rewiring.
 
-6. **Phase 5 — Decommission `scenes/max/`**: delete in a follow-up PR, after a soak period.
+6. **Phase 5 — Default on** for internal users → dogfood window → external rollout.
+
+7. **Phase 6 — Cleanup**: delete `useMaxTool` / `MaxTool.tsx` / `maxBillingContextLogic`, prune `MaxUIContext` shapes, decommission the LangGraph stack.
 
 ---
 
-## 8. Feature-flagging strategy
+## 9. Feature-flagging strategy
 
 - Single boolean flag: `posthog-ai-sandbox` (default `false`).
-- When on: the navigation route `/max` resolves to `scenes/posthog-ai/`. When off: it resolves to `scenes/max/` (existing behavior).
-- Backend respects the same flag to route conversation creation either to the LangGraph stack or the Task/Run cloud-agent stack.
-- The flag is per-user, not per-team, to enable internal dogfooding.
-- A second flag `posthog-ai-sandbox-tools-{slug}` per MCP server lets us roll tools out one at a time during Phase 4.
+- Read at conversation-create time. The chosen runtime is stamped onto `Conversation.agent_runtime` and stays for the lifetime of the conversation (avoids mid-conversation engine swaps).
+- Per-tool sub-flags `posthog-ai-sandbox-tool-{slug}` gate individual MCP servers during Phase 3 rollout.
+- Per-user resolution lets internal users flip ahead of customers.
 
 ---
 
-## 9. Open questions for the team
+## 10. Open questions for the team
 
-Each detail spec lists area-specific questions; this section lists ones that span specs.
+Spec-specific opens are at the bottom of each spec. Cross-spec:
 
-1. **Task discriminator.** Are we OK extending the existing Task model with `origin_product: "posthog_ai"` + nullable `repository` + nullable `github_integration`, or do we want a separate model (`ChatTask`)? Cheapest path is the former; cleanest is the latter. *Owner: backend.* Blocks: `02_CORE.md` § 3.
-2. **Sandbox lifecycle.** PostHog Code spins up a fresh sandbox per Task. Is that the right model for PostHog AI, or do we want a longer-lived sandbox shared across Tasks for a user (cheaper, but state-leakage risk)? *Owner: infra + AI.* Blocks nothing immediately but affects cost projections.
-3. **Permission mode default.** Should PostHog AI run in `bypassPermissions` (no friction) or `acceptEdits` (require user OK on data writes — e.g., creating notebooks)? Today's `DangerousOperationApprovalCard` implies the latter for some ops. *Owner: AI.* Blocks: `02_CORE.md` § 6.
-4. **Mode replacement.** What happens to "plan mode" (and `agent_mode` more broadly)? Three candidates in `04_PROMPTS.md` § 4 — pick one. *Owner: AI.*
-5. **Telemetry.** Today's per-turn `trace_id` is generated client-side. Do we keep that, or use `runId` (with `_posthog/sdk_session` for finer granularity)? Affects every LLM Analytics dashboard that filters by `trace_id`. *Owner: AI + LLM Analytics.*
-6. **Streaming render granularity.** `_posthog/agent_message_chunk` arrives every few tokens; `agent_message` arrives coalesced. The desktop renders chunks live. The current Max also streams. Confirm we want token-level streaming in the new UI (it has a perceptible latency benefit). *Owner: AI.*
-7. **Mobile / non-Electron clients.** The Twig spec emphasizes the cloud architecture is web-friendly. We don't have a PostHog mobile client today, but: do we want `posthog-ai` to be reachable from non-React contexts (e.g., embedded in product onboarding)? If yes, the logic surface should be more isolated. *Owner: product.*
+1. **Conversation ↔ Task lifecycle.** A conversation can outlive multiple Runs (resume after terminal). Where should the *Task* reset boundary be? Two options: (a) one Task per conversation, many Runs; (b) one Task per Run cluster, multiple Tasks per conversation. (a) is cleaner. *Owner: backend.* See `02_CORE.md` § 2.
+2. **Permission mode default.** `bypassPermissions` (no friction) or `acceptEdits` (require user OK on data writes like notebook creation)? Today's `DangerousOperationApprovalCard` implies the latter for some ops. *Owner: AI.* See `02_CORE.md` § 5.
+3. **Mode replacement.** What happens to "plan mode" specifically? Three candidates in `04_PROMPTS.md` § 4. Recommendation: ACP `permission_mode: 'plan'`. *Owner: AI.*
+4. **Slash command `/remember`.** Core memory is dropped. Does `/remember` become a no-op with a tooltip, or do we keep a degenerate path until a memory MCP server lands? *Owner: AI.* See `02_CORE.md` § 7.
+5. **Per-tool sub-flag granularity.** Per MCP server, or per tool inside a server? Per server is simpler; per tool gives finer rollout control. *Owner: AI.*
+6. **Telemetry continuity.** All existing LLM Analytics dashboards filter on conversation/event shapes that the LangGraph path emits. Confirm parity from the adapter side. *Owner: AI + LLM Analytics.*
+7. **Backfills.** See [`TODO.md`](./TODO.md) — billing context, anything else discovered during build.
 
 ---
 
-## 10. Glossary
+## 11. Glossary
 
 | Term | Definition |
 |---|---|
-| **ACP** | Agent Connection Protocol. NDJSON-framed JSON-RPC used between the agent-server and the underlying coding agent (Claude Code, Codex). The wire format the agent-server *taps* and broadcasts as PostHog SSE. |
-| **Sandbox** | Ephemeral execution environment (container) running `@posthog/agent` + the actual model. Provisioned per Run by PostHog cloud. |
-| **agent-server** | The HTTP server (`Twig/packages/agent/src/server/agent-server.ts`) running *inside* the sandbox. Frontend never talks to it directly — only through PostHog cloud's relay. |
-| **MCP** | Model Context Protocol. The standard for exposing tools / resources to an agent. We expose PostHog data tools as MCP servers the sandbox connects to. |
-| **Task** | A unit of work in cloud agents (Twig spec § 2.3). For PostHog AI, one Task = one chat. |
-| **Run** | A single execution of a Task. New Run = new sandbox session. For PostHog AI, "resume after terminal" creates a new Run with `state.resume_from_run_id`. |
-| **Permission mode** | `default | acceptEdits | plan | bypassPermissions | auto | read-only | full-access`. Set in `state.initial_permission_mode`; gates `permission_request` flow. |
-| **`_posthog/...` notification** | Custom ACP notification namespace used by the agent-server (Twig spec § 10.8). Examples: `_posthog/run_started`, `_posthog/turn_complete`, `_posthog/git_checkpoint`. |
-| **systemPrompt** | The composed string passed to the model via `clientConnection.newSession({ _meta: { systemPrompt } })`. For PostHog AI this is the pre-interpolated `ee/hogai/chat_agent/prompts/` content. |
+| **ACP** | Agent Connection Protocol. NDJSON-framed JSON-RPC between the agent-server and the underlying coding agent (Claude Code, Codex). The wire format the agent-server taps and broadcasts as cloud-agent SSE. |
+| **Adapter** (in this spec) | The Django module under `ee/hogai/sandbox/` that bridges `/conversations/*` (public) to the cloud-agent REST+SSE API. Owns conversation routing, event translation, message relay, context wrapping, system-prompt build. |
+| **Sandbox** | Ephemeral container running `@posthog/agent` + the underlying model. Provisioned per Task/Run by PostHog cloud. |
+| **agent-server** | HTTP server (`Twig/packages/agent/src/server/agent-server.ts`) running inside the sandbox. Frontend and Django adapter both talk to it only through PostHog cloud's relay. |
+| **MCP** | Model Context Protocol. Tools exposed to the agent as MCP servers. PostHog data tools become MCP servers. |
+| **Task** | Unit of work in cloud agents (cloud spec § 2.3). For PostHog AI, one Task per conversation. |
+| **Run** | A single execution of a Task. New Run = new sandbox session. Resume-after-terminal creates a new Run with `state.resume_from_run_id`. |
+| **`StoredLogEntry`** | Wire envelope around a single ACP notification: `{ type: 'notification', timestamp?, notification: { method?, params?, result?, error? } }`. The adapter passes most ACP frames through as `StoredLogEntry`s — see `02_CORE.md` § 4. |
+| **`session/update`** | ACP notification carrying agent message chunks, tool calls, mode changes. Frontend dispatches off its `params.update.sessionUpdate` discriminator. |
+| **`_posthog/*` notification** | Custom ACP notification namespace from the agent-server. Examples: `_posthog/run_started`, `_posthog/turn_complete`, `_posthog/progress`. Cloud spec § 10.8. |
+| **systemPrompt** | The composed string passed via `clientConnection.newSession({ _meta: { systemPrompt } })`. Built by the adapter from `ee/hogai/chat_agent/prompts/` content. |
 
 ---
 
-## 11. Out of scope (intentional non-goals)
+## 12. Out of scope
 
-- **Local↔cloud handoff** (Twig spec § 11). PostHog AI doesn't have a "local" mode.
-- **GitHub integration / PR creation.** Use `--createPr=false` and "No Repository Mode".
-- **Sandbox environment CRUD UI.** Project-level setting at most; not surfaced in PostHog AI chat.
-- **Re-implementing `MaxTool.tsx` deprecation.** Just delete it after Phase 5.
+- **Local↔cloud handoff** (Twig spec § 11). PostHog AI doesn't have a local mode.
+- **GitHub integration / PR creation.** The adapter creates Tasks with no repository; agent-server runs in "No Repository Mode" with `--createPr=false`.
+- **Sandbox environment CRUD UI.** Use the default sandbox environment for all PostHog AI runs.
 - **Conversation export / sharing.** Not part of this migration.
-- **Cross-tab session continuation.** The existing `tabAwareScene` integration carries over via the new scene; no transport-level work.
-
----
-
-## 12. Reading order
-
-If you're an engineer picking up a slice:
-
-- **Backend / Django.** → `04_PROMPTS.md` first, then `01_CONTEXT.md` § 5 (server-side resolution of dynamic context), then `02_CORE.md` § 3 (Task model extension).
-- **Frontend transport.** → `02_CORE.md`, then `01_CONTEXT.md`.
-- **Frontend UI / message rendering.** → `03_RICH_UI.md`, then `02_CORE.md` § 5 (where the events come from).
-- **Prompt engineering / AI side.** → `04_PROMPTS.md`.
+- **A separate `scenes/posthog-ai/` directory.** We're not creating one — existing `scenes/max/` carries the new behavior behind the runtime flag.
