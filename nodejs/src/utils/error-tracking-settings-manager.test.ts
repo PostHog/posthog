@@ -63,6 +63,8 @@ describe('ErrorTrackingSettingsManager', () => {
         expect(result).toEqual({
             projectRateLimitValue: 100,
             projectRateLimitBucketSizeMinutes: 5,
+            perIssueRateLimitValue: null,
+            perIssueRateLimitBucketSizeMinutes: null,
         })
     })
 
@@ -73,6 +75,8 @@ describe('ErrorTrackingSettingsManager', () => {
         expect(result).toEqual({
             projectRateLimitValue: null,
             projectRateLimitBucketSizeMinutes: null,
+            perIssueRateLimitValue: null,
+            perIssueRateLimitBucketSizeMinutes: null,
         })
     })
 

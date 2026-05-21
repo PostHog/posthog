@@ -7,6 +7,7 @@ import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { PostgresUse } from '~/utils/db/postgres'
 import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
@@ -425,6 +426,116 @@ describe('ErrorTrackingConsumer', () => {
                 mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(producedMessages).toHaveLength(1)
             expect(producedMessages[0].value.person_mode).toBe('full')
+        })
+    })
+
+    describe('rate limiting', () => {
+        const upsertSettings = async (
+            projectValue: number | null,
+            projectMinutes: number | null,
+            perIssueValue: number | null,
+            perIssueMinutes: number | null
+        ): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_errortrackingsettings
+                    (team_id, project_rate_limit_value, project_rate_limit_bucket_size_minutes,
+                     per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (team_id) DO UPDATE SET
+                    project_rate_limit_value = EXCLUDED.project_rate_limit_value,
+                    project_rate_limit_bucket_size_minutes = EXCLUDED.project_rate_limit_bucket_size_minutes,
+                    per_issue_rate_limit_value = EXCLUDED.per_issue_rate_limit_value,
+                    per_issue_rate_limit_bucket_size_minutes = EXCLUDED.per_issue_rate_limit_bucket_size_minutes`,
+                [team.id, projectValue, projectMinutes, perIssueValue, perIssueMinutes],
+                'test-upsert-error-tracking-settings'
+            )
+        }
+
+        const enableRateLimiter = async (): Promise<void> => {
+            await consumer.stop()
+            hub.ERROR_TRACKING_RATE_LIMITER_ENABLED = true
+            hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE = false
+            consumer = await createConsumer(hub)
+
+            await consumer['rateLimiterRedis']!.useClient({ name: 'test-flush' }, async (client) => {
+                const keys = await client.keys(
+                    `@posthog-test/error-tracking-rate-limiter/tokens/${team.id}:exceptions:*`
+                )
+                if (keys.length > 0) {
+                    await client.del(...keys)
+                }
+            })
+        }
+
+        const eventWithStack = (overrides: { distinctId: string; type: string; value: string; fn: string }) =>
+            createEvent({
+                distinct_id: overrides.distinctId,
+                properties: {
+                    $exception_list: [
+                        {
+                            type: overrides.type,
+                            value: overrides.value,
+                            stacktrace: {
+                                frames: [{ function: overrides.fn, filename: `${overrides.fn}.js`, lineno: 1 }],
+                            },
+                            mechanism: { type: 'generic', handled: true },
+                        },
+                    ],
+                },
+            })
+
+        // The pipeline produces via `.handleSideEffects(_, { await: false })`,
+        // so the mock observer only reflects emits once the scheduler drains.
+        const drainProduces = async (): Promise<void> => {
+            await consumer['promiseScheduler'].waitForAll()
+        }
+
+        // The limiter sums cost per key within a batch and `isRateLimited` is
+        // `tokensAfter <= 0`, so bucketSize=1 trips on the first request. Use 2+.
+        const BUDGET = 2
+
+        it('per-team limit drops the whole batch when team budget is exceeded', async () => {
+            await upsertSettings(BUDGET, 60, null, null)
+            await enableRateLimiter()
+
+            const events = [1, 2, 3, 4, 5].map((i) =>
+                eventWithStack({ distinctId: `u-${i}`, type: 'TypeError', value: `v-${i}`, fn: `fn${i}` })
+            )
+            await consumer.handleKafkaBatch(createKafkaMessages(events))
+            await drainProduces()
+
+            const produced = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            expect(produced).toHaveLength(0)
+        })
+
+        it('per-issue limit drops the batch when same-stack repeats exceed the budget', async () => {
+            await upsertSettings(null, null, BUDGET, 60)
+            await enableRateLimiter()
+
+            // Same frames, varying `value` — proves the signature ignores message interpolation.
+            const events = [1, 2, 3, 4, 5].map((i) =>
+                eventWithStack({ distinctId: `u-${i}`, type: 'TypeError', value: `dynamic-${i}`, fn: 'sharedFn' })
+            )
+            await consumer.handleKafkaBatch(createKafkaMessages(events))
+            await drainProduces()
+
+            const produced = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            expect(produced).toHaveLength(0)
+        })
+
+        it('per-issue limit does not throttle events with distinct stack signatures', async () => {
+            await upsertSettings(null, null, BUDGET, 60)
+            await enableRateLimiter()
+
+            const events = [1, 2, 3, 4, 5].map((i) =>
+                eventWithStack({ distinctId: `u-${i}`, type: 'TypeError', value: 'v', fn: `fn${i}` })
+            )
+            await consumer.handleKafkaBatch(createKafkaMessages(events))
+            await drainProduces()
+
+            const produced = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            expect(produced).toHaveLength(5)
         })
     })
 })

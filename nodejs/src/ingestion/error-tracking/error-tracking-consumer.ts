@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
@@ -113,6 +114,27 @@ const latestOffsetTimestampGauge = new Gauge({
     labelNames: ['topic', 'partition', 'groupId'],
     aggregator: 'max',
 })
+
+// Stable-within-release grouping key. Drops `value` when a stack is available
+// (mirrors cymbal/src/types/mod.rs:218) so dynamic message interpolation
+// doesn't fragment. Across releases the hash drifts; the bucket's TTL absorbs it.
+function preCymbalGroupKey(event: PluginEvent): string | null {
+    const exc = event.properties?.$exception_list?.[0]
+    if (!exc) {
+        return null
+    }
+
+    const frames = exc.stacktrace?.frames
+    const payload = frames?.length ? JSON.stringify(frames) : (exc.value ?? '')
+    if (!payload) {
+        return null
+    }
+
+    return createHash('sha1')
+        .update(`${exc.type ?? ''}|${payload}`)
+        .digest('hex')
+        .slice(0, 16)
+}
 
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
@@ -314,27 +336,31 @@ export class ErrorTrackingConsumer {
                     }
                 },
             },
-            // TODO: Per-exception-hash limit using a coarse pre-Cymbal fingerprint
-            // (Cymbal's proper fingerprint is post-symbolication, so we accept a
-            // weaker-but-cheaper bucket here). Wiring would look like:
-            // {
-            //     rateLimiter: this.rateLimiter,
-            //     appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
-            //     appSource: 'exceptions',
-            //     getKey: (input) => {
-            //         const first = input.event.properties?.$exception_list?.[0]
-            //         if (!first?.type && !first?.value) return null
-            //         const hash = createHash('sha1')
-            //             .update(`${first?.type ?? ''}|${first?.value ?? ''}`)
-            //             .digest('hex')
-            //             .slice(0, 16)
-            //         return `${input.team.id}:exceptions:hash:${hash}`
-            //     },
-            //     getTeamId: (input) => input.team.id,
-            //     reportingMode: this.config.rateLimiterReportingMode,
-            //     dropReason: 'rate_limited:per_hash',
-            //     // getBucketConfig: ... (see TODO above)
-            // },
+            // Per-stack cap: independent opt-in from the team-global limit.
+            {
+                rateLimiter: this.rateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                getKey: (input) => {
+                    if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
+                        return null
+                    }
+                    const sig = preCymbalGroupKey(input.event)
+                    return sig ? `${input.team.id}:exceptions:stack:${sig}` : null
+                },
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:per_stack',
+                getBucketConfig: (input) => {
+                    const settings = input.errorTrackingSettings!
+                    const value = settings.perIssueRateLimitValue!
+                    const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
+                    return {
+                        bucketSize: value,
+                        refillRate: value / (minutes * 60),
+                    }
+                },
+            },
         ]
 
         return specs
