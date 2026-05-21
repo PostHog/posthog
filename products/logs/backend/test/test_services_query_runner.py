@@ -62,6 +62,7 @@ class TestRuleCouldApplyToService:
             ("is_not_set_with_value", "is_not_set", None, "api", False),
             ("is_not_set_blank", "is_not_set", None, "", True),
             ("invalid_regex_never_matches", "regex", "[unclosed", "api", False),
+            ("invalid_not_regex_is_indeterminate", "not_regex", "[unclosed", "api", True),
         ]
     )
     def test_service_leaf_operators(
