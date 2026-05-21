@@ -134,13 +134,33 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional human-readable description of what this grouping rule is for.'),
 })
 
-export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .union([
+            zod
+                .record(zod.string(), zod.unknown())
+                .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.'
+        ),
+})
 
-export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .union([
+            zod
+                .record(zod.string(), zod.unknown())
+                .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.'
+        ),
+})
 
 export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
