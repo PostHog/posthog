@@ -11,23 +11,9 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import (
-    Action,
     Annotation,
     Cohort,
     ExportedAsset,
-    Group,
-    GroupTypeMapping,
-    GroupUsageMetric,
-    Insight,
-    InsightVariable,
-    Organization,
-    Team,
-)
-from posthog.models import (
-    Annotation,
-    Cohort,
-    ExportedAsset,
-    FeatureFlag,
     Group,
     GroupTypeMapping,
     GroupUsageMetric,

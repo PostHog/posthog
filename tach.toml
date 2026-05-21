@@ -114,6 +114,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.experiments",
+    "products.feature_flags",
 ]
 layer = "modules"
 

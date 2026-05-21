@@ -39,6 +39,7 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
 )
+
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
