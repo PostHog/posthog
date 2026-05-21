@@ -27,6 +27,7 @@ from posthog.temporal.data_imports.cdc.batcher import (
     deduplicate_table,
     enrich_delete_rows,
 )
+from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer import KafkaBatchProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
@@ -100,6 +101,8 @@ class CDCExtractActivity:
         self.cdc_schemas: list[ExternalDataSchema] = []
         self.schema_by_name: dict[str, ExternalDataSchema] = {}
         self.pk_columns_by_table: dict[str, list[str]] = {}
+        # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
+        self.enabled_columns_by_table: dict[str, set[str]] = {}
         self.write_trackers: dict[str, _WriteTracker] = {}
         self.created_jobs: list[ExternalDataJob] = []
         self.adapter: typing.Any = None
@@ -535,6 +538,35 @@ class CDCExtractActivity:
 
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
 
+        for schema in self.cdc_schemas:
+            enabled = schema.enabled_columns
+            # `None` = sync all; `[]` = retain PKs + incremental only. Match the
+            # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.
+            if isinstance(enabled, list):
+                retained: set[str] = {str(c) for c in enabled}
+                # PKs must stay even if the user dropped them from enabled_columns — merges break otherwise.
+                for pk in self.pk_columns_by_table.get(schema.name, []):
+                    retained.add(pk)
+                inc = schema.incremental_field
+                if isinstance(inc, str) and inc:
+                    retained.add(inc)
+                self.enabled_columns_by_table[schema.name] = retained
+
+    def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        retained = self.enabled_columns_by_table.get(event.table_name)
+        if retained is None:
+            return event
+        filtered = {name: value for name, value in event.columns.items() if name in retained}
+        if filtered.keys() == event.columns.keys():
+            return event
+        return ChangeEvent(
+            operation=event.operation,
+            table_name=event.table_name,
+            position_serialized=event.position_serialized,
+            timestamp=event.timestamp,
+            columns=filtered,
+        )
+
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
@@ -558,6 +590,7 @@ class CDCExtractActivity:
             if event.table_name not in cdc_table_names:
                 continue
 
+            event = self._project_event_columns(event)
             self.batcher.add(event)
             self.last_end_lsn = event.position_serialized
             self.event_count += 1

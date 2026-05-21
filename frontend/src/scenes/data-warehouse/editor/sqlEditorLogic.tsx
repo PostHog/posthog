@@ -22,6 +22,7 @@ import posthog from 'posthog-js'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -1232,6 +1233,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
+                tryShowMCPHint('sql.execute')
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]

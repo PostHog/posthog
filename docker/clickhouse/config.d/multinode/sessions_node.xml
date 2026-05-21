@@ -115,6 +115,9 @@
         <warpstream_replay>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_replay>
+        <warpstream_shared>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_shared>
     </named_collections>
 
     <macros>
