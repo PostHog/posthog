@@ -1,5 +1,22 @@
-import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js'
+import {
+    ErrorCode,
+    JSONRPC_VERSION,
+    LATEST_PROTOCOL_VERSION,
+    SUPPORTED_PROTOCOL_VERSIONS,
+} from '@modelcontextprotocol/sdk/types.js'
+import type {
+    CallToolRequest,
+    GetPromptRequest,
+    InitializeRequest,
+    InitializeResult,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    ListPromptsRequest,
+    ListResourcesRequest,
+    ListToolsRequest,
+    PingRequest,
+    ReadResourceRequest,
+} from '@modelcontextprotocol/sdk/types.js'
 
 import type { RequestProperties } from '@/lib/request-properties'
 
@@ -20,19 +37,38 @@ export type { ResolvedState } from './request-state-resolver'
 const MAX_BATCH_SIZE = 100
 const MAX_BODY_BYTES = 1_048_576
 
-const TRACKED_METHODS = new Set(['initialize', 'tools/list', 'tools/call'])
+const Method = {
+    Initialize: 'initialize' as InitializeRequest['method'],
+    ToolsList: 'tools/list' as ListToolsRequest['method'],
+    ToolsCall: 'tools/call' as CallToolRequest['method'],
+    ResourcesList: 'resources/list' as ListResourcesRequest['method'],
+    ResourcesRead: 'resources/read' as ReadResourceRequest['method'],
+    PromptsList: 'prompts/list' as ListPromptsRequest['method'],
+    PromptsGet: 'prompts/get' as GetPromptRequest['method'],
+    Ping: 'ping' as PingRequest['method'],
+} as const
+
+const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.ToolsList, Method.ToolsCall])
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     return typeof msg === 'object' && msg !== null && 'id' in msg && typeof (msg as { method?: unknown }).method === 'string'
 }
 
-function jsonRpcError(id: unknown, code: number, message: string): Response {
+type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; result: unknown }
+type JsonRpcErrorResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; error: { code: number; message: string } }
+type JsonRpcResponse = JsonRpcResultResponse | JsonRpcErrorResponse
+
+function jsonRpcResult(id: number | string, result: unknown): JsonRpcResultResponse {
+    return { jsonrpc: JSONRPC_VERSION, id, result }
+}
+
+function jsonRpcMethodError(id: number | string, code: number, message: string): JsonRpcErrorResponse {
+    return { jsonrpc: JSONRPC_VERSION, id, error: { code, message } }
+}
+
+function jsonRpcErrorResponse(id: unknown, code: number, message: string): Response {
     return new Response(
-        JSON.stringify({
-            jsonrpc: '2.0',
-            id: id ?? null,
-            error: { code, message },
-        }),
+        JSON.stringify({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
     )
 }
@@ -70,21 +106,21 @@ class McpDispatcher {
     async handleRequest(req: Request, props: RequestProperties): Promise<Response> {
         const contentLength = req.headers.get('content-length')
         if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
-            return jsonRpcError(null, -32600, 'Request body too large')
+            return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
         }
 
         let body: unknown
         try {
             body = await req.json()
         } catch {
-            return jsonRpcError(null, -32700, 'Parse error: Invalid JSON')
+            return jsonRpcErrorResponse(null, ErrorCode.ParseError, 'Parse error: Invalid JSON')
         }
 
         const wasArray = Array.isArray(body)
         const messages: JSONRPCMessage[] = wasArray ? (body as JSONRPCMessage[]) : [body as JSONRPCMessage]
 
         if (messages.length > MAX_BATCH_SIZE) {
-            return jsonRpcError(null, -32600, 'Batch too large')
+            return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Batch too large')
         }
 
         const requests = messages.filter(isRequest)
@@ -114,31 +150,31 @@ class McpDispatcher {
         request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState | undefined
-    ): Promise<{ jsonrpc: '2.0'; id: number | string; result?: unknown; error?: unknown }> {
+    ): Promise<JsonRpcResponse> {
         const { id, method, params } = request
 
         try {
             switch (method) {
-                case 'initialize':
-                case 'tools/list':
-                case 'tools/call':
+                case Method.Initialize:
+                case Method.ToolsList:
+                case Method.ToolsCall:
                     return await this._dispatchTracked(request, props, state!)
-                case 'resources/list':
-                    return { jsonrpc: '2.0', id, result: this.resourceCatalog.getResourcesList() }
-                case 'resources/read':
-                    return { jsonrpc: '2.0', id, result: this.resourceCatalog.readResource(params) }
-                case 'prompts/list':
-                    return { jsonrpc: '2.0', id, result: this.resourceCatalog.getPromptsList() }
-                case 'prompts/get':
-                    return { jsonrpc: '2.0', id, result: this.resourceCatalog.getPrompt(params) }
-                case 'ping':
-                    return { jsonrpc: '2.0', id, result: {} }
+                case Method.ResourcesList:
+                    return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
+                case Method.ResourcesRead:
+                    return jsonRpcResult(id, this.resourceCatalog.readResource(params))
+                case Method.PromptsList:
+                    return jsonRpcResult(id, this.resourceCatalog.getPromptsList())
+                case Method.PromptsGet:
+                    return jsonRpcResult(id, this.resourceCatalog.getPrompt(params))
+                case Method.Ping:
+                    return jsonRpcResult(id, {})
                 default:
-                    return { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } }
+                    return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
         } catch (error) {
             console.error('[McpDispatcher] Internal error:', error)
-            return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error' } }
+            return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
         }
     }
 
@@ -146,7 +182,7 @@ class McpDispatcher {
         request: JSONRPCRequest,
         props: RequestProperties,
         state: ResolvedState
-    ): Promise<{ jsonrpc: '2.0'; id: number | string; result?: unknown; error?: unknown }> {
+    ): Promise<JsonRpcResponse> {
         const { id, method } = request
 
         try {
@@ -154,22 +190,22 @@ class McpDispatcher {
 
             if (this.analyticsBridge.available) {
                 const result = await this.analyticsBridge.dispatchThroughAnalytics(request, props, state, handlers)
-                return { jsonrpc: '2.0', id, result }
+                return jsonRpcResult(id, result)
             }
 
             switch (method) {
-                case 'initialize':
-                    return { jsonrpc: '2.0', id, result: await handlers.handleInitialize(request.params, props, state) }
-                case 'tools/list':
-                    return { jsonrpc: '2.0', id, result: await handlers.handleToolsList(state, props) }
-                case 'tools/call':
-                    return { jsonrpc: '2.0', id, result: await handlers.handleToolCall(request.params, props, state) }
+                case Method.Initialize:
+                    return jsonRpcResult(id, await handlers.handleInitialize(request.params, props, state))
+                case Method.ToolsList:
+                    return jsonRpcResult(id, await handlers.handleToolsList(state, props))
+                case Method.ToolsCall:
+                    return jsonRpcResult(id, await handlers.handleToolCall(request.params, props, state))
                 default:
-                    return { jsonrpc: '2.0', id, error: { code: -32601, message: 'Method not found' } }
+                    return jsonRpcMethodError(id, ErrorCode.MethodNotFound, 'Method not found')
             }
         } catch (error) {
             console.error('[McpDispatcher] Tracked dispatch error:', error)
-            return { jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error' } }
+            return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
         }
     }
 
@@ -185,7 +221,7 @@ class McpDispatcher {
         params: Record<string, unknown> | undefined,
         props: RequestProperties,
         state: ResolvedState
-    ): Promise<unknown> {
+    ): Promise<InitializeResult> {
         const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
         const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
             ? requestedVersion

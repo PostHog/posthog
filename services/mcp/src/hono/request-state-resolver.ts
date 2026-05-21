@@ -1,4 +1,4 @@
-import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { MCPClientProfile } from '@/lib/client-detection'
 import { evaluateFeatureFlags } from '@/lib/posthog/flags'
@@ -33,7 +33,7 @@ export interface MethodHandlerCallbacks {
         props: RequestProperties,
         state: ResolvedState
     ): Promise<unknown>
-    handleToolsList(state: ResolvedState, props: RequestProperties): Promise<{ tools: McpTool[] }>
+    handleToolsList(state: ResolvedState, props: RequestProperties): Promise<ListToolsResult>
     handleToolCall(
         params: Record<string, unknown> | undefined,
         props: RequestProperties,

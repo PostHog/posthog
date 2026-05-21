@@ -8,7 +8,7 @@ import { toolCallDurationSeconds, toolCallsTotal } from './metrics'
 import type { ToolCatalog } from './tool-catalog'
 
 import type { InstructionsBuilder } from './instructions'
-import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { ResolvedState } from './request-state-resolver'
 
@@ -21,7 +21,7 @@ export class ToolExecutor {
         this.instructionsBuilder = instructionsBuilder
     }
 
-    async handleToolsList(state: ResolvedState, props: RequestProperties): Promise<{ tools: McpTool[] }> {
+    async handleToolsList(state: ResolvedState, props: RequestProperties): Promise<ListToolsResult> {
         if (state.useSingleExec) {
             return { tools: [this.instructionsBuilder.buildExecToolEntry(state, props)] }
         }

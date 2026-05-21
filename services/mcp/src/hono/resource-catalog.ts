@@ -1,5 +1,5 @@
 import { RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
-import type { GetPromptResult, Prompt, Resource, TextResourceContents } from '@modelcontextprotocol/sdk/types.js'
+import type { GetPromptResult, ListPromptsResult, ListResourcesResult, Prompt, ReadResourceResult, Resource, TextResourceContents } from '@modelcontextprotocol/sdk/types.js'
 
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive, clearResourceCache } from '@/resources/internals'
 import { getPromptsFromManifest } from '@/resources'
@@ -33,11 +33,11 @@ export class ResourceCatalog {
         this._allResources = [...this._resources, ...this._uiAppResources]
     }
 
-    getResourcesList(): { resources: Resource[] } {
+    getResourcesList(): ListResourcesResult {
         return { resources: this._allResources }
     }
 
-    readResource(params: Record<string, unknown> | undefined): unknown {
+    readResource(params: Record<string, unknown> | undefined): ReadResourceResult {
         const uri = (params?.uri as string) ?? ''
         const entry = this._resourcesByUri.get(uri) ?? this._uiAppReadEntries.get(uri)
         if (!entry) {
@@ -55,11 +55,11 @@ export class ResourceCatalog {
         }
     }
 
-    getPromptsList(): { prompts: Prompt[] } {
+    getPromptsList(): ListPromptsResult {
         return { prompts: this._prompts }
     }
 
-    getPrompt(params: Record<string, unknown> | undefined): unknown {
+    getPrompt(params: Record<string, unknown> | undefined): GetPromptResult {
         const name = (params?.name as string) ?? ''
         const entry = this._promptsByName.get(name)
         if (!entry) {
