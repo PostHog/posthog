@@ -183,8 +183,17 @@ sanitize_message_body = partial(
 )
 
 
+# Zero-width space inserted after `.` and `:` to break auto-link patterns.
+# We previously used `&#46;` / `&#58;` HTML entities, but Customer.io's
+# template engine (TinyMCE-backed) decodes them on output, defeating the
+# defang. ZWSP is a real Unicode codepoint, so it survives JSON transit and
+# the ESP's template rendering. It's invisible to the recipient, but breaks
+# the `\w+\.\w+` and `[a-z]+://` patterns mail-client auto-linkers scan for.
+_ZWSP = "​"
+
+
 def _defang_match(match: "re.Match[str]") -> str:
-    return match.group(0).replace(".", "&#46;").replace(":", "&#58;")
+    return match.group(0).replace(".", f".{_ZWSP}").replace(":", f":{_ZWSP}")
 
 
 def sanitize_email_string(value: str) -> str:
@@ -195,17 +204,17 @@ def sanitize_email_string(value: str) -> str:
     1. NFKC-normalize so fullwidth / compatibility forms can't bypass the
        URL regexes (e.g. `ｈｔｔｐ：／／` → `http://`).
     2. Strip zero-width / direction-override / line-separator characters that
-       could hide URL structure (`evil​.com` → `evil.com`).
+       could hide URL structure (`evil​.com` → `evil.com`). This runs *before*
+       step 4 reintroduces zero-width spaces, so attacker-supplied invisibles
+       can't survive but our defang ones can.
     3. HTML-escape so any embedded markup renders as text in the final email.
-    4. Defang URL-shaped substrings: replace `.` and `:` inside a URL scheme
-       (`https://`, `javascript:`, `www.`, ...) or a bare domain (`evil.com`)
-       with `&#46;` / `&#58;` so mail clients do not auto-link them.
+    4. Defang URL-shaped substrings: insert a zero-width space after each `.`
+       and `:` inside a URL scheme (`https://`, `javascript:`, `www.`, ...) or
+       a bare domain (`evil.com`) so mail clients do not auto-link them.
 
-    Step 4 is the same trick phishing analysts use to share IOCs — Gmail,
-    Outlook and Apple Mail run their auto-linkers on the HTML source before
-    entity decoding, so an entity-encoded dot or colon never matches a URL
-    pattern. The final rendered text still reads as `evil.com` to the
-    recipient but is no longer clickable.
+    Step 4 breaks the contiguous `\\w+\\.\\w+` / `[a-z]+://` patterns that
+    mail-client auto-linkers scan for. The recipient still reads `evil.com`
+    (the ZWSP is invisible) but the link is no longer clickable.
     """
     normalized = unicodedata.normalize("NFKC", value)
     cleaned = _INVISIBLE_CHAR_RE.sub("", normalized)

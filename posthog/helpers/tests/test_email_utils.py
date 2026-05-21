@@ -515,26 +515,31 @@ class TestSanitizeEmailString(SimpleTestCase):
             ("script_tag", "<script>x</script>", "&lt;script&gt;x&lt;/script&gt;"),
             ("ampersand", "Ben & Jerry's", "Ben &amp; Jerry&#x27;s"),
             # URL-shaped substrings are defanged so mail clients don't auto-link.
-            ("https_url", "Visit https://evil.com today", "Visit https&#58;//evil&#46;com today"),
-            ("http_url", "see http://phish.me/", "see http&#58;//phish&#46;me/"),
-            ("www_only", "go www.scam.io", "go www&#46;scam&#46;io"),
-            ("bare_domain", "join evil.com now", "join evil&#46;com now"),
-            ("subdomain_domain", "join sub.evil.com today", "join sub&#46;evil&#46;com today"),
-            ("deep_subdomain", "see a.b.c.example.io", "see a&#46;b&#46;c&#46;example&#46;io"),
-            ("tld_only_legit_org", "Acme.com", "Acme&#46;com"),
-            ("javascript_scheme", "click javascript:alert(1)", "click javascript&#58;alert(1)"),
-            ("data_scheme", "see data:text/html,x", "see data&#58;text/html,x"),
-            ("ftp_scheme", "grab ftp://x.io", "grab ftp&#58;//x&#46;io"),
+            # `​` is a zero-width space — invisible to the recipient but breaks the
+            # `\w+\.\w+` / `[a-z]+://` patterns auto-linkers scan for. Chosen over HTML
+            # entities because Customer.io's TinyMCE-backed template engine decodes
+            # entities on output, defeating an entity-based defang.
+            ("https_url", "Visit https://evil.com today", "Visit https:​//evil.​com today"),
+            ("http_url", "see http://phish.me/", "see http:​//phish.​me/"),
+            ("www_only", "go www.scam.io", "go www.​scam.​io"),
+            ("bare_domain", "join evil.com now", "join evil.​com now"),
+            ("subdomain_domain", "join sub.evil.com today", "join sub.​evil.​com today"),
+            ("deep_subdomain", "see a.b.c.example.io", "see a.​b.​c.​example.​io"),
+            ("tld_only_legit_org", "Acme.com", "Acme.​com"),
+            ("javascript_scheme", "click javascript:alert(1)", "click javascript:​alert(1)"),
+            ("data_scheme", "see data:text/html,x", "see data:​text/html,x"),
+            ("ftp_scheme", "grab ftp://x.io", "grab ftp:​//x.​io"),
             # Fullwidth / compatibility characters are NFKC-folded then defanged so
             # `ｈｔｔｐ：／／evil.com` cannot bypass the URL regex.
             (
                 "fullwidth_url",
                 "go ｈｔｔｐ：／／evil.com",
-                "go http&#58;//evil&#46;com",
+                "go http:​//evil.​com",
             ),
-            # Zero-width / direction-override characters are stripped so they can't
-            # hide URL structure (`evil​.com` -> `evil.com`).
-            ("zero_width_in_domain", "evil​.com", "evil&#46;com"),
+            # Attacker-supplied zero-width / direction-override characters are stripped
+            # before defang runs, so they can't hide URL structure (`evil​.com` ->
+            # `evil.com` -> defanged). Our defang then re-inserts ZWSPs.
+            ("zero_width_in_domain", "evil​.com", "evil.​com"),
             ("rtl_override", "foo‮bar", "foobar"),
             # Combined: HTML-escape an injected attribute that smuggles a URL scheme,
             # the scheme is then defanged (regression for the existing
@@ -542,7 +547,7 @@ class TestSanitizeEmailString(SimpleTestCase):
             (
                 "escaped_then_defanged",
                 '<img src="x" onerror="javascript:alert(1)">',
-                "&lt;img src=&quot;x&quot; onerror=&quot;javascript&#58;alert(1)&quot;&gt;",
+                "&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
             ),
         ]
     )

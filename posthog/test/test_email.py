@@ -211,7 +211,7 @@ class TestEmail(BaseTest):
         # mail clients don't auto-link / treat it as a clickable scheme.
         self.assertEqual(
             sanitized["nested"]["html_content"],
-            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript&#58;alert(1)&quot;&gt;",
+            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
         )
 
         # Check that numbers and booleans are preserved
@@ -260,7 +260,7 @@ class TestEmail(BaseTest):
             self.assertEqual(sanitized[key], properties[key], f"trusted URL key {key} should pass through")
         self.assertEqual(sanitized["section"]["team_url"], section["team_url"])
         # ...but a user-controlled name nested under a non-URL key still gets defanged.
-        self.assertEqual(sanitized["section"]["team_name"], "Acme&#46;com")
+        self.assertEqual(sanitized["section"]["team_name"], "Acme.​com")
 
     def test_sanitize_email_properties_html_escapes_trusted_url_keys(self) -> None:
         # When a user-controlled fragment leaks into a trusted URL key (e.g. the
@@ -293,9 +293,9 @@ class TestEmail(BaseTest):
 
         sanitized = sanitize_email_properties(properties)
 
-        self.assertEqual(sanitized["commenter"]["first_name"], "Visit https&#58;//evil&#46;com NOW")
-        self.assertEqual(sanitized["team"]["name"], "evil&#46;com")
-        self.assertEqual(sanitized["organization_name"], "http&#58;//phish&#46;io")
+        self.assertEqual(sanitized["commenter"]["first_name"], "Visit https:​//evil.​com NOW")
+        self.assertEqual(sanitized["team"]["name"], "evil.​com")
+        self.assertEqual(sanitized["organization_name"], "http:​//phish.​io")
 
     def test_sanitize_email_properties_handles_dataclasses(self) -> None:
         # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
