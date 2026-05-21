@@ -696,13 +696,13 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-llm-analytics',
+        id: 'environment-ai-observability',
         title: 'AI observability',
         group: 'Products',
         settings: [
             {
-                id: 'llm-analytics-byok',
-                title: 'Bring Your Own Key (BYOK)',
+                id: 'ai-observability-byok',
+                title: 'Bring your own key (BYOK)',
                 description:
                     'Add and manage provider API keys for AI observability features, including evaluations and playground.',
                 component: <LLMProviderKeysSettings />,

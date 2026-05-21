@@ -58,15 +58,41 @@ describe('settingsSceneLogic', () => {
         })
     })
 
-    it('opens the legacy AI observability BYOK settings deep link', async () => {
+    it('opens the AI observability BYOK settings deep link', async () => {
+        router.actions.push('/settings/project-ai-observability', {}, { 'ai-observability-byok': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-ai-observability',
+        })
+
+        expect(router.values.hashParams).toEqual({ 'ai-observability-byok': true })
+    })
+
+    it('redirects legacy AI observability BYOK settings deep links', async () => {
         router.actions.push('/settings/project-llm-analytics', {}, { 'llm-analytics-byok': true })
 
         await expectLogic(logic).toMatchValues({
             selectedLevel: 'project',
-            selectedSectionId: 'project-llm-analytics',
+            selectedSectionId: 'project-ai-observability',
         })
 
-        expect(router.values.hashParams).toEqual({ 'llm-analytics-byok': true })
+        expect(router.values.location.pathname).toContain('/settings/project-ai-observability')
+        expect(router.values.location.hash).toBe('#ai-observability-byok')
+        expect(router.values.hashParams).toHaveProperty('ai-observability-byok')
+        expect(router.values.hashParams).not.toHaveProperty('llm-analytics-byok')
+
+        router.actions.push('/settings/environment-llm-analytics', {}, { 'llm-analytics-byok': true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'project',
+            selectedSectionId: 'project-ai-observability',
+        })
+
+        expect(router.values.location.pathname).toContain('/settings/project-ai-observability')
+        expect(router.values.location.hash).toBe('#ai-observability-byok')
+        expect(router.values.hashParams).toHaveProperty('ai-observability-byok')
+        expect(router.values.hashParams).not.toHaveProperty('llm-analytics-byok')
     })
 
     it('redirects level-only URLs to first section', async () => {

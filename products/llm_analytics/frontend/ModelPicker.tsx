@@ -11,7 +11,7 @@ import { LLMProviderIcon } from './LLMProviderIcon'
 import { type ModelOption, type ProviderModelGroup } from './modelPickerLogic'
 import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic'
 
-const PROVIDER_SETTINGS_URL = urls.settings('project-llm-analytics', 'llm-analytics-byok')
+const PROVIDER_SETTINGS_URL = urls.settings('project-ai-observability', 'ai-observability-byok')
 
 export function getModelPickerFooterLink(hasByokKeys: boolean): { label: string; to: string } {
     return {

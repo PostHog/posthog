@@ -355,7 +355,7 @@ async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> 
         affected_evals = list(affected_qs.values_list("name", flat=True)[:max_listed])
         affected_evals_overflow = max(0, total_affected - max_listed)
 
-        settings_url = f"/project/{team.pk}/settings/project-llm-analytics#llm-analytics-byok"
+        settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
         campaign_key = f"llm_analytics_trial_{inputs.threshold_pct}pct_{team.id}"
         is_exhausted = inputs.threshold_pct >= 100
 
@@ -437,7 +437,7 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
             return
 
-        settings_url = f"/project/{team.pk}/settings/project-llm-analytics#llm-analytics-byok"
+        settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
         evaluation_url = f"/project/{team.pk}/ai-evals/evaluations/{inputs.evaluation_id}"
         # Campaign key includes the reason so users get a fresh notification if an eval errors for a
         # different reason later (e.g. model was allowed, then the provider key got deleted).

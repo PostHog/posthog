@@ -184,8 +184,22 @@ export const manifest: ProductManifest = {
     redirects: {
         '/ai-observability': (_params, searchParams, hashParams) =>
             combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
-        '/ai-observability/settings': (_params, searchParams) =>
-            combineUrl(urls.settings('project-llm-analytics', 'llm-analytics-byok'), searchParams).url,
+        '/ai-observability/settings': (_params, searchParams, hashParams) => {
+            const nextHashParams = { ...hashParams }
+
+            if (Object.prototype.hasOwnProperty.call(nextHashParams, 'llm-analytics-byok')) {
+                delete nextHashParams['llm-analytics-byok']
+            }
+            if (nextHashParams.setting === 'llm-analytics-byok') {
+                nextHashParams.setting = 'ai-observability-byok'
+            }
+            if (nextHashParams.selectedSetting === 'llm-analytics-byok') {
+                nextHashParams.selectedSetting = 'ai-observability-byok'
+            }
+            nextHashParams['ai-observability-byok'] = null
+
+            return combineUrl(urls.settings('project-ai-observability'), searchParams, nextHashParams).url
+        },
         '/ai-evals': (_params, searchParams, hashParams) =>
             combineUrl(urls.llmAnalyticsEvaluations(), searchParams, hashParams).url,
         '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
@@ -198,8 +212,22 @@ export const manifest: ProductManifest = {
             combineUrl(urls.llmAnalyticsPrompts(), searchParams, hashParams).url,
         '/llm-analytics': (_params, searchParams, hashParams) =>
             combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
-        '/llm-analytics/settings': (_params, searchParams) =>
-            combineUrl(urls.settings('project-llm-analytics', 'llm-analytics-byok'), searchParams).url,
+        '/llm-analytics/settings': (_params, searchParams, hashParams) => {
+            const nextHashParams = { ...hashParams }
+
+            if (Object.prototype.hasOwnProperty.call(nextHashParams, 'llm-analytics-byok')) {
+                delete nextHashParams['llm-analytics-byok']
+            }
+            if (nextHashParams.setting === 'llm-analytics-byok') {
+                nextHashParams.setting = 'ai-observability-byok'
+            }
+            if (nextHashParams.selectedSetting === 'llm-analytics-byok') {
+                nextHashParams.selectedSetting = 'ai-observability-byok'
+            }
+            nextHashParams['ai-observability-byok'] = null
+
+            return combineUrl(urls.settings('project-ai-observability'), searchParams, nextHashParams).url
+        },
         '/llm-analytics/dashboard': (_params, searchParams, hashParams) =>
             combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
         '/llm-analytics/generations': (_params, searchParams, hashParams) =>
