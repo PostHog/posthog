@@ -1,4 +1,3 @@
-import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -372,7 +371,9 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 404)
 
     def test_unknown_lens_id_returns_404(self) -> None:
-        resp = self.client.get(self.observations_url(str(uuid.uuid4())))
+        import uuid as _uuid
+
+        resp = self.client.get(self.observations_url(str(_uuid.uuid4())))
         self.assertEqual(resp.status_code, 404)
 
     def test_other_team_lens_id_returns_404(self) -> None:

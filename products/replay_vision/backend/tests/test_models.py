@@ -1,6 +1,5 @@
 from posthog.test.base import BaseTest
 
-from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.utils import timezone
 
@@ -243,6 +242,8 @@ class TestReplayObservation(BaseTest):
         self.assertEqual(ReplayObservation.objects.filter(lens_id=lens_id).count(), 0)
 
     def test_user_delete_nulls_triggered_by_user(self) -> None:
+        from django.contrib.auth import get_user_model
+
         ephemeral = get_user_model().objects.create_user(email="ephemeral@example.com", password="x", first_name="Eph")
         lens = self._create_lens()
         obs = ReplayObservation.objects.create(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 import threading
 import urllib.error
 import urllib.request
@@ -168,7 +167,9 @@ def test_query_lock_serializes_concurrent_runs(server_fixture) -> None:
     enter.wait(timeout=2)  # first call is in flight
     t2.start()
     # Briefly let the second request reach the lock; assert in_flight stays at 1.
-    time.sleep(0.1)
+    import time as _time
+
+    _time.sleep(0.1)
     assert max_in_flight == 1, "the coordinator's lock didn't serialize /v1/run"
     release.set()
     t1.join(timeout=5)
