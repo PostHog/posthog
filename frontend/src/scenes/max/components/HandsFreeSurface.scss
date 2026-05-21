@@ -85,9 +85,29 @@
 }
 
 .hands-free-surface__mic--thinking,
-.hands-free-surface__mic--starting {
+.hands-free-surface__mic--starting,
+.hands-free-surface__mic--reconnecting {
     color: var(--color-text-on-fill);
     background: var(--color-warning);
+}
+
+.hands-free-surface__mic--error {
+    color: var(--color-text-on-fill);
+    background: var(--color-danger);
+}
+
+// Larger tap target on phones — the primary affordance of a hands-free product,
+// and gym/walking users need more than the 48px desktop default.
+@media (max-width: 480px) {
+    .hands-free-surface__mic {
+        width: 4rem;
+        height: 4rem;
+
+        svg {
+            width: 1.75rem;
+            height: 1.75rem;
+        }
+    }
 }
 
 // Pulse applied only when status === 'listening' (your turn to talk).
@@ -95,10 +115,11 @@
     animation: HandsFreeSurface__micPulse 1.6s ease-in-out infinite;
 }
 
-// Spinner ring around the mic when thinking/starting — keeps the mic icon visible
-// so the user still knows the button is tappable to exit.
+// Spinner ring around the mic when thinking/starting/reconnecting — keeps the mic icon
+// visible so the user still knows the button is tappable to exit.
 .hands-free-surface__mic--thinking::after,
-.hands-free-surface__mic--starting::after {
+.hands-free-surface__mic--starting::after,
+.hands-free-surface__mic--reconnecting::after {
     position: absolute;
     inset: -4px;
     content: '';
@@ -149,8 +170,13 @@
 }
 
 .hands-free-surface__dot--thinking,
-.hands-free-surface__dot--starting {
+.hands-free-surface__dot--starting,
+.hands-free-surface__dot--reconnecting {
     background: var(--color-warning);
+}
+
+.hands-free-surface__dot--error {
+    background: var(--color-danger);
 }
 
 .hands-free-surface__dot--pulsing {

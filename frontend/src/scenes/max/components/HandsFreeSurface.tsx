@@ -30,14 +30,23 @@ const STATUS_HINT: Record<HandsFreeStatus, string> = {
     speaking: 'Start talking to interrupt',
 }
 
-function HandsFreeTopline({ tabId, status }: { tabId: string; status: HandsFreeStatus }): JSX.Element {
+function HandsFreeTopline({
+    tabId,
+    status,
+    isReconnecting,
+}: {
+    tabId: string
+    status: HandsFreeStatus
+    isReconnecting: boolean
+}): JSX.Element {
     const { partialTranscript, error } = useValues(handsFreeLogic({ tabId }))
+    const hint = isReconnecting ? 'Reconnecting your microphone' : STATUS_HINT[status]
     return (
         <div className="hands-free-surface__top">
             {partialTranscript ? (
                 <p className="hands-free-surface__partial">{partialTranscript}</p>
             ) : (
-                <p className="hands-free-surface__hint">{STATUS_HINT[status]}</p>
+                <p className="hands-free-surface__hint">{hint}</p>
             )}
             {error && <p className="hands-free-surface__error">{error}</p>}
         </div>
@@ -45,8 +54,8 @@ function HandsFreeTopline({ tabId, status }: { tabId: string; status: HandsFreeS
 }
 
 export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element | null {
-    const { status } = useValues(handsFreeLogic({ tabId }))
-    const { toggleHandsFree, interruptSpeaking } = useActions(handsFreeLogic({ tabId }))
+    const { status, connection, error } = useValues(handsFreeLogic({ tabId }))
+    const { toggleHandsFree } = useActions(handsFreeLogic({ tabId }))
 
     // Register the v-then-m exit shortcut while the surface is mounted.
     // HandsFreeButton owns the same shortcut for the "enter" path; same-name
@@ -63,28 +72,37 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
         return null
     }
 
-    // Listening pulses (your turn), thinking spins a ring around the icon (working on it).
-    // Both keep the mic icon visible so the user knows the button is still tap-to-exit.
     const isListening = status === 'listening'
-    const isSpeaking = status === 'speaking'
-    // Tapping the mic while Max is talking interrupts the TTS and returns to listening so
-    // you can ask the next question. Tapping in any other state exits hands-free entirely.
-    const onMicClick = isSpeaking ? interruptSpeaking : toggleHandsFree
-    const ariaLabel = isSpeaking ? 'Stop speaking and listen' : 'Exit hands-free'
+    const isReconnecting = connection === 'reconnecting'
+    const hasError = !!error
+    // Reconnecting / error visuals take precedence over the listening pulse so the user
+    // isn't shown a green "listening" mic when the underlying connection is dead.
+    const visualState: HandsFreeStatus | 'reconnecting' | 'error' = hasError
+        ? 'error'
+        : isReconnecting
+          ? 'reconnecting'
+          : status
+    const label = hasError ? 'Error' : isReconnecting ? 'Reconnecting' : STATUS_LABEL[status]
+    const pulseClass = isListening && !isReconnecting && !hasError
 
     return (
-        <div className="hands-free-surface" data-attr="max-hands-free-surface" data-status={status}>
-            <HandsFreeTopline tabId={tabId} status={status} />
+        <div
+            className="hands-free-surface"
+            data-attr="max-hands-free-surface"
+            data-status={status}
+            data-connection={connection}
+        >
+            <HandsFreeTopline tabId={tabId} status={status} isReconnecting={isReconnecting} />
 
             <button
                 type="button"
-                onClick={onMicClick}
-                aria-label={ariaLabel}
-                data-attr={isSpeaking ? 'max-hands-free-interrupt' : 'max-hands-free-exit'}
+                onClick={toggleHandsFree}
+                aria-label="Exit hands-free"
+                data-attr="max-hands-free-exit"
                 className={clsx(
                     'hands-free-surface__mic',
-                    `hands-free-surface__mic--${status}`,
-                    isListening && 'hands-free-surface__mic--pulsing'
+                    `hands-free-surface__mic--${visualState}`,
+                    pulseClass && 'hands-free-surface__mic--pulsing'
                 )}
             >
                 <IconMicrophone />
@@ -94,12 +112,12 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
                 <span
                     className={clsx(
                         'hands-free-surface__dot',
-                        `hands-free-surface__dot--${status}`,
-                        isListening && 'hands-free-surface__dot--pulsing'
+                        `hands-free-surface__dot--${visualState}`,
+                        pulseClass && 'hands-free-surface__dot--pulsing'
                     )}
                     aria-hidden
                 />
-                <span className="hands-free-surface__label">{STATUS_LABEL[status]}</span>
+                <span className="hands-free-surface__label">{label}</span>
             </div>
         </div>
     )

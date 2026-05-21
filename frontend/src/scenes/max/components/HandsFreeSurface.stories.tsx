@@ -54,12 +54,19 @@ export default meta
 
 type Story = StoryObj<typeof HandsFreeSurfaceStory>
 
+// Stories whose mic ring/pulse animates are excluded from visual regression — the
+// running CSS animation makes the snapshot diff flake. Static visual states (speaking,
+// error) keep their snapshot so we still catch unintended colour/layout drift.
+const ANIMATED_SKIP_TAGS = ['test-skip']
+
 export const Starting: Story = {
     args: { status: 'starting', connection: 'connecting' },
+    tags: ANIMATED_SKIP_TAGS,
 }
 
 export const Listening: Story = {
     args: { status: 'listening', connection: 'connected' },
+    tags: ANIMATED_SKIP_TAGS,
 }
 
 export const ListeningWithPartialTranscript: Story = {
@@ -68,10 +75,12 @@ export const ListeningWithPartialTranscript: Story = {
         connection: 'connected',
         partialTranscript: 'how are the daily active users tracking against',
     },
+    tags: ANIMATED_SKIP_TAGS,
 }
 
 export const Thinking: Story = {
     args: { status: 'thinking', connection: 'connected' },
+    tags: ANIMATED_SKIP_TAGS,
 }
 
 export const Speaking: Story = {
@@ -80,6 +89,7 @@ export const Speaking: Story = {
 
 export const Reconnecting: Story = {
     args: { status: 'listening', connection: 'reconnecting' },
+    tags: ANIMATED_SKIP_TAGS,
 }
 
 export const WithError: Story = {

@@ -85,11 +85,10 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
         commitTranscript: (text: string) => ({ text }),
         speakAssistantResponse: (summary: AssistantSummary) => ({ summary }),
         cancelSpeaking: true,
-        // Stop TTS playback and go back to listening — used by the surface's tap-to-interrupt
-        // affordance while Max is talking. Distinct from cancelSpeaking (which only tears down
-        // playback) and exitHandsFree (which leaves hands-free entirely). Trigger lets analytics
-        // distinguish "user tapped the mic" from "user talked over Max" (voice barge-in).
-        interruptSpeaking: (trigger: 'tap' | 'voice' = 'tap') => ({ trigger }),
+        // Stop TTS playback and go back to listening — fired only when Scribe transcribes
+        // genuine user speech over Max's TTS (voice barge-in). The mic button no longer
+        // tap-interrupts; tapping it always exits hands-free entirely.
+        interruptSpeaking: true,
         setSdkAvailable: (available: boolean) => ({ available }),
     }),
 
@@ -273,8 +272,6 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                         attempts: cache.reconnectAttempts ?? 1,
                     })
                 }
-                // Audible cue so a user with phone in pocket knows the mic is live.
-                playBeep(cache, 'listening')
             }
             // While 'speaking', the Scribe mic stream stays open (we can't cheaply pause it)
             // and the speakers' TTS audio bleeds back into the mic — Scribe transcribes its
@@ -299,7 +296,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                     }
                     // User is talking over Max — barge in: stop TTS, flip to listening, then
                     // let the partial-transcript reducer below pick up the user's words.
-                    actions.interruptSpeaking('voice')
+                    actions.interruptSpeaking()
                 }
                 if (values.status === 'listening') {
                     actions.setPartialTranscript(text)
@@ -323,7 +320,7 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                         })
                         return
                     }
-                    actions.interruptSpeaking('voice')
+                    actions.interruptSpeaking()
                 }
                 if (values.status !== 'listening') {
                     return
@@ -376,11 +373,6 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
                 assistant_turns: cache.assistantTurnCount ?? 0,
                 interruptions: cache.interruptedCount ?? 0,
             })
-            if (reason !== 'user') {
-                // Descending tone tells a pocketed user the session ended on its own — they
-                // don't think the mic is still live waiting for them.
-                playBeep(cache, 'exit')
-            }
             actions.cancelSpeaking()
             const connection = cache.connection as ScribeConnection | undefined
             if (connection) {
@@ -480,20 +472,16 @@ export const handsFreeLogic = kea<handsFreeLogicType>([
             teardownSpeaking(cache)
         },
 
-        interruptSpeaking: ({ trigger }) => {
-            // Only meaningful while we're actually playing audio — guard so a stray tap during
-            // listening or thinking doesn't accidentally jolt us through state transitions.
+        interruptSpeaking: () => {
+            // Only meaningful while we're actually playing audio — guard against stray
+            // fires from elsewhere accidentally jolting us through state transitions.
             if (values.status !== 'speaking') {
                 return
             }
             teardownSpeaking(cache)
             actions.setStatus('listening')
             cache.interruptedCount = (cache.interruptedCount ?? 0) + 1
-            posthog.capture('max hands-free tts interrupted', { trigger })
-            if (trigger === 'voice') {
-                // Confirm to the user that Max heard them barge in and stopped talking.
-                playBeep(cache, 'bargein')
-            }
+            posthog.capture('max hands-free tts interrupted')
         },
     })),
 
@@ -570,46 +558,6 @@ export function classifyPartial(spokenLower: string, partialLower: string): Supp
         return 'substring'
     }
     return null
-}
-
-// Short tone played at key state transitions so a user with the phone in a pocket can
-// tell what's happening. Web Audio API beep — no asset download, no playback latency.
-type BeepKind = 'listening' | 'bargein' | 'exit'
-const BEEP_FREQUENCIES: Record<BeepKind, [number, number]> = {
-    listening: [880, 880],
-    bargein: [660, 990],
-    exit: [660, 330],
-}
-
-function playBeep(cache: Record<string, any>, kind: BeepKind): void {
-    try {
-        const AudioCtx = (window as any).AudioContext ?? (window as any).webkitAudioContext
-        if (!AudioCtx) {
-            return
-        }
-        let ctx = cache.audioContext as AudioContext | undefined
-        if (!ctx) {
-            ctx = new AudioCtx() as AudioContext
-            cache.audioContext = ctx
-        }
-        const now = ctx.currentTime
-        const [startHz, endHz] = BEEP_FREQUENCIES[kind]
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.type = 'sine'
-        osc.frequency.setValueAtTime(startHz, now)
-        if (endHz !== startHz) {
-            osc.frequency.exponentialRampToValueAtTime(endHz, now + 0.12)
-        }
-        gain.gain.setValueAtTime(0.0001, now)
-        gain.gain.exponentialRampToValueAtTime(0.15, now + 0.01)
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15)
-        osc.connect(gain).connect(ctx.destination)
-        osc.start(now)
-        osc.stop(now + 0.16)
-    } catch {
-        // best-effort — audio cues are an enhancement, never required
-    }
 }
 
 function teardownSpeaking(cache: Record<string, any>): void {
