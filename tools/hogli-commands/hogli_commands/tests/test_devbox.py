@@ -1535,8 +1535,20 @@ class TestDevboxSetupResets:
         assert devbox_config.load_config() == {"dotfiles_uri": "https://github.com/user/dotfiles"}
         assert "Cleared saved Git identity" in result.output
 
-    def test_reset_git_signing_deletes_user_secret(
-        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
+    @pytest.mark.parametrize(
+        "flag,expected_secret",
+        [
+            ("--reset-git-signing", coder.GIT_SIGNING_KEY_SECRET),
+            ("--reset-claude", coder.CLAUDE_CODE_OAUTH_ENV),
+        ],
+        ids=["git-signing", "claude"],
+    )
+    def test_reset_flag_deletes_user_secret(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        stub_setup_environment: None,
+        flag: str,
+        expected_secret: str,
     ) -> None:
         deleted: list[str] = []
         monkeypatch.setattr(
@@ -1545,25 +1557,10 @@ class TestDevboxSetupResets:
             lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
         )
 
-        result = runner.invoke(cli, ["devbox:setup", "--reset-git-signing"])
+        result = runner.invoke(cli, ["devbox:setup", flag])
 
         assert result.exit_code == 0
-        assert deleted == [coder.GIT_SIGNING_KEY_SECRET]
-
-    def test_reset_claude_deletes_user_secret(
-        self, monkeypatch: pytest.MonkeyPatch, stub_setup_environment: None
-    ) -> None:
-        deleted: list[str] = []
-        monkeypatch.setattr(
-            devbox_cli,
-            "delete_user_secret",
-            lambda name: deleted.append(name) or subprocess.CompletedProcess(["coder"], 0, "", ""),
-        )
-
-        result = runner.invoke(cli, ["devbox:setup", "--reset-claude"])
-
-        assert result.exit_code == 0
-        assert deleted == [coder.CLAUDE_CODE_OAUTH_ENV]
+        assert deleted == [expected_secret]
 
     def test_reset_dotfiles_reports_when_no_existing_workspaces(
         self,
@@ -1584,6 +1581,39 @@ class TestDevboxSetupResets:
         assert result.exit_code == 0
         assert devbox_config.load_config() == {}
         assert param_pushes == []
+
+    @pytest.mark.parametrize(
+        "flag,helper,arg_name",
+        [
+            ("--reset-git-identity", "maybe_configure_git_identity", "configure_git_identity"),
+            ("--reset-git-signing", "maybe_configure_git_signing", "configure_git_signing"),
+            ("--reset-dotfiles", "maybe_configure_dotfiles", "configure_dotfiles"),
+            ("--reset-claude", "maybe_configure_claude_secret", "configure_claude"),
+        ],
+        ids=["git-identity", "git-signing", "dotfiles", "claude"],
+    )
+    def test_reset_flag_skips_matching_configure_helper(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        stub_setup_environment: None,
+        flag: str,
+        helper: str,
+        arg_name: str,
+    ) -> None:
+        # Without this skip, the helper sees the just-cleared config and re-prompts
+        # the user for what --reset-* was supposed to remove.
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(devbox_cli, helper, lambda value, *a, **kw: captured.update({arg_name: value}))
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: subprocess.CompletedProcess(["coder"], 0, "", ""),
+        )
+
+        result = runner.invoke(cli, ["devbox:setup", flag])
+
+        assert result.exit_code == 0
+        assert captured == {arg_name: False}
 
 
 class TestDevboxSetupGate:

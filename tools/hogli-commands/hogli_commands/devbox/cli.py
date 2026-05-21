@@ -780,6 +780,18 @@ def devbox_setup(
         reset_claude=reset_claude,
     )
 
+    # A --reset-* flag clears the saved value; without this, the matching
+    # maybe_configure_* helper sees an empty config and immediately re-prompts
+    # for what the user just asked to remove.
+    if reset_git_identity and configure_git_identity is None:
+        configure_git_identity = False
+    if reset_git_signing and configure_git_signing is None:
+        configure_git_signing = False
+    if reset_dotfiles and configure_dotfiles is None:
+        configure_dotfiles = False
+    if reset_claude and configure_claude_setup is None:
+        configure_claude_setup = False
+
     status = _collect_setup_status()
     _print_setup_status(status)
 
