@@ -13,8 +13,10 @@ This shifts the migration from "rewrite the chat UI" to "build the relay + a fro
 | 3 | Rich UI (MCP tool dispatch → existing renderers) | [`03_RICH_UI.md`](./03_RICH_UI.md) |
 | 4 | Prompts (`ee/hogai/chat_agent/prompts/` → sandbox `systemPrompt`) | [`04_PROMPTS.md`](./04_PROMPTS.md) |
 | 5 | Sandbox sizing + Task model adjustments (constrained profile for PostHog AI) | [`05_SANDBOX.md`](./05_SANDBOX.md) |
+| 6 | MCP tool contracts (per-tool input/output shapes) | [`MCP_TOOLS.md`](./MCP_TOOLS.md) |
 | — | **Backward-compatibility audit** (read before any spec) | [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) |
 | — | Open backfill items | [`TODO.md`](./TODO.md) |
+| — | Upstream cloud-agent REST + SSE reference | [`cloud_implementation.md`](./cloud_implementation.md) |
 
 > **⚠ Coexistence mode.** The migration runs behind a per-user feature flag (`posthog-ai-sandbox`). Users without the flag must see today's Max exactly as today. Sub-specs `01_CONTEXT.md`, `03_RICH_UI.md`, and `04_PROMPTS.md` describe the *end-state* code shape; [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md) overrides them for the rollout window — sandbox logic lives **alongside** the existing code, not in place of it. `maxContextLogic.ts`, `maxBillingContextLogic.tsx`, `MaxTool.tsx`, `useMaxTool.ts`, all 38 `useMaxTool` call sites, and every existing `messages/*.tsx` renderer stay untouched during the migration. Cleanup is a follow-up phase after default-on.
 
@@ -89,8 +91,10 @@ Wins:
 │ Sandbox: @posthog/agent + Claude/Codex       │
 │  - systemPrompt built by Django at Run-start │
 │  - MCP servers:                              │
-│    - posthog-data (taxonomy, hogql, search)  │
-│    - posthog-notebook                        │
+│    - posthog (single-exec — services/mcp/)  │
+│      (one outer tool `exec`; inner tools     │
+│       enabled per yaml: execute-sql,         │
+│       insight-create, read-data-schema, …)   │
 │    - posthog-code (PostHog Code integration) │
 │    - user-installed MCPs                     │
 │  TodoWrite is Claude Code SDK built-in       │
@@ -179,7 +183,7 @@ For now these stay co-located with `scenes/max/` for ease of rollback during the
 | New sandbox message-routing handler (`ee/hogai/sandbox/message_view.py`): wraps + dedupes user content; creates Task+Run on first message; sends `POST /command/` for follow-ups; returns `{task_id, run_id, ...}` JSON. No Django-side SSE relay — the frontend opens SSE directly against `/api/projects/{tid}/tasks/.../stream/`, the same endpoint PostHog Code consumes. | `ee/hogai/sandbox/` (mostly new) | `02_CORE.md` §§ 3–5 |
 | `<posthog_context>` wrapper builder | `ee/hogai/sandbox/context_wrapper.py` | `01_CONTEXT.md` § 4 |
 | `build_posthog_ai_system_prompt(team, user, conversation)` — composes the sandbox `systemPrompt` from the migrated chat_agent prompts | `ee/hogai/sandbox/system_prompt.py` | `04_PROMPTS.md` § 6 |
-| MCP servers exposing the existing toolkit tools (`posthog-data`, `posthog-notebook`, `posthog-tasks`, etc.) | New module per server | `04_PROMPTS.md` § 5 |
+| MCP tools exposed via the existing `services/mcp/` single-exec server — enable inner tools (e.g. `execute-sql`, `insight-create`, `read-data-schema`) per yaml `enabled: true` toggles; no new MCP server per domain. Plus the `posthog-code` server (discrete tool names) for PostHog Code integration when `has_phai_tasks` is on. | `services/mcp/definitions/*.yaml` + existing server code | `04_PROMPTS.md` § 5 |
 | Conversation rollover: when a Run goes terminal, a follow-up message creates a new Run with `resume_from_run_id`; conversation gets re-pointed to the new run | Adapter | `02_CORE.md` § 6 |
 | Feature flag `posthog-ai-sandbox` chooses `agent_runtime` at Conversation create | Conversation create view | `02_CORE.md` § 2 + `00_OVERVIEW.md` § 9 |
 
@@ -228,7 +232,33 @@ Suggested phasing (each phase ships behind the `posthog-ai-sandbox` flag):
 
 ---
 
-## 10. Open questions for the team
+## 10. PR-to-spec index (implementation guide)
+
+When implementing a PR, read **only the rows of this table for that PR** plus its hard-depends rows. Spec sections are pinned per row — opening a single file end-to-end is wasted work; opening only the listed § range is the design.
+
+| PR # | What it builds | Spec sections to read | Hard depends on | Owner lane |
+|------|----------------|------------------------|------------------|-------------|
+| I1.1 | Conversation model migration (`agent_runtime` + `sandbox_task` FK; drop legacy UUIDs) | `02_CORE.md` § 2 | — | Backend |
+| I1.2 | Backend sandbox foundations bundle (`context_wrapper.py` + `system_prompt.py` + `posthog_api.py` + `message_view.py` first-message + view registration) | `02_CORE.md` §§ 3, 4 (first-message), 4.5, 5.1; `01_CONTEXT.md` § 4; `04_PROMPTS.md` § 6; `cloud_implementation.md` §§ 2–5 | I1.1 | Backend |
+| I1.3 | Frontend sandbox foundations bundle (`posthogAiContextLogic.ts` + `sandboxStreamLogic.ts` skeleton + `mcpToolRegistry.tsx` + fallback renderer + `Context.tsx`/`Thread.tsx`/`maxThreadLogic` runtime branches) | `02_CORE.md` §§ 6, 7; `01_CONTEXT.md` § 3; `03_RICH_UI.md` §§ 2, 3.1–3.4 | — (parallel with I1.2) | Frontend |
+| I2.4 | Multi-Run history (`log_assembler.py` + `GET /log/` + detail-endpoint shape) | `02_CORE.md` §§ 4.6, 4.7 | I1.2 | Backend |
+| I2.5 | Backend follow-up routing (in-progress + terminal-then-resume + cancel) | `02_CORE.md` §§ 4 (follow-up), 5.2, 5.3, 5.4 | I1.2 | Backend |
+| I2.6 | Frontend SSE resilience (reconnect/backoff/dedup + error mapping + terminal-status) | `02_CORE.md` §§ 4.3, 4.4, 6; `Twig/apps/code/src/main/services/cloud-task/service.ts:440-690` (port directly) | I1.3 | Frontend |
+| I2.7 | History-load + telemetry parity | `02_CORE.md` §§ 4.7, 10 | I2.4, I2.6 | Frontend + Backend |
+| I3.8 | Approvals + race-handling bundle (`permission_request` ingest + `POST /permission/` + card variant + `SELECT FOR UPDATE`) | `02_CORE.md` §§ 5.5, 6; `03_RICH_UI.md` § 5 | I2.6 | Backend + Frontend |
+| I3.9 | UX polish (slash command filter + pre-warming) | `02_CORE.md` § 8; `05_SANDBOX.md` § 8 | I2.7 | Frontend + Backend |
+| MCP-A | Enable inner tools on the existing `posthog` (single-exec) MCP server — ship in slices, **one tool first** (e.g. `dashboard-get`) to unblock I1 E2E, then progressively enable more via `enabled: true` in `services/mcp/definitions/*.yaml`. All behind `posthog-ai-sandbox-tool-{slug}` flags. | `04_PROMPTS.md` § 5; `MCP_TOOLS.md` | — (first inner-tool slice unblocks I1 E2E) | MCP |
+| MCP-B | `posthog-code` MCP server — gated by `has_phai_tasks` | `04_PROMPTS.md` § 5; `MCP_TOOLS.md` | — (parallel) | MCP |
+| MCP-C | `posthog-code` MCP server | `04_PROMPTS.md` § 5; `MCP_TOOLS.md` § "posthog-code" | — (parallel) | MCP |
+| UI-A | Data-tool renderer adapters bundle (insight + dashboard + recording + error tracking) | `03_RICH_UI.md` §§ 3.3, 4 (data rows); `MCP_TOOLS.md` for shapes | I1.3 + at least MCP-A first slice | Frontend |
+| UI-B | Notebook + tasks renderer adapters bundle | `03_RICH_UI.md` §§ 3.3, 4 (notebook + tasks rows); `MCP_TOOLS.md` | I1.3 + MCP-B | Frontend |
+| UI-C | Approval card variant + special UI (mode badge, `_posthog/progress`) | `03_RICH_UI.md` §§ 5, 6 | I3.8 | Frontend |
+
+Total: ~15 PRs to default-on. Backend and frontend lanes run in parallel from Day 1; MCP-A's first slice (one real tool) unblocks I1 E2E — no throwaway smoke server needed. Subsequent MCP and renderer-adapter PRs ship as independent streams.
+
+---
+
+## 11. Open questions for the team
 
 Spec-specific opens are at the bottom of each spec. Cross-spec:
 
@@ -242,7 +272,7 @@ Spec-specific opens are at the bottom of each spec. Cross-spec:
 
 ---
 
-## 11. Glossary
+## 12. Glossary
 
 | Term | Definition |
 |---|---|
@@ -260,7 +290,7 @@ Spec-specific opens are at the bottom of each spec. Cross-spec:
 
 ---
 
-## 12. Out of scope
+## 13. Out of scope
 
 - **Local↔cloud handoff** (Twig spec § 11). PostHog AI doesn't have a local mode.
 - **GitHub integration / PR creation.** The Django `POST /sandbox/` handler creates Tasks with no repository; agent-server runs in "No Repository Mode" with `--createPr=false`.

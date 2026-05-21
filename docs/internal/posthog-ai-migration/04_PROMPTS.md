@@ -273,10 +273,10 @@ The "target" column names the slot in the new prompt (see § 6.2 for ordering) o
 | `ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT` | Keep | New prompt § 11. | — |
 | `ROOT_BILLING_CONTEXT_ERROR_PROMPT` | Keep | New prompt § 11. | — |
 | `SWITCH_MODE_PROMPT` | Drop | — | Per § 4, the `switch_mode` tool goes away entirely. |
-| `HOGQL_GENERATOR_SYSTEM_PROMPT` | Move-to-tool | `posthog-data` MCP server: `execute_sql` tool description, plus a "system instructions" preface returned with every tool call. | This 36 KB prompt was the SQL sub-agent's *own* system prompt — it never sat in the main chat agent's prompt. In the new world, the SQL sub-agent is the `execute_sql` MCP tool. Two delivery shapes available: (a) embed the function-casing rules and join-limitation guidance in the tool's `description` field (sub-1-KB summary) and stash the full docs in an MCP resource (`schema://hogql/functions`, `schema://hogql/aggregations`, `schema://hogql/expressions`) that the model fetches on first SQL question; (b) pass the whole thing as a "system reminder" `_meta` block on each `execute_sql` tool result. Recommendation: (a) — better caching, agent can read once and reuse via Claude's context window. |
+| `HOGQL_GENERATOR_SYSTEM_PROMPT` | Move-to-tool | Single-exec `posthog` MCP server: `execute-sql` inner tool description, plus a "system instructions" preface returned with every tool call. | This 36 KB prompt was the SQL sub-agent's *own* system prompt — it never sat in the main chat agent's prompt. In the new world, the SQL sub-agent is the `execute-sql` inner tool. Two delivery shapes available: (a) embed the function-casing rules and join-limitation guidance in the tool's `description` field (sub-1-KB summary) and stash the full docs in MCP resources (`schema://hogql/functions`, `schema://hogql/aggregations`, `schema://hogql/expressions`) that the model fetches on first SQL question; (b) pass the whole thing as a "system reminder" `_meta` block on each `execute-sql` tool result. Recommendation: (a) — better caching, agent can read once and reuse via Claude's context window. |
 | `POSITIVE_TODO_EXAMPLES` (per-mode) | Fold into system prompt | New prompt § 7 (Tool usage policy) — appended as a `TODO_WRITE_EXAMPLES` block. | We use the Claude Code SDK's built-in `TodoWrite` (§ 5.1) so we can't author its description. Pick one or two best-in-class narratives (dashboard-creation + SQL-with-segmentation) and embed them in the system prompt. Drop the rest — system prompt budget matters more than coverage. |
-| `SQL_EXPRESSIONS_DOCS`, `SQL_SUPPORTED_FUNCTIONS_DOCS`, `SQL_SUPPORTED_AGGREGATIONS_DOCS` | Move-to-tool | MCP resources under `posthog-data`. | The model fetches via the standard MCP resource flow. Don't inline. |
-| `schema_description` (SQL sub-agent's schema-introspection variable) | Move-to-tool | `posthog-data`'s `read_data_warehouse_schema` MCP tool. | Already a separate tool today ([`tools/read_data_warehouse_schema/`](../../posthog/ee/hogai/tools/read_data_warehouse_schema/)) — just exposed via MCP. |
+| `SQL_EXPRESSIONS_DOCS`, `SQL_SUPPORTED_FUNCTIONS_DOCS`, `SQL_SUPPORTED_AGGREGATIONS_DOCS` | Move-to-tool | MCP resources under the single-exec `posthog` server. | The model fetches via the standard MCP resource flow. Don't inline. |
+| `schema_description` (SQL sub-agent's schema-introspection variable) | Move-to-tool | `read-data-warehouse-schema` inner tool. | Already exists today as a v2-eligible tool (`services/mcp/schema/tool-definitions-v2.json`). |
 
 ---
 
@@ -325,37 +325,38 @@ The hint phrasing in § 4.1 is intentionally weak ("a hint about what they want 
 
 ### 5.1 Tool → MCP server mapping
 
-Every tool in [`ee/hogai/chat_agent/toolkit.py`](../../posthog/ee/hogai/chat_agent/toolkit.py) and the per-preset toolkits maps to an MCP server. Several tools cluster together by what they touch; group them into a small number of servers.
+> **Implementation reality — single-exec mode.** The PostHog MCP server in `services/mcp/` registers **one** outer tool: `mcp__posthog__exec` (`services/mcp/src/tools/exec.ts`). The model invokes inner tools via CLI-style commands — `call <inner-tool> {...json...}`. The 377 v2-eligible inner tool names live in `services/mcp/schema/tool-definitions-all.json` (filter `new_mcp: true`); enabled inner tools are declared per-file in `services/mcp/definitions/*.yaml`. The "Target MCP server" column below is a **logical grouping** (by domain) — the underlying wire registration is one `exec` tool. The "Tool name on the server" column shows the **inner tool name** the model passes to `call <name>`. Frontend rendering parses the inner name out of `exec.command` per [`03_RICH_UI.md`](./03_RICH_UI.md) § 2.2.
 
-| Tool today | Defined in | Target MCP server | Tool name on the server | Notes |
+Every tool in [`ee/hogai/chat_agent/toolkit.py`](../../posthog/ee/hogai/chat_agent/toolkit.py) and the per-preset toolkits maps to an inner tool name. Several inner tools cluster by domain; the grouping below is for human reference.
+
+| Tool today | Defined in | Logical group | Inner tool name (passed to `exec call <name>`) | Notes |
 |---|---|---|---|---|
-| `ReadTaxonomyTool` | [`tools/read_taxonomy/`](../../posthog/ee/hogai/tools/read_taxonomy/) | **`posthog-data`** | `posthog_data_read_taxonomy` | Same args, returns event/property/group/cohort taxonomy. |
-| `ReadDataTool` | [`tools/read_data/`](../../posthog/ee/hogai/tools/read_data/) | `posthog-data` | `posthog_data_read_data` | All today's `kind=…` variants (insights, billing_info, person, group, etc.). |
-| `SearchTool` | [`tools/search.py`](../../posthog/ee/hogai/tools/search.py) | `posthog-data` | `posthog_data_search` | Both docs and full-text search across PostHog entities. |
-| `ListDataTool` | [`tools/list_data.py`](../../posthog/ee/hogai/tools/list_data.py) | `posthog-data` | `posthog_data_list_data` | List dashboards / insights / cohorts / flags / experiments / surveys. |
-| `ExecuteSQLTool` | [`tools/execute_sql/`](../../posthog/ee/hogai/tools/execute_sql/) | `posthog-data` | `posthog_data_execute_sql` | The SQL sub-agent. Tool description embeds the function-casing rules + person_id join warning. MCP resources `schema://hogql/{functions,aggregations,expressions}` carry the long-form docs. |
-| `CreateInsightTool` | [`tools/create_insight.py`](../../posthog/ee/hogai/tools/create_insight.py) | `posthog-data` | `posthog_data_create_insight` | Write tool — surfaces a permission_request via `permission_mode: "acceptEdits"`. |
-| `UpsertDashboardTool` | [`tools/upsert_dashboard/`](../../posthog/ee/hogai/tools/upsert_dashboard/) | `posthog-data` | `posthog_data_upsert_dashboard` | Write tool. |
-| `UpsertAlertTool` (alerts product) | `products/alerts/backend/max_tools.py` | `posthog-data` | `posthog_data_upsert_alert` | Write tool. |
-| `CreateNotebookTool` | [`tools/create_notebook/`](../../posthog/ee/hogai/tools/create_notebook/) | **`posthog-notebook`** | `posthog_notebook_create` | Write tool. |
-| `TodoWriteTool` | [`tools/todo_write.py`](../../posthog/ee/hogai/tools/todo_write.py) | **Claude Code built-in `TodoWrite`** | `TodoWrite` | `@posthog/agent` runs the Claude Code SDK internally — the SDK's built-in `TodoWrite` has matching semantics (same status enum, same description shape). Skip building our own `posthog-tasks` server. We don't author the description, so examples that lived in `POSITIVE_TODO_EXAMPLES` are folded into the system prompt instead (see § 3 row for `POSITIVE_TODO_EXAMPLES`). |
+| `ReadTaxonomyTool` | [`tools/read_taxonomy/`](../../posthog/ee/hogai/tools/read_taxonomy/) | Data discovery | `read-data-schema` | Use `kind=events` / `kind=event_properties` / etc. to mirror today's taxonomy reads. |
+| `ReadDataTool` | [`tools/read_data/`](../../posthog/ee/hogai/tools/read_data/) | Data discovery | (covered by `read-data-schema` + `execute-sql` + per-entity tools below) | Today's `kind=…` variants split into proper per-entity inner tools: `dashboard-get`, `insight-get`, `feature-flag-get`, `survey-get`, etc. The catch-all `read-data` doesn't survive — single-exec lets us be explicit. |
+| `SearchTool` | [`tools/search.py`](../../posthog/ee/hogai/tools/search.py) | Discovery | `entity-search`, `docs-search` | Two separate inner tools — `entity-search` for full-text across PostHog data, `docs-search` for docs. |
+| `ListDataTool` | [`tools/list_data.py`](../../posthog/ee/hogai/tools/list_data.py) | List endpoints | `dashboards-get-all`, `insights-list`, `cohorts-list`, `feature-flag-get-all`, `experiment-get-all`, `surveys-get-all` | One inner tool per resource list — matches the existing yaml definitions. |
+| `ExecuteSQLTool` | [`tools/execute_sql/`](../../posthog/ee/hogai/tools/execute_sql/) | SQL | `execute-sql` | The SQL sub-agent. Tool description embeds the function-casing rules + person_id join warning. MCP resources `schema://hogql/{functions,aggregations,expressions}` carry the long-form docs. |
+| `CreateInsightTool` | [`tools/create_insight.py`](../../posthog/ee/hogai/tools/create_insight.py) | Insights | `insight-create`, `insight-update`, `insight-query` | Write tools — surface a permission_request via `permission_mode: "default"`. `insight-query` is the ephemeral / no-artifact variant. |
+| `UpsertDashboardTool` | [`tools/upsert_dashboard/`](../../posthog/ee/hogai/tools/upsert_dashboard/) | Dashboards | `dashboard-create`, `dashboard-update` | Write tools. |
+| `UpsertAlertTool` (alerts product) | `products/alerts/backend/max_tools.py` | Alerts | `alert-create`, `alert-update`, `alert-delete` | Write tools. |
+| `CreateNotebookTool` | [`tools/create_notebook/`](../../posthog/ee/hogai/tools/create_notebook/) | Notebooks | `notebooks-create` | Write tool. |
+| `TodoWriteTool` | [`tools/todo_write.py`](../../posthog/ee/hogai/tools/todo_write.py) | **Claude Code SDK built-in** (not exposed via `exec`) | `TodoWrite` | `@posthog/agent` runs the Claude Code SDK internally — the SDK's built-in `TodoWrite` has matching semantics (same status enum, same description shape). Skip building our own; the model sees this as `mcp__claude_code__TodoWrite` (or equivalent). |
 | `ManageMemoriesTool` | [`tools/manage_memories.py`](../../posthog/ee/hogai/tools/manage_memories.py) | **DROP** | — | Core memory is dropped entirely for the sandbox runtime (per `00_OVERVIEW.md` § 3). `/remember` becomes a no-op for the new runtime — see `02_CORE.md` § 7 and `TODO.md` for the backfill question. |
 | `CallMCPServerTool` | [`tools/call_mcp_server/`](../../posthog/ee/hogai/tools/call_mcp_server/) | n/a — **user-installed MCPs pass through directly** | — | Today this tool was a meta-tool that proxied calls to the user's MCP installations. In the sandbox model, those installations are just MCP servers in `--mcpServers` — no proxy needed. |
-| `TaskTool` (PostHog Code integration) | [`tools/task.py`](../../posthog/ee/hogai/tools/task.py) | **`posthog-code`** | `posthog_code_create_task`, `posthog_code_get_task`, etc. | Routes PostHog AI → PostHog Code. The team-flag `task_tool` already gates today; carry forward. |
-| `CreateTaskTool`, `RunTaskTool`, `GetTaskRunTool`, `GetTaskRunLogsTool`, `ListTasksTool`, `ListTaskRunsTool`, `ListRepositoriesTool` | `products/tasks/backend/max_tools.py` | `posthog-code` (same server as `TaskTool`) | `posthog_code_*` | All seven — grouped under `posthog-code`. Behind the `has_phai_tasks` flag today. |
+| `TaskTool` (PostHog Code integration) | [`tools/task.py`](../../posthog/ee/hogai/tools/task.py) | **`posthog-code` server (NOT single-exec)** | varies — discrete `mcp__posthog-code__<tool>` names | PostHog Code ships its own MCP server with discrete tool names — not under `exec`. The team-flag `task_tool` already gates today; carry forward. |
+| `CreateTaskTool`, `RunTaskTool`, `GetTaskRunTool`, `GetTaskRunLogsTool`, `ListTasksTool`, `ListTaskRunsTool`, `ListRepositoriesTool` | `products/tasks/backend/max_tools.py` | `posthog-code` (same server as `TaskTool`) | discrete `mcp__posthog-code__*` names | All seven — grouped under `posthog-code`. Behind the `has_phai_tasks` flag today. |
 | `CreateFormTool` | [`tools/create_form.py`](../../posthog/ee/hogai/tools/create_form.py) | **Client-side tool — see `03_RICH_UI.md` § 4** | (renders UI; not a backend MCP) | We mention it here only as boundary. The form-submit answers come back as user-message follow-ups. Owned by `03_RICH_UI.md`. |
 | `FinalizePlanTool` | [`tools/finalize_plan/`](../../posthog/ee/hogai/tools/finalize_plan/) | Built-in: `ExitPlanMode` (Claude Code) | — | Per § 4, Claude Code's built-in `ExitPlanMode` handles plan-mode transitions. Drop our custom tool. |
 | `SwitchModeTool` | [`tools/switch_mode.py`](../../posthog/ee/hogai/tools/switch_mode.py) | n/a (drop) | — | Per § 4 (deprecated mode concept), drop entirely. |
 | Contextual tools (`useMaxTool`-registered) | various (e.g. `UpsertFlagFilterTool` lives next to the scene logic) | Frontend dispatched, see `03_RICH_UI.md` § 4 | — | Owned by `03_RICH_UI.md`. They're not backend MCP tools; they're browser-rendered actions the model calls. |
-So we end up with **three new MCP servers** (down from six in the prior iteration):
+So the MCP servers we configure on `--mcpServers`:
 
-1. `posthog-data` — taxonomy, search, list, read_data, execute_sql, create_insight, upsert_dashboard, upsert_alert (plus per-domain reads: error tracking, session replay, surveys, flags, llm analytics, and the new `read_dashboard` / `read_insight` / `read_event_definition` / `read_action` / `read_evaluation` entity reads referenced from `<posthog_context>` wrappers per `01_CONTEXT.md`).
-2. `posthog-notebook` — `posthog_notebook_create`, `posthog_notebook_update`, `posthog_notebook_get`, `posthog_notebook_list`.
-3. `posthog-code` — gated by `has_phai_tasks` flag; surfaces the PostHog Code integration.
+1. **`posthog`** — the existing single-exec server under `services/mcp/`. Registers one tool (`exec`) with the model; ~25 inner tools enabled today across `core.yaml`, `query-wrappers.yaml`, `proxy-records.yaml`, `docs.yaml`, `sdk_doctor.yaml`; many more available to enable via `enabled: true`. The PostHog AI inner-tool surface gets enabled per-tool in the yaml definitions over the course of the migration.
+2. **`posthog-code`** — gated by `has_phai_tasks` flag; ships discrete tool names (not single-exec). Surfaces the PostHog Code integration.
 
-Todo tracking uses the Claude Code SDK's built-in `TodoWrite` — `@posthog/agent` runs Claude Code SDK internally, so the tool is available without spinning up our own `posthog-tasks` server.
+Todo tracking uses the Claude Code SDK's built-in `TodoWrite` — `@posthog/agent` runs Claude Code SDK internally, so the tool is available without spinning up our own server.
 
-`posthog-memory` (was: dedicated memory MCP) and `posthog-context` (was: on-demand entity-detail MCP) are **gone** — core memory is dropped (per `00_OVERVIEW.md`) and entity-detail fetch happens via the existing `posthog-data` reads triggered by the `<posthog_context>` wrapper (per `01_CONTEXT.md`).
+`posthog-memory` (was: dedicated memory MCP), `posthog-context` (was: on-demand entity-detail MCP), `posthog-data`, `posthog-notebook`, `posthog-tasks` as separate servers — **none of these become real MCP servers**. Core memory is dropped (per `00_OVERVIEW.md`); entity-detail fetch happens via existing inner tools (`dashboard-get`, `insight-get`, etc.) the agent invokes via `exec call <name>` after seeing the entity ID in the `<posthog_context>` wrapper (per `01_CONTEXT.md`); notebooks and tasks-as-todos run through the same single-exec server or the Claude Code SDK built-in.
 
 Plus zero-to-many **user-installed MCP servers** — those go straight into `--mcpServers` without a proxy.
 
@@ -373,10 +374,9 @@ Three deployment choices for each MCP server:
 
 | Server | Where | Rationale |
 |---|---|---|
-| `posthog-data` | **Remote HTTP MCP at `https://{region}.posthog.com/mcp/posthog-data/`** | Wraps existing DRF viewsets — code already lives in Django. Centralized rate limiting matters here (these tools issue ClickHouse queries). The MCP framework under `services/mcp/` already serves this pattern. |
-| `posthog-notebook` | **Remote HTTP MCP** | Same reasoning. Notebook CRUD is in Django. |
-| ~~`posthog-tasks`~~ | **Skip.** Claude Code SDK's built-in `TodoWrite` is used directly. | Matches our semantics; no custom server needed. |
-| `posthog-code` | **Remote HTTP MCP** at the PostHog Code service. | Routes through the existing PostHog Code backend. |
+| `posthog` (single-exec) | **Remote HTTP MCP at `https://{region}.posthog.com/mcp/`** | Existing PostHog MCP server in `services/mcp/`. Wraps DRF viewsets — code already lives in Django. Centralized rate limiting matters (some inner tools issue ClickHouse queries). Enabling a new inner tool is a per-yaml `enabled: true` toggle; no new server needed. |
+| `posthog-code` | **Remote HTTP MCP** at the PostHog Code service. | Routes through the existing PostHog Code backend. Discrete tool names (not single-exec). |
+| `TodoWrite` (Claude SDK built-in) | **In-sandbox** | Bundled with the Claude Code SDK; no infrastructure to host. |
 | User-installed MCPs | Whatever URL the user supplied. | Pass through directly. |
 
 The JWT-auth pattern for remote HTTP MCPs is documented in `CLOUD_AGENTS_FRONTEND_SPEC.md` § 10.4. Every request includes `Authorization: Bearer <sandbox-jwt>`, the Django middleware extracts `team_id` + `user_id`, and tool implementations scope all queries by team.
@@ -420,7 +420,7 @@ POST /command/
   params: {
     mcpServers: [
       { type: "http", name: "github-issues", url: "https://...", headers: [...] },
-      // ...the existing posthog-data, posthog-notebook entries...
+      // ...the existing posthog (single-exec) + posthog-code entries...
     ],
   },
 }
@@ -632,7 +632,7 @@ Reuse the `posthog-ai-sandbox` flag from `00_OVERVIEW.md` § 9 — boolean, per-
 1. Conversation create stamps `agent_runtime = 'sandbox'` on the row (`02_CORE.md` § 2).
 2. Frontend POSTs to `/conversations/{id}/sandbox/` (sandbox-only routing endpoint per `02_CORE.md` § 3) which creates Task + Run.
 3. The handler calls `build_posthog_ai_system_prompt(...)` to build `systemPrompt` for the `POST /tasks/{id}/run/` body.
-4. `--mcpServers` includes `posthog-data`, `posthog-notebook` (+ optional `posthog-code` if its per-tool flag is on). `TodoWrite` comes from the Claude Code SDK built-in — no MCP server needed.
+4. `--mcpServers` includes the single-exec `posthog` server (+ optional `posthog-code` if `has_phai_tasks` is on). Inner tool surface is controlled by `enabled: true` toggles in `services/mcp/definitions/*.yaml`. `TodoWrite` comes from the Claude Code SDK built-in — no MCP server needed.
 5. **The frontend** picks `/conversations/{id}/sandbox/` (sandbox) vs `/conversations/{id}/stream/` (LangGraph) based on `agent_runtime`; `scenes/max/` renders both runtimes; the routing difference is one `if` in `maxThreadLogic.sendMessage`.
 
 When the user doesn't have the flag: today's LangGraph stack is unchanged.
@@ -686,7 +686,7 @@ All originally-tracked questions have been resolved during planning. The bullets
 **Resolved decisions:**
 
 - **#2 — Plan-mode UX.** `PlanModeBanner` is **dropped entirely** as part of the mode-UI cleanup. With modes deprecated to a context hint (§ 4), a banner reflecting a no-op state is more confusing than nothing.
-- **#3 — TodoWrite source.** **Use Claude Code SDK's built-in `TodoWrite`** (§ 5.1). `@posthog/agent` runs the SDK internally; the built-in semantics match. No `posthog-tasks` server.
+- **#3 — TodoWrite source.** **Use Claude Code SDK's built-in `TodoWrite`** (§ 5.1). `@posthog/agent` runs the SDK internally; the built-in semantics match. No custom MCP server.
 - **#5 — HogQL prompt placement.** Keep the **split as already specced** (§ 3 row for `HOGQL_GENERATOR_SYSTEM_PROMPT`): function-casing + person_id rules in the `execute_sql` description; long-form docs in MCP resources `schema://hogql/{functions,aggregations,expressions}`. No further change.
 - **#12 — Per-mode todo examples.** Cascade from #3: pick one or two best-in-class examples (dashboard-creation + SQL-with-segmentation), fold into the system prompt § 7 (Tool usage policy). Drop the rest.
 - **#13 — Permission-mode default.** Set `state.initial_permission_mode = "default"` at Run-create (§ 6.1). Every write tool surfaces a `permission_request`; matches today's Max approval flow.
