@@ -145,6 +145,9 @@ function createEntry(entry) {
                     // Plain .css files (e.g. Tailwind's prebuilt bundle) skip
                     // sass-loader — Tailwind v4 output uses modern CSS like
                     // `min(fit-content, ...)` which sass cannot parse.
+                    // postcss-loader compiles Tailwind on the initial build only;
+                    // HMR won't re-run PostCSS, so newly-used utility classes
+                    // require a Storybook restart (see .storybook/README.md).
                     test: /\.css$/,
                     use: commonLoadersForSassAndLess,
                 },
