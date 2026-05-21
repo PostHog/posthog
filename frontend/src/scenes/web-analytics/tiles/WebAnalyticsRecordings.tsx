@@ -27,7 +27,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const useTileHeaderV2 = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
     const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({
         logicKey: 'webAnalytics',

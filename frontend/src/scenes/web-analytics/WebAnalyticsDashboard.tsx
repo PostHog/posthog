@@ -103,7 +103,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
     const { featureFlags } = useValues(featureFlagLogic)
-    const useTileHeaderV2 = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
     const containerClassName = clsx(
         'col-span-1 row-span-1 flex flex-col',
@@ -281,7 +281,7 @@ const TILE_TITLE_PREFIX: Partial<Record<TileId, string>> = {
 
 const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useTileHeaderV2 = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
     if (useTileHeaderV2) {
         return <TabsTileItemV2 tile={tile} />

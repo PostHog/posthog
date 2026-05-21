@@ -110,7 +110,9 @@ export function WebTileHeader({
                     to={openInsight.to}
                     onClick={openInsight.onClick}
                     data-attr={`web-analytics-open-insight-${tileId}`}
-                />
+                >
+                    Open as insight
+                </LemonButton>
             )}
 
             <LemonMenu items={overflowMenuItems} placement="bottom-end">

@@ -75,7 +75,7 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
     const to = urls.errorTracking()
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const useTileHeaderV2 = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
     const viewAllButton = (
         <LemonButton

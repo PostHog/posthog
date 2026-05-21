@@ -1243,7 +1243,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
-                const useTileHeaderV2 = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2]
+                const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
                 const includeHostMenuItem: LemonMenuItem | null =
                     useTileHeaderV2 && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_INCLUDE_HOST]
