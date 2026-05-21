@@ -442,6 +442,8 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
+    /** Opt the team into the web_overview_query lazy precompute path. The team must also be enrolled in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` (instance setting). **/
+    useWebAnalyticsPrecompute?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/

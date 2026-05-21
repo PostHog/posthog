@@ -146,11 +146,16 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     the lazy path. Returns None on success."""
     query = runner.query
 
-    # Rollout gate: team must be enrolled in the
-    # `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` instance setting (admin-controlled
-    # via Django admin / instance settings UI). Defaults to empty list = disabled.
+    # Rollout gate: instance allowlist AND per-team opt-in.
+    #   - `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` (admin-controlled instance
+    #     setting): scope of teams eligible to opt in.
+    #   - `useWebAnalyticsPrecompute` team modifier (Web Analytics ScenePanel
+    #     "Allow precompute" toggle): per-team opt-in/kill switch.
     enabled_team_ids = get_instance_setting("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS") or []
     if runner.team.pk not in enabled_team_ids:
+        raise TeamNotInAllowlist()
+
+    if runner.modifiers is None or runner.modifiers.useWebAnalyticsPrecompute is not True:
         raise TeamNotInAllowlist()
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)

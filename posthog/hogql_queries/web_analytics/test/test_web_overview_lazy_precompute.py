@@ -69,6 +69,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         compare: bool = False,
         conversion_goal=None,
         sampling: WebAnalyticsSampling | None = None,
+        opt_in_precompute: bool = True,
     ) -> WebOverviewQuery:
         return WebOverviewQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -76,6 +77,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare) if compare else None,
             conversionGoal=conversion_goal,
             sampling=sampling,
+            modifiers=HogQLQueryModifiers(useWebAnalyticsPrecompute=True) if opt_in_precompute else None,
         )
 
     def _run(self, query: WebOverviewQuery):
@@ -201,9 +203,31 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_disabled_team_falls_through(self):
-        # Without _enable_lazy(), the team is not in the allowlist.
+        # Both gates closed: not in allowlist AND modifier not set.
         self._seed_two_sessions()
-        self._run(self._build_query())
+        self._run(self._build_query(opt_in_precompute=False))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_modifier_alone_falls_through_when_team_not_enrolled(self):
+        # `useWebAnalyticsPrecompute` modifier is set BUT team is not in the
+        # `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` allowlist. Should fall
+        # through — the env var is the operator-controlled rollout gate.
+        self._seed_two_sessions()
+        self._run(self._build_query(opt_in_precompute=True))
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_allowlist_alone_falls_through_when_modifier_missing(self):
+        # Team is in the allowlist BUT the query modifier is not set (the team
+        # admin hasn't enabled the "Allow precompute" toggle in the
+        # ScenePanel). Should fall through — the modifier is the per-team
+        # opt-in / kill switch.
+        self._seed_two_sessions()
+        with self._enable_lazy():
+            self._run(self._build_query(opt_in_precompute=False))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 

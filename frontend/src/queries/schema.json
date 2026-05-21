@@ -21027,6 +21027,10 @@
                 },
                 "useWebAnalyticsPreAggregatedTables": {
                     "type": "boolean"
+                },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt the team into the web_overview_query lazy precompute path. The team must also be enrolled in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` (instance setting). *",
+                    "type": "boolean"
                 }
             },
             "type": "object"
