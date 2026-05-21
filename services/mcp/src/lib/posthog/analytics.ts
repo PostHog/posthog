@@ -139,7 +139,7 @@ async function buildEventTags(identity: IdentityProvider): Promise<Record<string
     }
 }
 
-async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
+export async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
     const [
         mcpVersion,
         clientUserAgent,
