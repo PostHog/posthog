@@ -13,7 +13,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { RuleTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { DropRuleFilterEditor } from './DropRuleFilterEditor'
-import { RateLimitUnit, logsSamplingFormLogic } from './logsSamplingFormLogic'
+import { RateLimitUnit, logsSamplingFormLogic, rateLimitAmountToKbPerSecond } from './logsSamplingFormLogic'
 
 const RATE_LIMIT_UNIT_OPTIONS: { value: RateLimitUnit; label: string }[] = [
     { value: 'KB/s', label: 'KB/s' },
@@ -33,18 +33,23 @@ interface SparklineSeriesData {
     series: SparklineTimeSeries[]
     total: number
     truncatedServiceCount: number
+    /** Width of one bar/bucket in seconds; needed to translate a per-second rate limit into per-bucket units. */
+    bucketSeconds: number
+    /** Tallest stacked total across buckets; used to position the rate-limit reference line. */
+    chartMax: number
 }
 
 type FilterPreviewPoint = { time: string; service_name: string; count: number; bytes_uncompressed?: number }
 
 function buildSparklineSeries(points: FilterPreviewPoint[] | null, metric: 'count' | 'bytes'): SparklineSeriesData {
     if (!points || points.length === 0) {
-        return { labels: [], series: [], total: 0, truncatedServiceCount: 0 }
+        return { labels: [], series: [], total: 0, truncatedServiceCount: 0, bucketSeconds: 0, chartMax: 0 }
     }
     const timeOrder: string[] = []
     const seenTimes = new Set<string>()
     const byService: Record<string, Map<string, number>> = {}
     const serviceTotals = new Map<string, number>()
+    const bucketTotals = new Map<string, number>()
     let total = 0
     for (const point of points) {
         if (!seenTimes.has(point.time)) {
@@ -56,6 +61,7 @@ function buildSparklineSeries(points: FilterPreviewPoint[] | null, metric: 'coun
         const bucket = byService[svc] ?? (byService[svc] = new Map())
         bucket.set(point.time, (bucket.get(point.time) ?? 0) + value)
         serviceTotals.set(svc, (serviceTotals.get(svc) ?? 0) + value)
+        bucketTotals.set(point.time, (bucketTotals.get(point.time) ?? 0) + value)
         total += value
     }
     const labels = timeOrder.map((t) => dayjs(t).format('D MMM HH:mm'))
@@ -67,7 +73,9 @@ function buildSparklineSeries(points: FilterPreviewPoint[] | null, metric: 'coun
         color: dataColorVars[index % dataColorVars.length],
         values: timeOrder.map((t) => byService[service]?.get(t) ?? 0),
     }))
-    return { labels, series, total, truncatedServiceCount }
+    const bucketSeconds = timeOrder.length >= 2 ? dayjs(timeOrder[1]).diff(dayjs(timeOrder[0]), 'second') : 0
+    const chartMax = Math.max(0, ...Array.from(bucketTotals.values()))
+    return { labels, series, total, truncatedServiceCount, bucketSeconds, chartMax }
 }
 
 function formatBytes(bytes: number): string {
@@ -99,11 +107,32 @@ export function LogsSamplingForm(): JSX.Element {
         : 'Drop logs matching these filters. Dropped lines are not stored — they will not appear in the UI, exports, or alerts. Already-dropped data cannot be recovered.'
 
     const previewMetric: 'count' | 'bytes' = isRateLimit ? 'bytes' : 'count'
-    const { labels, series, total, truncatedServiceCount } = useMemo(
+    const { labels, series, total, truncatedServiceCount, bucketSeconds, chartMax } = useMemo(
         () => buildSparklineSeries(filterPreview, previewMetric),
         [filterPreview, previewMetric]
     )
     const formattedTotal = previewMetric === 'bytes' ? formatBytes(total) : `${total.toLocaleString()} logs`
+
+    // Rate limit threshold projected onto the same y-axis units the chart uses (bytes/bucket).
+    const rateLimitThresholdPerBucket = useMemo<number | null>(() => {
+        if (!isRateLimit || bucketSeconds <= 0) {
+            return null
+        }
+        const kbPerSecond = rateLimitAmountToKbPerSecond(samplingForm.rate_limit_amount, samplingForm.rate_limit_unit)
+        if (!Number.isFinite(kbPerSecond) || kbPerSecond <= 0) {
+            return null
+        }
+        // KB/s × 1000 = bytes/s, × bucket width in seconds = bytes/bucket.
+        return kbPerSecond * 1000 * bucketSeconds
+    }, [isRateLimit, bucketSeconds, samplingForm.rate_limit_amount, samplingForm.rate_limit_unit])
+
+    // y-axis runs 0..chartMax inside the sparkline container; clamp the line to that range so it stays visible.
+    const rateLimitLineTopPct =
+        rateLimitThresholdPerBucket != null && chartMax > 0
+            ? Math.max(0, Math.min(100, (1 - rateLimitThresholdPerBucket / chartMax) * 100))
+            : null
+    const rateLimitAboveChart =
+        rateLimitThresholdPerBucket != null && chartMax > 0 && rateLimitThresholdPerBucket > chartMax
 
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -187,14 +216,33 @@ export function LogsSamplingForm(): JSX.Element {
                                 No logs match these filters in the last 24h
                             </div>
                         ) : (
-                            <Sparkline
-                                data={series}
-                                labels={labels}
-                                className="w-full h-full"
-                                maximumIndicator={false}
-                            />
+                            <>
+                                <Sparkline
+                                    data={series}
+                                    labels={labels}
+                                    className="w-full h-full"
+                                    maximumIndicator={false}
+                                />
+                                {rateLimitLineTopPct != null && (
+                                    <div
+                                        className="absolute left-2 right-2 border-t border-dashed border-danger pointer-events-none"
+                                        style={{ top: `${rateLimitLineTopPct}%` }}
+                                        aria-hidden
+                                    >
+                                        <span className="absolute -top-2.5 right-0 text-[10px] leading-none text-danger bg-bg-light px-1">
+                                            Rate limit ({samplingForm.rate_limit_amount.trim()}{' '}
+                                            {samplingForm.rate_limit_unit})
+                                        </span>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
+                    {isRateLimit && rateLimitAboveChart ? (
+                        <div className="text-xs text-muted">
+                            Rate limit is above the current peak — no logs would be dropped in the previewed window.
+                        </div>
+                    ) : null}
                 </div>
             </SceneSection>
         </div>
