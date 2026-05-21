@@ -58,7 +58,7 @@ async function loadScribeSdk(): Promise<{
                 CommitStrategy: (mod as unknown as { CommitStrategy: CommitStrategyEnum }).CommitStrategy,
             }))
             .catch((err) => {
-                cachedSdkPromise = undefined
+                cachedSdkPromise = null
                 throw err
             })
     }

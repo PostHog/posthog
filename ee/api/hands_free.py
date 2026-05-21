@@ -53,7 +53,7 @@ HANDS_FREE_SYNTHESIZE_COUNTER = Counter(
 )
 HANDS_FREE_SYNTHESIZE_CHARS_COUNTER = Counter(
     "max_hands_free_synthesize_chars_total",
-    "Total characters submitted for ElevenLabs TTS — proxy for Scribe spend.",
+    "Total characters submitted for ElevenLabs TTS — proxy for TTS spend.",
 )
 
 
