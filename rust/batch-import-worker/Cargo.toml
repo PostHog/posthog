@@ -33,7 +33,6 @@ reqwest = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 aws-smithy-http-client = { workspace = true }
-aws-smithy-runtime-api = { workspace = true }
 rdkafka = { workspace = true }
 rayon = "1.10.0"
 celes = "=2.4.0"
