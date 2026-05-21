@@ -387,10 +387,14 @@ def handle_experiment_to_saved_metric_change(
         user=user or activity_storage.get_user(),
         was_impersonated=was_impersonated or activity_storage.get_was_impersonated(),
         item_id=instance.experiment_id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+        # Stored under the public Experiment scope so it shows up in the experiment
+        # activity log feed. The describer arm on `type="saved_metric_config"`
+        # renders the row.
+        scope="Experiment",
         activity=activity,
         detail=Detail(
-            # need to use ExperimentToSavedMetric here for field exclusions
+            # `"ExperimentToSavedMetric"` is an InternalActivityScope key used only for
+            # field_exclusions / changes_between — never written to ActivityLog.scope.
             changes=changes_between("ExperimentToSavedMetric", previous=before_update, current=after_update),
             name=instance.saved_metric.name,
             type="saved_metric_config",
