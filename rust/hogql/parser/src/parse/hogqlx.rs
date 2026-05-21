@@ -31,7 +31,7 @@ use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::TokenKind;
 
-impl<'a> Parser<'a> {
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// True when peek/peek_next look like the start of a HogQLX tag —
     /// `<` followed by an identifier-or-keyword-acting-as-identifier.
     /// `<` followed by anything else (most commonly an expression for

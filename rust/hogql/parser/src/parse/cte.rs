@@ -12,10 +12,11 @@
 use serde_json::{json, Value};
 
 use super::{identifier_text, kw_valid_as_identifier, Parser, BP_ALIAS};
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
-impl<'a> Parser<'a> {
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_with_expr_list(&mut self) -> Result<Vec<Value>, ParseError> {
         // The C++ visitor returns CTEs as a list; the Python deserialiser
         // turns it into a dict keyed by name. We follow the same shape.

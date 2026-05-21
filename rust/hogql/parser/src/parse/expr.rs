@@ -32,7 +32,7 @@ type ColumnsDecorators = (Option<Vec<String>>, Option<Vec<(String, Value)>>);
 /// `ORDER BY` list.
 type FunctionArgs = (bool, Vec<Value>, Option<Vec<Value>>);
 
-impl<'a> Parser<'a> {
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<Value, ParseError> {
         let lhs_start = self.peek0.start;
         let lhs = self.parse_prefix()?;

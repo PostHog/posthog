@@ -33,7 +33,7 @@ use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
-impl<'a> Parser<'a> {
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_program(&mut self) -> Result<Value, ParseError> {
         let prog_start = self.peek0.start;
         let mut declarations: Vec<Value> = Vec::new();

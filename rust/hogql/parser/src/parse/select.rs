@@ -19,7 +19,7 @@ use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
-impl<'a> Parser<'a> {
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_select_set_stmt(&mut self) -> Result<Value, ParseError> {
         let stmt_start = self.peek0.start;
         let first = self.parse_select_stmt_with_parens()?;

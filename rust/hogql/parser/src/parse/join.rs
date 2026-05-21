@@ -15,7 +15,7 @@ use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
-impl<'a> Parser<'a> {
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_join_expr(&mut self) -> Result<Value, ParseError> {
         // Left-recursive in the grammar; iterate, chaining each new
         // right-side table into the previous JoinExpr's `next_join` field.

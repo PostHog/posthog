@@ -124,7 +124,7 @@ pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
 // Parser core
 // ============================================================================
 
-pub(crate) struct Parser<'a> {
+pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     pub(crate) src: &'a str,
     pub(crate) lexer: Lexer<'a>,
     /// One-token-ahead cursor. We carry a second peek for the few
@@ -245,18 +245,18 @@ pub(crate) struct Parser<'a> {
     /// kept for the WASM build) for `PyEmitter` (constructs Python ast.*
     /// objects directly, avoiding the `serde_json::Value` intermediate
     /// tree). See `crate::emit`.
-    pub(crate) emit: JsonEmitter,
+    pub(crate) emit: E,
 }
 
-impl<'a> Parser<'a> {
-    pub(crate) fn new(src: &'a str) -> Result<Self, ParseError> {
-        Self::with_pos(src, 0)
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
+    pub(crate) fn new_with_emit(src: &'a str, emit: E) -> Result<Self, ParseError> {
+        Self::with_pos_emit(src, 0, emit)
     }
 
     /// Construct a Parser whose lexer starts at the given byte offset.
     /// Used by the template-body splitter to parse a `{ … }` expression
     /// block without lexing the literal text on either side.
-    pub(crate) fn with_pos(src: &'a str, pos: usize) -> Result<Self, ParseError> {
+    pub(crate) fn with_pos_emit(src: &'a str, pos: usize, emit: E) -> Result<Self, ParseError> {
         let mut lexer = Lexer::with_pos(src, pos);
         let peek0 = lexer.next_token()?;
         let peek1 = lexer.next_token()?;
@@ -280,10 +280,25 @@ impl<'a> Parser<'a> {
             line_starts,
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
-            emit: JsonEmitter,
+            emit,
         })
     }
+}
 
+impl<'a> Parser<'a, JsonEmitter> {
+    pub(crate) fn new(src: &'a str) -> Result<Self, ParseError> {
+        Self::new_with_emit(src, JsonEmitter)
+    }
+
+    /// Construct a Parser whose lexer starts at the given byte offset.
+    /// Used by the template-body splitter to parse a `{ … }` expression
+    /// block without lexing the literal text on either side.
+    pub(crate) fn with_pos(src: &'a str, pos: usize) -> Result<Self, ParseError> {
+        Self::with_pos_emit(src, pos, JsonEmitter)
+    }
+}
+
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn peek(&self) -> TokenKind {
         self.peek0.kind
     }
