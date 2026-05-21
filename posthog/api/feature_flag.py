@@ -2897,8 +2897,10 @@ class FeatureFlagViewSet(
         if invalid_ids:
             response_data["warning"] = f"Invalid flag IDs ignored: {invalid_ids}"
 
-        # Fetch flags by IDs
-        flags = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id).values_list("id", "key")
+        # Filter through per-object ACLs so a caller can't probe IDs to learn keys of flags they've been denied.
+        queryset = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id)
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        flags = queryset.values_list("id", "key")
 
         # Create mapping of ID to key
         keys_mapping = {str(flag_id): key for flag_id, key in flags}

@@ -8731,6 +8731,111 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         keys = [f["key"] for f in list_response.json()["results"]]
         self.assertNotIn("blocked-flag", keys)
 
+    def test_member_still_blocked_from_bulk_keys_default_none_flag(self) -> None:
+        # bulk_keys must not leak keys for flags the user has been explicitly
+        # denied, even when the caller submits the ID directly.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        visible_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="visible flag",
+            key="visible-flag",
+        )
+        blocked_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="blocked flag",
+            key="blocked-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=blocked_flag.id, team=self.team, access_level="none"
+        )
+
+        self.client.force_login(other)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [visible_flag.id, blocked_flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+        self.assertEqual(keys.get(str(visible_flag.id)), "visible-flag")
+        self.assertNotIn(str(blocked_flag.id), keys)
+
+    def test_member_with_explicit_viewer_grant_can_bulk_keys_default_none_flag(self) -> None:
+        # Inverse of the test above — exercises the allowed_resource_ids branch
+        # of filter_queryset_by_access_level: a flag with a team-wide "none"
+        # default plus an explicit viewer grant for this member must round-trip.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        grantee = self._create_user("grantee-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee_membership = grantee.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="granted flag",
+            key="granted-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=grantee_membership,
+            access_level="viewer",
+        )
+
+        self.client.force_login(grantee)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "granted-flag")
+
+    def test_org_admin_can_bulk_keys_default_none_flag(self) -> None:
+        # Exercises the include_all_if_admin=True short-circuit: org admins must
+        # be able to resolve keys for flags with a team-wide "none" default,
+        # matching the list endpoint's behavior for feature_flag.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="default-none flag",
+            key="default-none-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "default-none-flag")
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
