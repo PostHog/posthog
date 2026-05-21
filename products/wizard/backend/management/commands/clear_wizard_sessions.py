@@ -63,7 +63,7 @@ class Command(BaseCommand):
                 "Refusing to clear the entire wizard_sessions table by accident."
             )
 
-        qs: QuerySet[WizardSession] = WizardSession.objects.unscoped().all()  # type: ignore[attr-defined]
+        qs: QuerySet[WizardSession] = WizardSession.objects.unscoped().all()
 
         team_ids: list[int] = []
         if team_id is not None:
