@@ -1235,7 +1235,10 @@ export class ApiClient {
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
         if (!result.success) {
-            throw new Error(result.error.message)
+            // Re-throw the typed error so callers (StateManager.getOrFetchCached)
+            // can distinguish recoverable 4xx (expired/revoked OAuth token,
+            // missing scope) from real failures and skip exception capture.
+            throw result.error
         }
         return result.data
     }

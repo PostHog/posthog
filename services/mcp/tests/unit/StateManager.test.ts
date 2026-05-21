@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { PostHogApiError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -495,6 +496,61 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+
+        it('should NOT capture exception for 4xx PostHogApiError (expected user state)', async () => {
+            // 403 from an expired/revoked OAuth token is recoverable state, not a
+            // bug. Capturing it would dogpile error tracking whenever any user's
+            // token went stale (see commit 47d4a035ad).
+            const cachedGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            await cache.set(`groupTypes:${projectId}` as any, cachedGroupTypes as any)
+            await cache.set(`groupTypesFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+
+            const apiError = new PostHogApiError({
+                status: 403,
+                statusText: 'Forbidden',
+                body: 'Failed to validate access token',
+                url: 'http://localhost:8010/api/projects/42/groups_types/',
+                method: 'GET',
+            })
+            const getGroupTypes = vi.fn().mockRejectedValue(apiError)
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException')
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toEqual(cachedGroupTypes)
+            expect(reportSpy).not.toHaveBeenCalled()
+        })
+
+        it('should capture exception for 5xx PostHogApiError (genuine failure)', async () => {
+            const apiError = new PostHogApiError({
+                status: 500,
+                statusText: 'Internal Server Error',
+                body: 'oops',
+                url: 'http://localhost:8010/api/projects/42/groups_types/',
+                method: 'GET',
+            })
+            const getGroupTypes = vi.fn().mockRejectedValue(apiError)
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(reportSpy).toHaveBeenCalledOnce()
+        })
+
+        it('should capture exception for non-API errors (unexpected failure)', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(new Error('boom'))
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(reportSpy).toHaveBeenCalledOnce()
         })
     })
 

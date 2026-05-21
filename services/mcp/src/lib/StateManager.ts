@@ -1,7 +1,14 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    findRecoverableApiError,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogValidationError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -9,6 +16,17 @@ import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+
+function isRecoverableFetcherError(error: unknown): boolean {
+    const recoverable = findRecoverableApiError(error)
+    if (!recoverable) {
+        return false
+    }
+    if (recoverable instanceof PostHogValidationError) {
+        return true
+    }
+    return recoverable.status >= 400 && recoverable.status < 500
+}
 
 export class StateManager {
     private _cache: ScopedCache<State>
@@ -262,7 +280,14 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            // 4xx responses from the PostHog API during init are expected user
+            // state — expired/revoked OAuth tokens, missing scopes, deleted
+            // projects — not bugs. Capturing them would dogpile error tracking
+            // every time any MCP user's token went stale, mirroring the issue
+            // commit 47d4a035ad fixed for the organization-fetch path.
+            if (!isRecoverableFetcherError(error)) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
