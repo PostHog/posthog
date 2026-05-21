@@ -313,6 +313,9 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
+        // Split into fixed-size chunks and delete concurrently. Each chunk
+        // runs in its own transaction. The per-chunk rows_affected metrics
+        // give visibility into how delete work is distributed across chunks.
         let pool = self.bulk_primary_pool.clone();
         let chunks: Vec<Vec<Uuid>> = uuids
             .chunks(self.bulk_chunk_size)
@@ -355,8 +358,10 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // Select up to batch_size person IDs. FOR UPDATE SKIP LOCKED prevents
-        // concurrent batch operations from claiming the same rows.
+        // Select up to batch_size person IDs. FOR UPDATE SKIP LOCKED reduces
+        // the chance of concurrent callers claiming the same rows, though
+        // the locks are released before the chunk deletes begin since they
+        // run in separate transactions.
         let person_ids: Vec<i64> = sqlx::query_scalar!(
             r#"
             SELECT id::bigint as "id!" FROM posthog_person
@@ -374,6 +379,7 @@ impl PersonLookup for PostgresStorage {
             return Ok(0);
         }
 
+        // Split into fixed-size chunks and delete concurrently.
         let pool = self.bulk_primary_pool.clone();
         let chunks: Vec<Vec<i64>> = person_ids
             .chunks(self.bulk_chunk_size)
@@ -565,7 +571,9 @@ async fn delete_persons_chunk(
     Ok(result.rows_affected() as i64)
 }
 
-/// Delete a chunk of persons by integer ID in a single transaction.
+/// Delete a chunk of persons by integer ID in a single transaction:
+/// distinct_ids first (FK is NO ACTION), then persons (feature flag hash
+/// key overrides cascade at the DB level).
 async fn delete_persons_by_ids_chunk(
     pool: &PgPool,
     team_id: i64,
@@ -588,6 +596,7 @@ async fn delete_persons_by_ids_chunk(
 
     let mut tx = pool.begin().await?;
 
+    // Delete distinct_id rows first — FK is NO ACTION.
     let did_result = sqlx::query!(
         r#"
         DELETE FROM posthog_persondistinctid
@@ -612,6 +621,7 @@ async fn delete_persons_by_ids_chunk(
         did_result.rows_affected() as f64,
     );
 
+    // Delete person rows (hash key overrides cascade at DB level).
     let result = sqlx::query!(
         r#"
         DELETE FROM posthog_person
