@@ -53,6 +53,14 @@ describe('isFeatureFlagEnabled', () => {
             groups: { organization: 'org-abc' },
         })
     })
+
+    it('should omit the options arg when groups is an empty object', async () => {
+        mockIsFeatureEnabled.mockResolvedValue(true)
+
+        await isFeatureFlagEnabled('flag-x', 'user-123', {})
+
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('flag-x', 'user-123', undefined)
+    })
 })
 
 describe('evaluateFeatureFlags', () => {
