@@ -65,7 +65,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 "Define a REST API source by providing a manifest. "
                 "The manifest follows the same shape as PostHog's built-in REST sources — see the docs for the field reference."
             ),
-            iconPath="/static/services/custom.png",
+            iconPath="/static/services/webhook.svg",
             docsUrl=None,
             featureFlag="dwh_custom_source",
             fields=cast(
