@@ -35,7 +35,6 @@ class TestGoogleAdsNonRetryableErrors:
             "INVALID_CUSTOMER_ID: Customer ID is not valid",
         ],
     )
-
     def test_user_errors_are_non_retryable(self, error_msg):
         non_retryable = self.source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable)
