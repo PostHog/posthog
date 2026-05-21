@@ -2,8 +2,7 @@
     "name": "@posthog/tailwind",
     "exports": {
         "./tailwind.css": "./tailwind.css",
-        "./tailwind.config.js": "./tailwind.config.js",
-        "./dist/tailwind.css": "./dist/tailwind.css"
+        "./tailwind.config.js": "./tailwind.config.js"
     },
     "scripts": {
         "build": "tailwindcss -i ./tailwind.css -o ./dist/tailwind.css"
