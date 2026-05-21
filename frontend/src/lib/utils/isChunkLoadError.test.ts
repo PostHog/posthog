@@ -8,6 +8,15 @@ describe('isChunkLoadError', () => {
             { name: 'TypeError', message: 'Failed to fetch dynamically imported module: /static/chunk.js' },
             true,
         ],
+        [
+            'Chromium dynamic-import failure',
+            {
+                name: 'TypeError',
+                message:
+                    'error loading dynamically imported module: https://app-static.eu.posthog.com/static/ProjectHomepage-725TGHBE.js',
+            },
+            true,
+        ],
         ['Safari native TypeError: Load failed', { name: 'TypeError', message: 'Load failed' }, true],
         [
             'Firefox native TypeError: NetworkError',
