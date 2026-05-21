@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import errno
 import subprocess
@@ -2544,20 +2545,73 @@ class TestResolveLocalIdentityAgent:
 class TestConfigSshArgs:
     """Test the `coder config-ssh` argument builder.
 
-    OpenSSH tokenizes on whitespace, so an unquoted ``IdentityAgent`` path
-    that contains a space (e.g. 1Password's ``Group Containers``) makes the
-    whole config unparseable and breaks every SSH-backed git op. Pin the
-    quoting so a regression here trips a unit test instead of a user.
+    Two encoding layers in play, both have to round-trip:
+
+    1. ``coder config-ssh --ssh-option`` is a cobra ``StringSlice``, so each
+       value is CSV-parsed before coder uses it. A bare ``"`` in a non-quoted
+       CSV field crashes coder's parser; the encoder wraps any value with
+       quotes/commas so it survives.
+    2. ``~/.ssh/config`` itself: an unquoted ``IdentityAgent`` path with
+       spaces (1Password's ``~/Library/Group Containers/...``) makes ``ssh``
+       reject the config with "extra arguments at end of line."
+
+    The tests below assert the CSV-encoded value coder receives *and* the
+    SSH form it decodes back to.
     """
 
-    def test_identity_agent_socket_is_double_quoted(self) -> None:
-        args = coder._config_ssh_args(identity_agent_socket="/Users/p/Library/Group Containers/2BUA.../t/agent.sock")
-        assert "--ssh-option" in args
-        assert 'IdentityAgent "/Users/p/Library/Group Containers/2BUA.../t/agent.sock"' in args
+    _SOCKET_WITH_SPACES = "/Users/me/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 
-    def test_no_identity_agent_option_when_socket_is_none(self) -> None:
+    @staticmethod
+    def _ssh_option_values(args: list[str]) -> list[str]:
+        return [args[i + 1] for i, a in enumerate(args) if a == "--ssh-option"]
+
+    @staticmethod
+    def _csv_decode(field: str) -> str:
+        return next(csv.reader([field]))[0]
+
+    def test_omits_identity_agent_when_socket_is_none(self) -> None:
         args = coder._config_ssh_args(identity_agent_socket=None)
-        assert not any(a.startswith("IdentityAgent") for a in args)
+        decoded = [self._csv_decode(v) for v in self._ssh_option_values(args)]
+        assert decoded == ["ForwardAgent yes"]
+
+    def test_identity_agent_socket_with_spaces_is_csv_encoded(self) -> None:
+        args = coder._config_ssh_args(identity_agent_socket=self._SOCKET_WITH_SPACES)
+        identity_option = next(v for v in self._ssh_option_values(args) if "IdentityAgent" in v)
+
+        # Layer 1: the value must be a CSV-quoted field (no bare " in a
+        # non-quoted field); cobra rejects otherwise.
+        assert identity_option.startswith('"') and identity_option.endswith('"')
+        # Layer 2: after coder CSV-decodes it, ~/.ssh/config gets the form
+        # ssh actually expects -- IdentityAgent with a quoted path.
+        assert self._csv_decode(identity_option) == f'IdentityAgent "{self._SOCKET_WITH_SPACES}"'
+
+    def test_identity_agent_socket_without_spaces_still_roundtrips(self) -> None:
+        # Plain paths don't strictly need CSV quoting, but the helper should
+        # still produce a value that CSV-decodes to the same SSH form.
+        args = coder._config_ssh_args(identity_agent_socket="/tmp/agent.sock")
+        identity_option = next(v for v in self._ssh_option_values(args) if "IdentityAgent" in v)
+        assert self._csv_decode(identity_option) == 'IdentityAgent "/tmp/agent.sock"'
+
+
+class TestEncodeSshOption:
+    """Direct tests for the CSV-encoding helper backing `--ssh-option` values."""
+
+    def test_plain_value_passes_through_unchanged(self) -> None:
+        # QUOTE_MINIMAL only wraps fields that need it -- a plain option
+        # should land as the literal string coder writes to the config.
+        assert coder._encode_ssh_option("ForwardAgent yes") == "ForwardAgent yes"
+
+    def test_value_with_embedded_quotes_is_csv_quoted_and_roundtrips(self) -> None:
+        encoded = coder._encode_ssh_option('IdentityAgent "/path with space/sock"')
+        # CSV-encoded: outer wrap + doubled internal quotes.
+        assert encoded == '"IdentityAgent ""/path with space/sock"""'
+        # And it round-trips through Go's CSV parser (which Python's csv module mirrors).
+        assert next(csv.reader([encoded]))[0] == 'IdentityAgent "/path with space/sock"'
+
+    def test_value_with_commas_is_csv_quoted(self) -> None:
+        # Defensive: any SSH option containing the CSV delimiter must be quoted.
+        encoded = coder._encode_ssh_option("ProxyCommand a,b")
+        assert next(csv.reader([encoded]))[0] == "ProxyCommand a,b"
 
 
 class TestSetupGitSigning:

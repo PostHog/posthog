@@ -5,8 +5,10 @@ All subprocess interactions with the Coder CLI are isolated here.
 
 from __future__ import annotations
 
+import io
 import os
 import re
+import csv
 import sys
 import json
 import shlex
@@ -601,6 +603,24 @@ def ensure_coder_reachable() -> None:
     _fail(body)
 
 
+def _encode_ssh_option(value: str) -> str:
+    """Encode one value for ``coder config-ssh --ssh-option``.
+
+    The flag is a cobra ``StringSlice``, which runs each value through Go's
+    ``encoding/csv``. Bare ``"`` in a non-quoted field crashes the parser
+    (``parse error: bare " in non-quoted-field``), so SSH options containing
+    quotes -- like ``IdentityAgent "/path with spaces"`` -- need to arrive
+    CSV-encoded. ``csv.QUOTE_MINIMAL`` only wraps fields that actually need
+    it, so plain options like ``ForwardAgent yes`` pass through unchanged.
+
+    coder CSV-decodes the value before writing ``~/.ssh/config``, so the
+    file ends up with the literal SSH form we constructed here.
+    """
+    buf = io.StringIO()
+    csv.writer(buf, quoting=csv.QUOTE_MINIMAL).writerow([value])
+    return buf.getvalue().rstrip("\r\n")
+
+
 def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     """Build the base args for ``coder config-ssh``, pinning the managed binary path.
 
@@ -611,18 +631,19 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
     ``IdentityAgent`` is omitted when no socket has been chosen yet, leaving
     SSH to fall back to the user's default ``$SSH_AUTH_SOCK``.
 
-    The socket path is double-quoted because 1Password's macOS agent lives
-    under ``~/Library/Group Containers/...`` -- an unquoted space makes
-    ``ssh`` reject the config with "extra arguments at end of line" and
-    breaks every SSH-backed git op until the user hand-edits the file.
+    The socket path needs to land double-quoted in ``~/.ssh/config`` because
+    1Password's macOS agent lives under ``~/Library/Group Containers/...`` --
+    an unquoted space makes ``ssh`` reject the config with "extra arguments
+    at end of line." See ``_encode_ssh_option`` for how that survives coder's
+    CSV-parsing flag layer.
     """
     args = ["coder", "config-ssh"]
     managed = _MANAGED_CODER_DIR / "coder"
     if managed.is_file():
         args += ["--coder-binary-path", str(managed)]
-    args += ["--ssh-option", "ForwardAgent yes"]
+    args += ["--ssh-option", _encode_ssh_option("ForwardAgent yes")]
     if identity_agent_socket:
-        args += ["--ssh-option", f'IdentityAgent "{identity_agent_socket}"']
+        args += ["--ssh-option", _encode_ssh_option(f'IdentityAgent "{identity_agent_socket}"')]
     return args
 
 
