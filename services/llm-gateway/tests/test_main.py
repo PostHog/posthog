@@ -31,9 +31,9 @@ class TestExportProviderCredentials:
         [
             pytest.param(
                 "openai_organization",
-                "org-bhm3umLe3pMIhT7thCNyc0zV",
+                "org-test-fixture",
                 "OPENAI_ORG_ID",
-                "org-bhm3umLe3pMIhT7thCNyc0zV",
+                "org-test-fixture",
                 id="openai_organization_to_OPENAI_ORG_ID",
             ),
             pytest.param(
@@ -127,14 +127,14 @@ class TestExportProviderCredentials:
     ) -> None:
         # End-to-end: LLM_GATEWAY_OPENAI_ORGANIZATION → Settings.openai_organization
         # → OPENAI_ORG_ID, which is what litellm / the OpenAI SDK read.
-        monkeypatch.setenv("LLM_GATEWAY_OPENAI_ORGANIZATION", "org-bhm3umLe3pMIhT7thCNyc0zV")
+        monkeypatch.setenv("LLM_GATEWAY_OPENAI_ORGANIZATION", "org-test-fixture")
         get_settings.cache_clear()
 
         settings = get_settings()
-        assert settings.openai_organization == "org-bhm3umLe3pMIhT7thCNyc0zV"
+        assert settings.openai_organization == "org-test-fixture"
 
         export_provider_credentials(settings)
-        assert os.environ["OPENAI_ORG_ID"] == "org-bhm3umLe3pMIhT7thCNyc0zV"
+        assert os.environ["OPENAI_ORG_ID"] == "org-test-fixture"
 
     def test_settings_picks_up_env_prefixed_base_url(
         self,
