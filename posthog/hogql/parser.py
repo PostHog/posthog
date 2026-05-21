@@ -19,13 +19,6 @@ from hogql_parser import (
     parse_program_json as _parse_program_json_cpp,
     parse_select_json as _parse_select_json_cpp,
 )
-from hogql_parser_rs import (
-    parse_expr_json as _parse_expr_json_rs,
-    parse_full_template_string_json as _parse_full_template_string_json_rs,
-    parse_order_expr_json as _parse_order_expr_json_rs,
-    parse_program_json as _parse_program_json_rs,
-    parse_select_json as _parse_select_json_rs,
-)
 from opentelemetry import trace
 from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
@@ -47,6 +40,47 @@ from posthog.hogql.visitor import clear_locations
 
 from posthog.exceptions_capture import capture_exception
 
+logger = getLogger(__name__)
+
+# Defensive import of the rust parser wheel. A packaging error (bad ABI,
+# missing symbol, broken maturin build) shouldn't take the whole module
+# down — `hogql_parser` (cpp) is still available as the production
+# default, and the `*_shadow` parser modes can degrade to a no-op shadow
+# leg until the wheel is repaired. Modes that explicitly select rust as
+# the PRIMARY backend (`rust-json` / `RUST_ONLY` / `RUST_WITH_CPP_SHADOW`)
+# will surface the RuntimeError below at parse time.
+_RUST_PARSER_AVAILABLE = True
+try:
+    from hogql_parser_rs import (
+        parse_expr_json as _parse_expr_json_rs,
+        parse_full_template_string_json as _parse_full_template_string_json_rs,
+        parse_order_expr_json as _parse_order_expr_json_rs,
+        parse_program_json as _parse_program_json_rs,
+        parse_select_json as _parse_select_json_rs,
+    )
+except ImportError as _import_err:
+    _RUST_PARSER_AVAILABLE = False
+    # Bind to a module-level name — `except as` bindings are deleted at
+    # the end of the except block, so the closure below would otherwise
+    # see an unbound `NameError` when called.
+    _RUST_IMPORT_ERROR_REPR = repr(_import_err)
+    logger.exception("hogql_parser_rs import failed; rust-json backend disabled")
+    capture_exception(
+        _import_err,
+        additional_properties={"hogql_parser_rs_import_error": _RUST_IMPORT_ERROR_REPR},
+    )
+
+    def _rust_parser_unavailable(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(
+            f"hogql_parser_rs is not importable (packaging error); original ImportError: {_RUST_IMPORT_ERROR_REPR}"
+        )
+
+    _parse_expr_json_rs = _rust_parser_unavailable
+    _parse_full_template_string_json_rs = _rust_parser_unavailable
+    _parse_order_expr_json_rs = _rust_parser_unavailable
+    _parse_program_json_rs = _rust_parser_unavailable
+    _parse_select_json_rs = _rust_parser_unavailable
+
 
 class CacheOrigin(StrEnum):
     AUTO = "auto"
@@ -63,8 +97,6 @@ class ParseRule(StrEnum):
 
 
 tracer = trace.get_tracer(__name__)
-
-logger = getLogger(__name__)
 
 
 def _unquote_identifier(text: str) -> str:
@@ -192,6 +224,14 @@ class HogQLParserShadowMismatch(Exception):
     into a request — the primary backend's result is always returned."""
 
 
+_SHADOW_BACKEND_FAILURES = Counter(
+    "hogql_parser_shadow_backend_failures",
+    "Shadow-backend parses that threw an exception (packaging error, panic, etc.). "
+    "Captured but never propagated — primary backend's result is always returned.",
+    labelnames=["rule", "shadow"],
+)
+
+
 def _run_shadow_comparison(
     rule: ParseRule,
     statement: str,
@@ -206,12 +246,16 @@ def _run_shadow_comparison(
     shadow backend; a divergence or shadow-backend crash is captured to
     error tracking and the primary result is returned untouched.
 
-    In TEST: every parse runs through the shadow AND any divergence is
-    raised so a unit test that hits a divergence fails loudly. Positions
-    are stripped via `clear_locations` on both sides — position parity is
-    enforced at explicit test-suite assertion sites (and the PBT / corpus
-    diagnostics) instead, so that module-import-time parses don't crash
-    on a single positional diff in a constant expression.
+    In TEST: every parse runs through the shadow AND a structural AST
+    divergence (positions stripped via `clear_locations` on both sides)
+    is raised so a unit test that hits a divergence fails loudly. A
+    shadow-backend EXCEPTION (packaging error, panic, ImportError after
+    `hogql_parser_rs` was stubbed at import time) is NEVER propagated —
+    it's captured to error tracking and incremented on the
+    `hogql_parser_shadow_backend_failures` metric. A broken shadow
+    wheel must not block the primary parser's hot path or fail the
+    test suite; position parity is enforced at explicit test-suite
+    assertion sites and the PBT / corpus diagnostics instead.
     """
     if random.random() >= _shadow_sample_rate():
         return
@@ -219,14 +263,20 @@ def _run_shadow_comparison(
     try:
         shadow_node = _invoke_parser(shadow_backend, rule, statement, start)
     except Exception as err:
-        if test_mode:
-            raise
+        # Defensive: a shadow-backend throw is treated as a packaging /
+        # build / panic class of failure, NOT a user-input issue. Capture
+        # to error tracking, increment the metric, but never let it
+        # propagate. Tests don't raise either — a broken shadow shouldn't
+        # turn into red CI; the directly-targeted `test_parser_rust_json`
+        # suite catches rust-specific regressions on its own.
+        _SHADOW_BACKEND_FAILURES.labels(rule=str(rule), shadow=shadow_backend).inc()
         capture_exception(
             err,
             additional_properties={
                 "hogql_parser_rule": str(rule),
                 "hogql_parser_shadow": shadow_backend,
                 "hogql_parser_statement": statement,
+                "hogql_parser_shadow_throw": "true",
             },
         )
         return
