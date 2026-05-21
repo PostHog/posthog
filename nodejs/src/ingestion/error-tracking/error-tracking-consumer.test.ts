@@ -430,24 +430,22 @@ describe('ErrorTrackingConsumer', () => {
     })
 
     describe('rate limiting', () => {
-        const upsertSettings = async (
-            projectValue: number | null,
-            projectMinutes: number | null,
-            perIssueValue: number | null,
-            perIssueMinutes: number | null
-        ): Promise<void> => {
+        const upsertSettings = async (args: {
+            projectRateLimit?: number | null
+            perIssueRateLimit?: number | null
+        }): Promise<void> => {
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_errortrackingsettings
                     (team_id, project_rate_limit_value, project_rate_limit_bucket_size_minutes,
                      per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes)
-                 VALUES ($1, $2, $3, $4, $5)
+                 VALUES ($1, $2, 60, $3, 60)
                  ON CONFLICT (team_id) DO UPDATE SET
                     project_rate_limit_value = EXCLUDED.project_rate_limit_value,
                     project_rate_limit_bucket_size_minutes = EXCLUDED.project_rate_limit_bucket_size_minutes,
                     per_issue_rate_limit_value = EXCLUDED.per_issue_rate_limit_value,
                     per_issue_rate_limit_bucket_size_minutes = EXCLUDED.per_issue_rate_limit_bucket_size_minutes`,
-                [team.id, projectValue, projectMinutes, perIssueValue, perIssueMinutes],
+                [team.id, args.projectRateLimit ?? null, args.perIssueRateLimit ?? null],
                 'test-upsert-error-tracking-settings'
             )
         }
@@ -491,51 +489,105 @@ describe('ErrorTrackingConsumer', () => {
             await consumer['promiseScheduler'].waitForAll()
         }
 
-        // The limiter sums cost per key within a batch and `isRateLimited` is
-        // `tokensAfter <= 0`, so bucketSize=1 trips on the first request. Use 2+.
-        const BUDGET = 2
+        const producedCount = (): number =>
+            mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test').length
 
-        it('per-team limit drops the whole batch when team budget is exceeded', async () => {
-            await upsertSettings(BUDGET, 60, null, null)
+        it('per-team limit lets early batches through and rate-limits once the budget is exhausted', async () => {
+            await upsertSettings({ projectRateLimit: 15 })
             await enableRateLimiter()
 
-            const events = [1, 2, 3, 4, 5].map((i) =>
-                eventWithStack({ distinctId: `u-${i}`, type: 'TypeError', value: `v-${i}`, fn: `fn${i}` })
-            )
-            await consumer.handleKafkaBatch(createKafkaMessages(events))
+            // Bucket starts at 15. Each batch sums to cost=4, so tokens walk
+            // 15→11→7→3 (3 batches accepted), then batch 4's cost=4 vs tokens=3
+            // trips the limit and the whole batch drops.
+            const sendBatch = async (label: string): Promise<void> => {
+                const events = [1, 2, 3, 4].map((i) =>
+                    eventWithStack({
+                        distinctId: `${label}-${i}`,
+                        type: 'TypeError',
+                        value: `${label}-${i}`,
+                        fn: `${label}-${i}`,
+                    })
+                )
+                await consumer.handleKafkaBatch(createKafkaMessages(events))
+            }
+
+            for (const label of ['a', 'b', 'c', 'd']) {
+                await sendBatch(label)
+            }
             await drainProduces()
 
-            const produced = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
-            expect(produced).toHaveLength(0)
+            expect(producedCount()).toBe(12)
         })
 
-        it('per-issue limit drops the batch when same-stack repeats exceed the budget', async () => {
-            await upsertSettings(null, null, BUDGET, 60)
+        it('per-issue limit applies independently to each stack signature', async () => {
+            await upsertSettings({ perIssueRateLimit: 4 })
             await enableRateLimiter()
 
-            // Same frames, varying `value` — proves the signature ignores message interpolation.
-            const events = [1, 2, 3, 4, 5].map((i) =>
-                eventWithStack({ distinctId: `u-${i}`, type: 'TypeError', value: `dynamic-${i}`, fn: 'sharedFn' })
-            )
-            await consumer.handleKafkaBatch(createKafkaMessages(events))
-            await drainProduces()
+            // Each batch carries the same three issues (alpha/beta/gamma). Each
+            // issue's bucket walks 4→3→2→1→0 — batches 1-3 pass for all three
+            // issues, batch 4 rate-limits all three.
+            const batchAcrossIssues = (variant: number): Message[] =>
+                createKafkaMessages(
+                    ['alpha', 'beta', 'gamma'].map((iss) =>
+                        eventWithStack({
+                            distinctId: `${iss}-${variant}`,
+                            type: 'TypeError',
+                            value: `v-${variant}`,
+                            fn: iss,
+                        })
+                    )
+                )
 
-            const produced = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
-            expect(produced).toHaveLength(0)
+            for (const variant of [1, 2, 3, 4]) {
+                await consumer.handleKafkaBatch(batchAcrossIssues(variant))
+            }
+            await drainProduces()
+            expect(producedCount()).toBe(9)
+
+            // A previously-unseen issue has its own untouched bucket and passes.
+            await consumer.handleKafkaBatch(
+                createKafkaMessages([
+                    eventWithStack({ distinctId: 'delta-1', type: 'TypeError', value: 'v', fn: 'delta' }),
+                ])
+            )
+            await drainProduces()
+            expect(producedCount()).toBe(10)
         })
 
-        it('per-issue limit does not throttle events with distinct stack signatures', async () => {
-            await upsertSettings(null, null, BUDGET, 60)
+        it('signature groups by stack and ignores message interpolation', async () => {
+            await upsertSettings({ perIssueRateLimit: 4 })
             await enableRateLimiter()
 
-            const events = [1, 2, 3, 4, 5].map((i) =>
-                eventWithStack({ distinctId: `u-${i}`, type: 'TypeError', value: 'v', fn: `fn${i}` })
-            )
-            await consumer.handleKafkaBatch(createKafkaMessages(events))
+            // Phase 1: same exception 4 times → bucket exhausts on the 4th. Three pass.
+            for (let i = 0; i < 4; i++) {
+                await consumer.handleKafkaBatch(
+                    createKafkaMessages([
+                        eventWithStack({ distinctId: `same-${i}`, type: 'TypeError', value: 'msg', fn: 'foo' }),
+                    ])
+                )
+            }
             await drainProduces()
+            expect(producedCount()).toBe(3)
 
-            const produced = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
-            expect(produced).toHaveLength(5)
+            // Phase 2: different stack → fresh bucket → passes.
+            await consumer.handleKafkaBatch(
+                createKafkaMessages([
+                    eventWithStack({ distinctId: 'new-stack', type: 'TypeError', value: 'msg', fn: 'bar' }),
+                ])
+            )
+            await drainProduces()
+            expect(producedCount()).toBe(4)
+
+            // Phase 3: revert to the original stack, only `value` differs. The
+            // signature drops `value` when a stack exists, so this hits the
+            // exhausted bucket from phase 1 and gets rate-limited.
+            await consumer.handleKafkaBatch(
+                createKafkaMessages([
+                    eventWithStack({ distinctId: 'new-value', type: 'TypeError', value: 'msg-2', fn: 'foo' }),
+                ])
+            )
+            await drainProduces()
+            expect(producedCount()).toBe(4)
         })
     })
 })
