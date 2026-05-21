@@ -4042,7 +4042,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -11058,6 +11058,21 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export type DataWarehouseSavedQueryQueryKind = typeof DataWarehouseSavedQueryQueryKind[keyof typeof DataWarehouseSavedQueryQueryKind];
+
+
+    export const DataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type DataWarehouseSavedQueryQuery = {
+      kind?: DataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -11106,8 +11121,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query: DataWarehouseSavedQueryQuery;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /** @nullable */
@@ -20380,14 +20395,14 @@ export namespace Schemas {
          * @nullable
          */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
       * `severity_sampling` - Severity-based reduction
       * `path_drop` - Path exclusion
       * `rate_limit` - Rate limit */
       rule_type: RuleTypeEnum;
       /**
-         * If set, the rule applies only to this service name; null means all services.
+         * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
          * @maxLength 512
          * @nullable
          */
@@ -20400,7 +20415,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -23029,8 +23044,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value: string | null;
       readonly created_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
+      readonly created_by: UserBasic;
       /** @nullable */
       readonly last_used_at: string | null;
       /** @nullable */
@@ -25744,7 +25758,7 @@ export namespace Schemas {
       /** Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). */
       config?: TrendsAlertConfig | null;
       detector_config?: DetectorConfig | null;
-      /** How often the alert is checked: hourly, daily, weekly, or monthly.
+      /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
 
       * `every_15_minutes` - every_15_minutes
       * `hourly` - hourly
@@ -26274,6 +26288,21 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
     }
 
+    export type PatchedDataWarehouseSavedQueryQueryKind = typeof PatchedDataWarehouseSavedQueryQueryKind[keyof typeof PatchedDataWarehouseSavedQueryQueryKind];
+
+
+    export const PatchedDataWarehouseSavedQueryQueryKind = {
+      HogQLQuery: 'HogQLQuery',
+    } as const;
+
+    /**
+     * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+     */
+    export type PatchedDataWarehouseSavedQueryQuery = {
+      kind?: PatchedDataWarehouseSavedQueryQueryKind;
+      query: string;
+    };
+
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
@@ -26290,8 +26319,8 @@ export namespace Schemas {
          * @maxLength 128
          */
       name?: string;
-      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-      query?: unknown;
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+      query?: PatchedDataWarehouseSavedQueryQuery;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /** @nullable */
@@ -28066,14 +28095,14 @@ export namespace Schemas {
          * @nullable
          */
       priority?: number | null;
-      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).
+      /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
 
       * `severity_sampling` - Severity-based reduction
       * `path_drop` - Path exclusion
       * `rate_limit` - Rate limit */
       rule_type?: RuleTypeEnum;
       /**
-         * If set, the rule applies only to this service name; null means all services.
+         * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
          * @maxLength 512
          * @nullable
          */
@@ -28086,7 +28115,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -29347,8 +29376,7 @@ export namespace Schemas {
       /** @nullable */
       readonly mask_value?: string | null;
       readonly created_at?: string;
-      /** @nullable */
-      readonly created_by?: number | null;
+      readonly created_by?: UserBasic;
       /** @nullable */
       readonly last_used_at?: string | null;
       /** @nullable */
@@ -36981,6 +37009,8 @@ export namespace Schemas {
       /** Service name when sparklineBreakdownBy="service". Present only for service-broken-down sparklines. */
       service?: string;
       count: number;
+      /** Sum of uncompressed bytes for the bucket. */
+      bytes_uncompressed?: number;
     }
 
     export interface _LogsSparklineRequest {

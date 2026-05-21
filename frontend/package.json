@@ -181,7 +181,7 @@
         "d3": "^7.9.0",
         "d3-flame-graph": "^5.0.0",
         "dayjs": "1.11.11",
-        "dompurify": "^3.2.6",
+        "dompurify": "^3.4.0",
         "elkjs": "^0.10.0",
         "emoji-regex": "^10.4.0",
         "eventsource-parser": "^3.0.0",

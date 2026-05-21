@@ -617,7 +617,7 @@ def _config_ssh_args(*, identity_agent_socket: str | None = None) -> list[str]:
         args += ["--coder-binary-path", str(managed)]
     args += ["--ssh-option", "ForwardAgent yes"]
     if identity_agent_socket:
-        args += ["--ssh-option", f"IdentityAgent {identity_agent_socket}"]
+        args += ["--ssh-option", f'IdentityAgent "{identity_agent_socket}"']
     return args
 
 
