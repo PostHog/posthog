@@ -1049,7 +1049,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: (
                     <>
                         AI product context
-                        <LemonTag type="success" className="ml-1 uppercase">
+                        <LemonTag type="highlight" size="small" className="ml-1">
                             New
                         </LemonTag>
                     </>

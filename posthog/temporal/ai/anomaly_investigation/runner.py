@@ -26,7 +26,6 @@ from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
-from posthog.models.alert import AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
@@ -37,6 +36,8 @@ from posthog.temporal.ai.anomaly_investigation.tools import (
     SimulateDetectorArgs,
     TopBreakdownArgs,
 )
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = logging.getLogger(__name__)
 

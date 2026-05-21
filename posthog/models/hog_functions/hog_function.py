@@ -12,7 +12,6 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import is_cohort_recalculation_only_save
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
@@ -27,6 +26,8 @@ from posthog.plugins.plugin_server_api import (
     reload_hog_functions_on_workers,
 )
 from posthog.utils import absolute_uri
+
+from products.actions.backend.models.action import Action
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

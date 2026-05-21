@@ -24,7 +24,7 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
 } from '~/scenes/experiments/experimentActions'
-import { FinishExperimentModal } from '~/scenes/experiments/ExperimentView/components'
+import { FinishExperimentModal } from '~/scenes/experiments/ExperimentView/ExperimentModals'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
 import { AccessControlLevel, AccessControlResourceType, ExperimentStatus } from '~/types'
 
