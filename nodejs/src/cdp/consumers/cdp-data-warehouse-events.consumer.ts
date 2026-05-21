@@ -22,8 +22,8 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
-    private cyclotronJobQueue: CyclotronJobQueue
-    private kafkaConsumer: KafkaConsumerInterface
+    protected cyclotronJobQueue: CyclotronJobQueue
+    protected kafkaConsumer: KafkaConsumerInterface
     private hogFunctionPipeline: HogFunctionInvocationPipeline
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {

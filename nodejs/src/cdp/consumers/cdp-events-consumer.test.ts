@@ -73,6 +73,7 @@ describe.each([
         processor = new Consumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
+        // `as any` required because `processor` is a union type — TS doesn't expose protected members on unions
         ;(processor as any)['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),
@@ -589,12 +590,12 @@ describe('hog flow processing', () => {
         processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
-        ;(processor as any)['kafkaConsumer'] = {
+        processor['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),
             isHealthy: jest.fn(),
         } as any
-        ;(processor as any)['cyclotronJobQueue'] = {
+        processor['cyclotronJobQueue'] = {
             queueInvocations: jest.fn(),
             startAsProducer: jest.fn(() => Promise.resolve()),
             stop: jest.fn(),
