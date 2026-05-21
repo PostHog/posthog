@@ -25,7 +25,7 @@ async def create_schedule_due_alert_checks_schedule(client: Client) -> None:
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             execution_timeout=dt.timedelta(minutes=10),
         ),
-        spec=ScheduleSpec(cron_expressions=["*/2 * * * *"]),
+        spec=ScheduleSpec(cron_expressions=["*/1 * * * *"]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
@@ -49,7 +49,7 @@ async def create_run_investigation_safety_net_schedule(client: Client) -> None:
             task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             execution_timeout=dt.timedelta(minutes=5),
         ),
-        spec=ScheduleSpec(cron_expressions=["*/2 * * * *"]),
+        spec=ScheduleSpec(cron_expressions=["*/1 * * * *"]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 

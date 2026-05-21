@@ -138,6 +138,7 @@ class HyperCache:
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_alias: Optional[str] = None,
+        secondary_cache_alias: Optional[str] = None,
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
@@ -159,6 +160,13 @@ class HyperCache:
         else:
             self.cache_client = cache
             self.redis_url = settings.REDIS_URL
+
+        # Optional secondary cache; writes are mirrored on a best-effort basis.
+        self.secondary_cache_client = (
+            caches[secondary_cache_alias]
+            if secondary_cache_alias and secondary_cache_alias in settings.CACHES
+            else None
+        )
 
     @staticmethod
     def team_from_key(key: KeyType) -> Team:
@@ -413,6 +421,21 @@ class HyperCache:
         finally:
             self._remove_expiry_tracking(key)
 
+    def _mirror_to_secondary(self, op: Callable[..., None]) -> None:
+        """Best-effort mirror write; failures are logged and captured, never propagated."""
+        if self.secondary_cache_client is None:
+            return
+        try:
+            op(self.secondary_cache_client)
+        except Exception as e:
+            logger.warning(
+                "HyperCache secondary cache write failed",
+                namespace=self.namespace,
+                value=self.value,
+                exc_info=True,
+            )
+            capture_exception(e)
+
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
     ) -> int | None:
@@ -425,8 +448,10 @@ class HyperCache:
         etag_key = self.get_etag_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
             self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
+            self._mirror_to_secondary(lambda c: c.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl))
             # Always delete ETag key to clean up stale ETags from when enable_etag was True
             self.cache_client.delete(etag_key)
+            self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return None
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
@@ -437,10 +462,13 @@ class HyperCache:
                 # Write data and ETag via pipeline (single Redis round trip)
                 # Note this is not strictly atomic, but good enough for our use case
                 self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
+                self._mirror_to_secondary(lambda c: c.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout))
             else:
                 self.cache_client.set(cache_key, json_data, timeout=timeout)
+                self._mirror_to_secondary(lambda c: c.set(cache_key, json_data, timeout=timeout))
                 # Clean up stale ETag if ETags were previously enabled
                 self.cache_client.delete(etag_key)
+                self._mirror_to_secondary(lambda c: c.delete(etag_key))
             return len(json_data)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):

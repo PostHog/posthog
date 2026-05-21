@@ -3099,6 +3099,8 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+    hide_mcp_hints?: boolean
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3197,6 +3199,8 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+    hide_mcp_hints?: boolean
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null

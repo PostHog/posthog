@@ -1,6 +1,6 @@
 {
     "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`).",
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account",
@@ -32,7 +32,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (csm, account_executive, account_owner), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -64,7 +64,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -4960,8 +4960,24 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-interviewees-bulk-create": {
+        "description": "Create up to 500 per-interviewee context rows for a topic in a single request. Each item is (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over `user-interview-topics-interviewees-create` when adding many rows.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Create many per-interviewee context rows at once",
+        "title": "Create many per-interviewee context rows at once",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-interviewees-create": {
-        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict.",
+        "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person — e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) — calling create twice for the same pair will conflict. Prefer `user-interview-topics-interviewees-bulk-create` when adding many rows at once.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Add per-interviewee context to a topic",

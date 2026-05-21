@@ -1,7 +1,6 @@
 import json
 import asyncio
 from dataclasses import asdict
-from math import ceil
 from typing import cast
 
 import structlog
@@ -28,7 +27,6 @@ from posthog.temporal.session_replay.session_summary_group.types import (
 )
 
 from ee.hogai.session_summaries.constants import (
-    FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO,
     PATTERNS_ASSIGNMENT_CHUNK_SIZE,
     PATTERNS_EXTRACTION_MAX_TOKENS,
     SESSION_SUMMARIES_MODEL,
@@ -328,17 +326,25 @@ async def _generate_patterns_assignments(
         res: RawSessionGroupPatternAssignmentsList | Exception = task.result()
         if isinstance(res, Exception):
             temporalio.activity.logger.warning(
-                f"Patterns assignments generation failed for chunk from sessions ({logging_session_ids(session_ids)}) for user {user_id}: {res}",
+                f"A pattern-assignment chunk failed for group of {len(session_ids)} "
+                f"sessions ({logging_session_ids(session_ids)}) for user {user_id}: {res}",
                 extra={"user_id": user_id, "signals_type": "session-summaries"},
             )
             continue
         patterns_assignments_list_of_lists.append(res)
-    # Fail the activity if too many patterns failed to assign session events
-    if ceil(len(session_summaries_chunks_str) * FAILED_PATTERNS_ASSIGNMENT_MIN_RATIO) > len(
-        patterns_assignments_list_of_lists
-    ):
+    # Aggregate signal so a partial run is greppable without counting per-chunk warnings.
+    failed_chunk_count = len(session_summaries_chunks_str) - len(patterns_assignments_list_of_lists)
+    if failed_chunk_count and patterns_assignments_list_of_lists:
+        temporalio.activity.logger.warning(
+            f"Pattern assignment partially failed: {failed_chunk_count} of "
+            f"{len(session_summaries_chunks_str)} chunks failed for group of {len(session_ids)} "
+            f"sessions for user {user_id}",
+            extra={"user_id": user_id, "signals_type": "session-summaries"},
+        )
+    # Abort only on total chunk failure; partial assignments still produce a useful patterns report.
+    if not patterns_assignments_list_of_lists:
         exception_message = (
-            f"Too many patterns failed to assign session events, when summarizing {len(session_ids)} "
+            f"All pattern-assignment chunks failed when summarizing {len(session_ids)} "
             f"sessions ({logging_session_ids(session_ids)}) for user {user_id}"
         )
         temporalio.activity.logger.error(
@@ -455,7 +461,13 @@ async def assign_events_to_patterns_activity(
         summary=patterns_with_events_context.model_dump_json(exclude_none=True),
         extra_summary_context=inputs.extra_summary_context,
         # We don't do visual confirmation on the patterns assignments level, only on single session level
-        run_metadata=asdict(SessionSummaryRunMeta(model_used=inputs.model_to_use, visual_confirmation=False)),
+        run_metadata=asdict(
+            SessionSummaryRunMeta(
+                model_used=inputs.model_to_use,
+                visual_confirmation=False,
+                failed_sessions=list(inputs.failed_sessions),
+            )
+        ),
         created_by=user,
     )
     return str(session_group_summary.id)
