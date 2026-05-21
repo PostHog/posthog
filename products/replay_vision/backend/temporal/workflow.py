@@ -152,7 +152,10 @@ class ApplyLensWorkflow(PostHogWorkflow):
                 mark_observation_succeeded_activity,
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
-                    lens_result=LensResult(model_output=call_output.model_output),
+                    lens_result=LensResult(
+                        model_output=call_output.model_output,
+                        event_id_mapping=call_output.event_id_mapping,
+                    ),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_ACTIVITY_RETRY,

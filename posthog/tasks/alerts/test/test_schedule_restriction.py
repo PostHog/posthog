@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.models import AlertConfiguration
 from posthog.tasks.alerts import schedule_restriction as schedule_restriction_module
 from posthog.tasks.alerts.schedule_restriction import (
     is_utc_datetime_blocked,
@@ -15,6 +14,8 @@ from posthog.tasks.alerts.schedule_restriction import (
     validate_and_normalize_schedule_restriction,
 )
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 
 class TestValidateAndNormalizeScheduleRestriction:
