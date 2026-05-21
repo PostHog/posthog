@@ -40,10 +40,10 @@ class TestValidateManifest(SimpleTestCase):
     @parameterized.expand(
         [
             ("not a dict", "must be a JSON object"),
-            ({}, "missing required keys"),
+            ({}, "Field required"),
             (
                 {"client": {"base_url": "https://x"}, "resources": []},
-                "must be a non-empty list",
+                "at least 1",
             ),
             ({"client": {}, "resources": [{}]}, "base_url"),
             (
