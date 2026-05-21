@@ -780,13 +780,6 @@ class TestCastAssistantQuery(unittest.TestCase):
 
 
 class TestAssistantQueryToDict(unittest.TestCase):
-    """
-    The runner reads `math_property_type` off the dict that crosses into `process_query_dict` /
-    `QuerySchemaRoot.model_validate`. Production callsites dump the assistant query directly with
-    `model_dump(mode="json")`, so the auto-fill MUST happen at that boundary — not later in
-    `cast_assistant_query`, which is only used by the legacy query-coercion path.
-    """
-
     def test_session_math_property_filled_in_dump(self) -> None:
         query = AssistantTrendsQuery(
             kind=NodeKind.TRENDS_QUERY,
@@ -813,7 +806,6 @@ class TestAssistantQueryToDict(unittest.TestCase):
             series=[AssistantFunnelsEventsNode(event="signed up"), AssistantFunnelsEventsNode(event="purchase")],
         )
 
-        # Should not raise, and should not inject series-level fields.
         dumped = assistant_query_to_dict(query)
 
         assert dumped["kind"] == "FunnelsQuery"
@@ -821,12 +813,6 @@ class TestAssistantQueryToDict(unittest.TestCase):
 
 
 class TestSessionMathPropertiesAllowlist(unittest.TestCase):
-    """
-    `_fill_session_math_property_type` imports `ALLOWED_SESSION_MATH_PROPERTIES` from the trends
-    runner so we don't have two copies. This test pins that contract: if the runner allowlist is
-    renamed or removed, the assistant helper must move with it.
-    """
-
     def test_runner_allowlist_is_imported(self) -> None:
         from posthog.hogql_queries.insights.trends.aggregation_operations import (
             ALLOWED_SESSION_MATH_PROPERTIES as runner_allowlist,
@@ -834,5 +820,4 @@ class TestSessionMathPropertiesAllowlist(unittest.TestCase):
 
         from ee.hogai.utils import helpers
 
-        # Same object identity — the helper imports the runner constant directly, no local copy.
         assert helpers.ALLOWED_SESSION_MATH_PROPERTIES is runner_allowlist

@@ -15,7 +15,6 @@ from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
-from pydantic import BaseModel
 
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -46,6 +45,8 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
+    AnyAssistantGeneratedQuery,
+    AnyPydanticModelQuery,
     ArtifactRefMessage,
     AssistantDispatcherEvent,
     AssistantMessageUnion,
@@ -376,9 +377,7 @@ def _fill_session_math_property_type(series: list[dict[str, Any]]) -> None:
             node["math_property_type"] = "session_properties"
 
 
-def assistant_query_to_dict(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery | BaseModel,
-) -> dict[str, Any]:
+def assistant_query_to_dict(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> dict[str, Any]:
     """
     Dump an assistant query to a JSON-compatible dict and reattach fields the assistant schema
     hides from the LLM. Use this anywhere an assistant query is about to be passed to
