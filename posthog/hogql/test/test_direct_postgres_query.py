@@ -1394,7 +1394,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
-    @patch("products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder")
+    @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
     @patch("posthog.hogql.query.psycopg.connect")
     def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
         mock_tunnel = MagicMock()

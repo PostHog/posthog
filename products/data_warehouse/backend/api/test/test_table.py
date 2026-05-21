@@ -92,7 +92,7 @@ class TestTable(APIBaseTest):
 
         with (
             patch(
-                "products.data_warehouse.backend.models.util.socket.getaddrinfo",
+                "products.warehouse_sources.backend.models.util.socket.getaddrinfo",
                 side_effect=side_effect,
                 return_value=return_value,
             ),
