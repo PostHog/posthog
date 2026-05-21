@@ -14,9 +14,22 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
-    llm-analytics-@me-spend-list:
-        operation: llm_analytics_@me_spend_list
-        enabled: false
+    llma-personal-spend:
+        operation: llm_analytics_personal_spend_list
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get my LLM spend analysis
+        description: >
+            Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days
+            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass
+            `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a
+            single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the
+            5-minute cache.
     llm-analytics-offline-evaluations-experiment-items-create:
         operation: llm_analytics_offline_evaluations_experiment_items_create
         enabled: false
