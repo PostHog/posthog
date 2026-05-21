@@ -118,9 +118,7 @@ class TestMaxHandsFreeAPI(APIBaseTest):
         self._ff_patcher.stop()
         with patch("posthoganalytics.feature_enabled", return_value=False):
             token_response = self.client.post(self._token_url(), format="json")
-            synth_response = self.client.post(
-                self._synthesize_url(), data={"text": "hello"}, format="json"
-            )
+            synth_response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
         # Restart so addCleanup doesn't double-stop.
         self._ff_patcher.start()
         assert token_response.status_code == 403
