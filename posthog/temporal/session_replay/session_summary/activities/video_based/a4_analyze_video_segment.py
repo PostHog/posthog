@@ -6,6 +6,7 @@ from django.conf import settings
 
 import temporalio
 from google.genai import types
+from google.genai.errors import APIError
 from posthoganalytics.ai.gemini import genai
 from temporalio.exceptions import ApplicationError
 
@@ -103,27 +104,40 @@ async def analyze_video_segment_activity(
             if events_context
             else "",
         )
-        response = await client.models.generate_content(
-            model=f"models/{inputs.model_to_use}",
-            contents=[
-                types.Part(
-                    file_data=types.FileData(file_uri=uploaded_video.file_uri, mime_type=uploaded_video.mime_type),
-                    # Round, as Gemini doesn't work with nanoseconds
-                    video_metadata=types.VideoMetadata(
-                        start_offset=f"{round(segment.recording_start_time, 2)}s",
-                        end_offset=f"{round(segment.recording_end_time, 2)}s",
+        try:
+            response = await client.models.generate_content(
+                model=f"models/{inputs.model_to_use}",
+                contents=[
+                    types.Part(
+                        file_data=types.FileData(
+                            file_uri=uploaded_video.file_uri, mime_type=uploaded_video.mime_type
+                        ),
+                        # Round, as Gemini doesn't work with nanoseconds
+                        video_metadata=types.VideoMetadata(
+                            start_offset=f"{round(segment.recording_start_time, 2)}s",
+                            end_offset=f"{round(segment.recording_end_time, 2)}s",
+                        ),
                     ),
-                ),
-                video_analysis_prompt,
-            ],
-            config=types.GenerateContentConfig(),
-            posthog_distinct_id=inputs.user_distinct_id_to_log,
-            posthog_trace_id=trace_id,
-            posthog_properties={
-                "segment_index": segment.segment_index,
-            },
-            posthog_groups={"project": str(inputs.team_id)},
-        )
+                    video_analysis_prompt,
+                ],
+                config=types.GenerateContentConfig(),
+                posthog_distinct_id=inputs.user_distinct_id_to_log,
+                posthog_trace_id=trace_id,
+                posthog_properties={
+                    "segment_index": segment.segment_index,
+                },
+                posthog_groups={"project": str(inputs.team_id)},
+            )
+        except (APIError, OSError) as e:
+            # Gemini ServerError 502s sometimes tear down the TLS connection while reading the response,
+            # so the call surfaces as either an SDK APIError (ClientError/ServerError) or a chained
+            # OSError (ssl.SSLError "WRONG_VERSION_NUMBER", aiohttp.ClientOSError). Translate both into
+            # RuntimeError with segment context so Temporal retries see a clear cause instead of a raw
+            # SDK leak, and so untranslated errors can't slip through into the silent-failure UX gap.
+            raise RuntimeError(
+                f"Gemini generate_content failed for session {inputs.session_id} "
+                f"segment {segment.segment_index}: {type(e).__name__}: {e}"
+            ) from e
         response_text = (response.text or "").strip()
         temporalio.activity.logger.debug(
             f"Received analysis for segment {segment.segment_index}",

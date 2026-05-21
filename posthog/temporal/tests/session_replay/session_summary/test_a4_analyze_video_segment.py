@@ -1,6 +1,8 @@
-import pytest
+import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from google.genai.errors import APIError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -194,3 +196,34 @@ async def test_omits_events_section_when_redis_returns_empty_events():
         )
 
     assert "<tracked_events>" not in captured_prompt[0]
+
+
+@pytest.mark.parametrize(
+    "raised, expected_label",
+    [
+        (APIError(code=502, response_json={"error": {"code": 502, "message": "Bad Gateway"}}), "APIError"),
+        (ssl.SSLError("WRONG_VERSION_NUMBER"), "SSLError"),
+        (OSError("Connection reset by peer"), "OSError"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_translates_generate_content_transient_errors(raised, expected_label):
+    """Before this fix, raw SDK errors propagated through Temporal retries, then took the silent path
+    in PlayerSummaryDock (no error banner). Wrapping translates them into RuntimeError with
+    segment context so the workflow's error path produces a clear, retryable failure."""
+    factory = _gemini_responder("ignored")
+    factory.return_value.models.generate_content = AsyncMock(side_effect=raised)
+
+    with (
+        _patch_redis_no_events(),
+        patch(f"{ACTIVITY_MODULE}.genai.AsyncClient", new=factory),
+    ):
+        with pytest.raises(RuntimeError, match=expected_label) as excinfo:
+            await ActivityEnvironment().run(
+                analyze_video_segment_activity, _inputs(), _uploaded(), _segment(), "trace", "team"
+            )
+
+    # The original exception is preserved as __cause__ so retry logs can drill into the SDK frame.
+    assert excinfo.value.__cause__ is raised
+    assert "session sess-1" in str(excinfo.value)
+    assert "segment 0" in str(excinfo.value)

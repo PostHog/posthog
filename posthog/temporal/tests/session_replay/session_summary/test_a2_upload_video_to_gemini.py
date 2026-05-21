@@ -1,6 +1,8 @@
-import pytest
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from google.genai.errors import ClientError, ServerError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.session_replay.gemini_cleanup_sweep.constants import REDIS_INDEX_KEY, REDIS_KEY_PREFIX
@@ -128,4 +130,109 @@ async def test_raises_when_gemini_processing_fails():
         patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
     ):
         with pytest.raises(RuntimeError, match="File processing failed"):
+            await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+
+@pytest.mark.parametrize(
+    "raised, expected_match",
+    [
+        (
+            ValueError("Failed to upload file: Upload status is not finalized."),
+            r"files\.upload failed.*ValueError",
+        ),
+        (
+            ClientError(code=400, response_json={"error": {"code": 400, "message": "bad arg"}}),
+            r"files\.upload failed.*ClientError",
+        ),
+        (
+            ServerError(code=502, response_json={"error": {"code": 502, "message": "bad gateway"}}),
+            r"files\.upload failed.*ServerError",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_translates_upload_failures(gemini_redis, raised, expected_match):
+    """SDK upload failures (bare ValueError + APIError subclasses) used to leak through as raw SDK
+    messages and silently disappear in the UI. They now translate into RuntimeError with session
+    context so Temporal retries see a clean cause and the workflow's error path can surface to the
+    frontend banner."""
+    asset = _make_asset(content=b"video-bytes")
+    fake_client = MagicMock()
+    fake_client.files.upload.side_effect = raised
+
+    with (
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.aget", new=AsyncMock(return_value=asset)),
+        patch(f"{ACTIVITY_MODULE}.get_video_duration_s", return_value=42),
+        patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
+    ):
+        with pytest.raises(RuntimeError, match=expected_match) as excinfo:
+            await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+    assert excinfo.value.__cause__ is raised
+
+
+@pytest.mark.asyncio
+async def test_polling_get_client_error_is_translated(gemini_redis):
+    """A 400 from files.get during PROCESSING polling used to surface as a raw SDK ClientError.
+    Wrap it so Temporal sees a session-scoped RuntimeError with the SDK error as __cause__."""
+    asset = _make_asset(content=b"video-bytes")
+    processing = _make_uploaded_file(state="PROCESSING")
+    fake_client = MagicMock()
+    fake_client.files.upload.return_value = processing
+    sdk_err = ClientError(code=400, response_json={"error": {"code": 400, "message": "Request contains an invalid argument."}})
+    fake_client.files.get.side_effect = sdk_err
+
+    with (
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.aget", new=AsyncMock(return_value=asset)),
+        patch(f"{ACTIVITY_MODULE}.get_video_duration_s", return_value=42),
+        patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
+        patch(f"{ACTIVITY_MODULE}.asyncio.sleep", new=AsyncMock(return_value=None)),
+    ):
+        with pytest.raises(RuntimeError, match=r"files\.get failed during PROCESSING poll") as excinfo:
+            await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+    assert excinfo.value.__cause__ is sdk_err
+
+
+@pytest.mark.asyncio
+async def test_polling_get_server_error_is_translated(gemini_redis):
+    asset = _make_asset(content=b"video-bytes")
+    processing = _make_uploaded_file(state="PROCESSING")
+    fake_client = MagicMock()
+    fake_client.files.upload.return_value = processing
+    sdk_err = ServerError(code=503, response_json={"error": {"code": 503, "message": "service unavailable"}})
+    fake_client.files.get.side_effect = sdk_err
+
+    with (
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.aget", new=AsyncMock(return_value=asset)),
+        patch(f"{ACTIVITY_MODULE}.get_video_duration_s", return_value=42),
+        patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
+        patch(f"{ACTIVITY_MODULE}.asyncio.sleep", new=AsyncMock(return_value=None)),
+    ):
+        with pytest.raises(RuntimeError, match=r"files\.get hit a server error") as excinfo:
+            await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)
+
+    assert excinfo.value.__cause__ is sdk_err
+
+
+@pytest.mark.asyncio
+async def test_polling_get_enforces_timeout_including_inflight_latency(gemini_redis):
+    """The previous loop checked elapsed only at the top of each iteration, so a slow files.get
+    could push total elapsed well past MAX_PROCESSING_WAIT_SECONDS (observed 387.9s vs 300s). Now
+    the call is wrapped in asyncio.wait_for so an unresponsive files.get is cut off within budget."""
+    asset = _make_asset(content=b"video-bytes")
+    processing = _make_uploaded_file(state="PROCESSING")
+    fake_client = MagicMock()
+    fake_client.files.upload.return_value = processing
+    # Sync sleep > MAX_PROCESSING_WAIT_SECONDS to simulate a stalled files.get inside the thread.
+    fake_client.files.get.side_effect = lambda **_kwargs: time.sleep(0.5)
+
+    with (
+        patch(f"{ACTIVITY_MODULE}.ExportedAsset.objects.aget", new=AsyncMock(return_value=asset)),
+        patch(f"{ACTIVITY_MODULE}.get_video_duration_s", return_value=42),
+        patch(f"{ACTIVITY_MODULE}.RawGenAIClient", return_value=fake_client),
+        patch(f"{ACTIVITY_MODULE}.asyncio.sleep", new=AsyncMock(return_value=None)),
+        patch(f"{ACTIVITY_MODULE}.MAX_PROCESSING_WAIT_SECONDS", 0.05),
+    ):
+        with pytest.raises(RuntimeError, match=r"timed out"):
             await ActivityEnvironment().run(upload_video_to_gemini_activity, _inputs(), 99)

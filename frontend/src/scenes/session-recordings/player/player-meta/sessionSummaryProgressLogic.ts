@@ -152,7 +152,14 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             const forceRestart = cancelledSessionIds.delete(sessionId)
 
             const timeout = window.setTimeout(() => {
-                actions.setLoading(sessionId, false)
+                // Surface the timeout so PlayerSummaryDock renders the "Summary failed. Try again" banner
+                // instead of silently collapsing back to the entry-point button. The workflow may still
+                // complete on the backend; the next time the user opens this recording the cached summary
+                // will be shown via the fast path.
+                actions.setError(
+                    sessionId,
+                    'Summary is taking longer than expected. Please try again — it may succeed faster on retry.'
+                )
             }, SUMMARIZATION_TIMEOUT_MS)
 
             try {
@@ -199,12 +206,15 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
                     return
                 }
+                // Route the failure into the "Summary failed. Try again" banner. Without setError the
+                // dock would silently empty when loading flips to false (no summary, no error), leaving
+                // the user staring at the original "Use AI to summarize" button with no feedback.
                 if (err instanceof ApiError) {
                     lemonToast.error(err.message)
-                    actions.setLoading(sessionId, false)
+                    actions.setError(sessionId, err.message)
                 } else {
                     posthog.captureException(err)
-                    actions.setLoading(sessionId, false)
+                    actions.setError(sessionId, 'Something went wrong while generating the summary. Please try again.')
                 }
             } finally {
                 window.clearTimeout(timeout)

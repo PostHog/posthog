@@ -12,6 +12,7 @@ from google.genai import (
     Client as RawGenAIClient,
     types,
 )
+from google.genai.errors import APIError, ClientError, ServerError
 
 from posthog.schema import ReplayInactivityPeriod
 
@@ -75,10 +76,19 @@ async def upload_video_to_gemini_activity(
                 video_size_bytes=len(video_bytes),
                 signals_type="session-summaries",
             )
-            uploaded_file = await sync_to_async(raw_client.files.upload, thread_sensitive=False)(
-                file=tmp_file.name,
-                config=types.UploadFileConfig(mime_type=asset.export_format, display_name=workflow_id),
-            )
+            try:
+                uploaded_file = await sync_to_async(raw_client.files.upload, thread_sensitive=False)(
+                    file=tmp_file.name,
+                    config=types.UploadFileConfig(mime_type=asset.export_format, display_name=workflow_id),
+                )
+            except (ValueError, APIError) as e:
+                # The Gemini SDK raises bare ValueError ("Upload status is not finalized.") and APIError
+                # subclasses (ClientError/ServerError) directly from the resumable upload path. Translate
+                # into a RuntimeError with session context so Temporal retries see a clear failure rather
+                # than a leaked SDK message, and the workflow logs surface the originating call site.
+                raise RuntimeError(
+                    f"Gemini files.upload failed for session {inputs.session_id}: {type(e).__name__}: {e}"
+                ) from e
 
         # Wrap both the missing-name guard and the track call in the same try so a Gemini
         # response without `.name` can't sneak past tracking and orphan a file.
@@ -125,7 +135,39 @@ async def upload_video_to_gemini_activity(
                 elapsed_seconds=elapsed,
                 signals_type="session-summaries",
             )
-            uploaded_file = await sync_to_async(raw_client.files.get, thread_sensitive=False)(name=gemini_file_name)
+            # files.get can hang well past MAX_PROCESSING_WAIT_SECONDS when Gemini is slow
+            # (observed 387.9s elapsed against a 300s budget), because the old loop only checked
+            # the budget at the top of each iteration. Cap the per-call wait by the remaining budget
+            # and translate APIError subclasses into RuntimeError so retries see a clear cause.
+            remaining_budget = MAX_PROCESSING_WAIT_SECONDS - (time.time() - wait_start_time)
+            if remaining_budget <= 0:
+                raise RuntimeError(
+                    f"File processing timed out after {time.time() - wait_start_time:.1f}s "
+                    f"before status check. State: {uploaded_file.state.name}"
+                )
+            try:
+                uploaded_file = await asyncio.wait_for(
+                    sync_to_async(raw_client.files.get, thread_sensitive=False)(name=gemini_file_name),
+                    timeout=remaining_budget,
+                )
+            except TimeoutError as e:
+                elapsed = time.time() - wait_start_time
+                raise RuntimeError(
+                    f"File processing timed out after {elapsed:.1f}s during status check. "
+                    f"State: {uploaded_file.state.name}"
+                ) from e
+            except ClientError as e:
+                # 400s during PROCESSING polling appear to be a transient Gemini-side race against
+                # the upload finalization. Let Temporal retry, but with session-scoped context.
+                raise RuntimeError(
+                    f"Gemini files.get failed during PROCESSING poll for session {inputs.session_id}: "
+                    f"ClientError: {e}"
+                ) from e
+            except ServerError as e:
+                # 5xx is clearly transient — same translation pattern for clean retry logs.
+                raise RuntimeError(
+                    f"Gemini files.get hit a server error for session {inputs.session_id}: ServerError: {e}"
+                ) from e
 
         final_state_name = uploaded_file.state.name if uploaded_file.state else None
         if final_state_name != "ACTIVE":

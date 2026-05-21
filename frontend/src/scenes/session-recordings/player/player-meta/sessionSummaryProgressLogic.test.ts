@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { sessionSummaryProgressLogic } from 'scenes/session-recordings/player/player-meta/sessionSummaryProgressLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -203,6 +203,87 @@ describe('sessionSummaryProgressLogic', () => {
             const lastByB = [...calls].reverse().find((c) => c[0] === idB)
             expect(lastByA?.[1]).toEqual(expect.objectContaining({ forceRestart: true }))
             expect(lastByB?.[1]).toEqual(expect.objectContaining({ forceRestart: false }))
+        })
+    })
+
+    describe('error surfacing on failure', () => {
+        // Before this fix the catch/timeout paths only flipped loading off without setting an error,
+        // so PlayerSummaryDock silently collapsed back to the entry-point button. The dock decides
+        // what to render via `hasSummary || sessionSummaryLoading || !!sessionSummaryError` — without
+        // any of these flags set, users had no idea their summarization attempt had failed.
+        let testCounter = 0
+        const freshId = (label = 's'): string => `${label}-err-${++testCounter}-${Date.now()}`
+
+        it('sets an error when the stream fails with an ApiError', async () => {
+            const sessionId = freshId()
+            ;((api as any).recordings.summarizeStream as jest.Mock).mockRejectedValueOnce(
+                new ApiError('Bad gateway', 502)
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(sessionId)
+            }).toFinishAllListeners()
+
+            expect(logic.values.errorBySessionId[sessionId]).toBe('Bad gateway')
+            expect(logic.values.loadingBySessionId[sessionId]).toBe(false)
+        })
+
+        it('sets a generic error when the stream fails with an unexpected exception', async () => {
+            const sessionId = freshId()
+            ;((api as any).recordings.summarizeStream as jest.Mock).mockRejectedValueOnce(
+                new Error('connection reset')
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.startSummarization(sessionId)
+            }).toFinishAllListeners()
+
+            expect(logic.values.errorBySessionId[sessionId]).toEqual(
+                expect.stringContaining('Something went wrong')
+            )
+            expect(logic.values.loadingBySessionId[sessionId]).toBe(false)
+        })
+
+        it('sets an error when the 10-minute summarization timeout fires', async () => {
+            jest.useFakeTimers()
+            const sessionId = freshId()
+            // Block the stream so the timeout wins the race.
+            ;((api as any).recordings.summarizeStream as jest.Mock).mockImplementationOnce(
+                () => new Promise(() => {})
+            )
+
+            logic.actions.startSummarization(sessionId)
+
+            // SUMMARIZATION_TIMEOUT_MS is 10 minutes — advance past it.
+            jest.advanceTimersByTime(10 * 60 * 1000 + 1)
+
+            expect(logic.values.errorBySessionId[sessionId]).toEqual(
+                expect.stringContaining('taking longer than expected')
+            )
+            expect(logic.values.loadingBySessionId[sessionId]).toBe(false)
+            jest.useRealTimers()
+        })
+
+        it('does not set an error on user-initiated cancellation', async () => {
+            const sessionId = freshId()
+            // Hold the stream open so we can cancel before it finishes.
+            ;((api as any).recordings.summarizeStream as jest.Mock).mockImplementationOnce(
+                async ({ signal }: { signal: AbortSignal }) =>
+                    new Promise((_, reject) => {
+                        signal.addEventListener('abort', () => {
+                            const abortErr = new DOMException('aborted', 'AbortError')
+                            reject(abortErr)
+                        })
+                    })
+            )
+
+            logic.actions.startSummarization(sessionId)
+            await expectLogic(logic, () => {
+                logic.actions.cancelSummarization(sessionId)
+            }).toFinishAllListeners()
+
+            expect(logic.values.errorBySessionId[sessionId] ?? null).toBeNull()
+            expect(logic.values.loadingBySessionId[sessionId]).toBe(false)
         })
     })
 })
