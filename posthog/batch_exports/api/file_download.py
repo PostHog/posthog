@@ -44,6 +44,7 @@ class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_null=True,
+        min_value=0,
         help_text="Split download into multiple files of at most this size in MB",
     )
 
