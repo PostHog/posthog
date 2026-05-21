@@ -108,13 +108,15 @@ export function InsightDisplayConfig(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
+    const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.FUNNELS_COMPARE]
     const showCompare =
         (isTrends &&
             display !== ChartDisplayType.ActionsAreaGraph &&
             display !== ChartDisplayType.CalendarHeatmap &&
             display !== ChartDisplayType.BoxPlot) ||
         isStickiness ||
-        isWebAnalyticsInsightQuery(querySource)
+        isWebAnalyticsInsightQuery(querySource) ||
+        (funnelsCompareEnabled && isTrendsFunnel)
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||

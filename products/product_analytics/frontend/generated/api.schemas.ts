@@ -1973,6 +1973,8 @@ export interface FunnelsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Compare to date range */
+    compareFilter?: CompareFilterApi | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
