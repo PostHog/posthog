@@ -108,13 +108,13 @@ def mock_events_data():
                 "$ai_error": "",
             },
         },
-        # Team 1: Pageviews on LLM Analytics
+        # Team 1: Pageviews on AI observability
         {
             "timestamp": base_time,
             "team_id": 1,
             "event": "$pageview",
             "properties": {
-                "$current_url": "https://app.posthog.com/project/123/llm-analytics/traces?filter=active",
+                "$current_url": "https://app.posthog.com/project/123/ai-observability/traces?filter=active",
             },
         },
         {
@@ -130,7 +130,7 @@ def mock_events_data():
             "team_id": 1,
             "event": "$pageview",
             "properties": {
-                "$current_url": "https://app.posthog.com/project/123/llm-analytics/generations",
+                "$current_url": "https://app.posthog.com/project/123/ai-observability/generations",
             },
         },
     ]

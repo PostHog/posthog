@@ -2815,6 +2815,7 @@ export interface WebOverviewQueryResponseApi {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -2847,6 +2848,8 @@ export interface WebOverviewQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -3058,6 +3061,7 @@ export interface Response4Api {
     samplingRate?: SamplingRateApi | null
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -6549,10 +6553,17 @@ export interface ChartAxisApi {
     settings?: SettingsApi | null
 }
 
+/**
+ * Per-breakdown-value color customizations. Keyed by the raw breakdown column value.
+ */
+export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
+
 export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+    resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null

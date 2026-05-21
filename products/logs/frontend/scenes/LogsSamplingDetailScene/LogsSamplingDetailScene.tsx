@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -55,7 +55,7 @@ export function LogsSamplingDetailScene(): JSX.Element {
 
 function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JSX.Element {
     const formProps = { rule }
-    const { deleteRule } = useActions(logsSamplingDetailSceneLogic)
+    const { deleteRule, loadRuleDropImpact24h } = useActions(logsSamplingDetailSceneLogic)
     const { setSamplingFormValue } = useActions(logsSamplingFormLogic(formProps))
     const { samplingForm, isSamplingFormSubmitting } = useValues(logsSamplingFormLogic(formProps))
     const { ruleDropImpact24h, ruleDropImpact24hLoading } = useValues(logsSamplingDetailSceneLogic)
@@ -93,14 +93,16 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
                 <SceneStickyBar>
                     <div className="flex items-center justify-between gap-2">
                         <div className="text-secondary text-sm flex items-center gap-1.5">
-                            {ruleDropImpact24hLoading ? (
-                                <span className="text-muted">Loading drop impact…</span>
-                            ) : ruleDropImpact24h === null ? (
+                            {ruleDropImpact24h === null && !ruleDropImpact24hLoading ? (
                                 <span className="text-muted" title="Drop impact for the last 24 hours is not available">
                                     —
                                 </span>
+                            ) : ruleDropImpact24h === null ? (
+                                <span className="text-muted">Loading drop impact…</span>
                             ) : (
                                 <>
+                                    {/* Keep the last known number visible during a manual refresh so
+                                        users can compare before / after rather than seeing it disappear. */}
                                     <span>
                                         ~{compactNumber(ruleDropImpact24h)} log lines dropped in the last 24 hours
                                         (ingestion).
@@ -109,7 +111,9 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
                                         title={
                                             <>
                                                 From app metrics keyed by this rule. Service-scoped rules only affect
-                                                that service; others are counted across the project.
+                                                that service; others are counted across the project. Numbers can lag a
+                                                minute or two — refresh after a short wait if you just enabled or edited
+                                                the rule.
                                             </>
                                         }
                                     >
@@ -117,6 +121,16 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
                                     </Tooltip>
                                 </>
                             )}
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconRefresh />}
+                                onClick={() => loadRuleDropImpact24h(undefined)}
+                                loading={ruleDropImpact24hLoading}
+                                disabledReason={ruleDropImpact24hLoading ? 'Refreshing…' : undefined}
+                                tooltip="Refresh drop impact (last 24h)"
+                                aria-label="Refresh drop impact"
+                            />
                         </div>
                         <LemonButton
                             type="primary"

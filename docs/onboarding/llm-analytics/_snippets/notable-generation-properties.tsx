@@ -18,7 +18,7 @@ export const NotableGenerationProperties = (): JSX.Element => {
                     | \`$ai_output_choices\` | List of response choices from the LLM |
                     | \`$ai_output_tokens\` | The number of tokens in the output (often found in \`response.usage\`) |
                     | \`$ai_total_cost_usd\` | The total cost in USD (input + output) |
-                    | [[...]](https://posthog.com/docs/llm-analytics/generations#event-properties) | See [full list](https://posthog.com/docs/llm-analytics/generations#event-properties) of properties|
+                    | [[...]](https://posthog.com/docs/ai-observability/generations#event-properties) | See [full list](https://posthog.com/docs/ai-observability/generations#event-properties) of properties|
                 `}
             </Markdown>
         </>

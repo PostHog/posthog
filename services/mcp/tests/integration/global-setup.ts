@@ -17,9 +17,7 @@ function uiAppsAlreadyBuilt(): boolean {
     if (!existsSync(UI_APPS_DIR)) {
         return false
     }
-    return readdirSync(UI_APPS_DIR).some((name) =>
-        existsSync(resolve(UI_APPS_DIR, name, 'main.js'))
-    )
+    return readdirSync(UI_APPS_DIR).some((name) => existsSync(resolve(UI_APPS_DIR, name, 'main.js')))
 }
 
 export async function setup(): Promise<void> {

@@ -376,7 +376,7 @@ const handleRequest = async (
 
     const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
 
-    const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
+    const readOnlyRaw = request.headers.get('x-posthog-read-only') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the

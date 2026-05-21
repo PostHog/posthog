@@ -40,12 +40,16 @@ class StatsTableQueryStrategy(ABC):
         return query
 
 
-class MainQueryStrategy(StatsTableQueryStrategy):
-    """Default query for most breakdown types.
+class SimpleBreakdownStrategy(StatsTableQueryStrategy):
+    """Default query for simple-dimension breakdowns.
 
-    Used by all UTM / device / browser / OS / geo / language / timezone
+    Used by UTM / device / browser / OS / geo / language / timezone
     breakdowns, PAGE with conversion goals or without special metrics,
     and INITIAL_PAGE with bounce rate (via *breakdown_override*).
+
+    INITIAL_CHANNEL_TYPE has its own ``ChannelTypeStrategy`` subclass so
+    the query tag can be attributed separately even though the SQL shape
+    is identical.
     """
 
     def __init__(
@@ -138,6 +142,22 @@ class MainQueryStrategy(StatsTableQueryStrategy):
             query.select.append(ast.Alias(alias="conversion_person_id", expr=self.runner.conversion_person_id_expr))
 
         return query
+
+
+class ChannelTypeStrategy(SimpleBreakdownStrategy):
+    """INITIAL_CHANNEL_TYPE breakdown.
+
+    Shares the ``MAIN_INNER_QUERY`` skeleton with ``SimpleBreakdownStrategy``,
+    but the breakdown value ``session.$channel_type`` is NOT a single field
+    lookup. In ``sessions_v2.py`` it unfolds via ``create_channel_type_expr``
+    into a multi-input case expression composing ten entry-level session
+    fields (``$entry_utm_{campaign,medium,source}``,
+    ``$entry_{current_url,hostname,pathname,referring_domain,gad_source}``,
+    plus ``isNotNull`` on ``$entry_{gclid,fbclid}``) and applies any
+    ``customChannelTypeRules`` from the query modifiers. That makes
+    per-row work materially heavier than other simple breakdowns, which
+    is why this gets its own tag for attribution even though the outer
+    SQL is the same template."""
 
 
 class PathBounceStrategy(StatsTableQueryStrategy):

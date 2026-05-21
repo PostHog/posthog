@@ -24,7 +24,6 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -33,6 +32,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -54,6 +54,7 @@ from products.notifications.backend.facade.api import (
 )
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +66,29 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
+
+
+def _strip_step_sessions(result: Any) -> Any:
+    """Remove the per-session funnel actors payload from a stored experiment metric result.
+
+    `step_sessions` powers the frontend's "view sessions per step" affordance off
+    a separate per-metric query, not this timeseries endpoint. Carrying it through
+    here multiplies the response by sessions × steps × variants and pushes MCP
+    consumers past their context window with no benefit.
+    """
+    if not isinstance(result, Mapping):
+        return result
+    cleaned = {k: v for k, v in result.items() if k != "step_sessions"}
+    baseline = cleaned.get("baseline")
+    if isinstance(baseline, dict):
+        cleaned["baseline"] = {k: v for k, v in baseline.items() if k != "step_sessions"}
+    variants = cleaned.get("variant_results")
+    if isinstance(variants, list):
+        cleaned["variant_results"] = [
+            {k: v for k, v in variant.items() if k != "step_sessions"} if isinstance(variant, dict) else variant
+            for variant in variants
+        ]
+    return cleaned
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -798,6 +822,13 @@ class ExperimentService:
             "aggregation_group_type_index": aggregation_group_type_index,
             **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
+
+        # Per-variant payloads (variant_key -> JSON string). Callers pass this when they need to
+        # attach metadata that the SDK can read alongside the variant assignment, e.g. prompt
+        # experiments map each variant to {"prompt_name": ..., "prompt_version": ...}.
+        feature_flag_payloads = params.get("feature_flag_payloads")
+        if feature_flag_payloads:
+            feature_flag_filters["payloads"] = feature_flag_payloads
 
         feature_flag_data: dict[str, Any] = {
             "key": feature_flag_key,
@@ -1598,10 +1629,15 @@ class ExperimentService:
         saved_metrics_data: list[dict] = update_data.pop("saved_metrics_ids", []) or []
         update_data.pop("get_feature_flag_key", None)
 
-        # --- saved metrics replacement (delete-all / re-create) -----------
+        # --- saved metrics sync (update-in-place) -----------
         old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
         if update_saved_metrics:
-            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+            existing_links = {
+                link.saved_metric_id: link
+                for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
+            }
+
+            for link in existing_links.values():
                 if link.saved_metric.query:
                     uuid = link.saved_metric.query.get("uuid")
                     if uuid:
@@ -1611,18 +1647,35 @@ class ExperimentService:
                         else:
                             old_saved_metric_uuids["secondary"].add(uuid)
 
-            experiment.experimenttosavedmetric_set.all().delete()
+            new_saved_metric_ids = {sm["id"] for sm in saved_metrics_data}
+            existing_saved_metric_ids = set(existing_links.keys())
+
+            # Delete links no longer in the list (one by one to trigger activity logging)
+            to_delete = existing_saved_metric_ids - new_saved_metric_ids
+            for saved_metric_id in to_delete:
+                existing_links[saved_metric_id].delete()
+
+            # Update or create links
             for saved_metric_data in saved_metrics_data:
-                saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                    data={
-                        "experiment": experiment.id,
-                        "saved_metric": saved_metric_data["id"],
-                        "metadata": saved_metric_data.get("metadata"),
-                    },
-                    context=context,
-                )
-                saved_metric_serializer.is_valid(raise_exception=True)
-                saved_metric_serializer.save()
+                saved_metric_id = saved_metric_data["id"]
+                new_metadata = saved_metric_data.get("metadata") or {}
+
+                if saved_metric_id in existing_links:
+                    existing_link = existing_links[saved_metric_id]
+                    if (existing_link.metadata or {}) != new_metadata:
+                        existing_link.metadata = new_metadata
+                        existing_link.save(update_fields=["metadata", "updated_at"])
+                else:
+                    saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                        data={
+                            "experiment": experiment.id,
+                            "saved_metric": saved_metric_id,
+                            "metadata": new_metadata,
+                        },
+                        context=context,
+                    )
+                    saved_metric_serializer.is_valid(raise_exception=True)
+                    saved_metric_serializer.save()
 
         # --- feature flag sync ------------------------------------------------
         # Draft experiments always sync parameters to the linked feature flag.
@@ -2101,6 +2154,10 @@ class ExperimentService:
                 except ValueError:
                     raise ValidationError("feature_flag_id must be an integer")
 
+            prompt_name = query_params.get("prompt_name")
+            if prompt_name:
+                queryset = queryset.filter(parameters__prompt_metadata__name=prompt_name)
+
         search = query_params.get("search")
         if search:
             queryset = queryset.filter(Q(name__icontains=search))
@@ -2299,7 +2356,7 @@ class ExperimentService:
                 metric_result = results_by_date[experiment_date]
 
                 if metric_result.status == "completed":
-                    timeseries[date_key] = metric_result.result
+                    timeseries[date_key] = _strip_step_sessions(metric_result.result)
                     completed_count += 1
                 elif metric_result.status == "failed":
                     if metric_result.error_message:
@@ -2337,7 +2394,7 @@ class ExperimentService:
 
         first_result = metric_results.first()
         last_result = metric_results.last()
-        return {
+        response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
@@ -2349,6 +2406,8 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
+        return response
 
     def request_timeseries_recalculation(
         self,

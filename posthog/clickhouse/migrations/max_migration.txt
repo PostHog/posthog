@@ -1,1 +1,1 @@
-0253_drop_dead_msk_kafka_tables
+0257_property_values_count_column

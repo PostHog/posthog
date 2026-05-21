@@ -77,7 +77,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import Action, Insight, Organization, Team, User
+from posthog.models import Insight, Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
@@ -197,6 +197,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
@@ -275,7 +276,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     )
 
     # remove version suffix from funnel UDFs
-    query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
+    query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)

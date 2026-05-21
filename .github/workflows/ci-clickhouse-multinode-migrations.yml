@@ -1,0 +1,143 @@
+name: ClickHouse Multinode Migration Smoke
+
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+        paths:
+            - 'posthog/clickhouse/migrations/**'
+            - 'posthog/settings/data_stores.py'
+            - 'posthog/clickhouse/cluster.py'
+            - 'posthog/clickhouse/client/migration_tools.py'
+            - 'docker/clickhouse/config.d/multinode/**'
+            - 'docker-compose.multinode-clickhouse.yml'
+            - 'tools/infra-scripts/clickhouse-multinode/**'
+            - '.github/workflows/ci-clickhouse-multinode-migrations.yml'
+    merge_group:
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    multinode-migration-smoke:
+        name: Run ClickHouse migrations against per-cluster topology
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        env:
+            DEBUG: '1'
+            MULTINODE_CLICKHOUSE: '1'
+            CLICKHOUSE_HOST: localhost
+            CLICKHOUSE_MIGRATIONS_HOST: localhost
+            CLICKHOUSE_DATABASE: posthog
+            CLICKHOUSE_USER: default
+            CLICKHOUSE_PASSWORD: ''
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            REDIS_URL: 'redis://localhost'
+            # unsafe - for testing only
+            SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+            # PostHogConfig.ready() calls setup_async_migrations() which reads
+            # posthog_asyncmigration / posthog_instancesetting. Skip it so the
+            # smoke can run against a schema-only Postgres dump.
+            SKIP_ASYNC_MIGRATIONS_SETUP: '1'
+            # If the "Restore Postgres schema cache" step below succeeds, this
+            # file exists and the smoke script primes Postgres from it instead
+            # of running a full `manage.py migrate`. Cache miss → file absent →
+            # script falls back to migrate automatically.
+            PRIME_POSTGRES_FROM: schema.sql.gz
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Needed for `git merge-base HEAD^2 origin/master` so we can key
+                  # the Postgres schema cache by the PR's merge base, matching
+                  # the producer in ci-backend.yml.
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Fetch current PR base for schema cache key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # actions/checkout only populates the synthetic PR merge ref; the
+              # base ref has to be fetched explicitly for `git merge-base` to
+              # resolve it.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Add multinode hostnames to /etc/hosts
+              run: |
+                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions kafka zookeeper" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Compute Postgres schema cache key
+              id: schema-key
+              if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  # On merge_group the queue branch is built directly on top of
+                  # this base SHA (latest master), so it is exactly the SHA the
+                  # cache producer keyed off — no merge-base computation needed.
+                  MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+              run: |
+                  # ci-backend.yml's "Validate migrations" job dumps the post-PR
+                  # schema and caches it keyed by master SHA. PR jobs key off the
+                  # merge base so they restore the dump produced by the commit
+                  # their branch diverged from; merge_group jobs key off the
+                  # queue's base SHA directly.
+                  if [ "${GITHUB_EVENT_NAME}" = "merge_group" ]; then
+                      BASE_SHA="${MERGE_GROUP_BASE_SHA}"
+                  else
+                      # fetch-depth: 1000 on checkout bounds how far back the
+                      # merge base can be found; older divergence yields an empty
+                      # result and the graceful fallback to `migrate` below.
+                      BASE_SHA=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  fi
+                  if [ -n "$BASE_SHA" ]; then
+                      echo "key=posthog-schema-master-${BASE_SHA}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "key=" >> "$GITHUB_OUTPUT"
+                      echo "::notice::base SHA not found — Postgres schema cache will be skipped"
+                  fi
+
+            - name: Restore Postgres schema cache
+              if: steps.schema-key.outputs.key != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.schema-key.outputs.key }}
+
+            - name: Run smoke test
+              run: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
+
+            - name: Dump compose logs on failure
+              if: failure()
+              run: |
+                  docker compose -f docker-compose.multinode-clickhouse.yml logs --no-color > multinode-compose.log || true
+
+            - name: Upload compose logs on failure
+              if: failure()
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+              with:
+                  name: multinode-compose-logs
+                  path: multinode-compose.log
+                  if-no-files-found: ignore

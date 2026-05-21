@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-18 20:28:30 UTC
+// Generated at: 2026-05-21 20:31:36 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -21,14 +21,12 @@ export type CanonicalProvider =
     | 'anthropic'
     | 'anthropic-2'
     | 'arcee-ai'
-    | 'arcee-ai-prime'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp8'
-    | 'baseten-2'
     | 'baseten-fp4'
     | 'cerebras-fp16'
     | 'chutes-fp4'
@@ -86,6 +84,7 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'

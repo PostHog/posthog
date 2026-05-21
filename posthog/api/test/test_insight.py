@@ -595,7 +595,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["short_id"], "12345678")
-        self.assertEqual(response.json()["results"][0]["filters"]["events"][0]["id"], "$pageview")
+        self.assertEqual(response.json()["results"][0]["query"]["source"]["series"][0]["event"], "$pageview")
 
     @parameterized.expand(
         [

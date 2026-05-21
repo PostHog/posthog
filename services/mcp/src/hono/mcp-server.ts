@@ -17,13 +17,14 @@ import {
     initMcpAnalytics,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { type RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
+import type { ContextMillResource } from '@/resources/manifest-types'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
@@ -33,6 +34,12 @@ import { type Context, type Env, type State, type Tool } from '@/tools/types'
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl, getEnv } from './constants'
 import { initDurationSeconds, toolCallDurationSeconds, toolCallsTotal } from './metrics'
+import type { ToolCatalog, ToolCatalogFilterOptions } from './tool-catalog'
+
+export interface WarmupData {
+    catalog: ToolCatalog
+    resourceEntries: readonly ContextMillResource[]
+}
 
 export type { RequestProperties }
 
@@ -77,11 +84,13 @@ export class HonoMcpServer {
     private mcpProtocolVersion: string | undefined
     private mcpMode: McpMode | undefined
     private mcpVersion: number | undefined
+    private _warmup: WarmupData | undefined
 
-    constructor(redis: RedisLike, props: RequestProperties) {
+    constructor(redis: RedisLike, props: RequestProperties, warmup?: WarmupData) {
         this.props = props
         this.redis = redis
         this.env = getEnv()
+        this._warmup = warmup
         this.server = new McpServer(
             { name: 'PostHog', version: '1.0.0' },
             { instructions: instructionsFormatter.buildV1Instructions() }
@@ -132,7 +141,9 @@ export class HonoMcpServer {
             return customApiBaseUrl
         }
         if (process.env.NODE_ENV === 'production') {
-            throw new Error('POSTHOG_API_BASE_URL must be set in production — Hono deployments are regional and do not auto-detect.')
+            throw new Error(
+                'POSTHOG_API_BASE_URL must be set in production — Hono deployments are regional and do not auto-detect.'
+            )
         }
         return 'http://localhost:8010'
     }
@@ -363,13 +374,21 @@ export class HonoMcpServer {
     }
 
     private async initInner(): Promise<void> {
+        const _t0 = performance.now()
+        const _lap = (label: string): void => {
+            const elapsed = performance.now() - _t0
+            // oxlint-disable-next-line no-console
+            console.log(`[init-profile] ${label.padEnd(40)} +${elapsed.toFixed(0)}ms`)
+        }
+
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly, mode } = this.props
 
         await this.resolveClientInfo()
+        _lap('resolveClientInfo')
 
-        // Start feature flag resolution in parallel with cache seeding
+        // User-level flags resolve in parallel with cache seeding. Tool flags are
+        // deferred until orgId/projectUuid are known so group-scoped rollouts evaluate correctly.
         const flagPromise = this.resolveVersionFlag()
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
@@ -381,8 +400,11 @@ export class HonoMcpServer {
             cachedProjectId = projectId
             await this.cache.set('projectId', projectId)
         }
+        _lap('cache seeding')
 
         const context = await this.getContext()
+        _lap('getContext')
+
         if (!cachedProjectId) {
             cachedProjectId = await this.cache.get('projectId')
         }
@@ -391,14 +413,21 @@ export class HonoMcpServer {
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
+        _lap('setDefaultOrgAndProject')
+
+        // Flag-eval groups mirror analytics `$groups` so per-organization and per-project
+        // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
+        const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
+        const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, flagGroups)
 
         const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             flagPromise,
             toolFlagsPromise,
             singleExecPromise,
-            // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
+        _lap('flags + getApiKey')
 
         const oauthClientName = (await this.cache.get('clientName')) || undefined
 
@@ -417,20 +446,17 @@ export class HonoMcpServer {
             clientVersion,
         })
 
-        // Fetch group types and metadata in parallel (cache is now seeded)
+        // Fetch group types, metadata, and AI consent in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
-        const [groupTypes, metadata] = await Promise.all([
-            (async () => {
-                if (!resolvedProjectId) {
-                    return undefined
-                }
-                const apiKey = await context.stateManager.getApiKey()
-                return hasScope(apiKey.scopes, 'group:read')
-                    ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                    : undefined
-            })(),
+        const apiKeyScopes = _apiKey?.scopes ?? []
+        const [groupTypes, metadata, aiConsentGiven] = await Promise.all([
+            resolvedProjectId && hasScope(apiKeyScopes, 'group:read')
+                ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
+                : undefined,
             context.stateManager.getEnvironmentPrompt(),
+            context.stateManager.getAiConsentGiven(),
         ])
+        _lap('groupTypes + metadata')
 
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
@@ -441,21 +467,19 @@ export class HonoMcpServer {
             excludeTools.push('switch-organization')
         }
 
-        // Fetch tools up-front so we can build the query tool catalog (and the
-        // CLI exec tool's domain list) before constructing the system prompt.
-        const { getToolsFromContext } = await import('@/tools')
-        const allTools = await getToolsFromContext(context, {
+        // Resolve tools — use pre-built catalog when available, else fall back to full init
+        const allTools = await this.resolveTools(context, {
             features,
             tools,
             version,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
+            scopes: apiKeyScopes,
+            aiConsentGiven: aiConsentGiven ?? undefined,
         })
+        _lap(`resolveTools (${allTools.length} tools, catalog=${!!this._warmup?.catalog.warmedUp})`)
 
-        // OAuth introspection ran above (we awaited `getApiKey()` before constructing
-        // `clientProfile`), so update the ApiClient with the verified OAuth client
-        // name for header forwarding.
         if (oauthClientName && this._api) {
             this._api.config.oauthClientName = oauthClientName
         }
@@ -498,13 +522,18 @@ export class HonoMcpServer {
         }
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        _lap('new McpServer + instructions')
 
-        // Register prompts and resources
-        await Promise.all([
-            registerPrompts(this.server),
-            registerResources(this.server, context),
-            registerUiAppResources(this.server, context),
-        ])
+        // Register prompts and resources — use pre-parsed entries when available
+        await registerPrompts(this.server)
+        if (this._warmup?.resourceEntries.length) {
+            const { registerResourceEntries } = await import('@/resources')
+            registerResourceEntries(this.server, this._warmup.resourceEntries)
+        } else {
+            await registerResources(this.server, context)
+        }
+        await registerUiAppResources(this.server, context)
+        _lap('registerPrompts + registerResources')
 
         // execute-sql is v2-only. Swap its description with the rich SQL prompt.
         if (version === 2) {
@@ -590,6 +619,8 @@ export class HonoMcpServer {
         // $mcp_exec_tool_call_name from mcp_tool_call.
         const execInnerToolNames = useSingleExec ? allTools.map((t) => t.name) : undefined
 
+        _lap('registerTools')
+
         const initResult = await initMcpAnalytics(this.server, mcpAnalyticsIdentity, {
             contextEnabled: true,
             resolveExecInnerToolCall,
@@ -617,6 +648,8 @@ export class HonoMcpServer {
         // Resolve analytics context from the already-primed cache (getEnvironmentPrompt
         // above populated `cachedProject`/`cachedOrg`), so this is effectively free here.
         const analyticsContext = await this.getAnalyticsContextSafe(context)
+
+        _lap('initMcpAnalytics')
 
         void this.trackEvent(
             AnalyticsEvent.MCP_INIT,
@@ -662,6 +695,14 @@ export class HonoMcpServer {
         return { useSingleExec, version }
     }
 
+    private async resolveTools(context: Context, options: ToolCatalogFilterOptions): Promise<Tool<z.ZodObject>[]> {
+        if (this._warmup?.catalog.warmedUp) {
+            return this._warmup.catalog.getFilteredTools(options) as Tool<z.ZodObject>[]
+        }
+        const { getToolsFromContext } = await import('@/tools')
+        return (await getToolsFromContext(context, options)) as Tool<z.ZodObject>[]
+    }
+
     private async resolveVersionFlag(): Promise<number | undefined> {
         try {
             const distinctId = await this.getDistinctId()
@@ -680,7 +721,10 @@ export class HonoMcpServer {
         }
     }
 
-    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+    private async resolveToolFeatureFlags(
+        version?: number,
+        groups?: FlagGroups
+    ): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
             const flagKeys = getRequiredFeatureFlags(version)
@@ -688,7 +732,7 @@ export class HonoMcpServer {
                 return undefined
             }
             const distinctId = await this.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId)
+            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
             return undefined
         }

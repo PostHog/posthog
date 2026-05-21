@@ -6,7 +6,7 @@ import {
     isExperimentRatioMetric,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { VariantTag } from '~/scenes/experiments/ExperimentView/components'
+import { VariantTag } from '~/scenes/experiments/ExperimentView/VariantTag'
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
