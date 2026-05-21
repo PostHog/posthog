@@ -370,7 +370,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesResolved && (
+            {allChangesResolved && !ciRetriggerUnavailableReason && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -378,7 +378,6 @@ export function VisualReviewRunScene(): JSX.Element {
                         children: 'Re-trigger CI',
                         loading: isRecomputing,
                         onClick: recomputeRun,
-                        disabledReason: ciRetriggerUnavailableReason,
                         'data-attr': 'visual-review-recompute-run',
                     }}
                 >
