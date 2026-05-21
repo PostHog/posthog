@@ -236,7 +236,7 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
         }
         const { properties } = userVisibleTurn
         const rawInput = properties.$ai_input ?? properties.$ai_input_state
-        const rawOutput = properties.$ai_output_choices ?? properties.$ai_output_state
+        const rawOutput = properties.$ai_output_choices ?? properties.$ai_output_state ?? properties.$ai_output
         const tools = properties.$ai_tools
 
         const inputMessages = normalizeMessages(rawInput, 'user', tools)

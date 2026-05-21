@@ -18,6 +18,7 @@ import {
 import { InsightLogicProps } from '~/types'
 
 import { SessionTurn, extractSessionTurns } from './conversationDedup'
+import { llmAnalyticsSummarizationBatchCheckCreate } from './generated/api'
 import type { llmAnalyticsSessionDataLogicType } from './llmAnalyticsSessionDataLogicType'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { restoreTree } from './llmAnalyticsTraceDataLogic'
@@ -230,14 +231,10 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 }
 
                 try {
-                    // nosemgrep: prefer-codegen-api
-                    const data = await api.create(
-                        `api/environments/${teamId}/llm_analytics/summarization/batch_check/`,
-                        {
-                            trace_ids: traceIds,
-                            mode: 'minimal',
-                        }
-                    )
+                    const data = await llmAnalyticsSummarizationBatchCheckCreate(String(teamId), {
+                        trace_ids: traceIds,
+                        mode: 'minimal',
+                    })
 
                     if (data.summaries && data.summaries.length > 0) {
                         actions.loadCachedSummariesSuccess(data.summaries)
