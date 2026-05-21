@@ -1161,7 +1161,25 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
-                  ./bin/hogli build:openapi
+                  if ! ./bin/hogli build:openapi; then
+                      echo ""
+                      echo "::error::OpenAPI schema generation failed."
+                      echo ""
+                      echo "If the failure above mentions \"enum naming encountered a non-optimally"
+                      echo "resolvable collision\" or \"SchemaGenerationError: Failing as requested due"
+                      echo "to warnings\", drf-spectacular found a problem in a serializer/viewset and"
+                      echo "\`--fail-on-warn\` turned it into an error."
+                      echo ""
+                      echo "Diagnose locally:"
+                      echo "  python manage.py find_enum_collisions   # prints a suggested override entry to add"
+                      echo "  hogli build:openapi-schema              # to reproduce the full warning set"
+                      echo ""
+                      echo "Where to fix:"
+                      echo "  posthog/settings/web.py                 # ENUM_NAME_OVERRIDES (see comment block at the top)"
+                      echo "  /improving-drf-endpoints                # invoke this skill for the full serializer/viewset guide"
+                      echo ""
+                      exit 1
+                  fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
