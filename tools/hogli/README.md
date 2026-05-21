@@ -111,6 +111,7 @@ my:command:
   description: Short description for --help
   destructive: true # Prompts for confirmation before running
   hidden: true # Hides from --help (still runnable)
+  needs_secrets: true # Triggers the configured `env.secrets.wrap` (see below)
 ```
 
 ## Python Commands
@@ -288,17 +289,39 @@ config:
       wrap: [op, run, --env-file, '{file}', --]
 ```
 
-What happens at startup:
+Opt commands into the wrap with `needs_secrets: true` on the manifest entry:
+
+```yaml
+start:
+  bin_script: start
+  description: Launch the dev stack
+  needs_secrets: true # this command needs runtime secrets resolved
+```
+
+Commands without the flag never trigger the wrap — important because some
+wrap binaries (1Password's `op` on macOS, for example) prompt for biometric
+auth on every invocation, and you don't want lint / format / typecheck /
+pre-commit hooks pulling on that. The built-in `hogli run <cmd>` always
+opts in, since its whole job is to forward the resolved env.
+
+What happens at startup, for a command that opted in:
 
 1. If the secrets file exists AND contains `marker` AND `wrap[0]` is on `PATH`:
    hogli re-execs itself under `wrap` (with `{file}` substituted to the
    absolute path of the secrets file). The wrap binary resolves secrets and
    re-runs hogli with them in the env. A `HOGLI_SECRETS_WRAPPED=1` sentinel
-   prevents infinite re-exec loops.
+   is set in the wrap-child's env and is **inherited by any subprocesses it
+   spawns** (so composite commands like `dev:reset` only prompt for auth
+   once, not once per step).
 2. If the wrap binary is missing or the marker isn't present, hogli loads the
    file directly with marker-matching lines skipped (so unresolved `op://...`
    strings don't leak as garbage env values that produce confusing 401s
    downstream — only literal values get loaded).
+
+For commands without `needs_secrets: true`, hogli skips the wrap entirely
+and only loads literal values from the secrets file (marker-matching lines
+are skipped). So `.env.local` stays useful for non-secret overrides
+(`DEBUG=1` etc.) even when the wrap doesn't fire.
 
 Precedence in either path (highest wins): shell env > secrets file > env
 files. So a literal override in `.env.local` always beats `.env.development`,
