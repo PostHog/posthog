@@ -117,6 +117,8 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
+    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
+
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
 
@@ -619,6 +621,9 @@ export function EditAlertModal({
                                                 options={Object.values(AlertCalculationInterval).map((interval) => ({
                                                     label: alertCalculationIntervalToLabel(interval),
                                                     value: interval,
+                                                    hidden:
+                                                        interval === AlertCalculationInterval.EVERY_15_MINUTES &&
+                                                        !alerts15MinuteIntervalEnabled,
                                                 }))}
                                             />
                                         </LemonField>
