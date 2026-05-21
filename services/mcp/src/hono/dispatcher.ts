@@ -9,7 +9,7 @@ import { ToolCatalog } from './tool-catalog'
 
 import { AnalyticsBridge } from './analytics-bridge'
 import { InstructionsBuilder } from './instructions'
-import { RequestStateResolver } from './request-context'
+import { RequestStateResolver } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { ToolExecutor } from './tool-executor'
 import {
