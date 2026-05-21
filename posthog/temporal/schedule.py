@@ -652,8 +652,6 @@ schedules = [
     create_count_all_playlists_schedule,
     create_enforce_max_replay_retention_schedule,
     create_replay_count_metrics_schedule,
-    create_mcp_sessions_backfill_schedule,
-    create_mcp_session_intent_summary_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
     create_batch_generation_summarization_schedule,
