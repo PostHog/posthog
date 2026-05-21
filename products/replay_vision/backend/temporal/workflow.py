@@ -17,6 +17,8 @@ from products.replay_vision.backend.temporal.activities import (
     call_lens_provider_activity,
     cleanup_gemini_file_activity,
     create_observation_activity,
+    embed_indexer_observation_activity,
+    emit_classifier_tags_activity,
     emit_observation_event_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
@@ -26,12 +28,16 @@ from products.replay_vision.backend.temporal.activities import (
     upload_video_to_gemini_activity,
 )
 from products.replay_vision.backend.temporal.constants import APPLY_LENS_WORKFLOW_NAME
+from products.replay_vision.backend.temporal.lenses.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.lenses.indexer import IndexerOutput
 from products.replay_vision.backend.temporal.types import (
     ApplyLensInputs,
     CallLensProviderInputs,
     CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
+    EmbedIndexerObservationInputs,
+    EmitClassifierTagsInputs,
     EmitObservationEventInputs,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
@@ -85,6 +91,13 @@ _PROVIDER_CALL_RETRY = common.RetryPolicy(
 
 # Cleanup is best-effort; the cleanup sweep handles persistent failures.
 _CLEANUP_RETRY = common.RetryPolicy(maximum_attempts=2)
+
+# Side-effects (embeddings, tag emission) — bounded retries on transient transport failures.
+_SIDE_EFFECT_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=10),
+    maximum_attempts=3,
+)
 
 
 @wf.defn(name=APPLY_LENS_WORKFLOW_NAME)
@@ -142,6 +155,7 @@ class ApplyLensWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
+            await self._apply_lens_side_effects(inputs, observation_id, call_output.model_output)
             await wf.execute_activity(
                 emit_observation_event_activity,
                 EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
@@ -221,3 +235,32 @@ class ApplyLensWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
+
+    async def _apply_lens_side_effects(
+        self, inputs: ApplyLensInputs, observation_id: UUID, model_output: object
+    ) -> None:
+        """Dispatch lens-type-specific side-effects after the LLM call; failure aborts the workflow."""
+        if isinstance(model_output, IndexerOutput):
+            await wf.execute_activity(
+                embed_indexer_observation_activity,
+                EmbedIndexerObservationInputs(
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                    observation_id=observation_id,
+                    indexer_output=model_output,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_SIDE_EFFECT_RETRY,
+            )
+        elif isinstance(model_output, ClassifierOutput):
+            await wf.execute_activity(
+                emit_classifier_tags_activity,
+                EmitClassifierTagsInputs(
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                    observation_id=observation_id,
+                    classifier_output=model_output,
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_SIDE_EFFECT_RETRY,
+            )
