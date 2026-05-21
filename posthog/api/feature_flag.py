@@ -2364,9 +2364,10 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="JSON-encoded property filter to exclude. Same shape as the list endpoint.",
     )
-    tags = serializers.CharField(
+    tags = serializers.ListField(
+        child=serializers.CharField(),
         required=False,
-        help_text="Comma-separated list of tags to filter by.",
+        help_text="Tag names to filter by. Flags carrying at least one of these tags match.",
     )
     has_evaluation_contexts = serializers.BooleanField(
         required=False,
