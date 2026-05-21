@@ -905,9 +905,9 @@ snapshots:
     components-pay-gate-mini--pay-gate-mini-without-background--light:
         hash: v1.k794b7964.9a2b166ce4c603be1ede586ac7867f3d31840f6116bd61854300a7c57bb3df7a._1tSFJYtbZ2I5i0evHjkEzSxJyTgj14QfRMPgT4YT5w
     components-playerinspector--default--dark:
-        hash: v1.k794b7964.6efc71a468ea8cfe4d4d575a641a30a21f2bab9f6311638528970e5b1c548dc8.lcb8YdHYGtZei1DkblHfl1AuuwH_nBKRGwkn84wmThU
+        hash: v1.k794b7964.31676235fb000d8f24fa2d59f359f5c873a51574d5d923738c276e783cf464de.U6iGel8kxZkypRCcYK51gplXQtouRByW0_kzLu3RDaE
     components-playerinspector--default--light:
-        hash: v1.k794b7964.81c15efb893e451b59ba38fd200be8e1e19e1519848abc64fd194ac691104254.i5YV5J2T7R-9yKe6pT4NVr4qnYTspN8hNTGA7LnPPPM
+        hash: v1.k794b7964.b3544e7bcf1c4922bd5163e572c80594fde8d6b7a1ed63ab2eef552eaa7986d0.8TvvnVASecCwjzF8EAr2PAKtzXjBsAueZl4SCTnBHCE
     components-playerinspector--with-logs-filter--dark:
         hash: v1.k794b7964.537624adca851ef7e40b2919c9a4f1210f889d52e7252a2d9872b7e5505699c4.FPTbSCzHxm_zEN6ukUKgJmKnxcxa8lUCeRMeXkiKQ6g
     components-playerinspector--with-logs-filter--light:
@@ -3639,7 +3639,7 @@ snapshots:
     replay-overview-tab-other-watchers--with-multiple-viewers--light:
         hash: v1.k794b7964.d22f44e2d1941831f0698d29070517a7fa85cae0b3ffa10476509ce250050336.QJ6jRfOXmXeuYSA8-eNNZarZ9j2Sq9L8UZFT7spV2KU
     replay-player-controller--default--dark:
-        hash: v1.k794b7964.d16b928e8a845476fab0f3ebf713e8eb1c6f5888a12ecd5ee1e6fa61c8025e38.SlH6ZmNtP4Yl8TC7S6qnUqvqIi5i73E-NIQodSPfuZM
+        hash: v1.k794b7964.f9f275cbe293a453074a159e0b51856ece99ae281e791ffb67ab5c26330bf94d.M8RFmCHwm2YpbrHTHaJbTKJQvBvwe5-nl5fdF_7BITc
     replay-player-controller--default--light:
         hash: v1.k794b7964.9671cba9155a320fed566c2af1c303352509d9577bcd45608a3b280840aafe47.f9uZQir37Iop3BwxpCBxCU-l-rdkww4mcYVPdEcuNOo
     replay-player-controller--narrow--dark:
