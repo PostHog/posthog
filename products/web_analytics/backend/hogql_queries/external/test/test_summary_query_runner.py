@@ -23,7 +23,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
             properties=[],
         )
 
-    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.chdb")
     def test_calculate_success(self, mock_chdb):
         self.team.organization.is_platform = True
         self.team.organization.save()
@@ -43,7 +43,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         assert response.data["bounce_rate"] == 0.5  # 25/50
         assert mock_chdb.query.call_count == 2
 
-    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.chdb")
     def test_calculate_platform_access_required(self, mock_chdb):
         self.team.organization.is_platform = False
         self.team.organization.save()
@@ -56,7 +56,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         assert response.error.code == "platform_access_required"
         assert mock_chdb.query.call_count == 0
 
-    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.chdb")
     def test_calculate_query_execution_failed(self, mock_chdb):
         self.team.organization.is_platform = True
         self.team.organization.save()
@@ -70,7 +70,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         assert response.error is not None
         assert response.error.code == "query_execution_failed"
 
-    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.chdb")
     def test_calculate_empty_results(self, mock_chdb):
         self.team.organization.is_platform = True
         self.team.organization.save()
@@ -86,7 +86,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         assert response.data["total_pageviews"] == 0
         assert response.data["bounce_rate"] == 0.0
 
-    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.chdb")
+    @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.chdb")
     def test_bounce_rate_calculation_edge_cases(self, mock_chdb):
         self.team.organization.is_platform = True
         self.team.organization.save()
@@ -114,7 +114,7 @@ class TestWebAnalyticsExternalSummaryQueryRunner(APIBaseTest):
         runner = WebAnalyticsExternalSummaryQueryRunner(query=self.query, team=self.team)
         assert runner.can_use_s3_tables is False
 
-    @patch("posthog.hogql_queries.web_analytics.external.summary_query_runner.build_function_call")
+    @patch("products.web_analytics.backend.hogql_queries.external.summary_query_runner.build_function_call")
     def test_build_s3_table_functions(self, mock_build_function_call):
         mock_build_function_call.return_value = "s3('url', 'format', 'structure')"
 

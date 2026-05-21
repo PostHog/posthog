@@ -6,7 +6,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import generate_hea
 
 
 class TestHeatmapScreenshotTask(APIBaseTest):
-    @patch("posthog.tasks.heatmap_screenshot.sync_playwright")
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.sync_playwright")
     def test_generates_multiple_width_snapshots_and_marks_completed(self, mock_sync_playwright: MagicMock) -> None:
         # Arrange Playwright mocks
         mock_p = MagicMock()
@@ -50,7 +50,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         # Ensure we cleaned up the browser
         mock_browser.close.assert_called_once()
 
-    @patch("posthog.tasks.heatmap_screenshot.sync_playwright")
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.sync_playwright")
     def test_failure_marks_failed_and_records_exception(self, mock_sync_playwright: MagicMock) -> None:
         # Arrange: make playwright crash when entering context
         mock_sync_playwright.return_value.__enter__.side_effect = RuntimeError("boom")

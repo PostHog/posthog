@@ -135,7 +135,8 @@ class TestWebAnalyticsMetrics(TestCase):
         ],
     )
     @patch(
-        "posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value="user_123"
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value",
+        return_value="user_123",
     )
     def test_successful_query_emits_correct_labels(
         self, _name, query_kind, breakdown, conversion_goal, expected_labels, query_strategy, _mock_tag
@@ -156,7 +157,9 @@ class TestWebAnalyticsMetrics(TestCase):
         label_filter = {**expected_labels, "used_preaggregated": "true"}
         assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, label_filter) == 1.0
 
-    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
     def test_error_query_increments_error_counter(self, _mock_tag):
         runner = _make_runner(
             query_kind="WebStatsTableQuery",
@@ -184,7 +187,8 @@ class TestWebAnalyticsMetrics(TestCase):
         assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, counter_filter) == 1.0
 
     @patch(
-        "posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value="user_456"
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value",
+        return_value="user_456",
     )
     def test_canonical_log_line_emitted(self, _mock_tag):
         runner = _make_runner(query_kind="WebOverviewQuery", breakdown=None, properties=["fake_prop"])
@@ -194,7 +198,7 @@ class TestWebAnalyticsMetrics(TestCase):
 
         with (
             patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response),
-            patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.logger") as mock_logger,
+            patch("products.web_analytics.backend.hogql_queries.web_analytics_query_runner.logger") as mock_logger,
         ):
             WebAnalyticsQueryRunner.calculate(runner)
 
@@ -215,7 +219,9 @@ class TestWebAnalyticsMetrics(TestCase):
         assert kw["date_from"] == "2024-01-01"
         assert kw["date_to"] == "2024-01-07"
 
-    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
     def test_stats_table_log_line_includes_query_strategy(self, _mock_tag):
         runner = _make_runner(query_kind="WebStatsTableQuery", breakdown=WebStatsBreakdown.PAGE)
         cast(MagicMock, runner.query_strategy).return_value = "stats_table_path_bounce"
@@ -226,7 +232,7 @@ class TestWebAnalyticsMetrics(TestCase):
 
         with (
             patch.object(WebAnalyticsQueryRunner.__mro__[1], "calculate", return_value=fake_response),
-            patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.logger") as mock_logger,
+            patch("products.web_analytics.backend.hogql_queries.web_analytics_query_runner.logger") as mock_logger,
         ):
             WebAnalyticsQueryRunner.calculate(runner)
 
@@ -234,7 +240,9 @@ class TestWebAnalyticsMetrics(TestCase):
         assert mock_logger.info.call_args[1]["clickhouse_query_type"] == "stats_table_path_bounce_query"
 
     @parameterized.expand([(b.name, b) for b in WebStatsBreakdown])
-    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
     def test_all_breakdown_values_produce_valid_labels(self, _name, breakdown, _mock_tag):
         runner = _make_runner(breakdown=breakdown)
         fake_response = MagicMock()
@@ -246,7 +254,9 @@ class TestWebAnalyticsMetrics(TestCase):
         label_filter = {"breakdown": breakdown.value}
         assert _get_counter_value(WEB_ANALYTICS_QUERY_COUNTER, label_filter) >= 1.0
 
-    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
     def test_preaggregated_none_maps_to_unknown(self, _mock_tag):
         runner = _make_runner()
         fake_response = MagicMock()
@@ -263,7 +273,9 @@ class TestWebAnalyticsMetrics(TestCase):
             == 1.0
         )
 
-    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
     def test_response_missing_preaggregated_attr_maps_to_unknown(self, _mock_tag):
         runner = _make_runner()
         fake_response = MagicMock(spec=[])  # empty spec = no attributes
@@ -279,7 +291,9 @@ class TestWebAnalyticsMetrics(TestCase):
             == 1.0
         )
 
-    @patch("posthog.hogql_queries.web_analytics.web_analytics_query_runner.get_query_tag_value", return_value=None)
+    @patch(
+        "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.get_query_tag_value", return_value=None
+    )
     def test_strategy_resolution_failure_still_emits_error_metrics(self, _mock_tag):
         runner = _make_runner(query_kind="WebStatsTableQuery", breakdown=WebStatsBreakdown.PAGE)
         cast(MagicMock, runner.query_strategy).side_effect = RuntimeError("strategy boom")

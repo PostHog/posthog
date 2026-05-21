@@ -83,7 +83,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
     def setUp(self):
         super().setUp()
         patcher = patch(
-            "posthog.hogql_queries.web_analytics.stats_table.is_web_analytics_events_prefilter_team",
+            "products.web_analytics.backend.hogql_queries.stats_table.is_web_analytics_events_prefilter_team",
             return_value=False,
         )
         patcher.start()

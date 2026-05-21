@@ -19,7 +19,7 @@ class TestHeatmapsAPI(APIBaseTest):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
-    @patch("posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
     def test_generate_creates_saved_with_target_widths(self, mock_task):
         resp = self.client.post(
             f"/api/environments/{self.team.id}/saved/",
@@ -115,7 +115,7 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(r["Content-Type"], "image/jpeg")
         self.assertEqual(r.content, b"jpegdata1024")
 
-    @patch("posthog.heatmaps.heatmaps_api.generate_heatmap_screenshot")
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
     def test_retrieve_auto_recovers_stale_processing_heatmap(self, mock_task):
         saved = SavedHeatmap.objects.create(
             team=self.team,
@@ -139,7 +139,7 @@ class TestHeatmapsAPI(APIBaseTest):
         # Old snapshots were cleaned up
         self.assertEqual(HeatmapSnapshot.objects.filter(heatmap=saved).count(), 0)
 
-    @patch("posthog.heatmaps.heatmaps_api.generate_heatmap_screenshot")
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
     def test_retrieve_does_not_recover_recent_processing_heatmap(self, mock_task):
         saved = SavedHeatmap.objects.create(
             team=self.team,
@@ -155,7 +155,7 @@ class TestHeatmapsAPI(APIBaseTest):
         # Task was NOT re-enqueued (still within threshold)
         mock_task.delay.assert_not_called()
 
-    @patch("posthog.heatmaps.heatmaps_api.generate_heatmap_screenshot")
+    @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
     def test_regenerate_endpoint_re_enqueues_task(self, mock_task):
         saved = SavedHeatmap.objects.create(
             team=self.team,

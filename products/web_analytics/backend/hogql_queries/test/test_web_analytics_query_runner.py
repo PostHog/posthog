@@ -230,7 +230,7 @@ class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
 
         with mock.patch(
-            "posthog.hogql_queries.web_analytics.web_analytics_query_runner.tag_queries",
+            "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.tag_queries",
             wraps=tag_queries,
         ) as spy:
             runner.calculate()
@@ -247,7 +247,7 @@ class TestWebAnalyticsBreakdownTagging(ClickhouseTestMixin, APIBaseTest):
         runner = WebOverviewQueryRunner(team=self.team, query=query)
 
         with mock.patch(
-            "posthog.hogql_queries.web_analytics.web_analytics_query_runner.tag_queries",
+            "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.tag_queries",
             wraps=tag_queries,
         ) as spy:
             runner.calculate()
