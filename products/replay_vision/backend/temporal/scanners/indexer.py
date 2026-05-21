@@ -1,15 +1,15 @@
-"""Indexer lens: produces semantic facets for free-text search via embeddings."""
+"""Indexer scanner: produces semantic facets for free-text search via embeddings."""
 
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.replay_vision.backend.models.replay_lens import LensType
-from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLensOutput
+from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
 
 
-class IndexerLlmResponse(BaseLensOutput, frozen=True):
-    """LLM-facing schema: the model decides these fields; `lens_type` is stamped by the workflow in `finalize`."""
+class IndexerLlmResponse(BaseScannerOutput, frozen=True):
+    """LLM-facing schema: the model decides these fields; `scanner_type` is stamped by the workflow in `finalize`."""
 
     intent: str = Field(
         description=(
@@ -53,16 +53,16 @@ class IndexerLlmResponse(BaseLensOutput, frozen=True):
 
 
 class IndexerOutput(IndexerLlmResponse, frozen=True):
-    """Persisted output: adds the discriminator for the `AnyLensOutput` union."""
+    """Persisted output: adds the discriminator for the `AnyScannerOutput` union."""
 
-    lens_type: Literal[LensType.INDEXER] = LensType.INDEXER
+    scanner_type: Literal[ScannerType.INDEXER] = ScannerType.INDEXER
 
 
-class IndexerLens(BaseLens, frozen=True, extra="forbid"):
+class IndexerScanner(BaseScanner, frozen=True, extra="forbid"):
     # `extra='forbid'` surfaces stale config (e.g. legacy `prompt`) instead of ignoring it.
-    lens_type: Literal[LensType.INDEXER] = LensType.INDEXER
+    scanner_type: Literal[ScannerType.INDEXER] = ScannerType.INDEXER
     prompt_template: ClassVar[str] = "indexer.jinja"
-    output_cls: ClassVar[type[BaseLensOutput]] = IndexerOutput
+    output_cls: ClassVar[type[BaseScannerOutput]] = IndexerOutput
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:

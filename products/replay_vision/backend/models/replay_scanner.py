@@ -5,7 +5,7 @@ from django.utils import timezone
 from posthog.models.utils import UUIDModel
 
 
-class LensType(models.TextChoices):
+class ScannerType(models.TextChoices):
     MONITOR = "monitor", "Monitor"
     CLASSIFIER = "classifier", "Classifier"
     SCORER = "scorer", "Scorer"
@@ -13,16 +13,16 @@ class LensType(models.TextChoices):
     INDEXER = "indexer", "Indexer"
 
 
-class LensProvider(models.TextChoices):
+class ScannerProvider(models.TextChoices):
     GOOGLE = "google", "Google"
 
 
-class LensModel(models.TextChoices):
+class ScannerModel(models.TextChoices):
     GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
     GEMINI_3_FLASH_LITE = "gemini-3.1-flash-lite-preview", "Gemini 3 Flash Lite"
 
 
-class ReplayLens(UUIDModel):
+class ReplayScanner(UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -30,11 +30,11 @@ class ReplayLens(UUIDModel):
     description = models.TextField(
         blank=True,
         default="",
-        help_text="Free-form description for the lens management UI. Not used by the model.",
+        help_text="Free-form description for the scanner management UI. Not used by the model.",
     )
 
-    lens_type = models.CharField(max_length=32, choices=LensType.choices)
-    lens_config = models.JSONField(default=dict, help_text="Type-specific configuration; always includes `prompt`.")
+    scanner_type = models.CharField(max_length=32, choices=ScannerType.choices)
+    scanner_config = models.JSONField(default=dict, help_text="Type-specific configuration; always includes `prompt`.")
     query = models.JSONField(
         default=dict,
         help_text="Persisted `posthog.schema.RecordingsQuery` shape; date_from/date_to stripped on save.",
@@ -45,22 +45,22 @@ class ReplayLens(UUIDModel):
         help_text="0..1 random downsample applied after the query matches.",
     )
 
-    provider = models.CharField(max_length=32, choices=LensProvider.choices, default=LensProvider.GOOGLE)
-    model = models.CharField(max_length=64, choices=LensModel.choices)
+    provider = models.CharField(max_length=32, choices=ScannerProvider.choices, default=ScannerProvider.GOOGLE)
+    model = models.CharField(max_length=64, choices=ScannerModel.choices)
 
     enabled = models.BooleanField(
         default=True,
-        help_text="When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work.",
+        help_text="When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
     )
     emits_signals = models.BooleanField(default=False)
 
-    lens_version = models.PositiveIntegerField(
+    scanner_version = models.PositiveIntegerField(
         default=1,
         help_text="Increments on every config-changing save. Observations snapshot the version that produced them.",
     )
     last_swept_at = models.DateTimeField(
         default=timezone.now,
-        help_text="Watermark for the lens schedule's last fire; mirrors Temporal schedule state for recovery.",
+        help_text="Watermark for the scanner schedule's last fire; mirrors Temporal schedule state for recovery.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -69,10 +69,10 @@ class ReplayLens(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="replay_lens_unique_team_name"),
+            models.UniqueConstraint(fields=["team", "name"], name="replay_scanner_unique_team_name"),
             models.CheckConstraint(
                 condition=models.Q(sampling_rate__gte=0.0) & models.Q(sampling_rate__lte=1.0),
-                name="replay_lens_sampling_rate_range",
+                name="replay_scanner_sampling_rate_range",
             ),
         ]
         indexes = [
@@ -80,8 +80,8 @@ class ReplayLens(UUIDModel):
         ]
 
     _VERSION_TRACKED_FIELDS = (
-        "lens_type",
-        "lens_config",
+        "scanner_type",
+        "scanner_config",
         "query",
         "sampling_rate",
         "provider",
@@ -96,16 +96,18 @@ class ReplayLens(UUIDModel):
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
         if self.pk and relevant:
-            # SELECT FOR UPDATE so concurrent saves can't both bump lens_version from the same baseline.
+            # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
-                old = type(self).objects.select_for_update().filter(pk=self.pk).only("lens_version", *relevant).first()
+                old = (
+                    type(self).objects.select_for_update().filter(pk=self.pk).only("scanner_version", *relevant).first()
+                )
                 if old is not None and any(getattr(old, f) != getattr(self, f) for f in relevant):
-                    self.lens_version = old.lens_version + 1
+                    self.scanner_version = old.scanner_version + 1
                     if update_fields is not None:
-                        kwargs["update_fields"] = [*update_fields, "lens_version"]
+                        kwargs["update_fields"] = [*update_fields, "scanner_version"]
                 super().save(*args, **kwargs)
             return
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.lens_type})"
+        return f"{self.name} ({self.scanner_type})"

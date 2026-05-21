@@ -5,41 +5,41 @@ import { LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@p
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
-import { replayLensLogic } from '../replayLensLogic'
-import { SummarizerLensConfig } from '../types'
+import { replayScannerLogic } from '../replayScannerLogic'
+import { SummarizerScannerConfig } from '../types'
 
-const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerLensConfig['length']; label: string }[] = [
+const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
     { value: 'medium', label: 'Medium (1 paragraph)' },
     { value: 'long', label: 'Long (3-5 paragraphs)' },
 ]
 
-export function LensTypeConfigEditor({ lensId, tabId }: { lensId: string; tabId: string }): JSX.Element {
-    const { lens } = useValues(replayLensLogic({ id: lensId, tabId }))
+export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
 
-    if (!lens) {
+    if (!scanner) {
         return <div className="text-muted">Loading…</div>
     }
 
-    if (lens.lens_type === 'summarizer') {
+    if (scanner.scanner_type === 'summarizer') {
         return (
             <div className="space-y-4">
-                <Field name="lens_config.prompt" label="Prompt">
+                <Field name="scanner_config.prompt" label="Prompt">
                     <LemonTextArea
                         placeholder="Summarize what the user did, focusing on their goal and any obstacles they hit."
                         minRows={6}
                     />
                 </Field>
-                <Field name="lens_config.length" label="Summary length">
+                <Field name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
                 </Field>
             </div>
         )
     }
 
-    if (lens.lens_type === 'monitor') {
+    if (scanner.scanner_type === 'monitor') {
         return (
-            <Field name="lens_config.prompt" label="Prompt">
+            <Field name="scanner_config.prompt" label="Prompt">
                 <LemonTextArea
                     placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
                     minRows={6}
@@ -48,13 +48,13 @@ export function LensTypeConfigEditor({ lensId, tabId }: { lensId: string; tabId:
         )
     }
 
-    if (lens.lens_type === 'classifier') {
+    if (scanner.scanner_type === 'classifier') {
         return (
             <div className="space-y-4">
-                <Field name="lens_config.prompt" label="Prompt">
+                <Field name="scanner_config.prompt" label="Prompt">
                     <LemonTextArea placeholder="Categorize this session by its primary user intent." minRows={6} />
                 </Field>
-                <Field name="lens_config.tags" label="Tag vocabulary">
+                <Field name="scanner_config.tags" label="Tag vocabulary">
                     {({ value, onChange }) => (
                         <LemonInputSelect
                             mode="multiple"
@@ -66,7 +66,7 @@ export function LensTypeConfigEditor({ lensId, tabId }: { lensId: string; tabId:
                         />
                     )}
                 </Field>
-                <Field name="lens_config.multi_label">
+                <Field name="scanner_config.multi_label">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
@@ -83,16 +83,16 @@ export function LensTypeConfigEditor({ lensId, tabId }: { lensId: string; tabId:
         )
     }
 
-    if (lens.lens_type === 'scorer') {
+    if (scanner.scanner_type === 'scorer') {
         return (
             <div className="space-y-4">
-                <Field name="lens_config.prompt" label="Prompt">
+                <Field name="scanner_config.prompt" label="Prompt">
                     <LemonTextArea
                         placeholder="Rate how frustrated the user appeared during this session."
                         minRows={6}
                     />
                 </Field>
-                <Field name="lens_config.scale">
+                <Field name="scanner_config.scale">
                     {({ value, onChange, error }) => {
                         const scale = (value as { min: number; max: number; label?: string }) ?? { min: 0, max: 10 }
                         return (
@@ -132,9 +132,9 @@ export function LensTypeConfigEditor({ lensId, tabId }: { lensId: string; tabId:
         )
     }
 
-    if (lens.lens_type === 'indexer') {
+    if (scanner.scanner_type === 'indexer') {
         return (
-            <Field name="lens_config.prompt" label="Prompt">
+            <Field name="scanner_config.prompt" label="Prompt">
                 <LemonTextArea
                     placeholder="Focus on the user's actions and goals. Ignore loading screens and animation noise."
                     minRows={6}
@@ -143,5 +143,5 @@ export function LensTypeConfigEditor({ lensId, tabId }: { lensId: string; tabId:
         )
     }
 
-    return <div className="text-muted text-sm">Unsupported lens type.</div>
+    return <div className="text-muted text-sm">Unsupported scanner type.</div>
 }

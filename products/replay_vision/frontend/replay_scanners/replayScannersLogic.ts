@@ -9,26 +9,31 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { visionLensesCreate, visionLensesDestroy, visionLensesList, visionLensesPartialUpdate } from '../generated/api'
-import type { replayLensesLogicType } from './replayLensesLogicType'
+import {
+    visionScannersCreate,
+    visionScannersDestroy,
+    visionScannersList,
+    visionScannersPartialUpdate,
+} from '../generated/api'
+import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
-    LENS_TYPE_OPTIONS,
-    LensType,
-    ReplayLens,
+    SCANNER_TYPE_OPTIONS,
+    ScannerType,
+    ReplayScanner,
     VisionQuota,
-    lensFromApi,
-    lensToApiBody,
-    lensesFromApi,
+    scannerFromApi,
+    scannerToApiBody,
+    scannersFromApi,
 } from './types'
 
-export interface ReplayLensesLogicProps {
+export interface ReplayScannersLogicProps {
     tabId: string
 }
 
 const ALL_ENABLED: EnabledFilter[] = ENABLED_OPTIONS.map((o) => o.value)
-const ALL_LENS_TYPES: LensType[] = LENS_TYPE_OPTIONS.map((o) => o.value)
+const ALL_SCANNER_TYPES: ScannerType[] = SCANNER_TYPE_OPTIONS.map((o) => o.value)
 
 const csv = (values: string[]): string | undefined => (values.length > 0 ? values.join(',') : undefined)
 const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] => {
@@ -41,47 +46,47 @@ const fromCsv = <T extends string>(value: unknown, allowed: readonly T[]): T[] =
         .filter((v): v is T => (allowed as readonly string[]).includes(v))
 }
 
-export const replayLensesLogic = kea<replayLensesLogicType>([
-    path(['products', 'replay_vision', 'frontend', 'replay_lenses', 'replayLensesLogic']),
-    props({} as ReplayLensesLogicProps),
+export const replayScannersLogic = kea<replayScannersLogicType>([
+    path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
+    props({} as ReplayScannersLogicProps),
     tabAwareScene(),
 
     actions({
-        loadLenses: true,
-        loadLensesSuccess: (lenses: ReplayLens[]) => ({ lenses }),
-        loadLensesFailure: (error: string) => ({ error }),
+        loadScanners: true,
+        loadScannersSuccess: (scanners: ReplayScanner[]) => ({ scanners }),
+        loadScannersFailure: (error: string) => ({ error }),
         loadQuota: true,
         loadQuotaSuccess: (quota: VisionQuota | null) => ({ quota }),
-        deleteLens: (id: string) => ({ id }),
-        deleteLensSuccess: (id: string) => ({ id }),
-        duplicateLens: (id: string) => ({ id }),
-        duplicateLensSuccess: (lens: ReplayLens) => ({ lens }),
-        toggleLensEnabled: (id: string) => ({ id }),
-        toggleLensEnabledSuccess: (id: string) => ({ id }),
+        deleteScanner: (id: string) => ({ id }),
+        deleteScannerSuccess: (id: string) => ({ id }),
+        duplicateScanner: (id: string) => ({ id }),
+        duplicateScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
+        toggleScannerEnabled: (id: string) => ({ id }),
+        toggleScannerEnabledSuccess: (id: string) => ({ id }),
         setSearch: (search: string) => ({ search }),
         setEnabledFilter: (values: EnabledFilter[]) => ({ values }),
-        setLensTypeFilter: (lensTypes: LensType[]) => ({ lensTypes }),
+        setScannerTypeFilter: (scannerTypes: ScannerType[]) => ({ scannerTypes }),
         setUsageRangeDays: (days: 7 | 30 | 90) => ({ days }),
         clearFilters: true,
     }),
 
     reducers({
-        lenses: [
-            [] as ReplayLens[],
+        scanners: [
+            [] as ReplayScanner[],
             {
-                loadLensesSuccess: (_, { lenses }) => lenses,
-                deleteLensSuccess: (state, { id }) => state.filter((l) => l.id !== id),
-                duplicateLensSuccess: (state, { lens }) => [...state, lens],
-                toggleLensEnabledSuccess: (state, { id }) =>
+                loadScannersSuccess: (_, { scanners }) => scanners,
+                deleteScannerSuccess: (state, { id }) => state.filter((l) => l.id !== id),
+                duplicateScannerSuccess: (state, { scanner }) => [...state, scanner],
+                toggleScannerEnabledSuccess: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
             },
         ],
-        lensesLoading: [
+        scannersLoading: [
             false,
             {
-                loadLenses: () => true,
-                loadLensesSuccess: () => false,
-                loadLensesFailure: () => false,
+                loadScanners: () => true,
+                loadScannersSuccess: () => false,
+                loadScannersFailure: () => false,
             },
         ],
         quota: [
@@ -104,10 +109,10 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 clearFilters: () => [],
             },
         ],
-        lensTypeFilter: [
-            [] as LensType[],
+        scannerTypeFilter: [
+            [] as ScannerType[],
             {
-                setLensTypeFilter: (_, { lensTypes }) => lensTypes,
+                setScannerTypeFilter: (_, { scannerTypes }) => scannerTypes,
                 clearFilters: () => [],
             },
         ],
@@ -120,17 +125,17 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        loadLenses: async () => {
+        loadScanners: async () => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
             try {
-                const response = await visionLensesList(String(teamId))
-                actions.loadLensesSuccess(lensesFromApi(response.results ?? []))
+                const response = await visionScannersList(String(teamId))
+                actions.loadScannersSuccess(scannersFromApi(response.results ?? []))
             } catch (error) {
-                lemonToast.error(`Failed to load lenses: ${String(error)}`)
-                actions.loadLensesFailure(String(error))
+                lemonToast.error(`Failed to load scanners: ${String(error)}`)
+                actions.loadScannersFailure(String(error))
             }
         },
 
@@ -148,22 +153,22 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
             }
         },
 
-        deleteLens: async ({ id }) => {
+        deleteScanner: async ({ id }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
             }
             try {
-                await visionLensesDestroy(String(teamId), id)
-                actions.deleteLensSuccess(id)
-                lemonToast.success('Lens deleted')
+                await visionScannersDestroy(String(teamId), id)
+                actions.deleteScannerSuccess(id)
+                lemonToast.success('Scanner deleted')
             } catch (error) {
-                lemonToast.error(`Failed to delete lens: ${String(error)}`)
+                lemonToast.error(`Failed to delete scanner: ${String(error)}`)
             }
         },
 
-        duplicateLens: async ({ id }) => {
-            const original = values.lenses.find((l) => l.id === id)
+        duplicateScanner: async ({ id }) => {
+            const original = values.scanners.find((l) => l.id === id)
             if (!original) {
                 return
             }
@@ -175,8 +180,8 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 name: `${original.name} (Copy)`,
                 description: original.description,
                 enabled: false,
-                lens_type: original.lens_type,
-                lens_config: original.lens_config,
+                scanner_type: original.scanner_type,
+                scanner_config: original.scanner_config,
                 sampling_rate: original.sampling_rate,
                 provider: original.provider,
                 model: original.model,
@@ -186,16 +191,16 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 duplicate.query = original.query
             }
             try {
-                const response = await visionLensesCreate(String(teamId), lensToApiBody(duplicate))
-                actions.duplicateLensSuccess(lensFromApi(response))
+                const response = await visionScannersCreate(String(teamId), scannerToApiBody(duplicate))
+                actions.duplicateScannerSuccess(scannerFromApi(response))
             } catch (error) {
-                lemonToast.error(`Failed to duplicate lens: ${String(error)}`)
+                lemonToast.error(`Failed to duplicate scanner: ${String(error)}`)
             }
         },
 
-        toggleLensEnabled: async ({ id }) => {
-            const lens = values.lenses.find((l) => l.id === id)
-            if (!lens) {
+        toggleScannerEnabled: async ({ id }) => {
+            const scanner = values.scanners.find((l) => l.id === id)
+            if (!scanner) {
                 return
             }
             const teamId = teamLogic.values.currentTeamId
@@ -203,32 +208,32 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 return
             }
             try {
-                await visionLensesPartialUpdate(String(teamId), id, { enabled: !lens.enabled })
-                actions.toggleLensEnabledSuccess(id)
+                await visionScannersPartialUpdate(String(teamId), id, { enabled: !scanner.enabled })
+                actions.toggleScannerEnabledSuccess(id)
             } catch (error) {
-                lemonToast.error(`Failed to ${lens.enabled ? 'disable' : 'enable'} lens: ${String(error)}`)
+                lemonToast.error(`Failed to ${scanner.enabled ? 'disable' : 'enable'} scanner: ${String(error)}`)
             }
         },
     })),
 
     selectors({
         hasActiveFilters: [
-            (s) => [s.search, s.enabledFilter, s.lensTypeFilter],
-            (search: string, enabled: EnabledFilter[], lensTypes: LensType[]) =>
-                search.trim().length > 0 || enabled.length > 0 || lensTypes.length > 0,
+            (s) => [s.search, s.enabledFilter, s.scannerTypeFilter],
+            (search: string, enabled: EnabledFilter[], scannerTypes: ScannerType[]) =>
+                search.trim().length > 0 || enabled.length > 0 || scannerTypes.length > 0,
         ],
-        filteredLenses: [
-            (s) => [s.lenses, s.search, s.enabledFilter, s.lensTypeFilter],
+        filteredScanners: [
+            (s) => [s.scanners, s.search, s.enabledFilter, s.scannerTypeFilter],
             (
-                lenses: ReplayLens[],
+                scanners: ReplayScanner[],
                 search: string,
                 enabledValues: EnabledFilter[],
-                lensTypes: LensType[]
-            ): ReplayLens[] => {
+                scannerTypes: ScannerType[]
+            ): ReplayScanner[] => {
                 const q = search.trim().toLowerCase()
-                return lenses.filter((l) => {
+                return scanners.filter((l) => {
                     if (q) {
-                        const haystack = [l.name, l.description ?? '', l.lens_config.prompt].join(' ').toLowerCase()
+                        const haystack = [l.name, l.description ?? '', l.scanner_config.prompt].join(' ').toLowerCase()
                         if (!haystack.includes(q)) {
                             return false
                         }
@@ -239,7 +244,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                             return false
                         }
                     }
-                    if (lensTypes.length > 0 && !lensTypes.includes(l.lens_type)) {
+                    if (scannerTypes.length > 0 && !scannerTypes.includes(l.scanner_type)) {
                         return false
                     }
                     return true
@@ -255,7 +260,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
                 ...router.values.searchParams,
                 search: values.search || undefined,
                 enabled: csv(values.enabledFilter),
-                type: csv(values.lensTypeFilter),
+                type: csv(values.scannerTypeFilter),
             },
             undefined,
             { replace: true },
@@ -263,7 +268,7 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
         return {
             setSearch: buildUrl,
             setEnabledFilter: buildUrl,
-            setLensTypeFilter: buildUrl,
+            setScannerTypeFilter: buildUrl,
             clearFilters: buildUrl,
         }
     }),
@@ -278,15 +283,15 @@ export const replayLensesLogic = kea<replayLensesLogicType>([
             if (csv(enabledValues) !== csv(values.enabledFilter)) {
                 actions.setEnabledFilter(enabledValues)
             }
-            const types = fromCsv<LensType>(searchParams.type, ALL_LENS_TYPES)
-            if (csv(types) !== csv(values.lensTypeFilter)) {
-                actions.setLensTypeFilter(types)
+            const types = fromCsv<ScannerType>(searchParams.type, ALL_SCANNER_TYPES)
+            if (csv(types) !== csv(values.scannerTypeFilter)) {
+                actions.setScannerTypeFilter(types)
             }
         },
     })),
 
     afterMount(({ actions }) => {
-        actions.loadLenses()
+        actions.loadScanners()
         actions.loadQuota()
     }),
 ])

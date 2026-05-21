@@ -26,17 +26,17 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { VisionQuotaMeter } from './components/VisionQuotaMeter'
-import { replayLensesLogic } from './replayLensesLogic'
-import { ENABLED_OPTIONS, EnabledFilter, LENS_TYPE_OPTIONS, LensType, ReplayLens } from './types'
+import { replayScannersLogic } from './replayScannersLogic'
+import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
-const TYPE_OPTIONS: { value: LensType; label: string }[] = LENS_TYPE_OPTIONS.map(({ value, label }) => ({
+const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
     label,
 }))
 
 export const scene: SceneExport = {
-    component: ReplayLensesScene,
-    logic: replayLensesLogic,
+    component: ReplayScannersScene,
+    logic: replayScannersLogic,
     productKey: ProductKey.REPLAY_VISION,
 }
 
@@ -73,48 +73,52 @@ function FilterPill<T extends string>({
     )
 }
 
-export function ReplayLensesScene(): JSX.Element {
-    const { filteredLenses, lenses, lensesLoading, search, enabledFilter, lensTypeFilter, hasActiveFilters } =
-        useValues(replayLensesLogic)
+export function ReplayScannersScene(): JSX.Element {
+    const { filteredScanners, scanners, scannersLoading, search, enabledFilter, scannerTypeFilter, hasActiveFilters } =
+        useValues(replayScannersLogic)
     const {
-        loadLenses,
-        deleteLens,
-        duplicateLens,
-        toggleLensEnabled,
+        loadScanners,
+        deleteScanner,
+        duplicateScanner,
+        toggleScannerEnabled,
         setSearch,
         setEnabledFilter,
-        setLensTypeFilter,
+        setScannerTypeFilter,
         clearFilters,
-    } = useActions(replayLensesLogic)
+    } = useActions(replayScannersLogic)
     const { push } = useActions(router)
 
-    const columns: LemonTableColumns<ReplayLens> = [
+    const columns: LemonTableColumns<ReplayScanner> = [
         {
             title: 'Name',
             key: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name),
-            render: (_, lens) => (
+            render: (_, scanner) => (
                 <div className="flex flex-col">
-                    <Link to={urls.replayVision(lens.id)} className="font-semibold text-primary">
-                        {lens.name || '(untitled)'}
+                    <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
+                        {scanner.name || '(untitled)'}
                     </Link>
-                    {lens.description && <div className="text-muted text-sm">{lens.description}</div>}
+                    {scanner.description && <div className="text-muted text-sm">{scanner.description}</div>}
                 </div>
             ),
         },
         {
             title: 'Status',
             key: 'enabled',
-            render: (_, lens) => (
+            render: (_, scanner) => (
                 <div className="flex items-center gap-2">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonSwitch checked={lens.enabled} onChange={() => toggleLensEnabled(lens.id)} size="small" />
+                        <LemonSwitch
+                            checked={scanner.enabled}
+                            onChange={() => toggleScannerEnabled(scanner.id)}
+                            size="small"
+                        />
                     </AccessControlAction>
-                    <span className={lens.enabled ? 'text-success' : 'text-muted'}>
-                        {lens.enabled ? 'Enabled' : 'Disabled'}
+                    <span className={scanner.enabled ? 'text-success' : 'text-muted'}>
+                        {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
                 </div>
             ),
@@ -122,25 +126,25 @@ export function ReplayLensesScene(): JSX.Element {
         },
         {
             title: 'Type',
-            key: 'lens_type',
-            render: (_, lens) => <LemonTag type="option">{lens.lens_type}</LemonTag>,
-            sorter: (a, b) => a.lens_type.localeCompare(b.lens_type),
+            key: 'scanner_type',
+            render: (_, scanner) => <LemonTag type="option">{scanner.scanner_type}</LemonTag>,
+            sorter: (a, b) => a.scanner_type.localeCompare(b.scanner_type),
         },
         {
             title: 'Config',
             key: 'config',
-            render: (_, lens) => (
+            render: (_, scanner) => (
                 <div className="max-w-md text-sm font-mono bg-bg-light border rounded px-2 py-1 truncate">
-                    {lens.lens_config.prompt || '(empty)'}
+                    {scanner.scanner_config.prompt || '(empty)'}
                 </div>
             ),
         },
         {
             title: 'Sampling',
             key: 'sampling',
-            render: (_, lens) => (
+            render: (_, scanner) => (
                 <span className="text-sm tabular-nums">
-                    {(lens.sampling_rate * 100).toFixed(lens.sampling_rate < 0.1 ? 2 : 1)}%
+                    {(scanner.sampling_rate * 100).toFixed(scanner.sampling_rate < 0.1 ? 2 : 1)}%
                 </span>
             ),
             sorter: (a, b) => a.sampling_rate - b.sampling_rate,
@@ -148,7 +152,7 @@ export function ReplayLensesScene(): JSX.Element {
         {
             title: 'Actions',
             key: 'actions',
-            render: (_, lens) => (
+            render: (_, scanner) => (
                 <div className="flex gap-1">
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
@@ -158,7 +162,7 @@ export function ReplayLensesScene(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => push(urls.replayVision(lens.id))}
+                            onClick={() => push(urls.replayVision(scanner.id))}
                             tooltip="Edit"
                         />
                     </AccessControlAction>
@@ -170,7 +174,7 @@ export function ReplayLensesScene(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconCopy />}
-                            onClick={() => duplicateLens(lens.id)}
+                            onClick={() => duplicateScanner(scanner.id)}
                             tooltip="Duplicate"
                         />
                     </AccessControlAction>
@@ -185,12 +189,12 @@ export function ReplayLensesScene(): JSX.Element {
                             icon={<IconTrash />}
                             onClick={() =>
                                 LemonDialog.open({
-                                    title: `Delete "${lens.name || 'Untitled lens'}"?`,
+                                    title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
                                     description: 'This cannot be undone.',
                                     primaryButton: {
                                         children: 'Delete',
                                         status: 'danger',
-                                        onClick: () => deleteLens(lens.id),
+                                        onClick: () => deleteScanner(scanner.id),
                                     },
                                     secondaryButton: { children: 'Cancel' },
                                 })
@@ -207,14 +211,14 @@ export function ReplayLensesScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Replay vision"
-                description="Configure named lenses that PostHog applies to completed session recordings. Results land as queryable events."
+                description="Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events."
                 resourceType={{ type: 'replay_vision' }}
             />
 
             <VisionQuotaMeter />
 
             <SceneSection
-                title="Lenses"
+                title="Scanners"
                 actions={
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
@@ -224,9 +228,9 @@ export function ReplayLensesScene(): JSX.Element {
                             type="primary"
                             icon={<IconPlus />}
                             onClick={() => push(urls.replayVision('new'))}
-                            data-attr="create-replay-lens"
+                            data-attr="create-replay-scanner"
                         >
-                            New lens
+                            New scanner
                         </LemonButton>
                     </AccessControlAction>
                 }
@@ -234,7 +238,7 @@ export function ReplayLensesScene(): JSX.Element {
                 <div className="flex flex-wrap items-center gap-2">
                     <LemonInput
                         type="search"
-                        placeholder="Search lenses..."
+                        placeholder="Search scanners..."
                         value={search}
                         onChange={setSearch}
                         prefix={<IconSearch />}
@@ -246,11 +250,11 @@ export function ReplayLensesScene(): JSX.Element {
                         value={enabledFilter}
                         onChange={setEnabledFilter}
                     />
-                    <FilterPill<LensType>
+                    <FilterPill<ScannerType>
                         label="Type"
                         options={TYPE_OPTIONS}
-                        value={lensTypeFilter}
-                        onChange={setLensTypeFilter}
+                        value={scannerTypeFilter}
+                        onChange={setScannerTypeFilter}
                     />
                     {hasActiveFilters && (
                         <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>
@@ -258,7 +262,7 @@ export function ReplayLensesScene(): JSX.Element {
                         </LemonButton>
                     )}
                     <div className="ml-auto">
-                        <LemonButton type="secondary" onClick={() => loadLenses()} size="small">
+                        <LemonButton type="secondary" onClick={() => loadScanners()} size="small">
                             Refresh
                         </LemonButton>
                     </div>
@@ -266,26 +270,26 @@ export function ReplayLensesScene(): JSX.Element {
 
                 <LemonTable
                     columns={columns}
-                    dataSource={filteredLenses}
-                    loading={lensesLoading}
+                    dataSource={filteredScanners}
+                    loading={scannersLoading}
                     rowKey="id"
                     pagination={{ pageSize: 50 }}
-                    nouns={['lens', 'lenses']}
+                    nouns={['scanner', 'scanners']}
                     emptyState={
-                        lenses.length === 0 ? (
+                        scanners.length === 0 ? (
                             <div className="flex flex-col items-center gap-3 p-8 text-center">
                                 <IconEye className="text-3xl text-muted" />
-                                <div className="text-muted">No lenses yet.</div>
+                                <div className="text-muted">No scanners yet.</div>
                                 <LemonButton
                                     type="primary"
                                     icon={<IconPlus />}
                                     onClick={() => push(urls.replayVision('new'))}
                                 >
-                                    Create your first lens
+                                    Create your first scanner
                                 </LemonButton>
                             </div>
                         ) : (
-                            <span className="text-muted">No lenses match your filters.</span>
+                            <span className="text-muted">No scanners match your filters.</span>
                         )
                     }
                 />
@@ -294,4 +298,4 @@ export function ReplayLensesScene(): JSX.Element {
     )
 }
 
-export default ReplayLensesScene
+export default ReplayScannersScene

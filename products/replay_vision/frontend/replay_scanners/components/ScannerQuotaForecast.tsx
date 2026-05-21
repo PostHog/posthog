@@ -2,21 +2,21 @@ import { useValues } from 'kea'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
-import { replayLensLogic } from '../replayLensLogic'
+import { replayScannerLogic } from '../replayScannerLogic'
 
 interface Props {
-    lensId: string
+    scannerId: string
     tabId: string
 }
 
-export function LensQuotaForecast({ lensId, tabId }: Props): JSX.Element | null {
-    const { lens } = useValues(replayLensLogic({ id: lensId, tabId }))
+export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element | null {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
 
-    if (!lens) {
+    if (!scanner) {
         return null
     }
 
-    const samplingRatio = Math.max(0, Math.min(lens.sampling_rate, 1))
+    const samplingRatio = Math.max(0, Math.min(scanner.sampling_rate, 1))
     const samplingPercent = Math.round(samplingRatio * 1000) / 10
     const oneInN = samplingRatio > 0 ? Math.max(1, Math.round(1 / samplingRatio)) : null
 
@@ -29,7 +29,7 @@ export function LensQuotaForecast({ lensId, tabId }: Props): JSX.Element | null 
             <LemonProgress percent={Math.round(samplingRatio * 100)} />
             <div className="text-xs text-muted">
                 {oneInN === null ? (
-                    <span className="text-danger">Sampling is 0%. This lens will not produce any observations.</span>
+                    <span className="text-danger">Sampling is 0%. This scanner will not produce any observations.</span>
                 ) : oneInN === 1 ? (
                     <>
                         Every matching recording produces one observation. Each observation counts against your monthly
