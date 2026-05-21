@@ -140,6 +140,7 @@ impl RawProxyInner {
             );
         }
 
+        let method = method_name.to_string();
         let client = current_client_name();
         let start = Instant::now();
 
@@ -165,7 +166,7 @@ impl RawProxyInner {
 
         counter!(
             "personhog_router_backend_requests_total",
-            "method" => method_name.to_string(),
+            "method" => method.clone(),
             "backend" => backend,
             "client" => client.clone(),
         )
@@ -173,7 +174,7 @@ impl RawProxyInner {
 
         histogram!(
             "personhog_router_backend_duration_ms",
-            "method" => method_name.to_string(),
+            "method" => method.clone(),
             "backend" => backend,
             "client" => client.clone(),
         )
@@ -182,7 +183,7 @@ impl RawProxyInner {
         if is_grpc_error_response(&response) {
             counter!(
                 "personhog_router_backend_errors_total",
-                "method" => method_name.to_string(),
+                "method" => method,
                 "backend" => backend,
                 "client" => client,
             )
