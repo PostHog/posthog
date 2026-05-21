@@ -405,7 +405,6 @@ const AssistantTrendsEventsNode = z.object({
         .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
-    math_property_type: z.string().optional(),
     name: z.string().optional(),
     optionalInFunnel: z.coerce.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
@@ -426,7 +425,6 @@ const AssistantTrendsActionsNode = z.object({
         .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
-    math_property_type: z.string().optional(),
     name: z.string().describe('Action name from the plan.'),
     optionalInFunnel: z.coerce.boolean().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
@@ -443,7 +441,6 @@ const AssistantTrendsGroupNode = z.object({
     math_hogql: z.string().describe('Custom HogQL aggregation. When set, `math` must be `hogql`.').optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
-    math_property_type: z.string().optional(),
     name: z.string().describe('Display name for the combined series.').optional(),
     nodes: z
         .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode]))
@@ -881,7 +878,6 @@ const AssistantStickinessEventsNode = z.object({
         .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
-    math_property_type: z.string().optional(),
     name: z.string().optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
 })
@@ -900,7 +896,6 @@ const AssistantStickinessActionsNode = z.object({
         .optional(),
     math_multiplier: z.coerce.number().optional(),
     math_property: z.string().optional(),
-    math_property_type: z.string().optional(),
     name: z.string().describe('Action name from the plan.'),
     properties: z.array(AssistantPropertyFilter).optional(),
 })
