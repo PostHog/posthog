@@ -24,7 +24,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { buildSchemaForDoc, packDocAttrs, unpackDocAttrs } from '@/lib/prosemirror/schema'
+import { buildSchemaForDoc, packDocAttrs, type ProseMirrorNodeJSON, unpackDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
 export const NotebookEditSchema = z
@@ -86,9 +86,8 @@ function countMatches(tree: unknown, target: unknown): number {
 }
 
 /**
- * Walks `tree` and replaces every subtree that deep-equals `target` with a
- * fresh structured clone of `replacement`. When `replaceAll` is false, only
- * the first match is replaced; subsequent matches are left untouched.
+ * Walks `tree` and replaces every subtree that deep-equals `target`.
+ * When `replaceAll` is false, only the first match is replaced.
  */
 function deepReplace<T>(tree: T, target: unknown, replacement: unknown, replaceAll: boolean): T {
     let replaced = 0
@@ -112,8 +111,8 @@ function deepReplace<T>(tree: T, target: unknown, replacement: unknown, replaceA
 }
 
 /**
- * Plain-text view for the search index. Mirrors what the frontend's
- * `editor.getText()` produces.
+ * Plain-text view for the search index.
+ * Mirrors what the frontend's `editor.getText()` produces.
  */
 function buildTextContent(doc: PMNode): string {
     const parts: string[] = []
@@ -139,12 +138,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
     // Load current notebook.
     const notebook = await context.api.request<Schemas.Notebook>({ method: 'GET', path: notebookPath })
 
-    if (
-        notebook.content === undefined ||
-        notebook.content === null ||
-        typeof notebook.content !== 'object' ||
-        Array.isArray(notebook.content)
-    ) {
+    if (notebook.content === null || typeof notebook.content !== 'object' || Array.isArray(notebook.content)) {
         throw new Error(
             `Notebook ${params.short_id} has no editable content. ` +
                 'Create one with `notebooks-create` or initialise its content first.'
@@ -184,15 +178,14 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
         )
     }
 
-    // Parse old + new into ProseMirror.
-    const rawContent = notebook.content as unknown as Parameters<typeof packDocAttrs>[0]
-    const newContentObj = newContent as unknown as Parameters<typeof packDocAttrs>[0]
+    const rawContent = notebook.content as unknown as ProseMirrorNodeJSON
+    const newContentObj = newContent as unknown as ProseMirrorNodeJSON
     const schema = buildSchemaForDoc([rawContent, newContentObj])
 
-    const oldDoc = PMNode.fromJSON(schema, packDocAttrs(rawContent) as Parameters<typeof PMNode.fromJSON>[1])
+    const oldDoc = PMNode.fromJSON(schema, packDocAttrs(rawContent))
     let newDoc: PMNode
     try {
-        newDoc = PMNode.fromJSON(schema, packDocAttrs(newContentObj) as Parameters<typeof PMNode.fromJSON>[1])
+        newDoc = PMNode.fromJSON(schema, packDocAttrs(newContentObj))
     } catch (e) {
         throw new Error(
             `After applying the replacement, the notebook content does not parse as a valid ProseMirror document: ${
@@ -212,7 +205,7 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
     }
 
     // POST to collab/save. Non-2xx responses are thrown as PostHogApiError by `request()`.
-    const unpackedContent = unpackDocAttrs(newDoc.toJSON() as Parameters<typeof unpackDocAttrs>[0])
+    const unpackedContent = unpackDocAttrs(newDoc.toJSON() as ProseMirrorNodeJSON)
     return await context.api.request<Schemas.Notebook>({
         method: 'POST',
         path: `${notebookPath}collab/save/`,
