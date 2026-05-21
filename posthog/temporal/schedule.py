@@ -24,6 +24,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_E
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.alerts.schedule import (
+    create_cleanup_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_schedule_due_alert_checks_schedule,
 )
@@ -605,6 +606,7 @@ schedules = [
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
+    create_cleanup_alert_checks_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
