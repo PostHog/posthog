@@ -308,7 +308,7 @@ class TestSavedQuery(APIBaseTest):
         )
         assert response.status_code == 400, response.content
         response_json = response.json()
-        assert "JSON object" in response_json.get("detail", "") or "object" in str(response_json).lower()
+        assert "JSON object" in response_json.get("detail", "")
 
     def test_create_with_query_missing_query_key_returns_validation_error(self):
         response = self.client.post(
