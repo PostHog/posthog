@@ -77,7 +77,7 @@ PostHog AI users do **not** pick a sandbox environment. The mode dropdown stays 
 Three implementation choices for selecting the constrained profile:
 
 1. **Implicit profile keyed on `origin_product`.** The cloud-agent provisioner reads `task.origin_product == "posthog_ai"` and applies the 1 GB / 0.5 vCPU / `trusted`-network preset. No new field, no user-visible knob. **Recommended.**
-2. **A reserved `SandboxEnvironment` row per region** (named e.g. `"posthog-ai-default"`) that the relay always references for PostHog AI Runs via `state.sandbox_environment_id`. No model change; uses existing fields. Slightly less elegant than (1) — the row is invisible-from-UI which feels surprising.
+2. **A reserved `SandboxEnvironment` row per region** (named e.g. `"posthog-ai-default"`) that the `POST /sandbox/` handler always references for PostHog AI Runs via `state.sandbox_environment_id`. No model change; uses existing fields. Slightly less elegant than (1) — the row is invisible-from-UI which feels surprising.
 3. **A new `Task.sandbox_profile` enum field** with values like `default | posthog_ai`. Cleanest in terms of explicit intent but adds a Django migration for what is effectively a derived value.
 
 Bias toward (1). It puts the routing decision in one place (the provisioner) and keeps the Django schema slim. `origin_product` already exists per the cloud spec § 2.3.
@@ -140,15 +140,15 @@ The cloud-agent spec has no native pre-warming. First-message latency is dominat
 
 ### 8.1 Per-conversation eager warm
 
-When the user focuses the chat input and types the first non-whitespace character, the frontend issues `POST /api/.../conversations/{id}/prewarm/`. The relay:
+When the user focuses the chat input and types the first non-whitespace character, the frontend issues `POST /api/.../conversations/{id}/prewarm/`. The handler:
 
 1. Creates a Task if the conversation doesn't yet have one (`Conversation.sandbox_task IS NULL`) — the same path as first-message Task creation in § 5.1, minus the `pending_user_message`.
 2. Calls `POST /api/projects/{tid}/tasks/{taskId}/run/` with `mode: "interactive"`, **no** `pending_user_message`, **no** `state.attached_context`, and the standard systemPrompt. The agent-server boots, opens the ACP session, emits `_posthog/run_started`, and idles waiting for `POST /command/` `user_message`.
 3. The new Run is the latest on the Task, so `Conversation.current_sandbox_run` (derived — see `02_CORE.md` § 2.2) automatically resolves to it. No conversation-row update needed.
 
-When the user submits the message, the relay reads `conversation.current_sandbox_run.status`, finds it `in_progress`, and routes via the in-progress branch of § 6.1 — `POST /command/` to the existing sandbox. First-token latency drops from ~5–8 s (cold boot + session init) to roughly model invocation time.
+When the user submits the message, the `POST /sandbox/` handler reads `conversation.current_sandbox_run.status`, finds it `in_progress`, and routes via the in-progress branch of § 6.1 — `POST /command/` to the existing sandbox. First-token latency drops from ~5–8 s (cold boot + session init) to roughly model invocation time.
 
-**Cancellation.** If the input goes empty for >5 s OR the user navigates away from the chat surface, the frontend issues `DELETE /api/.../conversations/{id}/prewarm/`. The relay sends `POST /command/` `cancel` and lets the Run transition to terminal. The conversation can prewarm again on the next typing session — a new Run, fresh `created_at`.
+**Cancellation.** If the input goes empty for >5 s OR the user navigates away from the chat surface, the frontend issues `DELETE /api/.../conversations/{id}/prewarm/`. The handler sends `POST /command/` `cancel` and lets the Run transition to terminal. The conversation can prewarm again on the next typing session — a new Run, fresh `created_at`.
 
 **Idle self-cancel inside the sandbox.** A warmed Run that never receives a `user_message` should self-terminate after a short interval (60 s recommendation). Today's idle timer (`05_SANDBOX.md` § 6) fires on `_posthog/turn_complete` with no follow-up — a warmed Run never reaches `turn_complete`, so the existing timer never fires. We need a separate "never-started" timer dimension. See open question 9 below.
 
@@ -186,7 +186,7 @@ Triggers: spot-VM preemption, OOM, idle timeout, host crash, agent process exit.
 - `Conversation.sandbox_task` (the Task is independent of any single Run).
 - `Conversation.current_sandbox_run` still resolves to the now-terminal Run because it's still the latest by `created_at` until a successor is created.
 
-**Recovery path**: the user's next message triggers § 6.2's terminal-then-resume branch. The relay creates a new Run with `state.resume_from_run_id = previous_run_id` and kicks off the new sandbox. `current_sandbox_run` automatically resolves to the new Run via the Task's reverse relation — no conversation-row update. The agent-server's session-init code (`agent-server.ts:1515-1527`) reads the predecessor's S3 log via `resumeFromLog`, replays conversation history into the model's context, then handles the new user message. From the user's perspective there's a brief "starting…" indicator (the existing `CloudInitializingView` surface) and then the conversation continues.
+**Recovery path**: the user's next message triggers § 6.2's terminal-then-resume branch. The `POST /sandbox/` handler creates a new Run with `state.resume_from_run_id = previous_run_id` and kicks off the new sandbox. `current_sandbox_run` automatically resolves to the new Run via the Task's reverse relation — no conversation-row update. The agent-server's session-init code (`agent-server.ts:1515-1527`) reads the predecessor's S3 log via `resumeFromLog`, replays conversation history into the model's context, then handles the new user message. From the user's perspective there's a brief "starting…" indicator (the existing `CloudInitializingView` surface) and then the conversation continues.
 
 **Recovery is automatic.** The frontend doesn't need any new behavior — § 6.2 already specifies it.
 
@@ -205,7 +205,7 @@ This is the only failure mode without automatic recovery.
 
 ### 9.3 Client disconnects while sandbox lives
 
-Tab close, network glitch, navigation away. The sandbox keeps running; logs keep accumulating in S3. The relay's HTTP response closes; the upstream SSE closes too (the relay aborts it when the downstream disconnects — see § 9 of `02_CORE.md`).
+Tab close, network glitch, navigation away. The sandbox keeps running; logs keep accumulating in S3. The browser's `EventSource` against `/api/projects/{tid}/tasks/.../stream/` closes; Django wasn't holding the SSE in the first place, so no server-side teardown work is needed (see § 9 of `02_CORE.md`).
 
 **Recovery path**: the user reopens the conversation. The bootstrap in `02_CORE.md` § 4.2 walks the full Task → Runs chain, fetches every `session_logs/`, concatenates, plus opens fresh SSE if the current Run is non-terminal. Already specified, already automatic.
 
