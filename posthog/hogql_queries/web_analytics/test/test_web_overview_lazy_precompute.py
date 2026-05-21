@@ -1,5 +1,8 @@
+import uuid
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -21,6 +24,7 @@ from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRun
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.utils import uuid7
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
 
@@ -416,3 +420,161 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(date_from="2023-01-01", date_to="2024-01-07"))
 
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    # --- Group C: forward-only pad + compare readiness ---------------------
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_session_just_after_window_start_attributed_correctly(self):
+        # Forward-only pad regression: a session starting near the leading edge
+        # of a daily UTC bucket must still aggregate its full set of events.
+        # If the inner-SELECT loses the trailing events, sessions/duration/views
+        # would not match the raw path.
+        session_id = str(uuid7("2024-01-02"))
+        _create_person(team_id=self.team.pk, distinct_ids=["edge_p1"], properties={"name": "edge_p1"})
+        for offset_min in (5, 15, 30):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="edge_p1",
+                timestamp=f"2024-01-02T00:{offset_min:02d}:00Z",
+                properties={
+                    "$session_id": session_id,
+                    "$host": "example.com",
+                    "$current_url": f"https://example.com/p{offset_min}",
+                },
+            )
+
+        raw_response = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
+        raw_values = [(r.key, r.value) for r in raw_response.results]
+
+        with self._enable_lazy():
+            lazy_response = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
+        lazy_values = [(r.key, r.value) for r in lazy_response.results]
+
+        assert lazy_values == raw_values, f"forward-only pad parity broken: raw={raw_values}, lazy={lazy_values}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_compare_period_falls_back_when_previous_not_ready(self):
+        # If the previous-period precompute hasn't reached READY across all jobs,
+        # we must not read — the read would silently return 0/NaN for `prev_*`
+        # columns. The lazy path returns None to signal fall-back to raw.
+        first_call = {"done": False}
+
+        def fake_ensure(runner, time_range_start, time_range_end):
+            if not first_call["done"]:
+                first_call["done"] = True
+                return LazyComputationResult(ready=True, job_ids=[uuid.uuid4()])
+            return LazyComputationResult(ready=False, job_ids=[uuid.uuid4()])
+
+        from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
+
+        with (
+            self._enable_lazy(),
+            patch(
+                "posthog.hogql_queries.web_analytics.web_overview_lazy_precompute.ensure_web_overview_precomputed",
+                side_effect=fake_ensure,
+            ),
+        ):
+            runner = WebOverviewQueryRunner(team=self.team, query=self._build_query(compare=True))
+            result = execute_lazy_precomputed_read(runner)
+
+        assert result is None, f"expected fall-back to raw when previous precompute not ready, got {result!r}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_recomputation_picks_up_late_events_changing_bounce_and_duration(self):
+        # After a late event arrives, the next precompute run (cache invalidated
+        # via job deletion = simulated TTL expiry) must reflect the new
+        # session-level state:
+        #   • bounce flips from 1.0 → 0.0 when a second pageview lands
+        #   • session_duration grows from 0 → non-zero
+        #   • views grows from 1 → 2
+        # The stale precomputed row stays in ClickHouse with the old job_id;
+        # the new read passes the new job_id, so ReplacingMergeTree partitioning
+        # by job_id naturally isolates the runs.
+        session_id = str(uuid7("2024-01-02"))
+        _create_person(team_id=self.team.pk, distinct_ids=["recompute_p1"], properties={"name": "recompute_p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="recompute_p1",
+            timestamp="2024-01-02T10:00:00Z",
+            properties={
+                "$session_id": session_id,
+                "$host": "example.com",
+                "$current_url": "https://example.com/first",
+            },
+        )
+
+        with self._enable_lazy():
+            first_resp = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
+            first_metrics = {r.key: r.value for r in first_resp.results}
+            first_job_ids = set(PreaggregationJob.objects.filter(team_id=self.team.pk).values_list("id", flat=True))
+
+            assert first_job_ids, "first run should have created at least one precompute job"
+
+            # Stale-state sanity: single pageview = bounce (100%), zero duration.
+            assert first_metrics["bounce rate"] == 100.0, f"first run bounce rate should be 100.0%, got {first_metrics}"
+            assert first_metrics["views"] == 1.0, f"first run views should be 1, got {first_metrics}"
+
+            # Late event arrives, extending the same session.
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="recompute_p1",
+                timestamp="2024-01-02T10:15:00Z",
+                properties={
+                    "$session_id": session_id,
+                    "$host": "example.com",
+                    "$current_url": "https://example.com/second",
+                },
+            )
+
+            # Invalidate the cache by deleting the READY job rows. This
+            # simulates TTL expiry; the next ensure_precomputed cycle will
+            # create fresh job_ids and re-INSERT with the updated session
+            # aggregates.
+            PreaggregationJob.objects.filter(id__in=first_job_ids).delete()
+
+            second_resp = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
+            second_metrics = {r.key: r.value for r in second_resp.results}
+            second_job_ids = set(PreaggregationJob.objects.filter(team_id=self.team.pk).values_list("id", flat=True))
+
+            assert second_job_ids, "second run should have created new precompute jobs after invalidation"
+            assert second_job_ids.isdisjoint(first_job_ids), (
+                "recomputation should produce fresh job_ids, not reuse deleted ones"
+            )
+
+        # Recomputed state must reflect the late event.
+        assert second_metrics["views"] == 2.0, f"recomputed views should be 2, got {second_metrics}"
+        assert second_metrics["bounce rate"] == 0.0, (
+            f"recomputed bounce rate should flip to 0.0% after second pageview, got {second_metrics}"
+        )
+        assert second_metrics["session duration"] is not None and second_metrics["session duration"] > 0, (
+            f"recomputed session duration should be > 0, got {second_metrics}"
+        )
+
+        # Cross-check parity vs the raw events path after the late event.
+        raw_resp = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
+        raw_metrics = {r.key: r.value for r in raw_resp.results}
+        for metric in ("views", "bounce rate", "session duration", "visitors", "sessions"):
+            assert second_metrics[metric] == raw_metrics[metric], (
+                f"recomputed lazy != raw for {metric}: lazy={second_metrics[metric]}, raw={raw_metrics[metric]}"
+            )
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_falls_back_when_current_period_not_ready(self):
+        # Symmetric to the previous test: if the current-period precompute
+        # hasn't reached READY, the read would scan empty buckets. Fall back.
+        from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
+
+        with (
+            self._enable_lazy(),
+            patch(
+                "posthog.hogql_queries.web_analytics.web_overview_lazy_precompute.ensure_web_overview_precomputed",
+                return_value=LazyComputationResult(ready=False, job_ids=[uuid.uuid4()]),
+            ),
+        ):
+            runner = WebOverviewQueryRunner(team=self.team, query=self._build_query())
+            result = execute_lazy_precomputed_read(runner)
+
+        assert result is None, f"expected fall-back to raw when current precompute not ready, got {result!r}"
