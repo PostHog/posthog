@@ -28,7 +28,7 @@ Each row classifies the touchpoint by risk and pins the coexistence disposition.
 | # | Surface | Risk if shared | Disposition |
 |---|---|---|---|
 | 1 | `frontend/src/scenes/max/maxContextLogic.ts` | High — used by every Max user today; `compiledContext` feeds `ui_context` for LangGraph | **Keep untouched.** Continues to produce `MaxUIContext` for LangGraph runtime. |
-| 2 | Sandbox context storage | New | **New file** `posthogAIContextLogic.ts` (sibling). Owns `AttachedContext[]` for the sandbox runtime only. |
+| 2 | Sandbox context storage | New | **New file** `posthogAiContextLogic.ts` (sibling). Owns a single `attachments: AttachedContext[]` reducer (dedup on `(type, id ?? value)`) for the sandbox runtime only. |
 | 3 | Scene `maxContext` selectors (3 scenes) — dashboard, insight, project-homepage | Medium — return `MaxContextInput[]` today; LangGraph depends on rich shape | **Keep untouched.** Sandbox logic reads the same selectors and projects the rich items down to flat `AttachedContext[]` at consumption time. Zero scene-side edits. |
 | 4 | `maxTypes.ts` (`MaxContextInput`, `MaxUIContext`, `createMaxContextHelpers`) | High — heavily imported | **Keep untouched.** Add `AttachedContext` as a new type alongside. |
 | 5 | `Context.tsx` chip UI | Medium — shared component | **Branch on runtime.** Render existing chip UI for LangGraph; render new sandbox chips when `agent_runtime === 'sandbox'`. Both branches coexist in the same component. |
@@ -118,8 +118,8 @@ posthog/
     slash-commands.tsx                  runtime-aware disposition for /init, /remember (additive)
     messages/                           UNCHANGED renderers
       adapters/                         ← NEW directory — thin wrappers around existing renderers
-    posthogAIContextLogic.ts           ← NEW
-    posthogAIContextLogicType.ts       ← generated
+    posthogAiContextLogic.ts            ← NEW
+    posthogAiContextLogicType.ts        ← generated
     sandboxStreamLogic.ts               ← NEW (ACP frame parser → ToolInvocation / ThreadItem)
     sandboxStreamLogicType.ts           ← generated
     mcpToolRegistry.tsx                 ← NEW
