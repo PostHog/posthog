@@ -189,11 +189,10 @@ pub fn is_blocked_ua(user_agent: &str) -> bool {
 /// Prefer supernets over the dozens of /27s each provider publishes — every
 /// CIDR here costs one `Vec` entry + a binary-search comparison.
 const BOT_CIDRS: &[(&str, BotCategory)] = &[
-    // Googlebot (the customer-reported 66.249.* case).
+    // Googlebot
     ("66.249.64.0/19", BotCategory::Google),
     ("2001:4860:4801::/48", BotCategory::Google),
-    // Bingbot — Microsoft publishes ~30 narrow /24-/25s; these are the two
-    // historically dominant ones.
+    // Bingbot
     ("40.77.139.0/25", BotCategory::Crawler),
     ("207.46.13.0/24", BotCategory::Crawler),
     ("157.55.39.0/24", BotCategory::Crawler),

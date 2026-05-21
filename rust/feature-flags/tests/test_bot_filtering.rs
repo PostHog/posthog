@@ -305,9 +305,17 @@ async fn benign_ip_with_benign_ua_reaches_evaluation() -> Result<()> {
     Ok(())
 }
 
+/// With the kill switch on, neither signal short-circuits — bot-shaped
+/// requests must reach evaluation regardless of which signal would have
+/// fired.
+#[rstest]
+#[case::ua_signal(Some(GOOGLEBOT_UA), None)]
+#[case::ip_signal(Some(CLOUDFRONT_UA), Some(GOOGLEBOT_FORWARDED_IP))]
 #[tokio::test]
-async fn kill_switch_also_disables_ip_filter() -> Result<()> {
-    // With the kill switch on, neither UA nor IP signals short-circuit.
+async fn kill_switch_disables_bot_filter_for_both_signals(
+    #[case] user_agent: Option<&'static str>,
+    #[case] forwarded_for: Option<&'static str>,
+) -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.disable_bot_filtering = FlexBool(true);
     let (server, token) = setup_server_with_a_flag(config).await;
@@ -322,8 +330,8 @@ async fn kill_switch_also_disables_ip_filter() -> Result<()> {
         "/flags",
         payload,
         RequestOptions {
-            user_agent: Some(CLOUDFRONT_UA),
-            forwarded_for: Some(GOOGLEBOT_FORWARDED_IP),
+            user_agent,
+            forwarded_for,
             ..Default::default()
         },
     )
@@ -333,18 +341,33 @@ async fn kill_switch_also_disables_ip_filter() -> Result<()> {
     let body: LegacyFlagsResponse = res.json().await?;
     assert!(
         !body.feature_flags.is_empty(),
-        "Kill switch must let Googlebot IPs through the full pipeline"
+        "Kill switch must let bot-shaped requests through the full pipeline (ua={user_agent:?}, xff={forwarded_for:?})"
     );
 
     Ok(())
 }
 
+/// When the IP rate-limiter has set the `rate_limit_warned` state for a
+/// bot UA, the bot short-circuit must still return the minimal response
+/// and must NOT surface the `X-PostHog-Rate-Limit-Warning` response
+/// header — bots do not read response headers, so the explicit decision
+/// at `endpoint::flags` is to keep the header off the bot path. This
+/// test pins that invariant.
 #[tokio::test]
-async fn kill_switch_disables_bot_filtering() -> Result<()> {
-    // With `disable_bot_filtering=true`, a Googlebot UA must flow through
-    // the full pipeline.
+async fn bot_response_does_not_carry_rate_limit_warning_header() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
-    config.disable_bot_filtering = FlexBool(true);
+    config.flags_ip_rate_limit_enabled = FlexBool(true);
+    // log_only=true puts the IP limiter in warn-only mode: a request
+    // that would otherwise be Blocked instead returns Warned.
+    config.flags_ip_rate_limit_log_only = FlexBool(true);
+    // burst=1 + warn_ratio=0.5 → derived warn capacity = 0 → no separate
+    // warn limiter. The second request past the burst then hits the
+    // enforce-side block, which warn_only converts to Warned.
+    config.flags_ip_burst_size = 1;
+    config.flags_warn_capacity_ratio = 0.5;
+    // Slow refill so the second request is reliably past the cap.
+    config.flags_ip_replenish_rate = 0.1;
+
     let (server, token) = setup_server_with_a_flag(config).await;
 
     let payload = json!({
@@ -352,13 +375,34 @@ async fn kill_switch_disables_bot_filtering() -> Result<()> {
         "distinct_id": "any-id",
     });
 
-    let res = post_flags_v1(server.addr, "/flags", payload, Some(GOOGLEBOT_UA)).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    // Burn the burst token. Both requests use a Googlebot UA so both
+    // short-circuit through the bot path; the first is Allowed, the
+    // second triggers the rate-limit warn.
+    let first = post_flags(server.addr, "/flags", payload.clone(), Some(GOOGLEBOT_UA)).await;
+    assert_eq!(
+        first.status(),
+        StatusCode::OK,
+        "first bot request must be admitted by the IP limiter"
+    );
+    let res = post_flags(server.addr, "/flags", payload, Some(GOOGLEBOT_UA)).await;
 
-    let body: LegacyFlagsResponse = res.json().await?;
+    assert_eq!(
+        res.status(),
+        StatusCode::OK,
+        "bot UA must still short-circuit to 200 even when IP warn fires"
+    );
     assert!(
-        !body.feature_flags.is_empty(),
-        "With kill switch on, Googlebot UA should reach evaluation"
+        res.headers().get("X-PostHog-Rate-Limit-Warning").is_none(),
+        "bot short-circuit must NOT surface X-PostHog-Rate-Limit-Warning, got {:?}",
+        res.headers().get("X-PostHog-Rate-Limit-Warning"),
+    );
+    // Sanity-check: response is still the minimal bot envelope.
+    let body: FlagsResponse = res.json().await?;
+    assert!(body.flags.is_empty(), "bot path must not evaluate flags");
+    assert_eq!(
+        body.config.get("supportedCompression"),
+        Some(&json!(["gzip", "gzip-js"])),
+        "response should match the minimal-config marker"
     );
 
     Ok(())

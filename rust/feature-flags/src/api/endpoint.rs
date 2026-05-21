@@ -381,6 +381,17 @@ pub async fn flags(
             // `rate_limit_warned` stays on the canonical log but is not
             // surfaced as the `X-PostHog-Rate-Limit-Warning` header here
             // — bots do not read response headers.
+            //
+            // Mirror the IP-rate-limit-blocked branch above: emit the
+            // queue_time / body_read / phase / db-operations histograms
+            // with `team_id="unknown"` so bot traffic still appears in the
+            // dashboards that the normal-path requests populate. The
+            // helpers no-op for fields that are None / counters that are
+            // zero, so on the bot path only `queue_time_ms` and
+            // `body_read_ms` actually produce samples.
+            canonical_log.emit_db_operations_metrics();
+            canonical_log.emit_timing_metrics();
+            canonical_log.emit_phase_metrics();
             canonical_log.emit();
             return Ok(get_minimal_flags_response(
                 &headers,
