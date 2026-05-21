@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-14T10:28:23.608334Z"
+exclude-newer = "2026-05-14T11:01:59.305320956Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -3015,14 +3015,14 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "hogql-parser"
-version = "1.3.61"
+version = "1.3.63"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/aa/51/a2b6145e39af0cb7d66c8f5215bf587660903ce33c105fef6ae48dc7c752/hogql_parser-1.3.61.tar.gz", hash = "sha256:5b400f2d3d27e18b6048ca9f9f38132b71c109893e0e2d1f5559a7c37e2e1962", size = 92045, upload-time = "2026-05-20T18:00:54.871Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/45/c2/995fe9ae784e836a282b2a5faea45be6253cc389b9e8e7b99944b8d83276/hogql_parser-1.3.63.tar.gz", hash = "sha256:301ad4bec3fe030c3def6b26135906be54930e80b5b9c659c50f183d3aff7f9f", size = 92043, upload-time = "2026-05-21T11:01:37.948Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/6c/81b7d6baa381f6d04cb97f70c324c89eb6a41e3232dcc748142f91e9aee2/hogql_parser-1.3.61-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:e76dbbc7a12de56edf8d45c4a8bff014a0f8803e87c84c78ba90eedccf32262a", size = 665536, upload-time = "2026-05-20T18:00:40.072Z" },
-    { url = "https://files.pythonhosted.org/packages/d0/d6/ab0421f504849c785f10e2c74cdba83192b68f8b958523e31fd936e9b176/hogql_parser-1.3.61-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:ae123c0ceff50397bbcd27d28a2c50363226f53ca2bf7a00e2343d19c5a3f078", size = 670456, upload-time = "2026-05-20T18:00:41.523Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/bf/4c98082cec13551ec318d627b079b6c6b1ba9e1a0e1995493de9bece7645/hogql_parser-1.3.61-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:27c4318407be3500a4633ea38a0b1628f42f98bcd1709582402747cecbf2cb71", size = 5061510, upload-time = "2026-05-20T18:00:43.495Z" },
-    { url = "https://files.pythonhosted.org/packages/99/c2/7d0207da745d13ef74afde3478b2b1814fdb8014c429ee7e289ff6b1956a/hogql_parser-1.3.61-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:c5e3abb14429ac8a3b156db89c066269143f1919b0b4dabd348415b09ff72440", size = 5167944, upload-time = "2026-05-20T18:00:45.611Z" },
+    { url = "https://files.pythonhosted.org/packages/df/f2/82080add93dec200287c9da434919006f4f48cdcc22e797190b148a9bfd4/hogql_parser-1.3.63-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:d4288ad574744626957cc79bcd94819c2bbc9bbbb8ee645d2e2dd0805c7b08ab", size = 665529, upload-time = "2026-05-21T11:01:20.846Z" },
+    { url = "https://files.pythonhosted.org/packages/32/9a/dc3ac211d2e85fea9cad3c51624dc1c2bc82a6b3bfc607f7ecb988f3ef3a/hogql_parser-1.3.63-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:87b8a6a1cdfceeadcc06ed78415f34b686b670121baec5dd599ab55d3496437f", size = 670460, upload-time = "2026-05-21T11:01:22.436Z" },
+    { url = "https://files.pythonhosted.org/packages/97/3a/c47cf3b56ee503409632ef00d6d4b84c69b2529b76a0cf35eaeb14667698/hogql_parser-1.3.63-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:5a916eb6d532112959b8bb5d722438c7f52677f01f5d3b4a0f3540a59979bc75", size = 5061508, upload-time = "2026-05-21T11:01:24.325Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/53/3752c196810c32e9e745530cd7a2234a103755cfa00c2bf490dda7848986/hogql_parser-1.3.63-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:8e2e44cb32c0dd5f96e30ff5ce41fc2ebd5ec706a94a5d348e850725b0ab2af9", size = 5167943, upload-time = "2026-05-21T11:01:27.052Z" },
 ]
 
 [[package]]
@@ -5565,7 +5565,7 @@ requires-dist = [
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.61" },
+    { name = "hogql-parser", specifier = "==1.3.63" },
     { name = "hogql-parser-rs", specifier = "==1.3.63" },
     { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
