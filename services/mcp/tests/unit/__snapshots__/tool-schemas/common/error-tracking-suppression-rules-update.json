@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "filters": {
-            "description": "Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule.",
+            "description": "Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters.",
             "properties": {
                 "type": {
                     "enum": ["AND", "OR"],
@@ -1818,13 +1818,17 @@
             "required": ["type", "values"],
             "type": "object"
         },
+        "id": {
+            "description": "A UUID string identifying this error tracking suppression rule.",
+            "type": "string"
+        },
         "sampling_rate": {
-            "default": 1,
-            "description": "Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.",
+            "description": "Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.",
             "maximum": 1,
             "minimum": 0,
             "type": "number"
         }
     },
+    "required": ["id"],
     "type": "object"
 }
