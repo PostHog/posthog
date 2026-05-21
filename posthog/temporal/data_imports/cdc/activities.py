@@ -247,6 +247,11 @@ class CDCExtractActivity:
         if tracker is not None:
             return tracker
 
+        # Stash `cdc_write_mode` alongside the schema snapshot so the Syncs UI can distinguish
+        # the two ExternalDataJob rows produced when `cdc_table_mode='both'` — no extra column.
+        schema_snapshot = _build_schema_snapshot(schema)
+        schema_snapshot["cdc_write_mode"] = cdc_write_mode
+
         job = ExternalDataJob.objects.create(
             team_id=self.inputs.team_id,
             pipeline_id=self.inputs.source_id,
@@ -256,8 +261,7 @@ class CDCExtractActivity:
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=ExternalDataJob.PipelineVersion.V3,
-            schema_snapshot=_build_schema_snapshot(schema),
-            cdc_write_mode=cdc_write_mode,
+            schema_snapshot=schema_snapshot,
         )
         self.created_jobs.append(job)
 
