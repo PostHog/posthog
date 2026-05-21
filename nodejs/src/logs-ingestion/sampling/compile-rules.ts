@@ -241,6 +241,11 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
             if (rateLimit) {
                 hasRateLimitRules = true
             }
+            // rate_limit rules also accept config.filter_group as a universal scope (the
+            // drop-rule UI now writes service-scoping there instead of scope_service).
+            // The path_drop branch above already parsed any filter_group on path_drop rows;
+            // do the same parse for rate_limit so the evaluator can honor it.
+            filterGroup = parseFilterGroup(row.config?.filter_group)
         }
         rules.push({
             id: row.id,
