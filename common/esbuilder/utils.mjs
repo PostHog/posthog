@@ -213,8 +213,15 @@ export const commonConfig = {
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
-                const { css } = await postcss(plugins).process(source, { from: filePath })
-                return css
+                const result = await postcss(plugins).process(source, { from: filePath })
+                // Tailwind reports each scanned source file as a PostCSS `dependency`
+                // message. Surface them as esbuild watchFiles so editing a TSX file
+                // (e.g. adding `bg-[rebeccapurple]`) re-runs this transform on tailwind.css
+                // in watch mode — without this, new utilities silently produce no CSS.
+                const watchFiles = result.messages
+                    .filter((message) => message.type === 'dependency' && message.file)
+                    .map((message) => message.file)
+                return { css: result.css, watchFiles }
             },
         }),
         lessLoader({ javascriptEnabled: true }),
