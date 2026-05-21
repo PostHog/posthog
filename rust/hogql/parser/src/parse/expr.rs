@@ -4241,17 +4241,19 @@ impl<'a> Parser<'a> {
                     self.bump()?;
                     let (low, high, hoisted) = self.parse_between_body(min_bp)?;
                     let prev = lhs.take();
-                    // Wrap the inner BetweenExpr with positions BEFORE the
-                    // hoist loop. When a hoist wrapper (Or / Ternary /
-                    // Alias / Arith) is applied, the outer pratt-loop
-                    // wrap_pos at line ~126 stamps positions onto the
-                    // OUTERMOST wrapper, but the BetweenExpr is now
-                    // buried inside (e.g. as `Call(if, [BetweenExpr, …])`
-                    // for the ternary hoist) and would not otherwise
-                    // receive a span. cpp emits position info on
-                    // BetweenExpr unconditionally — match that.
-                    let mut between =
-                        self.wrap_pos(emit::between(prev, low, high, true), lhs_start);
+                    // Wrap the inner BetweenExpr with positions BEFORE the hoist loop. When a hoist
+                    // wrapper (Or / Ternary / Alias / Arith) is applied, the outer pratt-loop wrap_pos
+                    // at line ~126 stamps positions onto the OUTERMOST wrapper, but the BetweenExpr
+                    // is now buried inside (e.g. as `Call(if, [BetweenExpr, …])` for the ternary hoist)
+                    // and would not otherwise receive a span. cpp emits position info on BetweenExpr
+                    // unconditionally — match that. Use `high.end` (not `last_consumed_end`) — see
+                    // the BETWEEN arm below for the rationale.
+                    let high_end = high.get("end").cloned();
+                    let between_inner = emit::between(prev, low, high, true);
+                    let mut between = match high_end {
+                        Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
+                        None => self.wrap_pos(between_inner, lhs_start),
+                    };
                     for hoist in hoisted {
                         between = apply_between_hoist(between, hoist);
                     }
@@ -4303,10 +4305,16 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 let (low, high, hoisted) = self.parse_between_body(min_bp)?;
                 let prev = lhs.take();
-                // See the NOT BETWEEN arm above — wrap before hoist
-                // application so a buried BetweenExpr inside a Call(if,…),
-                // Or(…), Alias(…), or Arith(…) still carries its own span.
-                let mut between = self.wrap_pos(emit::between(prev, low, high, false), lhs_start);
+                // The inner BetweenExpr's structural end is `high.end`, not `self.last_consumed_end`.
+                // When `parse_between_body`'s WIDE arm absorbs a nested BETWEEN and the split hoists
+                // it back out (`BetweenHoist::Between`), `last_consumed_end` is past the high we'll
+                // actually use; mirror cpp's per-ctx span by reading the end off `high` directly.
+                let high_end = high.get("end").cloned();
+                let between_inner = emit::between(prev, low, high, false);
+                let mut between = match high_end {
+                    Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
+                    None => self.wrap_pos(between_inner, lhs_start),
+                };
                 for hoist in hoisted {
                     between = apply_between_hoist(between, hoist);
                 }

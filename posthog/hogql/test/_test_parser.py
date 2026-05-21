@@ -5128,6 +5128,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
 
         @no_memory_leak_check
+        def test_chained_between_inner_end_position(self):
+            # Left-recursive `between`: `a between L1 and H1 between L2 and H2` parses as `BetweenExpr(BetweenExpr(a, L1, H1), L2, H2)`.
+            # The inner BetweenExpr's `.end` must stop at H1 (offset of `2` here), not extend through H2.
+            src = "select a between 1 and 2 between 3 and 4"
+            node = parse_select(src, backend=backend)
+            assert isinstance(node, ast.SelectQuery)
+            outer = node.select[0]
+            assert isinstance(outer, ast.BetweenExpr), f"{backend}: outer is {type(outer).__name__}"
+            inner = outer.expr
+            assert isinstance(inner, ast.BetweenExpr), f"{backend}: inner is {type(inner).__name__}"
+            # H1 is the constant `2`, which ends at offset 24 in the source.
+            self.assertEqual(inner.end, 24, msg=f"{backend}: inner.end={inner.end}, expected 24")
+            self.assertEqual(outer.end, 40, msg=f"{backend}: outer.end={outer.end}, expected 40")
+
+        @no_memory_leak_check
         def test_bare_asterisk_clause_body_after_comma(self):
             # `select a, where *` opens the WHERE clause with a bare `*` body; later LIMIT / GROUP BY / etc. is a normal subsequent clause.
             cases = (
