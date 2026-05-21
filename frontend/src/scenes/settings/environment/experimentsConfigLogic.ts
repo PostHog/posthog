@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -28,11 +28,7 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
             null as ExperimentsConfig | null,
             {
                 loadExperimentsConfig: async (): Promise<ExperimentsConfig> => {
-                    const response = await api.get(`api/environments/${values.currentTeamId}/experiments_config/`)
-                    return {
-                        ...response,
-                        default_minimum_detectable_effect: response.default_minimum_detectable_effect ?? DEFAULT_MDE,
-                    }
+                    return await api.get(`api/environments/${values.currentTeamId}/experiments_config/`)
                 },
             },
         ],
@@ -41,6 +37,12 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
         experimentsConfig: {
             updateExperimentsConfig: (state, { payload }) => (state ? { ...state, ...payload } : state),
         },
+    }),
+    selectors({
+        defaultMinimumDetectableEffect: [
+            (s) => [s.experimentsConfig],
+            (config): number => config?.default_minimum_detectable_effect ?? DEFAULT_MDE,
+        ],
     }),
     listeners(({ actions, values }) => ({
         updateExperimentsConfig: async ({ payload }) => {

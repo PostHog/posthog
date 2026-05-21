@@ -54,7 +54,6 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { DEFAULT_MDE } from '~/scenes/experiments/constants'
 import {
     AccessControlLevel,
     BreakdownAttributionType,
@@ -588,7 +587,7 @@ export const experimentLogic = kea<experimentLogicType>([
             sharedMetricsLogic,
             ['sharedMetrics'],
             experimentsConfigLogic,
-            ['experimentsConfig'],
+            ['experimentsConfig', 'defaultMinimumDetectableEffect'],
         ],
         actions: [
             experimentsLogic,
@@ -2440,10 +2439,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.experimentsConfig],
-            (newExperiment, experimentsConfig): number => {
-                const configDefaultMde = experimentsConfig?.default_minimum_detectable_effect ?? DEFAULT_MDE
-                return newExperiment?.parameters?.minimum_detectable_effect ?? configDefaultMde
+            (s) => [s.experiment, s.defaultMinimumDetectableEffect],
+            (newExperiment, defaultMinimumDetectableEffect): number => {
+                return newExperiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
             },
         ],
         recommendedSampleSize: [

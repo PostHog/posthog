@@ -9,10 +9,9 @@ import { TeamMembershipLevel } from '~/lib/constants'
 import { LemonSlider } from '~/lib/lemon-ui/LemonSlider'
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 
-import { DEFAULT_MDE } from './constants'
-
 export function DefaultMinimumDetectableEffect(): JSX.Element {
-    const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
+    const { experimentsConfig, experimentsConfigLoading, defaultMinimumDetectableEffect } =
+        useValues(experimentsConfigLogic)
     const { updateExperimentsConfig } = useActions(experimentsConfigLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -20,7 +19,7 @@ export function DefaultMinimumDetectableEffect(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const savedValue = experimentsConfig?.default_minimum_detectable_effect ?? DEFAULT_MDE
+    const savedValue = defaultMinimumDetectableEffect
     const [localValue, setLocalValue] = useState<number | null>(null)
 
     /**
