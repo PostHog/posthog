@@ -14,10 +14,9 @@ function ReactEnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[
-                `VITE_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`,
-                `VITE_POSTHOG_HOST=${apiHostOrigin()}`,
-            ].join('\n')}
+            {[`VITE_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`, `VITE_POSTHOG_HOST=${apiHostOrigin()}`].join(
+                '\n'
+            )}
         </CodeSnippet>
     )
 }
