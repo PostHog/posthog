@@ -11,8 +11,13 @@ import type {
     ApiRedactedPersonalApiKey,
     ApiUser,
 } from '@/schema/api'
-import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
-import { ExperimentExposureQuerySchema } from '@/schema/experiments'
+import type {
+    Experiment,
+    ExperimentExposureQuery,
+    ExperimentExposureQueryResponse,
+    ResolvedMetricEntry,
+} from '@/schema/experiments'
+import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/experiments'
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
@@ -702,6 +707,8 @@ export class ApiClient {
             }): Promise<
                 Result<{
                     experiment: Experiment
+                    primaryMetricEntries: ResolvedMetricEntry[]
+                    secondaryMetricEntries: ResolvedMetricEntry[]
                     primaryMetricsResults: any[]
                     secondaryMetricsResults: any[]
                     exposures: ExperimentExposureQueryResponse
@@ -747,20 +754,15 @@ export class ApiClient {
 
                 const { exposures } = experimentExposure.data
 
-                // Prepare metrics queries
-                const sharedPrimaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'primary')
-                    .map(({ query }: any) => query)
-                const allPrimaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics]
-
-                const sharedSecondaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'secondary')
-                    .map(({ query }: any) => query)
-                const allSecondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics]
+                // Build the per-position metric entries. Each entry knows whether the metric
+                // was defined inline on the experiment or attached via a shared saved metric, so
+                // the result row can be self-describing to MCP callers.
+                const primaryMetricEntries = buildMetricEntries(experiment, 'primary')
+                const secondaryMetricEntries = buildMetricEntries(experiment, 'secondary')
 
                 // Execute queries for primary metrics
                 const primaryResults = await Promise.all(
-                    allPrimaryMetrics.map(async (metric) => {
+                    primaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -790,7 +792,7 @@ export class ApiClient {
 
                 // Execute queries for secondary metrics
                 const secondaryResults = await Promise.all(
-                    allSecondaryMetrics.map(async (metric) => {
+                    secondaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -822,6 +824,8 @@ export class ApiClient {
                     success: true,
                     data: {
                         experiment,
+                        primaryMetricEntries,
+                        secondaryMetricEntries,
                         primaryMetricsResults: primaryResults,
                         secondaryMetricsResults: secondaryResults,
                         exposures,
