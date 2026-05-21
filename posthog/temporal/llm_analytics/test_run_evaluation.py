@@ -608,9 +608,9 @@ class TestRunEvaluationWorkflow:
         assert evaluation.status == "error"
         assert evaluation.status_reason == "trial_limit_reached"
 
-        logs = await sync_to_async(list)(
-            ActivityLog.objects.filter(scope="Evaluation", item_id=str(evaluation.id), activity="updated")
-        )
+        logs = await sync_to_async(
+            lambda: list(ActivityLog.objects.filter(scope="Evaluation", item_id=str(evaluation.id), activity="updated"))
+        )()
         assert len(logs) == 1
         fields = {c["field"]: c for c in logs[0].detail["changes"]}
         assert fields["status"]["before"] == "active"
