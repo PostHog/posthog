@@ -200,7 +200,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
     }
 }
 
-function redactSensitiveInformation(text: string): string {
+export function redactSensitiveInformation(text: string): string {
     return text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')
 }
 

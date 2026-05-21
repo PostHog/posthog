@@ -15,15 +15,17 @@ import { StateManager } from '@/lib/StateManager'
 import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
 import type { Context, Env, State } from '@/tools/types'
 
-import { RedisCache, type RedisLike } from '../cache/RedisCache'
-import { getCustomApiBaseUrl } from '../constants'
-import type { ToolCatalog } from '../tool-catalog'
+import { RedisCache, type RedisLike } from './cache/RedisCache'
+import { getCustomApiBaseUrl } from './constants'
+import type { ToolCatalog } from './tool-catalog'
 
-import { type ResolvedState, resolveModeAndVersion } from './types'
+import { type ResolvedState, resolveModeAndVersion } from './protocol-types'
 
 export class RequestContext {
     private _cache: RedisCache<State> | undefined
     private _api: ApiClient | undefined
+    private _sessionManager: SessionManager | undefined
+    private _distinctIdPromise: Promise<string> | undefined
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
@@ -70,17 +72,34 @@ export class RequestContext {
         return this._api
     }
 
-    async getDistinctId(): Promise<string> {
-        let distinctId = await this.cache.get('distinctId')
-        if (!distinctId) {
-            const userResult = await (await this.api()).users().me()
-            if (!userResult.success) {
-                throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
-            }
-            await this.cache.set('distinctId', userResult.data.distinct_id)
-            distinctId = userResult.data.distinct_id as string
+    get sessionManager(): SessionManager {
+        if (!this._sessionManager) {
+            this._sessionManager = new SessionManager(this.cache)
         }
-        return distinctId
+        return this._sessionManager
+    }
+
+    async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
+        if (!sessionId) return undefined
+        return this.sessionManager.getSessionUuid(sessionId)
+    }
+
+    getDistinctId(): Promise<string> {
+        if (!this._distinctIdPromise) {
+            this._distinctIdPromise = this._resolveDistinctId()
+        }
+        return this._distinctIdPromise
+    }
+
+    private async _resolveDistinctId(): Promise<string> {
+        const cached = await this.cache.get('distinctId')
+        if (cached) return cached
+        const userResult = await (await this.api()).users().me()
+        if (!userResult.success) {
+            throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
+        }
+        await this.cache.set('distinctId', userResult.data.distinct_id)
+        return userResult.data.distinct_id as string
     }
 
     async getContext(): Promise<Context> {
@@ -91,13 +110,13 @@ export class RequestContext {
             cache: this.cache,
             env: this.env,
             stateManager,
-            sessionManager: new SessionManager(this.cache),
+            sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
             const distinctId = await this.getDistinctId()
-            await this._trackEvent(event, properties, analyticsContext, undefined, distinctId, this.props)
+            await this.trackEvent(event, properties, analyticsContext, undefined, distinctId, this.props)
         }
         return { ...partialContext, trackEvent }
     }
@@ -129,7 +148,7 @@ export class RequestContext {
         if (!event) return
 
         const distinctId = await this.getDistinctId()
-        await this._trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)
+        await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)
     }
 
     async resolveVersionFlag(): Promise<number | undefined> {
@@ -161,7 +180,19 @@ export class RequestContext {
         }
     }
 
-    async _trackEvent(
+    buildClientProperties(props?: RequestProperties): Record<string, unknown> {
+        const p = props ?? this.props
+        return {
+            mcp_runtime: 'hono',
+            ...(p.mcpClientName ? { mcp_client_name: p.mcpClientName } : {}),
+            ...(p.mcpClientVersion ? { mcp_client_version: p.mcpClientVersion } : {}),
+            ...(p.mcpProtocolVersion ? { mcp_protocol_version: p.mcpProtocolVersion } : {}),
+            ...(p.mcpConsumer ? { mcp_consumer: p.mcpConsumer } : {}),
+            ...(p.transport ? { mcp_transport: p.transport } : {}),
+        }
+    }
+
+    async trackEvent(
         event: AnalyticsEvent,
         properties: Record<string, unknown>,
         analyticsContext?: MCPAnalyticsContext,
@@ -184,18 +215,11 @@ export class RequestContext {
                 event,
                 ...(Object.keys(groups).length > 0 ? { groups } : {}),
                 properties: {
-                    mcp_runtime: 'hono',
+                    ...this.buildClientProperties(resolvedProps),
                     ...(resolvedProps.sessionId
-                        ? { $session_id: await new SessionManager(this.cache).getSessionUuid(resolvedProps.sessionId) }
+                        ? { $session_id: await this.getSessionUuid(resolvedProps.sessionId) }
                         : {}),
                     ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
-                    ...(resolvedProps.mcpClientName ? { mcp_client_name: resolvedProps.mcpClientName } : {}),
-                    ...(resolvedProps.mcpClientVersion ? { mcp_client_version: resolvedProps.mcpClientVersion } : {}),
-                    ...(resolvedProps.mcpProtocolVersion
-                        ? { mcp_protocol_version: resolvedProps.mcpProtocolVersion }
-                        : {}),
-                    ...(resolvedProps.mcpConsumer ? { mcp_consumer: resolvedProps.mcpConsumer } : {}),
-                    ...(resolvedProps.transport ? { mcp_transport: resolvedProps.transport } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,

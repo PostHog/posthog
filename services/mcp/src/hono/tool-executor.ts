@@ -2,14 +2,13 @@ import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-resu
 import { handleToolError } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
-import { SessionManager } from '@/lib/SessionManager'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 
-import { toolCallDurationSeconds, toolCallsTotal } from '../metrics'
-import type { ToolCatalog } from '../tool-catalog'
+import { toolCallDurationSeconds, toolCallsTotal } from './metrics'
+import type { ToolCatalog } from './tool-catalog'
 
 import type { InstructionsBuilder } from './instructions'
-import type { PreBuiltToolEntry, ResolvedState } from './types'
+import type { PreBuiltToolEntry, ResolvedState } from './protocol-types'
 
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
@@ -106,9 +105,7 @@ export class ToolExecutor {
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
             stop({ status: 'error' })
-            const sessionUuid = props.sessionId
-                ? await new SessionManager(state.reqCtx.cache).getSessionUuid(props.sessionId)
-                : undefined
+            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
             return handleToolError(error, toolName, state.distinctId, sessionUuid)
         }
     }
@@ -126,7 +123,7 @@ export class ToolExecutor {
             const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
                 void (async () => {
                     const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
-                    await state.reqCtx._trackEvent(
+                    await state.reqCtx.trackEvent(
                         AnalyticsEvent.MCP_TOOL_CALL,
                         { tool_name: toolName, ...properties },
                         freshContext,
@@ -175,9 +172,7 @@ export class ToolExecutor {
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: 'exec', status: 'error' })
             stop({ status: 'error' })
-            const sessionUuid = props.sessionId
-                ? await new SessionManager(state.reqCtx.cache).getSessionUuid(props.sessionId)
-                : undefined
+            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
             return handleToolError(error, 'exec', state.distinctId, sessionUuid)
         }
     }

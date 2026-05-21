@@ -10,7 +10,7 @@ import {
 } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
-import type { PreBuiltToolEntry } from './dispatcher/types'
+import type { PreBuiltToolEntry } from './protocol-types'
 
 interface PreBuiltTool {
     base: ToolBase<ZodObjectAny>

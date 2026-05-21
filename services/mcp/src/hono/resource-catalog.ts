@@ -7,7 +7,7 @@ import { buildAppStubHtml } from '@/resources/ui-apps'
 import type { ContextMillResource } from '@/resources/manifest-types'
 import type { Env } from '@/tools/types'
 
-import type { PreBuiltResource, PreBuiltPrompt, ResourceReadEntry, PromptGetEntry } from './types'
+import type { PreBuiltResource, PreBuiltPrompt, ResourceReadEntry, PromptGetEntry } from './protocol-types'
 
 export class ResourceCatalog {
     private readonly env: Env
@@ -18,6 +18,7 @@ export class ResourceCatalog {
     private _promptsByName = new Map<string, PromptGetEntry>()
     private _uiAppResources: PreBuiltResource[] = []
     private _uiAppReadEntries = new Map<string, ResourceReadEntry>()
+    private _allResources: PreBuiltResource[] = []
     private _contextMillEntries: readonly ContextMillResource[] = []
 
     constructor(env: Env) {
@@ -30,10 +31,11 @@ export class ResourceCatalog {
 
     async warmup(): Promise<void> {
         await Promise.all([this._warmupResources(), this._warmupUiApps()])
+        this._allResources = [...this._resources, ...this._uiAppResources]
     }
 
     getResourcesList(): { resources: PreBuiltResource[] } {
-        return { resources: [...this._resources, ...this._uiAppResources] }
+        return { resources: this._allResources }
     }
 
     readResource(params: Record<string, unknown> | undefined): unknown {

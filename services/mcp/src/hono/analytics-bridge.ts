@@ -7,14 +7,13 @@ import {
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
     type IdentityProvider,
-    type MCPAnalyticsContext,
+    redactSensitiveInformation,
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
-import { SessionManager } from '@/lib/SessionManager'
 import { createExecInnerToolCallResolver } from '@/tools/exec'
 import type { Env } from '@/tools/types'
 
-import type { JsonRpcRequest, MethodHandlerCallbacks, ResolvedState } from './types'
+import type { JsonRpcRequest, MethodHandlerCallbacks, ResolvedState } from './protocol-types'
 
 interface AnalyticsAdapter {
     _requestHandlers: Map<string, (request: unknown, extra: unknown) => Promise<unknown>>
@@ -61,9 +60,7 @@ export class AnalyticsBridge {
                 identify: { userId: state.distinctId },
                 reportMissing: !state.useSingleExec,
                 eventTags: async () => {
-                    const sessionUuid = props.sessionId
-                        ? await new SessionManager(state.reqCtx.cache).getSessionUuid(props.sessionId)
-                        : undefined
+                    const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
                     return sessionUuid ? { $session_id: sessionUuid, $ai_session_id: sessionUuid } : {}
                 },
                 eventProperties: async (req: unknown) => {
@@ -85,7 +82,7 @@ export class AnalyticsBridge {
                     }
                 },
                 redactSensitiveInformation: (text: string) =>
-                    Promise.resolve(text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')),
+                    Promise.resolve(redactSensitiveInformation(text)),
             })
         } catch {
             // Analytics init failed — fall through to call unwrapped handler
@@ -110,7 +107,7 @@ export class AnalyticsBridge {
                 distinctId: state.distinctId,
                 event: AnalyticsEvent.MCP_INIT,
                 properties: {
-                    mcp_runtime: 'hono',
+                    ...state.reqCtx.buildClientProperties(props),
                     tool_count: state.allTools.length,
                     has_organization_id: !!props.organizationId,
                     has_project_id: !!props.projectId,
@@ -119,17 +116,8 @@ export class AnalyticsBridge {
                     ...(props.mode ? { mcp_mode_explicit: props.mode } : {}),
                     ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
                     ...(props.sessionId
-                        ? {
-                              $session_id: await new SessionManager(state.reqCtx.cache).getSessionUuid(
-                                  props.sessionId
-                              ),
-                          }
+                        ? { $session_id: await state.reqCtx.getSessionUuid(props.sessionId) }
                         : {}),
-                    ...(props.mcpClientName ? { mcp_client_name: props.mcpClientName } : {}),
-                    ...(props.mcpClientVersion ? { mcp_client_version: props.mcpClientVersion } : {}),
-                    ...(props.mcpProtocolVersion ? { mcp_protocol_version: props.mcpProtocolVersion } : {}),
-                    ...(props.mcpConsumer ? { mcp_consumer: props.mcpConsumer } : {}),
-                    ...(props.transport ? { mcp_transport: props.transport } : {}),
                     ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),
                 },
                 ...(analyticsContext ? { groups: buildMCPAnalyticsGroups(analyticsContext) } : {}),
@@ -172,10 +160,7 @@ export class AnalyticsBridge {
     private _buildIdentityProvider(state: ResolvedState, props: RequestProperties): IdentityProvider {
         return {
             getDistinctId: () => Promise.resolve(state.distinctId),
-            getSessionUuid: async () =>
-                props.sessionId
-                    ? await new SessionManager(state.reqCtx.cache).getSessionUuid(props.sessionId)
-                    : undefined,
+            getSessionUuid: () => state.reqCtx.getSessionUuid(props.sessionId),
             getMcpClientName: async () => props.mcpClientName,
             getMcpClientVersion: async () => props.mcpClientVersion,
             getMcpProtocolVersion: async () => props.mcpProtocolVersion,

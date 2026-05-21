@@ -2,10 +2,10 @@ import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcont
 
 import type { RequestProperties } from '@/lib/request-properties'
 
-import type { RedisLike } from '../cache/RedisCache'
-import { getEnv } from '../constants'
-import { initDurationSeconds } from '../metrics'
-import { ToolCatalog } from '../tool-catalog'
+import type { RedisLike } from './cache/RedisCache'
+import { getEnv } from './constants'
+import { initDurationSeconds } from './metrics'
+import { ToolCatalog } from './tool-catalog'
 
 import { AnalyticsBridge } from './analytics-bridge'
 import { InstructionsBuilder } from './instructions'
@@ -20,10 +20,10 @@ import {
     type ResolvedState,
     isRequest,
     jsonRpcError,
-} from './types'
+} from './protocol-types'
 
 export { McpDispatcher }
-export type { ResolvedState } from './types'
+export type { ResolvedState } from './protocol-types'
 
 class McpDispatcher {
     private readonly catalog: ToolCatalog

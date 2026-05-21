@@ -6,7 +6,7 @@ import { formatPrompt } from '@/lib/utils'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
-import type { PreBuiltToolEntry, ResolvedState } from './types'
+import type { PreBuiltToolEntry, ResolvedState } from './protocol-types'
 
 import guidelines from '@shared/guidelines.md'
 

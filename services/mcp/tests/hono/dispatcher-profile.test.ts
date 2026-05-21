@@ -140,17 +140,17 @@ function gc(): void {
 
 function percentile(sorted: number[], p: number): number {
     const idx = Math.ceil((p / 100) * sorted.length) - 1
-    return sorted[Math.max(0, idx)]
+    return sorted[Math.max(0, idx)]!
 }
 
 function stats(timings: number[]): { min: number; p50: number; p95: number; p99: number; max: number; avg: number } {
     const sorted = [...timings].sort((a, b) => a - b)
     return {
-        min: sorted[0],
+        min: sorted[0]!,
         p50: percentile(sorted, 50),
         p95: percentile(sorted, 95),
         p99: percentile(sorted, 99),
-        max: sorted[sorted.length - 1],
+        max: sorted[sorted.length - 1]!,
         avg: timings.reduce((a, b) => a + b, 0) / timings.length,
     }
 }
