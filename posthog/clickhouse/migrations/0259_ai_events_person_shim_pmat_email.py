@@ -22,7 +22,9 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 operations = [
     run_sql_with_exceptions(
-        "ALTER TABLE IF EXISTS person ADD COLUMN IF NOT EXISTS pmat_email String",
+        "ALTER TABLE person ADD COLUMN IF NOT EXISTS pmat_email String",
         node_roles=[NodeRole.AI_EVENTS],
+        sharded=False,
+        is_alter_on_replicated_table=False,
     ),
 ]
