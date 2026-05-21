@@ -14,6 +14,12 @@ pub struct GitInfo {
     pub commit_id: String,
 }
 
+struct GitDirs {
+    git_dir: PathBuf,
+    common_dir: PathBuf,
+    worktree_dir: PathBuf,
+}
+
 pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
     if let Some(info) = get_git_info_from_github() {
         return Ok(Some(info));
@@ -23,15 +29,21 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
         return Ok(Some(info));
     }
 
-    let git_dir = match find_git_dir(dir) {
-        Some(dir) => dir,
+    let git_dirs = match find_git_dirs(dir) {
+        Some(dirs) => dirs,
         None => return Ok(None),
     };
 
-    let remote_url = get_remote_url(&git_dir);
-    let repo_name = get_repo_name(&git_dir);
-    let branch = get_branch_name(&git_dir).context("Failed to determine current branch")?;
-    let commit = get_commit_sha(&git_dir, &branch).context("Failed to determine commit sha")?;
+    let remote_url = get_remote_url_from_dirs(&git_dirs.git_dir, &git_dirs.common_dir);
+    let repo_name = get_repo_name_from_dirs(
+        &git_dirs.git_dir,
+        &git_dirs.common_dir,
+        Some(&git_dirs.worktree_dir),
+    );
+    let branch =
+        get_branch_name(&git_dirs.git_dir).context("Failed to determine current branch")?;
+    let commit = get_commit_sha(&git_dirs.git_dir, &git_dirs.common_dir, &branch)
+        .context("Failed to determine commit sha")?;
 
     Ok(Some(GitInfo {
         remote_url,
@@ -91,13 +103,27 @@ fn build_vercel_remote_url(repo_slug: &String) -> Option<String> {
     Some(format!("{base_url}/{owner}/{repo_slug}.git"))
 }
 
-fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
+fn find_git_dirs(dir: Option<PathBuf>) -> Option<GitDirs> {
     let mut current_dir = dir.unwrap_or(std::env::current_dir().ok()?);
 
     loop {
-        let git_dir = current_dir.join(".git");
-        if git_dir.is_dir() {
-            return Some(git_dir);
+        let git_path = current_dir.join(".git");
+        if git_path.is_dir() {
+            return Some(GitDirs {
+                git_dir: git_path.clone(),
+                common_dir: git_path,
+                worktree_dir: current_dir,
+            });
+        }
+
+        if git_path.is_file() {
+            let git_dir = parse_git_dir_file(&git_path)?;
+            let common_dir = get_common_dir(&git_dir);
+            return Some(GitDirs {
+                git_dir,
+                common_dir,
+                worktree_dir: current_dir,
+            });
         }
 
         if !current_dir.pop() {
@@ -106,13 +132,56 @@ fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     }
 }
 
+fn parse_git_dir_file(git_path: &Path) -> Option<PathBuf> {
+    let content = fs::read_to_string(git_path).ok()?;
+    let git_dir = content.trim().strip_prefix("gitdir:")?.trim();
+    let git_dir = PathBuf::from(git_dir);
+
+    if git_dir.is_absolute() {
+        Some(git_dir)
+    } else {
+        Some(git_path.parent()?.join(git_dir))
+    }
+}
+
+fn get_common_dir(git_dir: &Path) -> PathBuf {
+    let commondir_path = git_dir.join("commondir");
+    let Ok(commondir) = fs::read_to_string(commondir_path) else {
+        return git_dir.to_path_buf();
+    };
+
+    let commondir = PathBuf::from(commondir.trim());
+    if commondir.is_absolute() {
+        commondir
+    } else {
+        git_dir.join(commondir)
+    }
+}
+
+fn config_paths(git_dir: &Path, common_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = vec![git_dir.join("config"), git_dir.join("config.worktree")];
+
+    if common_dir != git_dir {
+        paths.push(common_dir.join("config"));
+    }
+
+    paths
+}
+
 pub fn get_remote_url(git_dir: &Path) -> Option<String> {
+    get_remote_url_from_dirs(git_dir, git_dir)
+}
+
+fn get_remote_url_from_dirs(git_dir: &Path, common_dir: &Path) -> Option<String> {
     // Try grab it from the git config
-    let config_path = git_dir.join("config");
-    if config_path.exists() {
+    for config_path in config_paths(git_dir, common_dir) {
+        if !config_path.exists() {
+            continue;
+        }
+
         let config_content = match fs::read_to_string(&config_path) {
             Ok(content) => content,
-            Err(_) => return None,
+            Err(_) => continue,
         };
 
         for line in config_content.lines() {
@@ -133,12 +202,23 @@ pub fn get_remote_url(git_dir: &Path) -> Option<String> {
 }
 
 pub fn get_repo_name(git_dir: &Path) -> Option<String> {
+    get_repo_name_from_dirs(git_dir, git_dir, git_dir.parent())
+}
+
+fn get_repo_name_from_dirs(
+    git_dir: &Path,
+    common_dir: &Path,
+    worktree_dir: Option<&Path>,
+) -> Option<String> {
     // Try grab it from the configured remote, otherwise just use the directory name
-    let config_path = git_dir.join("config");
-    if config_path.exists() {
+    for config_path in config_paths(git_dir, common_dir) {
+        if !config_path.exists() {
+            continue;
+        }
+
         let config_content = match fs::read_to_string(&config_path) {
             Ok(content) => content,
-            Err(_) => return None,
+            Err(_) => continue,
         };
 
         for line in config_content.lines() {
@@ -153,10 +233,8 @@ pub fn get_repo_name(git_dir: &Path) -> Option<String> {
         }
     }
 
-    if let Some(parent) = git_dir.parent() {
-        if let Some(name) = parent.file_name() {
-            return Some(name.to_string_lossy().to_string());
-        }
+    if let Some(name) = worktree_dir.and_then(|dir| dir.file_name()) {
+        return Some(name.to_string_lossy().to_string());
     }
 
     None
@@ -184,7 +262,7 @@ fn get_branch_name(git_dir: &Path) -> Result<String> {
     }
 }
 
-fn get_commit_sha(git_dir: &Path, branch: &str) -> Result<String> {
+fn get_commit_sha(git_dir: &Path, common_dir: &Path, branch: &str) -> Result<String> {
     if branch == "HEAD-detached" {
         // For detached HEAD, read directly from HEAD
         let head_path = git_dir.join("HEAD");
@@ -198,8 +276,11 @@ fn get_commit_sha(git_dir: &Path, branch: &str) -> Result<String> {
     }
 
     // Try to read the commit from the branch reference
-    let ref_path = git_dir.join("refs/heads").join(branch);
-    if ref_path.exists() {
+    for ref_path in branch_ref_paths(git_dir, common_dir, branch) {
+        if !ref_path.exists() {
+            continue;
+        }
+
         let mut commit_id = String::new();
         fs::File::open(&ref_path)
             .with_context(|| format!("Failed to open branch reference at {ref_path:?}"))?
@@ -209,7 +290,57 @@ fn get_commit_sha(git_dir: &Path, branch: &str) -> Result<String> {
         return Ok(commit_id.trim().to_string());
     }
 
+    if let Some(commit_id) = get_packed_ref(git_dir, common_dir, branch) {
+        return Ok(commit_id);
+    }
+
     anyhow::bail!("Could not determine commit ID")
+}
+
+fn branch_ref_paths(git_dir: &Path, common_dir: &Path, branch: &str) -> Vec<PathBuf> {
+    let mut paths = vec![git_dir.join("refs/heads").join(branch)];
+
+    if common_dir != git_dir {
+        paths.push(common_dir.join("refs/heads").join(branch));
+    }
+
+    paths
+}
+
+fn get_packed_ref(git_dir: &Path, common_dir: &Path, branch: &str) -> Option<String> {
+    let ref_name = format!("refs/heads/{branch}");
+    let mut paths = vec![git_dir.join("packed-refs")];
+
+    if common_dir != git_dir {
+        paths.push(common_dir.join("packed-refs"));
+    }
+
+    for path in paths {
+        let Ok(content) = fs::read_to_string(path) else {
+            continue;
+        };
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') || line.starts_with('^') {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(commit_id) = parts.next() else {
+                continue;
+            };
+            let Some(packed_ref) = parts.next() else {
+                continue;
+            };
+
+            if packed_ref == ref_name {
+                return Some(commit_id.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 fn get_env_variable(name: &str) -> Option<String> {
