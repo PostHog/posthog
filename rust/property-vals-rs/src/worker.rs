@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use tracing::{error, info, warn};
 
 use crate::aggregator::Aggregator;
-use crate::app_context::AppContext;
+use crate::config::Config;
 use crate::metrics_consts::*;
 use crate::producer::{OffsetSnapshot, Producer};
 use crate::types::{IngestableEvent, TupleKey};
@@ -13,12 +14,8 @@ use crate::types::{IngestableEvent, TupleKey};
 /// One worker loop. Each pod runs one worker per input topic. Each worker
 /// owns its own transactional producer (with a distinct `transactional.id`)
 /// because rdkafka allows only one outstanding transaction per id.
-///
-/// Generic over the message type so the events consumer and the groups
-/// consumer can share this code. The caller supplies the per-message
-/// fan-out function.
 pub async fn worker_loop<E, P, F>(
-    ctx: Arc<AppContext>,
+    config: Arc<Config>,
     consumer: SingleTopicConsumer,
     mut producer: P,
     handle: lifecycle::Handle,
@@ -31,13 +28,9 @@ pub async fn worker_loop<E, P, F>(
     let _guard = handle.process_scope();
 
     let mut aggregator = Aggregator::new();
-    // Latest seen offset per partition; the worker only stores a snapshot
-    // (topic + partition + offset value) because the real consumer Offset
-    // handle isn't needed anymore. The transactional producer commits these
-    // via `send_offsets_to_transaction` atomically with the produce.
     let mut pending_offsets: HashMap<i32, OffsetSnapshot> = HashMap::new();
 
-    let mut flush_timer = tokio::time::interval(ctx.flush_interval);
+    let mut flush_timer = tokio::time::interval(Duration::from_secs(config.flush_interval_secs));
     flush_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     flush_timer.reset();
 
@@ -68,10 +61,12 @@ pub async fn worker_loop<E, P, F>(
                     Ok((event, offset)) => {
                         metrics::counter!(EVENTS_RECEIVED).increment(1);
 
-                        if ctx.should_process(event.team_id()) {
+                        if config.should_process(event.team_id()) {
                             let tuples = fan_out_fn(&event);
                             metrics::counter!(TUPLES_AGGREGATED).increment(tuples.len() as u64);
-                            aggregator.record_many(tuples);
+                            for t in tuples {
+                                aggregator.add(t, 1);
+                            }
                         } else {
                             metrics::counter!(EVENTS_FILTERED).increment(1);
                         }
@@ -85,7 +80,7 @@ pub async fn worker_loop<E, P, F>(
                             },
                         );
 
-                        if aggregator.len() >= ctx.max_buffered_tuples {
+                        if aggregator.len() >= config.max_buffered_tuples {
                             flush(
                                 &mut aggregator,
                                 &mut pending_offsets,
@@ -235,7 +230,7 @@ mod tests {
 
     fn populate(agg: &mut Aggregator, count: u64) {
         for i in 0..count {
-            agg.record(tuple(2, "k", &format!("v{i}")));
+            agg.add(tuple(2, "k", &format!("v{i}")), 1);
         }
     }
 
@@ -328,7 +323,7 @@ mod tests {
     #[tokio::test]
     async fn restored_counts_merge_with_new_counts_in_next_window() {
         let mut agg = Aggregator::new();
-        agg.record(tuple(2, "k1", "v1"));
+        agg.add(tuple(2, "k1", "v1"), 1);
 
         let mut pending: HashMap<i32, OffsetSnapshot> = HashMap::new();
         pending.insert(0, snapshot(0, 10));
@@ -336,7 +331,7 @@ mod tests {
         let mut producer = MockProducer::new().fail_on(1);
         flush(&mut agg, &mut pending, &mut producer, FLUSH_REASON_TIMER).await;
 
-        agg.record(tuple(2, "k1", "v1"));
+        agg.add(tuple(2, "k1", "v1"), 1);
 
         flush(&mut agg, &mut pending, &mut producer, FLUSH_REASON_TIMER).await;
 
@@ -348,7 +343,7 @@ mod tests {
     #[tokio::test]
     async fn produce_and_commit_receives_items_and_offsets_atomically() {
         let mut agg = Aggregator::new();
-        agg.record(tuple(2, "k1", "v1"));
+        agg.add(tuple(2, "k1", "v1"), 1);
 
         let mut pending: HashMap<i32, OffsetSnapshot> = HashMap::new();
         pending.insert(0, snapshot(0, 42));
@@ -366,7 +361,7 @@ mod tests {
     #[tokio::test]
     async fn repeated_failure_holds_all_state_indefinitely() {
         let mut agg = Aggregator::new();
-        agg.record(tuple(2, "k1", "v1"));
+        agg.add(tuple(2, "k1", "v1"), 1);
 
         let mut pending: HashMap<i32, OffsetSnapshot> = HashMap::new();
         pending.insert(0, snapshot(0, 7));

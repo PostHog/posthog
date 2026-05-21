@@ -11,7 +11,16 @@ use rdkafka::TopicPartitionList;
 use thiserror::Error;
 use tracing::{error, warn};
 
-use crate::types::{OutputMessage, TupleKey};
+use crate::types::{PropertyType, TupleKey};
+
+#[derive(serde::Serialize)]
+struct Outgoing<'a> {
+    team_id: i64,
+    property_type: PropertyType,
+    property_key: &'a str,
+    property_value: &'a str,
+    property_count: u64,
+}
 
 #[derive(Debug, Clone)]
 pub struct OffsetSnapshot {
@@ -106,14 +115,14 @@ impl Producer for AggregatedProducer {
 
         let total = items.len();
         if !items.is_empty() {
-            let messages: Vec<OutputMessage> = items
-                .into_iter()
-                .map(|(tuple, count)| OutputMessage {
+            let messages: Vec<Outgoing> = items
+                .iter()
+                .map(|(tuple, count)| Outgoing {
                     team_id: tuple.team_id,
-                    property_type: tuple.property_type.as_str().to_string(),
-                    property_key: tuple.property_key,
-                    property_value: tuple.property_value,
-                    property_count: count,
+                    property_type: tuple.property_type,
+                    property_key: &tuple.property_key,
+                    property_value: &tuple.property_value,
+                    property_count: *count,
                 })
                 .collect();
 

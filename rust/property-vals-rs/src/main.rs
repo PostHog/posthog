@@ -5,7 +5,6 @@ use axum::{response::IntoResponse, routing::get, Router};
 use common_kafka::kafka_consumer::SingleTopicConsumer;
 use lifecycle::{ComponentOptions, Manager};
 use property_vals_rs::{
-    app_context::AppContext,
     config::Config,
     fan_out::{fan_out, fan_out_group},
     producer::AggregatedProducer,
@@ -119,21 +118,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.groups_kafka_consumer_topic
     );
 
-    let ctx = Arc::new(AppContext::new(&config));
+    let shared_config = Arc::new(config.clone());
 
     let guard = manager.monitor_background();
 
     // One worker per topic. Each has its own transactional producer because
     // rdkafka allows one outstanding transaction per transactional.id.
     tokio::spawn(worker_loop::<Event, _, _>(
-        ctx.clone(),
+        shared_config.clone(),
         events_consumer,
         events_producer,
         events_handle.clone(),
         fan_out,
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
-        ctx.clone(),
+        shared_config.clone(),
         groups_consumer,
         groups_producer,
         groups_handle.clone(),
