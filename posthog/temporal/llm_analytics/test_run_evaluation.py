@@ -612,7 +612,9 @@ class TestRunEvaluationWorkflow:
             lambda: list(ActivityLog.objects.filter(scope="Evaluation", item_id=str(evaluation.id), activity="updated"))
         )()
         assert len(logs) == 1
-        fields = {c["field"]: c for c in logs[0].detail["changes"]}
+        detail = logs[0].detail
+        assert detail is not None
+        fields = {c["field"]: c for c in detail["changes"]}
         assert fields["status"]["before"] == "active"
         assert fields["status"]["after"] == "error"
         assert fields["status_reason"]["after"] == "trial_limit_reached"
