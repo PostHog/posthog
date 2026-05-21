@@ -292,7 +292,7 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service property-vals-rs
         capability: property_values
-        ready_pattern: 'HTTP server starting'
+        ready_pattern: 'Subscribed to topic: *'
         groups:
             layer: Ingestion pipeline
             tech: Rust
