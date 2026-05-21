@@ -18,15 +18,16 @@ class TestUserTeamsAccessControl(BaseTest):
 
     def setUp(self):
         super().setUp()
-        # Enable advanced permissions for the organization
+        # Enable access control and role-based access for the organization
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
 
-    def test_user_teams_without_advanced_permissions(self):
-        """Test that without advanced permissions, user sees all teams in their organization."""
-        # Disable advanced permissions
+    def test_user_teams_without_access_control(self):
+        """Test that without access control, user sees all teams in their organization."""
+        # Disable access control
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -138,6 +139,45 @@ class TestUserTeamsAccessControl(BaseTest):
         self.assertEqual(user_teams.count(), 2)
         self.assertIn(self.team, user_teams)
         self.assertIn(private_team, user_teams)
+
+    def test_user_teams_role_based_access_inert_without_role_based_access_feature(self):
+        """Role-backed project AccessControl rows must NOT grant team visibility when the
+        org lacks ROLE_BASED_ACCESS — mirrors the UI gate."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+
+        role = Role.objects.create(name="Developer", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            access_level="admin",
+            organization_member=None,
+            role=role,
+        )
+
+        self.user.__dict__.pop("teams", None)  # bust cached_property if it was set
+        user_teams = self.user.teams.all()
+        self.assertEqual(user_teams.count(), 1)
+        self.assertIn(self.team, user_teams)
+        self.assertNotIn(private_team, user_teams)
 
     def test_organization_admin_sees_all_teams(self):
         """Test that organization admins can see all teams, including private ones."""

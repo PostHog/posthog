@@ -232,6 +232,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                               }
                                     }
                                     withIcon
+                                    withComposeTicketButton
                                 />
                                 <div className="my-3 border-t" />
                             </>

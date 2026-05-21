@@ -1,4 +1,4 @@
-import { fireEvent } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
 import { dimensions } from './jsdom'
 import { waitForHogChartTooltip } from './tooltip'
@@ -7,9 +7,11 @@ import { waitForHogChartTooltip } from './tooltip'
  *  corresponding to the given label index. */
 export function hoverAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): void {
     const step = dimensions.plotWidth / (totalLabels - 1)
-    fireEvent.mouseMove(wrapper, {
-        clientX: dimensions.plotLeft + step * index,
-        clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+    act(() => {
+        fireEvent.mouseMove(wrapper, {
+            clientX: dimensions.plotLeft + step * index,
+            clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+        })
     })
 }
 

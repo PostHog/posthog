@@ -62,6 +62,7 @@ class Task(DeletedMetaFields, models.Model):
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
@@ -119,6 +120,15 @@ class Task(DeletedMetaFields, models.Model):
         help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
+    archived = models.BooleanField(
+        default=False,
+        help_text=(
+            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "to share archive state across desktop and mobile."
+        ),
+    )
+    archived_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     ci_prompt = models.TextField(
@@ -132,6 +142,7 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
         ]
 
     def __str__(self):
@@ -321,6 +332,16 @@ class Task(DeletedMetaFields, models.Model):
             )
             if user_github_integration_is_usable(user_github_integration):
                 github_user_integration = user_github_integration.integration if user_github_integration else None
+        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None:
+            # If BOT starts a task, provides a repo, but there's no team GitHub Integration,
+            # then use the user_id BOT provided and get user's GitHub Integration instead
+            user_github_integration = resolve_user_github_integration_for_task(
+                task_stub,
+                repository=repository,
+                allow_refresh=True,
+            )
+            if user_github_integration is not None:
+                github_user_integration = user_github_integration.integration
 
         if repository:
             if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
@@ -426,6 +447,7 @@ class TaskAutomation(models.Model):
         FAILED = "failed", "Failed"
         RUNNING = "running", "Running"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     cron_expression = models.CharField(max_length=100)
     timezone = models.CharField(max_length=128, default="UTC")
@@ -514,6 +536,7 @@ class TaskRun(models.Model):
         LOCAL = "local", "Local"
         CLOUD = "cloud", "Cloud"
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -687,10 +710,13 @@ class TaskRun(models.Model):
         """Get the Temporal workflow ID for this task run."""
         return self.get_workflow_id(self.task_id, self.id)
 
-    def heartbeat_workflow(self) -> None:
+    def heartbeat_workflow(self, agent_active: bool = False) -> None:
+        if not agent_active:
+            return
+
         from django.core.cache import cache
 
-        cache_key = f"tasks:task_run:heartbeat:{self.id}"
+        cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
         if not cache.add(cache_key, True, timeout=60):
             return
 
@@ -703,7 +729,7 @@ class TaskRun(models.Model):
         try:
             client = sync_connect()
             handle = client.get_workflow_handle(self.workflow_id)
-            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat))
+            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
@@ -862,6 +888,9 @@ class TaskRun(models.Model):
             "task_run_completed",
             {"duration_seconds": self._duration_seconds()},
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_completed
+
+        notify_task_run_completed(self)
 
     def track_structured_result(self):
         """Track a structured result event with properties from the run output."""
@@ -891,6 +920,9 @@ class TaskRun(models.Model):
                 "duration_seconds": self._duration_seconds(),
             },
         )
+        from products.tasks.backend.push_dispatcher import notify_task_run_failed
+
+        notify_task_run_failed(self)
 
     def build_stream_state_event(self) -> dict[str, Any]:
         return {

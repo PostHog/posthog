@@ -140,6 +140,30 @@ class TestErrorTrackingQueryRunnerV3(
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
+    @freeze_time("2022-01-10T12:11:00")
+    def test_unassignment_clears_assignee(self):
+        # Reproduces argMax(field, version) NULL-skip behavior: writing a newer
+        # row with assigned_user_id=NULL must not let the query return the prior
+        # non-NULL user_id.
+        issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
+        self.create_events_and_issue(
+            issue_id=issue_id, fingerprint="unassign_issue_fingerprint", distinct_ids=[self.distinct_id_one]
+        )
+        flush_persons_and_events()
+
+        assignment = ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
+        with freeze_time("2022-01-10T12:11:01"):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+
+        assignment.delete()
+        with freeze_time("2022-01-10T12:11:02"):
+            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+
+        results = self._calculate()["results"]
+        matching = [r for r in results if r["id"] == issue_id]
+        self.assertEqual(len(matching), 1)
+        self.assertIsNone(matching[0]["assignee"])
+
     @parameterized.expand(
         [
             (

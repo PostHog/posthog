@@ -116,6 +116,7 @@ export interface PaginatedSignalReportListApi {
  * `zendesk` - Zendesk
  * `conversations` - Conversations
  * `error_tracking` - Error tracking
+ * `pganalyze` - pganalyze
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
@@ -127,6 +128,7 @@ export const SourceProductEnumApi = {
     Zendesk: 'zendesk',
     Conversations: 'conversations',
     ErrorTracking: 'error_tracking',
+    Pganalyze: 'pganalyze',
 } as const
 
 /**
@@ -215,14 +217,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
-    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | NullEnumApi | null
+    autostart_priority?: AutostartPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
 }

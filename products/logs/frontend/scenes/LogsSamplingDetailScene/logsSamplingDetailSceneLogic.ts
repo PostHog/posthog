@@ -87,6 +87,12 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
             }
             actions.loadRuleDropImpact24h(undefined)
         },
+        loadRuleDropImpact24hFailure: () => {
+            // Mirrors the deleteRule pattern below — the kea-loaders default is to
+            // log and swallow, which leaves the refresh button looking like it did
+            // nothing on backend failure. Toast so the user knows to retry.
+            lemonToast.error('Could not refresh drop impact')
+        },
         deleteRule: async () => {
             try {
                 await logsSamplingRulesDestroy(String(values.currentTeamId), props.id)

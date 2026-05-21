@@ -2,12 +2,6 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "content": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
-                }
-            ],
             "description": "Notebook content as a ProseMirror JSON document structure."
         },
         "deleted": {

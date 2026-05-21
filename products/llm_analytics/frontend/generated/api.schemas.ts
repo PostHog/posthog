@@ -49,10 +49,6 @@ export const StatusReasonEnumApi = {
     ProviderKeyDeleted: 'provider_key_deleted',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
@@ -139,7 +135,7 @@ export const BlankEnumApi = {
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -159,7 +155,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -201,17 +197,17 @@ export interface EvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
-    readonly status_reason: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-* `llm_judge` - LLM as a judge
-* `hog` - Hog */
+  * `llm_judge` - LLM as a judge
+  * `hog` - Hog */
     evaluation_type: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: EvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
-* `boolean` - Boolean (Pass/Fail) */
+  * `boolean` - Boolean (Pass/Fail) */
     output_type: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: EvaluationApiOutputConfig
@@ -273,17 +269,17 @@ export interface PatchedEvaluationApi {
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
-    readonly status_reason?: StatusReasonEnumApi | NullEnumApi | null
+    readonly status_reason?: StatusReasonEnumApi | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
 
-* `llm_judge` - LLM as a judge
-* `hog` - Hog */
+  * `llm_judge` - LLM as a judge
+  * `hog` - Hog */
     evaluation_type?: EvaluationTypeEnumApi
     /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
     evaluation_config?: PatchedEvaluationApiEvaluationConfig
     /** Output format. Currently only 'boolean' is supported.
 
-* `boolean` - Boolean (Pass/Fail) */
+  * `boolean` - Boolean (Pass/Fail) */
     output_type?: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: PatchedEvaluationApiOutputConfig
@@ -467,14 +463,14 @@ export interface ClusteringRunRequestApi {
     max_samples?: number
     /** Embedding normalization method: 'none' (raw embeddings) or 'l2' (L2 normalize before clustering)
 
-* `none` - none
-* `l2` - l2 */
+  * `none` - none
+  * `l2` - l2 */
     embedding_normalization?: EmbeddingNormalizationEnumApi
     /** Dimensionality reduction method: 'none' (cluster on raw), 'umap', or 'pca'
 
-* `none` - none
-* `umap` - umap
-* `pca` - pca */
+  * `none` - none
+  * `umap` - umap
+  * `pca` - pca */
     dimensionality_reduction_method?: DimensionalityReductionMethodEnumApi
     /**
      * Target dimensions for dimensionality reduction (ignored if method is 'none')
@@ -484,8 +480,8 @@ export interface ClusteringRunRequestApi {
     dimensionality_reduction_ndims?: number
     /** Clustering algorithm: 'hdbscan' (density-based, auto-determines k) or 'kmeans' (centroid-based)
 
-* `hdbscan` - hdbscan
-* `kmeans` - kmeans */
+  * `hdbscan` - hdbscan
+  * `kmeans` - kmeans */
     clustering_method?: ClusteringMethodEnumApi
     /**
      * Minimum cluster size as fraction of total samples (e.g., 0.02 = 2%)
@@ -518,9 +514,9 @@ export interface ClusteringRunRequestApi {
     run_label?: string
     /** Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'
 
-* `umap` - umap
-* `pca` - pca
-* `tsne` - tsne */
+  * `umap` - umap
+  * `pca` - pca
+  * `tsne` - tsne */
     visualization_method?: VisualizationMethodEnumApi
     /** Property filters to scope which traces are included in clustering (PostHog standard format) */
     event_filters?: ClusteringRunRequestApiEventFiltersItem[]
@@ -618,8 +614,8 @@ export interface EvaluationReportApi {
     evaluation: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-* `scheduled` - Scheduled
-* `every_n` - Every N */
+  * `scheduled` - Scheduled
+  * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -690,8 +686,8 @@ export interface PatchedEvaluationReportApi {
     evaluation?: string
     /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
-* `scheduled` - Scheduled
-* `every_n` - Every N */
+  * `scheduled` - Scheduled
+  * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
@@ -777,10 +773,10 @@ export interface EvaluationReportRunApi {
     readonly period_end: string
     /** 'pending', 'delivered', or 'failed'.
 
-* `pending` - Pending
-* `delivered` - Delivered
-* `partial_failure` - Partial Failure
-* `failed` - Failed */
+  * `pending` - Pending
+  * `delivered` - Delivered
+  * `partial_failure` - Partial Failure
+  * `failed` - Failed */
     readonly delivery_status: DeliveryStatusEnumApi
     /** List of delivery error messages if delivery failed. */
     readonly delivery_errors: unknown
@@ -819,10 +815,10 @@ export interface EvaluationSummaryRequestApi {
     evaluation_id: string
     /** Filter type to apply ('all', 'pass', 'fail', or 'na')
 
-* `all` - all
-* `pass` - pass
-* `fail` - fail
-* `na` - na */
+  * `all` - all
+  * `pass` - pass
+  * `fail` - fail
+  * `na` - na */
     filter?: FilterEnumApi
     /**
      * Optional: specific generation IDs to include in summary (max 250)
@@ -866,6 +862,26 @@ export interface LLMModelInfoApi {
 export interface LLMModelsListResponseApi {
     /** Models supported for the requested provider. */
     models: LLMModelInfoApi[]
+}
+
+export interface OfflineExperimentItemsRequestApi {
+    /** `$ai_experiment_id` whose offline-evaluation items to return. */
+    experiment_id: string
+    /**
+     * Lower bound on `timestamp` (ISO-8601). Omit to leave the lower bound open.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.
+     * @nullable
+     */
+    date_to?: string | null
+}
+
+export interface OfflineExperimentItemsResponseApi {
+    /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
+    results: unknown[][]
 }
 
 export interface PaginatedLLMProviderKeyListApi {
@@ -1032,8 +1048,8 @@ export interface CategoricalScoreDefinitionConfigApi {
     options: CategoricalScoreOptionApi[]
     /** Whether reviewers can select one option or multiple options. Defaults to `single`.
 
-* `single` - single
-* `multiple` - multiple */
+  * `single` - single
+  * `multiple` - multiple */
     selection_mode?: SelectionModeEnumApi
     /**
      * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
@@ -1124,9 +1140,9 @@ export interface ScoreDefinitionCreateApi {
     description?: string | null
     /** Scorer kind. This cannot be changed after creation.
 
-* `categorical` - categorical
-* `numeric` - numeric
-* `boolean` - boolean */
+  * `categorical` - categorical
+  * `numeric` - numeric
+  * `boolean` - boolean */
     kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
@@ -1180,8 +1196,8 @@ export interface SentimentRequestApi {
     ids: string[]
     /** Whether the IDs are 'trace' IDs or 'generation' IDs.
 
-* `trace` - trace
-* `generation` - generation */
+  * `trace` - trace
+  * `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
     /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
@@ -1263,13 +1279,13 @@ export const DetailModeValueEnumApi = {
 export interface SummarizeRequestApi {
     /** Type of entity to summarize. Inferred automatically when using trace_id or generation_id.
 
-* `trace` - trace
-* `event` - event */
+  * `trace` - trace
+  * `event` - event */
     summarize_type?: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
-* `minimal` - minimal
-* `detailed` - detailed */
+  * `minimal` - minimal
+  * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
@@ -1334,8 +1350,8 @@ export interface BatchCheckRequestApi {
     trace_ids: string[]
     /** Summary detail level to check for
 
-* `minimal` - minimal
-* `detailed` - detailed */
+  * `minimal` - minimal
+  * `detailed` - detailed */
     mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
@@ -1395,10 +1411,10 @@ export interface TextReprOptionsApi {
 export interface TextReprRequestApi {
     /** Type of LLM event to stringify
 
-* `$ai_generation` - $ai_generation
-* `$ai_span` - $ai_span
-* `$ai_embedding` - $ai_embedding
-* `$ai_trace` - $ai_trace */
+  * `$ai_generation` - $ai_generation
+  * `$ai_span` - $ai_span
+  * `$ai_embedding` - $ai_embedding
+  * `$ai_trace` - $ai_trace */
     event_type: EventTypeEnumApi
     /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
     data: unknown
@@ -1460,6 +1476,8 @@ export interface TraceReviewApi {
     readonly id: string
     /** Trace ID for the review. */
     readonly trace_id: string
+    /** Absolute URL to the trace this review is attached to. */
+    readonly trace_url: string
     /**
      * Optional comment or reasoning for the review.
      * @nullable
@@ -2010,6 +2028,52 @@ export const TaggerTypeEnumApi = {
     Hog: 'hog',
 } as const
 
+export interface TagDefinitionApi {
+    /**
+     * Tag identifier
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Description to help the LLM classify
+     * @maxLength 500
+     */
+    description?: string
+}
+
+export interface LLMTaggerConfigApi {
+    /**
+     * Prompt instructing the LLM how to tag generations
+     * @minLength 1
+     */
+    prompt: string
+    /** Available tags the LLM can assign */
+    tags: TagDefinitionApi[]
+    /**
+     * Minimum number of tags to apply
+     * @minimum 0
+     */
+    min_tags?: number
+    /**
+     * Maximum number of tags to apply (null = no limit)
+     * @minimum 1
+     * @nullable
+     */
+    max_tags?: number | null
+}
+
+export interface HogTaggerConfigApi {
+    /**
+     * Hog source code to classify a generation into tags.
+     * @minLength 1
+     */
+    source: string
+    /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
+    tags?: TagDefinitionApi[]
+}
+
+export type TaggerConfigApi = LLMTaggerConfigApi | HogTaggerConfigApi
+
 export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
 
 export interface TaggerConditionApi {
@@ -2032,10 +2096,25 @@ export interface TaggerConditionApi {
  * Nested serializer for model configuration.
  */
 export interface TaggerModelConfigurationApi {
+    /** LLM provider to use for this tagger.
+
+  * `openai` - Openai
+  * `anthropic` - Anthropic
+  * `gemini` - Gemini
+  * `openrouter` - Openrouter
+  * `fireworks` - Fireworks
+  * `azure_openai` - Azure OpenAI
+  * `together_ai` - Together AI */
     provider: LLMProviderEnumApi
-    /** @maxLength 100 */
+    /**
+     * Provider model identifier to use for this tagger.
+     * @maxLength 100
+     */
     model: string
-    /** @nullable */
+    /**
+     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+     * @nullable
+     */
     provider_key_id?: string | null
     /** @nullable */
     readonly provider_key_name: string | null
@@ -2048,8 +2127,8 @@ export interface TaggerApi {
     description?: string
     enabled?: boolean
     tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration (varies by tagger_type) */
-    tagger_config: unknown
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+    tagger_config: TaggerConfigApi
     /** Conditions that scope when the tagger runs */
     conditions?: TaggerConditionApi[]
     model_configuration?: TaggerModelConfigurationApi | null
@@ -2068,12 +2147,240 @@ export interface PaginatedTaggerListApi {
     results: TaggerApi[]
 }
 
+export interface TaggerModelConfigurationWriteApi {
+    /** LLM provider to use for this tagger.
+
+  * `openai` - Openai
+  * `anthropic` - Anthropic
+  * `gemini` - Gemini
+  * `openrouter` - Openrouter
+  * `fireworks` - Fireworks
+  * `azure_openai` - Azure OpenAI
+  * `together_ai` - Together AI */
+    provider: LLMProviderEnumApi
+    /**
+     * Provider model identifier to use for this tagger.
+     * @maxLength 100
+     */
+    model: string
+    /**
+     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+     * @nullable
+     */
+    provider_key_id?: string | null
+}
+
+export interface TaggerCreateApi {
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    enabled?: boolean
+    tagger_type?: TaggerTypeEnumApi
+    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
+    tagger_config: TaggerConfigApi
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
+    model_configuration?: TaggerModelConfigurationWriteApi | null
+}
+
+export interface TestHogTaggerTagApi {
+    /**
+     * Tag identifier to allow in Hog test results.
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Optional description for the tag.
+     * @maxLength 500
+     */
+    description?: string
+}
+
+export interface TestHogTaggerRequestApi {
+    /**
+     * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
+     * @minLength 1
+     */
+    source: string
+    /**
+     * Number of recent $ai_generation events to test against (1-10, default 5).
+     * @minimum 1
+     * @maximum 10
+     */
+    sample_count?: number
+    /** Optional tag whitelist. Returned tags outside this list are filtered out. */
+    tags?: TestHogTaggerTagApi[]
+}
+
+export interface TestHogTaggerResultItemApi {
+    /** UUID of the sampled $ai_generation event. */
+    event_uuid: string
+    /**
+     * Trace ID if available.
+     * @nullable
+     */
+    trace_id?: string | null
+    /** First 200 characters of the generation input. */
+    input_preview: string
+    /** First 200 characters of the generation output. */
+    output_preview: string
+    /** Tag names returned by the Hog code. */
+    tags: string[]
+    /** Text written to stdout by the Hog code. */
+    reasoning: string
+    /**
+     * Error message if the Hog code failed.
+     * @nullable
+     */
+    error?: string | null
+}
+
+export interface TestHogTaggerResponseApi {
+    /** Per-event Hog tagger test results. */
+    results: TestHogTaggerResultItemApi[]
+    /** Optional message, for example when no recent AI events were found. */
+    message?: string
+}
+
+export interface _SummaryApi {
+    /** Inclusive UTC start of the spend window resolved from the request. */
+    date_from: string
+    /** Exclusive UTC end of the spend window resolved from the request. */
+    date_to: string
+    /**
+     * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
+     * @nullable
+     */
+    product: string | null
+    /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
+    total_cost_usd: number
+    /** Total $ai_generation + $ai_embedding events captured across every product. */
+    event_count: number
+    /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+    scoped_cost_usd: number
+    /** Total $ai_generation + $ai_embedding events for the scoped slice. */
+    scoped_event_count: number
+}
+
+export interface _ProductBreakdownRowApi {
+    /**
+     * Value of the `ai_product` property on the event (e.g. `posthog_code`, `background_agents`). Null when unset.
+     * @nullable
+     */
+    product: string | null
+    /** Number of $ai_generation + $ai_embedding events for this product. */
+    event_count: number
+    /** Total cost in USD for this product over the lookback window. */
+    cost_usd: number
+}
+
+export interface _ProductBreakdownApi {
+    /** Rows of spend by product, ordered by cost descending. */
+    items: _ProductBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _ToolBreakdownRowApi {
+    /**
+     * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
+     * @nullable
+     */
+    tool: string | null
+    /** Number of $ai_generation events whose tool list includes this tool. */
+    generation_count: number
+    /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
+    cost_usd: number
+    /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
+    share_of_scoped: number
+    /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
+    avg_input_tokens: number
+}
+
+export interface _ToolBreakdownApi {
+    /** Rows of spend by tool, ordered by cost descending. */
+    items: _ToolBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _ModelBreakdownRowApi {
+    /**
+     * Value of the `$ai_model` property.
+     * @nullable
+     */
+    model: string | null
+    /** Number of $ai_generation + $ai_embedding events. */
+    generation_count: number
+    /** Total cost in USD for this model. */
+    cost_usd: number
+    /** Sum of `$ai_input_tokens` for this model. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` for this model. */
+    output_tokens: number
+}
+
+export interface _ModelBreakdownApi {
+    /** Rows of spend by model, ordered by cost descending. */
+    items: _ModelBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _TopTraceRowApi {
+    /**
+     * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
+     * @nullable
+     */
+    trace_id: string | null
+    /** Number of $ai_generation events in this trace. */
+    generation_count: number
+    /** Total cost in USD for this trace. */
+    cost_usd: number
+    /**
+     * Timestamp of the earliest event in this trace.
+     * @nullable
+     */
+    started_at: string | null
+}
+
+export interface _TopTracesApi {
+    /** Rows of top traces by cost, ordered by cost descending. */
+    items: _TopTraceRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+/**
+ * Structured personal LLM spend analysis for the requesting user.
+ */
+export interface PersonalSpendAnalysisResponseApi {
+    /** High-level totals for the lookback window. */
+    summary: _SummaryApi
+    /** Spend grouped by the `ai_product` property — always across all products, never filtered. */
+    by_product: _ProductBreakdownApi
+    /** Spend grouped by tool. Scoped to `product` when set. */
+    by_tool: _ToolBreakdownApi
+    /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
+    by_model: _ModelBreakdownApi
+    /** Most expensive trace IDs (sessions) in the window. Scoped to `product` when set. */
+    top_traces: _TopTracesApi
+}
+
+/**
+ * DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema.
+ */
+export interface _ErrorResponseApi {
+    /** Human-readable error description from DRF. */
+    detail: string
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
     /**
      * @maxLength 255
      * @nullable
@@ -2107,9 +2414,9 @@ export interface PaginatedDatasetItemListApi {
 export interface PatchedDatasetItemApi {
     readonly id?: string
     dataset?: string
-    input?: unknown | null
-    output?: unknown | null
-    metadata?: unknown | null
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
     /**
      * @maxLength 255
      * @nullable
@@ -2137,7 +2444,7 @@ export interface DatasetApi {
     name: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown | null
+    metadata?: unknown
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
@@ -2162,7 +2469,7 @@ export interface PatchedDatasetApi {
     name?: string
     /** @nullable */
     description?: string | null
-    metadata?: unknown | null
+    metadata?: unknown
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
@@ -2276,6 +2583,10 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
 } as const
+
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
@@ -2622,6 +2933,37 @@ export type TaggersListParams = {
      * Search in name or description
      */
     search?: string
+}
+
+export type LlmAnalyticsPersonalSpendListParams = {
+    /**
+     * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
+     * @minLength 1
+     * @maxLength 32
+     */
+    date_from?: string
+    /**
+     * End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
+    /**
+     * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * @maxLength 64
+     * @nullable
+     */
+    product?: string | null
+    /**
+     * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
+     */
+    refresh?: boolean
 }
 
 export type DatasetItemsListParams = {

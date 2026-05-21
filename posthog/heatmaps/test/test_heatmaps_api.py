@@ -533,6 +533,46 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             },
         ]
 
+    @parameterized.expand(
+        [
+            ("explicit_same_day", {"date_from": "2023-03-08", "date_to": "2023-03-08"}),
+            ("relative_today", {"date_from": "dStart"}),
+            ("relative_today_start_end", {"date_from": "dStart", "date_to": "dEnd"}),
+        ]
+    )
+    @freezegun.freeze_time("2023-03-08T13:00:00")
+    def test_filter_test_accounts_returns_data_for_single_day_range(self, _name: str, params: dict[str, str]) -> None:
+        # A single-day window (date_from and date_to on the same day) must still return data when filtering
+        # test accounts. The events subquery backing the test-account filter used to collapse to an impossible
+        # range for same-day windows, hiding the whole heatmap.
+        self.team.test_account_filters = [
+            {
+                "key": "$host",
+                "value": "127.0.0.1",
+                "operator": "not_icontains",
+                "type": "event",
+            }
+        ]
+        self.team.save()
+
+        self._create_heatmap_event("session_1", "click", "2023-03-08T09:00:00", viewport_width=100, x=5, y=10)
+        self.create_event(
+            session_id="session_1",
+            timestamp="2023-03-08T09:00:00",
+            distinct_id="12345",
+            properties={"$host": "posthog.com"},
+        )
+
+        response = self._get_heatmap({**params, "filter_test_accounts": True})
+        assert response.data["results"] == [
+            {
+                "count": 1,
+                "pointer_relative_x": 0.0,
+                "pointer_target_fixed": True,
+                "pointer_y": 16,
+            },
+        ]
+
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries
     def test_can_get_count_by_aggregation(self) -> None:

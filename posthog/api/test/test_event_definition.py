@@ -16,7 +16,9 @@ from rest_framework import status
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Action, ActivityLog, EventDefinition, Organization, Team
+from posthog.models import ActivityLog, EventDefinition, Organization, Team
+
+from products.actions.backend.models.action import Action
 
 
 @freeze_time("2020-01-02")

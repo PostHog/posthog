@@ -19,7 +19,12 @@ from rest_framework import status, test
 from temporalio.service import RPCError
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.api.team import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
+from posthog.api.team import (
+    TEAM_CONFIG_FIELDS_SET,
+    TEAM_CONFIG_MEMBER_FIELDS_SET,
+    _default_data_color_theme_id,
+    _reset_default_data_color_theme_id_cache,
+)
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
@@ -51,6 +56,13 @@ from ee.models.rbac.access_control import AccessControl
 def team_api_test_factory():
     class TestTeamAPI(APIBaseTest, QueryMatchingTest):
         """Tests for /api/environments/."""
+
+        def setUp(self):
+            super().setUp()
+            OrganizationMembership.objects.filter(pk=self.organization_membership.pk).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+            self.organization_membership.refresh_from_db()
 
         def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
             if not team_id:
@@ -489,9 +501,11 @@ def team_api_test_factory():
             mock_delete_task_team: MagicMock,
             mock_delete_task_project: MagicMock,
         ):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
+            # NOTE: the factory-level setUp already bumps to ADMIN (without firing the
+            # "membership level changed" event because it uses .update() to bypass signals),
+            # so this test no longer needs to bump the level itself. It also no longer asserts
+            # the membership-level-changed capture event since the bump now happens before
+            # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
 
@@ -503,12 +517,6 @@ def team_api_test_factory():
             # Team deletion happens async in the (mocked) Celery task, so team still exists
             # We only verify the task was queued correctly
             expected_capture_calls = [
-                call(
-                    distinct_id=self.user.distinct_id,
-                    event="membership level changed",
-                    properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
-                    groups=mock.ANY,
-                ),
                 call(
                     distinct_id=self.user.distinct_id,
                     event="team deleted",
@@ -788,6 +796,8 @@ def team_api_test_factory():
             )
 
         def test_reset_token_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
             self.team.api_token = "xyz"
             self.team.save()
 
@@ -1023,6 +1033,8 @@ def team_api_test_factory():
             )
 
         def test_rotate_secret_token_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.secret_api_token_backup = None
             self.team.save()
@@ -1034,6 +1046,8 @@ def team_api_test_factory():
             self.assertIsNone(self.team.secret_api_token_backup)
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
             self.team.save()
@@ -2079,6 +2093,8 @@ def team_api_test_factory():
             assert settings["widget_color"] == "#123456"
 
         def test_generate_conversations_public_token_requires_admin(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
             response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
@@ -2249,25 +2265,26 @@ def team_api_test_factory():
             model.refresh_from_db()
             self.assertEqual(model.name, "New Team Name")
 
-        def test_session_auth_member_can_still_update_config_fields(self):
-            """Session-based auth (browser users) with member role should still be able to update config fields.
-
-            This test ensures we didn't break existing UI behavior while fixing the API key issue.
+        def test_session_auth_member_can_still_update_member_safe_config_fields(self):
+            """Session-based auth (browser users) with member role can still update member-safe
+            config fields (the onboarding-style toggles the UI does not gate behind
+            TeamMembershipLevel.Admin). Admin-only fields are tested separately in
+            test_team_admin_authorization_vulnerability.py.
             """
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
 
             response = self.client.patch(
                 "/api/environments/@current/",
-                {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+                {"session_recording_opt_in": True, "surveys_opt_in": True},
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             # Verify changes were made
             self.team.refresh_from_db()
-            self.assertEqual(self.team.timezone, "Europe/Lisbon")
             self.assertEqual(self.team.session_recording_opt_in, True)
+            self.assertEqual(self.team.surveys_opt_in, True)
 
         @override_settings(DEBUG=True)
         def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
@@ -2979,8 +2996,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -3014,8 +3031,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -3039,32 +3056,52 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
-    def test_team_member_can_write_to_team_config_without_access_control(self):
+    def test_team_member_can_write_to_member_safe_team_config_without_access_control(self):
+        # Member-safe team config (e.g. session_recording_opt_in, which onboarding flips) must
+        # remain writable by org MEMBERs even without paid access control. Admin-only fields
+        # like `timezone` are exercised separately in
+        # posthog/api/test/test_team_admin_authorization_vulnerability.py.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
 
         response = self.client.patch(
             "/api/environments/@current/",
-            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            {"session_recording_opt_in": True, "surveys_opt_in": True},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
-        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
         self.assertEqual(response_data["session_recording_opt_in"], True)
+        self.assertEqual(response_data["surveys_opt_in"], True)
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+        self.assertEqual(self.team.surveys_opt_in, True)
+
+    def test_team_member_cannot_write_to_admin_team_config_without_access_control(self):
+        # Regression test for the admin-authorization bypass: members must NOT be able to
+        # change admin-only settings via the API even when the org has no paid access control,
+        # because the frontend gates these settings behind TeamMembershipLevel.Admin.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.team.refresh_from_db()
+        self.assertNotEqual(self.team.timezone, "Europe/Lisbon")
 
     def test_team_admin_can_write_to_team_patch_with_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -3072,8 +3109,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -3106,8 +3143,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -3130,28 +3167,30 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
-    def test_team_member_can_write_to_team_patch_without_access_control(self):
+    def test_team_member_can_write_to_member_safe_team_patch_without_access_control(self):
+        # See test_team_member_can_write_to_member_safe_team_config_without_access_control above:
+        # member-safe fields stay writable; admin-only fields (timezone) are covered separately.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
 
         response = self.client.patch(
             "/api/environments/@current/",
-            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            {"session_recording_opt_in": True, "surveys_opt_in": True},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+        self.assertEqual(self.team.surveys_opt_in, True)
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_settings_as_of_requires_at_param(self):
@@ -3229,6 +3268,55 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+    @parameterized.expand(
+        [
+            (
+                "missing_key",
+                [{"type": "person", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_type",
+                [{"key": "email", "type": "not_a_type", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_operator",
+                [{"key": "email", "type": "person", "operator": "not_an_operator", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_cohort_value",
+                [{"key": "id", "type": "cohort", "operator": "in", "value": "not-a-cohort-id"}],
+            ),
+        ]
+    )
+    def test_validate_test_account_filters_rejects_invalid_filters(
+        self, _name: str, test_account_filters: list[dict[str, Any]]
+    ):
+        original_test_account_filters = self.team.test_account_filters
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": test_account_filters},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "test_account_filters")
+        self.assertIn("Must provide an array of valid property filters.", response.json()["detail"])
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters, original_test_account_filters)
+
+    def test_validate_test_account_filters_allows_is_set_filters_without_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": [{"key": "email", "type": "person", "operator": "is_set"}]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["test_account_filters"],
+            [{"key": "email", "type": "person", "operator": "is_set"}],
+        )
 
 
 class TestTeamSerializerHomeViewWins(APIBaseTest):
@@ -3368,3 +3456,259 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         with override_settings(SECRET_KEY="completely-different-rotated-secret"):
             token_new_secret = get_or_mint_live_events_token(self.team, self.user.id)
         assert token_old_secret != token_new_secret
+
+
+# Sensitive Team/Project settings the frontend gates behind
+# `TeamMembershipLevel.Admin` AND that ordinary members are not expected to flip
+# from any onboarding/dashboard surface. Each tuple is
+# (field, value_to_patch, attr_on_team_to_assert).
+# Values are chosen to differ from the Team-model default so a successful PATCH would
+# observably change the persisted state.
+_ADMIN_GATED_TEAM_CONFIG_FIELDS: list[tuple[str, Any, str]] = [
+    ("timezone", "Europe/Lisbon", "timezone"),
+    ("anonymize_ips", True, "anonymize_ips"),
+    ("autocapture_opt_out", True, "autocapture_opt_out"),
+    ("data_attributes", ["data-cy"], "data_attributes"),
+    ("week_start_day", 1, "week_start_day"),
+    ("path_cleaning_filters", [{"alias": "x", "regex": "/x/.*"}], "path_cleaning_filters"),
+    # capture_console_log_opt_in defaults to True, so patch with False to observe change.
+    ("capture_console_log_opt_in", False, "capture_console_log_opt_in"),
+    ("heatmaps_opt_in", True, "heatmaps_opt_in"),
+    ("recording_domains", ["https://evil.example.com"], "recording_domains"),
+    ("session_recording_sample_rate", "0.5", "session_recording_sample_rate"),
+    # capture_dead_clicks defaults to False so True is observable. Exposed by
+    # TeamSerializer but NOT by ProjectBackwardCompatSerializer — env-only.
+    ("capture_dead_clicks", True, "capture_dead_clicks"),
+]
+
+# Subset of _ADMIN_GATED_TEAM_CONFIG_FIELDS that are also patchable via /api/projects/
+# (i.e. listed in ProjectBackwardCompatSerializer.Meta.fields). Fields like
+# `capture_dead_clicks` and `onboarding_tasks` exist on Team but are not exposed by the
+# project serializer, so they're not part of the projects-side attack surface and don't
+# belong in the projects-side regression set.
+_ADMIN_GATED_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
+    f for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS if f[0] != "capture_dead_clicks"
+]
+
+# Settings ordinary members are EXPECTED to flip from the UI today (onboarding flow,
+# dashboards, primary-dashboard pinning, etc.). These should keep working for MEMBER
+# after the fix — captured as positive regression tests so the security fix doesn't
+# silently break onboarding for invitees.
+_MEMBER_SAFE_TEAM_CONFIG_FIELDS: list[tuple[str, Any, str]] = [
+    ("session_recording_opt_in", True, "session_recording_opt_in"),
+    ("autocapture_exceptions_opt_in", True, "autocapture_exceptions_opt_in"),
+    ("autocapture_web_vitals_opt_in", True, "autocapture_web_vitals_opt_in"),
+    ("surveys_opt_in", True, "surveys_opt_in"),
+    ("has_completed_onboarding_for", {"product_analytics": True}, "has_completed_onboarding_for"),
+    ("completed_snippet_onboarding", True, "completed_snippet_onboarding"),
+]
+
+# Subset of _MEMBER_SAFE_TEAM_CONFIG_FIELDS that are also exposed by the project serializer.
+# `onboarding_tasks` isn't in ProjectBackwardCompatSerializer.Meta.fields, so it can't be
+# patched through /api/projects/ regardless of permissions.
+_MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
+    f for f in _MEMBER_SAFE_TEAM_CONFIG_FIELDS if f[0] != "onboarding_tasks"
+]
+
+# Fields the frontend treats as admin-only that previously lacked a
+# `@field_access_control` annotation on the model. Captured as a regression so
+# anyone removing the decorator (or adding a new admin-UI-gated field without one)
+# gets a failing test pointing at the right place.
+_UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
+    ("is_demo", True, "is_demo"),
+    ("app_urls", ["https://evil.example.com"], "app_urls"),
+]
+
+
+class TestTeamAdminFieldAuthorization(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Demote the auto-logged-in user to a plain MEMBER. The frontend would hide
+        # every setting below behind useRestrictedArea(Admin), so the API must reject too.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    @parameterized.expand([(f[0], f[1], f[2]) for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS])
+    def test_member_cannot_patch_admin_gated_field_via_environments(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        # Every field in this list is a TEAM_CONFIG_FIELD that is NOT a member-safe field.
+        assert field in TEAM_CONFIG_FIELDS_SET, f"{field} not in TEAM_CONFIG_FIELDS_SET"
+        assert field not in TEAM_CONFIG_MEMBER_FIELDS_SET, (
+            f"{field} is in TEAM_CONFIG_MEMBER_FIELDS_SET — if intentionally member-safe, move"
+            " it to _MEMBER_SAFE_TEAM_CONFIG_FIELDS instead."
+        )
+
+        response = self.client.patch("/api/environments/@current/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching admin-gated field {field!r}, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value, (
+            f"Field {field!r} was persisted by a MEMBER (value={value!r}) — admin-only setting was modified."
+        )
+
+    @parameterized.expand([(f[0], f[1], f[2]) for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS_FOR_PROJECTS])
+    def test_member_cannot_patch_admin_gated_field_via_projects(self, field: str, value: Any, team_attr: str) -> None:
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching admin-gated field {field!r} via /api/projects/, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value, (
+            f"Field {field!r} was persisted via /api/projects/ by a MEMBER (value={value!r}) — "
+            "ProjectBackwardCompatSerializer is bypassing field-level access control."
+        )
+
+    @parameterized.expand(_UNANNOTATED_SENSITIVE_FIELDS)
+    def test_member_cannot_patch_unannotated_sensitive_field_via_environments(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        response = self.client.patch("/api/environments/@current/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching unannotated sensitive field {field!r}, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value, (
+            f"Unannotated field {field!r} was persisted by a MEMBER (value={value!r}). "
+            "Add @field_access_control on the Team model."
+        )
+
+    @parameterized.expand(_UNANNOTATED_SENSITIVE_FIELDS)
+    def test_member_cannot_patch_unannotated_sensitive_field_via_projects(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching unannotated sensitive field {field!r} via /api/projects/, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value
+
+    @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS)
+    def test_member_can_still_patch_member_safe_field_via_environments(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        assert field in TEAM_CONFIG_MEMBER_FIELDS_SET, (
+            f"{field} is not declared member-safe in TEAM_CONFIG_MEMBER_FIELDS_SET. "
+            "If onboarding / dashboards rely on it, add it there; otherwise remove from this test list."
+        )
+        response = self.client.patch("/api/environments/@current/", {field: value}, format="json")
+        assert response.status_code == status.HTTP_200_OK, (
+            f"MEMBER unexpectedly blocked from patching member-safe field {field!r}: "
+            f"status={response.status_code}, body={response.json()}. "
+            "This would break onboarding / dashboard flows for invitee users."
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) == value
+
+    @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS)
+    def test_member_can_still_patch_member_safe_field_via_projects(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {field: value}, format="json")
+        assert response.status_code == status.HTTP_200_OK, (
+            f"MEMBER unexpectedly blocked from patching member-safe field {field!r} via /api/projects/: "
+            f"status={response.status_code}, body={response.json()}."
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) == value
+
+    def test_mixed_member_and_admin_fields_is_rejected_for_member(self) -> None:
+        # A member request that bundles a member-safe field with an admin-only field must
+        # be rejected as a whole — otherwise an attacker could hide admin writes behind a
+        # legitimate-looking onboarding patch.
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"surveys_opt_in": True, "timezone": "Europe/Lisbon"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Mixed member-safe + admin-only patch should be rejected: "
+            f"status={response.status_code}, body={response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert self.team.timezone != "Europe/Lisbon"
+        # Even the safe field must not be applied when the request is rejected.
+        assert self.team.surveys_opt_in is not True
+
+    def _enable_access_control_with_member_level(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        # Default project access for the org is "member" (not "admin"). The user is a MEMBER.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+        )
+
+    def test_member_with_member_access_control_is_blocked_on_environments_for_admin_field(self) -> None:
+        # Baseline: the existing field_access_control mixin enforces on /api/environments/
+        # when access_control is on. timezone is field_access_control(..., "project", "admin").
+        self._enable_access_control_with_member_level()
+
+        response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"}, format="json")
+
+        assert response.status_code != status.HTTP_200_OK, (
+            "Regression: /api/environments/ should reject MEMBER-level project access for "
+            "field_access_control('project','admin') fields like timezone."
+        )
+        self.team.refresh_from_db()
+        assert self.team.timezone != "Europe/Lisbon"
+
+    def test_member_with_member_access_control_is_blocked_on_projects_for_admin_field(self) -> None:
+        # /api/projects/ must also enforce: ProjectBackwardCompatSerializer now mixes in
+        # UserAccessControlSerializerMixin (with a Team-aware validate override).
+        self._enable_access_control_with_member_level()
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"timezone": "Europe/Lisbon"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"/api/projects/ failed to enforce field_access_control on 'timezone' for a MEMBER "
+            f"(status={response.status_code}, body={response.json()}). "
+            "ProjectBackwardCompatSerializer needs UserAccessControlSerializerMixin."
+        )
+        self.team.refresh_from_db()
+        assert self.team.timezone != "Europe/Lisbon"
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="ro",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        return token
+
+    def test_read_only_personal_api_key_cannot_patch_team_config(self) -> None:
+        token = self._personal_api_key(["project:read"])
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon"},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN), (
+            f"Read-only personal API key was allowed to patch team config: status={response.status_code}, "
+            f"body={response.json()}. The session-auth scope downgrade must remain session-only."
+        )
+
+    def test_member_cannot_delete_team(self) -> None:
+        # Create a second team in the same project so the org isn't left team-less.
+        other = Team.objects.create(organization=self.organization, project=self.project, name="other")
+        response = self.client.delete(f"/api/environments/{other.id}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN

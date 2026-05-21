@@ -639,6 +639,11 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(dashboard.team, user.team)
         self.assertEqual(dashboard.tiles.count(), 6)
         self.assertEqual(dashboard.name, "My App Dashboard")
+        self.assertEqual(
+            dashboard.description,
+            "A starter view of how people use your app: how many visit, whether they come back, "
+            "where traffic comes from, and how they move through your pages.",
+        )
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -2115,7 +2120,7 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
 
@@ -2146,7 +2151,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # Create a separate organization with advanced permissions enabled
         organization = Organization.objects.create(name="Test Organization")
         organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         organization.save()
 
@@ -2178,7 +2183,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_invite_has_private_project_access(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         private_project = Team.objects.create(name="Private project", organization=self.organization)
@@ -2218,7 +2223,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
         self.client.logout()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         private_project = Team.objects.create(name="Private project", organization=self.organization)
@@ -2939,6 +2944,7 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
 
 class TestSignupResendInvite(APIBaseTest):
     def setUp(self):
+        cache.clear()
         super().setUp()
         self.client.logout()
 
@@ -2987,3 +2993,32 @@ class TestSignupResendInvite(APIBaseTest):
         # Status reflects that an invite exists, but no email goes out.
         self.assertEqual(response.json(), {"sent": True})
         mock_send.assert_not_called()
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_throttles_per_email_after_five_requests(self, _mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com")
+        for i in range(6):
+            response = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+            if i < 5:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
+                )
+
+    @patch("posthog.api.signup.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_invite.apply_async")
+    def test_resend_invite_throttle_is_per_email_not_global(self, _mock_send, _mock_email_available):
+        self._create_invite("alice@acme.com")
+        self._create_invite("bob@acme.com")
+        # Exhaust alice's bucket
+        for _ in range(5):
+            self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        alice_blocked = self.client.post("/api/signup/resend-invite", {"email": "alice@acme.com"})
+        self.assertEqual(alice_blocked.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # Bob still has a fresh bucket
+        bob_ok = self.client.post("/api/signup/resend-invite", {"email": "bob@acme.com"})
+        self.assertEqual(bob_ok.status_code, status.HTTP_200_OK)

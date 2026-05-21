@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 # ruff: noqa: T201 allow print statements
 """
-CI script to verify all Django models with team/org/user FKs
-are listed in the semgrep IDOR rule regex patterns.
+CI script that checks two related concerns:
+
+1. IDOR semgrep coverage: every Django model with a team/org/user FK
+   appears in the semgrep IDOR rule regex patterns.
+2. Fail-closed manager coverage: every team-scoped model uses
+   `TeamScopedManager` (directly or via a base class). New models that
+   don't are checked against `posthog/models/scoping/baseline_unmigrated.txt`
+   — additions fail CI, removals are reported as opportunities to
+   shrink the baseline.
 
 Usage:
-    python scripts/check_idor_model_coverage.py
+    python check-idor-model-coverage.py
+    python check-idor-model-coverage.py --regenerate-baseline
 
 Exit codes:
-    0 - All models covered
-    1 - Missing models found (ERROR)
+    0 - All checks pass
+    1 - Missing models, new fail-closed gaps, or other errors
 """
 
 import os
 import re
 import sys
+import argparse
 from pathlib import Path
 
 import yaml
 
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+BASELINE_FILE = REPO_ROOT / "posthog/models/scoping/baseline_unmigrated.txt"
+
 
 def setup_django() -> None:
     """Initialize Django settings for model introspection."""
-    repo_root = str(Path(__file__).resolve().parent.parent.parent)
-    sys.path.insert(0, repo_root)
+    sys.path.insert(0, str(REPO_ROOT))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
     import django
 
@@ -124,6 +135,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "InsightCachingState",
         "InstanceSetting",
         "Schedule",
+        # --- Auto-scoped via ProductTeamModel (TeamScopedManager handles filtering) ---
+        "SplineReticulator",  # CI scaffold (hogli product:bootstrap)
         # --- Accessed via parent FK (no direct team-scoped lookup needed) ---
         "AlertSubscription",
         "Approval",
@@ -169,6 +182,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ExplicitTeamMembership",
         # --- Other internal (no user-facing lookup by ID) ---
         "AlertCheck",
+        # Global CIMD URL blocklist - queried by `cimd_url` (unique), never by user-supplied ID.
+        # `created_by` is for audit only.
+        "CIMDBlocklistEntry",
         "CohortCalculationHistory",
         "ColumnConfiguration",
         "DataDeletionRequest",
@@ -274,7 +290,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ConversationCheckpointBlob",  # via ConversationCheckpoint
         "ConversationCheckpointWrite",  # via ConversationCheckpoint
         "DashboardPrivilege",  # via Dashboard
-        "DashboardTile",  # via Dashboard
         "Element",  # via Event/ElementGroup
         "ErrorTrackingExternalReference",  # via ErrorTrackingIssue
         "ErrorTrackingIssueCohort",  # via ErrorTrackingIssue
@@ -343,7 +358,13 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
             if not isinstance(field, ForeignKey):
                 continue
 
-            related_model_name = field.related_model.__name__
+            # ForeignKey.related_model can be the string "self" for
+            # self-referencing relations; we only care about Team / Organization
+            # / User FKs, so treat self-references as a non-match and skip.
+            related_model = field.related_model
+            if isinstance(related_model, str):
+                continue
+            related_model_name = related_model.__name__
 
             if related_model_name == "Team":
                 has_team_fk = True
@@ -451,14 +472,150 @@ def parse_semgrep_models(yaml_path: Path) -> dict[str, set[str]]:
     return result
 
 
+def compute_unmigrated_to_fail_closed(
+    team_scoped: set[str],
+    excluded: set[str],
+    legitimately_unscoped: set[str],
+    needs_team_id: set[str],
+) -> set[str]:
+    """Models that are team-scoped but still on a non-fail-closed manager.
+
+    Derived from the same model registry the IDOR check uses. The baseline
+    is the algebraic result of:
+
+        team_scoped
+          - excluded                # already off the IDOR coverage hook
+                                    # (through tables, accessed-via-parent FK, etc.)
+                                    # — same reasons exempt them from fail-closed
+          - legitimately_unscoped   # no team_id by design
+          - needs_team_id           # no team_id yet (future opt-in)
+          - models on TeamScopedManager (introspected, not listed)
+          = unmigrated baseline
+
+    Introspection means migrating a model is enough to drop it from the
+    set — there's no parallel list to keep in sync.
+    """
+    from django.apps import apps
+
+    from posthog.models.scoping.manager import TeamScopedManager
+
+    fail_closed: set[str] = set()
+    for model in apps.get_models():
+        if model._meta.proxy:
+            continue
+        # Look up the manager that `Model.objects.X` resolves to.
+        # Reviewers (codex, copilot) flagged a `any(...)` scan as bypassable:
+        # a new model could keep `objects = RootTeamManager()` and add a
+        # secondary scoped manager just to satisfy CI — call sites would
+        # still be unscoped. Anchoring on `objects` (the manager app code
+        # actually reaches for) closes that loophole. This stays correct
+        # after PR #57879 sets `default_manager_name = "all_teams"` on
+        # ProductTeamModel, since that change moves the *framework*-default
+        # manager (`_default_manager`, used by admin / related queries)
+        # without touching `objects`.
+        objects_manager = model._meta.managers_map.get("objects")
+        if isinstance(objects_manager, TeamScopedManager):
+            fail_closed.add(model.__name__)
+
+    candidates = team_scoped - excluded - legitimately_unscoped - needs_team_id
+    return candidates - fail_closed
+
+
+def read_baseline() -> set[str]:
+    if not BASELINE_FILE.exists():
+        return set()
+    return {
+        line.strip() for line in BASELINE_FILE.read_text().splitlines() if line.strip() and not line.startswith("#")
+    }
+
+
+def write_baseline(unmigrated: set[str]) -> None:
+    header = (
+        "# Models that are team-scoped but still on a non-fail-closed manager.\n"
+        "#\n"
+        "# DO NOT EDIT BY HAND. This file is the mechanical output of\n"
+        "# `--regenerate-baseline` — adding entries by hand defeats the algebra and\n"
+        "# turns this back into a hand-curated allowlist (the IDOR-list problem).\n"
+        "#\n"
+        "# Auto-generated by .github/scripts/check-idor-model-coverage.py\n"
+        "# Regenerate with: python .github/scripts/check-idor-model-coverage.py --regenerate-baseline\n"
+        "#\n"
+        "# Adopting fail-closed: change the model's base from RootTeamMixin to\n"
+        "# TeamScopedRootMixin (main DB) or ProductTeamModel (separate DB), then\n"
+        "# audit every call site to either be inside team scope or use .unscoped().\n"
+        "# Once that's done, regenerate this file and the model drops out.\n"
+    )
+    body = "\n".join(sorted(unmigrated)) + ("\n" if unmigrated else "")
+    BASELINE_FILE.write_text(header + body)
+
+
+def check_fail_closed_baseline(
+    team_scoped: set[str],
+    excluded: set[str],
+    legitimately_unscoped: set[str],
+    needs_team_id: set[str],
+    *,
+    regenerate: bool,
+) -> tuple[bool, bool]:
+    """Return (has_errors, has_warnings) for the fail-closed baseline check."""
+    current = compute_unmigrated_to_fail_closed(team_scoped, excluded, legitimately_unscoped, needs_team_id)
+
+    print(f"\n{'=' * 60}")
+    print("Fail-closed manager baseline check")
+    print("=" * 60)
+
+    if regenerate:
+        write_baseline(current)
+        print(f"\n  Regenerated {BASELINE_FILE.relative_to(REPO_ROOT)}")
+        print(f"  {len(current)} models still on a non-fail-closed manager.")
+        return False, False
+
+    baseline = read_baseline()
+    new_violations = current - baseline
+    migrated = baseline - current
+
+    print(f"\n  Baseline: {len(baseline)} models")
+    print(f"  Current:  {len(current)} models")
+
+    if new_violations:
+        sorted_violations = sorted(new_violations)
+        models_list = ", ".join(sorted_violations)
+        print(f"::error::New team-scoped models without TeamScopedManager: {models_list}")
+        print(f"\n  ❌ ERROR: {len(new_violations)} new model(s) with team_id but not fail-closed:")
+        for model in sorted_violations:
+            print(f"     - {model}")
+        print("\n  New main-DB models should inherit TeamScopedRootMixin.")
+        print("  New separate-DB models should inherit ProductTeamModel.")
+        print("  See posthog/models/scoping/README.md for the contract.")
+        return True, False
+
+    if migrated:
+        print(f"\n  ✅ {len(migrated)} model(s) migrated since baseline (regenerate to shrink):")
+        for model in sorted(migrated):
+            print(f"     - {model}")
+        print(f"\n  Run: python {Path(__file__).relative_to(REPO_ROOT)} --regenerate-baseline")
+        return False, True
+
+    print("  ✅ Fail-closed baseline matches.")
+    return False, False
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--regenerate-baseline",
+        action="store_true",
+        help="Rewrite the fail-closed baseline file from the current code state.",
+    )
+    args = parser.parse_args()
+
     setup_django()
 
     # Get models from code
     code_models, excluded_models, legitimately_unscoped, needs_team_id = get_scoped_models()
 
     # Get models from semgrep rules
-    semgrep_path = Path(__file__).parent.parent.parent / ".semgrep/rules/idor-team-scoped-models.yaml"
+    semgrep_path = REPO_ROOT / ".semgrep/rules/idor-team-scoped-models.yaml"
     semgrep_models = parse_semgrep_models(semgrep_path)
 
     # Compare and report
@@ -546,20 +703,34 @@ def main() -> int:
     if not unacknowledged and not baseline_in_code:
         print("  ✅ No unacknowledged unscoped models")
 
+    fail_closed_errors, fail_closed_warnings = check_fail_closed_baseline(
+        code_models["team_scoped"],
+        excluded_models,
+        legitimately_unscoped,
+        needs_team_id,
+        regenerate=args.regenerate_baseline,
+    )
+    has_errors = has_errors or fail_closed_errors
+    has_warnings = has_warnings or fail_closed_warnings
+
     print("\n" + "=" * 60)
 
     if has_errors:
         print("\n❌ FAILED: Some models need attention.")
-        print("\nTo fix:")
+        print("\nTo fix IDOR semgrep gaps:")
         print("  1. Add the missing models to .semgrep/rules/idor-team-scoped-models.yaml")
         print("  2. Or add them to EXCLUDED_MODELS in this script if they don't need IDOR protection")
         print("  3. For unscoped models: add team_id, or add to LEGITIMATELY_UNSCOPED / NEEDS_TEAM_ID")
+        print("To fix fail-closed manager gaps:")
+        print("  4. New main-DB models: inherit TeamScopedRootMixin")
+        print("  5. New separate-DB models: inherit ProductTeamModel")
+        print("  See posthog/models/scoping/README.md for the contract.")
         return 1
 
     if has_warnings:
-        print("\n⚠️  PASSED with warnings: Some models in semgrep may be stale.")
+        print("\n⚠️  PASSED with warnings.")
 
-    print("\n✅ All scoped models are covered by semgrep IDOR rules.")
+    print("\n✅ All checks passed.")
     return 0
 
 

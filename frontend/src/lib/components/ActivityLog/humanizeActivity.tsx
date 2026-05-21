@@ -43,6 +43,8 @@ export type ActivityLogItem = {
     scope: ActivityScope | string
     item_id?: string
     detail: ActivityLogDetail
+    /** Team (project) the activity belongs to; null for organization-scoped activities. */
+    team_id?: number | null
     /** Present if the log is used as a notification. Whether the notification is unread. */
     unread?: boolean
     /** Whether the activity was initiated by a PostHog staff member impersonating a user. */
@@ -152,6 +154,10 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
     [ActivityScope.LLM_TRACE]: { singular: 'LLM trace', plural: 'LLM traces' },
     [ActivityScope.LOG]: { singular: 'Log', plural: 'Logs' },
+    [ActivityScope.PROJECT_SECRET_API_KEY]: {
+        singular: 'Project secret API key',
+        plural: 'Project secret API keys',
+    },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {

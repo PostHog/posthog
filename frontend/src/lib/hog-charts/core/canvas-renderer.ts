@@ -319,6 +319,11 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.lineWidth = 1
     ctx.setLineDash([])
 
+    // Skip the first category tick when it falls right next to the axis baseline
+    // (left edge in vertical mode, top edge in horizontal) — otherwise it renders
+    // as a faint second line hugging the axis.
+    const AXIS_BASELINE_GAP = 4
+
     if (orientation === 'horizontal') {
         for (const tick of valueTicks) {
             const x = Math.round(yScale(tick)) + 0.5
@@ -328,7 +333,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
             ctx.stroke()
         }
         for (const coord of categoryTicks) {
-            if (!isFinite(coord)) {
+            if (!isFinite(coord) || coord - dimensions.plotTop < AXIS_BASELINE_GAP) {
                 continue
             }
             const y = Math.round(coord) + 0.5
@@ -354,7 +359,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     }
 
     for (const coord of categoryTicks) {
-        if (!isFinite(coord)) {
+        if (!isFinite(coord) || coord - dimensions.plotLeft < AXIS_BASELINE_GAP) {
             continue
         }
         const x = Math.round(coord) + 0.5

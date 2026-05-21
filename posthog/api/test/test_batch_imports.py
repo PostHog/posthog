@@ -62,6 +62,39 @@ class TestBatchImportConfigBuilder(BaseTest):
         self.assertEqual(self.batch_import.secrets["aws_access_key_id"], "AKIATEST")
         self.assertEqual(self.batch_import.secrets["aws_secret_access_key"], "secret123")
 
+    @parameterized.expand(
+        [
+            ("s3", "from_s3", "https://acct123.r2.cloudflarestorage.com"),
+            ("s3_gzip", "from_s3_gzip", "http://localhost:9000"),
+        ]
+    )
+    def test_from_s3_with_endpoint_url(self, _name, method, endpoint_url):
+        getattr(self.batch_import.config, method)(
+            bucket="my-bucket",
+            prefix="data/",
+            region="auto",
+            access_key_id="AKIATEST",
+            secret_access_key="secret123",
+            endpoint_url=endpoint_url,
+        )
+
+        source = self.batch_import.import_config["source"]
+        self.assertEqual(source["type"], _name)
+        self.assertEqual(source["endpoint_url"], endpoint_url)
+        self.assertEqual(source["region"], "auto")
+
+    @parameterized.expand([("s3", "from_s3"), ("s3_gzip", "from_s3_gzip")])
+    def test_from_s3_without_endpoint_url_omits_key(self, _name, method):
+        getattr(self.batch_import.config, method)(
+            bucket="my-bucket",
+            prefix="data/",
+            region="us-east-1",
+            access_key_id="AKIATEST",
+            secret_access_key="secret123",
+        )
+
+        self.assertNotIn("endpoint_url", self.batch_import.import_config["source"])
+
     def test_chained_configuration(self):
         urls = ["http://example.com/data.json"]
 
@@ -603,3 +636,80 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         batch_import.refresh_from_db()
         self.assertEqual(getattr(batch_import, attr), expected)
+
+    @parameterized.expand([("s3",), ("s3_gzip",)])
+    def test_s3_import_with_endpoint_url(self, source_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": source_type,
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "auto",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "endpoint_url": "http://localhost:9000",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertEqual(batch_import.import_config["source"]["type"], source_type)
+        self.assertEqual(batch_import.import_config["source"]["endpoint_url"], "http://localhost:9000")
+        self.assertEqual(batch_import.import_config["source"]["region"], "auto")
+
+    def test_s3_import_without_endpoint_url_omits_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertNotIn("endpoint_url", batch_import.import_config["source"])
+
+    def test_s3_import_with_empty_endpoint_url_omits_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "endpoint_url": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        batch_import = BatchImport.objects.get(id=response.json()["id"])
+        self.assertNotIn("endpoint_url", batch_import.import_config["source"])
+
+    def test_s3_import_with_invalid_endpoint_url_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+                "endpoint_url": "not-a-url",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["attr"], "endpoint_url")

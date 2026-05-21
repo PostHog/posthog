@@ -332,8 +332,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
         dependency metadata (stages, missing deps, transitive deps), and cohorts contains
         serialized cohort definitions referenced by the flags (including transitive deps).
     """
-    # Exclude encrypted remote config flags at DB level for efficiency
-    flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
+    flags = get_feature_flags(team=team, exclude_encrypted_payloads=True)
     flags_data = serialize_feature_flags(flags)
     evaluation_metadata = _compute_flag_dependencies(flags_data)
 
@@ -374,16 +373,15 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Load all flags for all teams in one query with evaluation tags pre-loaded.
     # Include disabled flags (active=False) so flag dependencies can reference them
     # and evaluate them as false, rather than raising DependencyNotFound errors.
-    # Exclude encrypted remote config flags - they can only be accessed via the
+    # Exclude encrypted payload flags - they can only be accessed via the
     # dedicated /remote_config endpoint which handles decryption.
     # Note: We intentionally don't select_related("team") here because we only need
     # team_id (already on the model) for grouping, and the Team objects are already
     # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(
-            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team__in=teams,
-        ).annotate(
+        FeatureFlag.objects.filter(team__in=teams)
+        .exclude(has_encrypted_payloads=True)
+        .annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "flag_evaluation_contexts__evaluation_context__name",
                 filter=Q(flag_evaluation_contexts__isnull=False),

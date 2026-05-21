@@ -1,9 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { BarChart, ReferenceLine, ValueLabels } from 'lib/hog-charts'
-import type { BarChartConfig, Series } from 'lib/hog-charts'
-
+import type { BarChartConfig, Series } from '../../core/types'
+import { ReferenceLine } from '../../overlays/ReferenceLine'
+import { ValueLabels } from '../../overlays/ValueLabels'
 import { Stage, useReactiveTheme } from '../../story-helpers'
+import { BarChart } from './BarChart'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -77,6 +78,19 @@ export const HorizontalGrouped: Story = {
         return (
             <Stage height={320}>
                 <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+export const HorizontalAggregatedSingle: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'stacked', showGrid: true, axisOrientation: 'horizontal' }
+        const series: Series[] = [{ key: 'all', label: 'All events', color: '', data: [103000] }]
+        return (
+            <Stage height={320}>
+                <BarChart series={series} labels={['All events']} config={config} theme={theme} />
             </Stage>
         )
     },

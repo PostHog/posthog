@@ -19,13 +19,16 @@ from temporalio.common import (
     WorkflowIDReusePolicy,
 )
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.session_recordings.ai_summary_cap import atomic_check_and_consume, refund
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -464,17 +467,6 @@ async def ensure_llm_single_session_summary(
         # Storage is the canonical record (fatal on failure); embed/emit/tag are best-effort.
         _set_phase(progress, "saving_summary")
         problems = collect_session_problems(consolidated_analysis.segments)
-        logger.info(
-            "session problem signals pre-emission",
-            team_id=inputs.team_id,
-            session_id=inputs.session_id,
-            workflow_id=trace_id,
-            total_consolidated_segments=len(consolidated_analysis.segments),
-            problem_segment_count=len(problems),
-            problems=[p.model_dump(include={"problem_type", "start_time", "end_time"}) for p in problems[:30]],
-            will_run_emit_activity=bool(problems),
-            signals_type="session-summaries",
-        )
 
         embed_coro = temporalio.workflow.execute_activity(
             embed_and_store_segments_activity,
@@ -626,6 +618,28 @@ async def _check_handle_data(
     if desc.status == WorkflowExecutionStatus.COMPLETED:
         final_result = await handle.result()
     return desc.status, final_result
+
+
+async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
+    """True iff a workflow with this id is currently RUNNING.
+
+    Discriminates fresh LLM runs from silent attaches: ``_start_video_summary_workflow``
+    uses ``USE_EXISTING``, so starting twice with the same id returns a handle
+    without raising.
+
+    Error handling is asymmetric on purpose:
+    - ``NOT_FOUND`` → ``False`` (fresh start path; caller must charge the cap).
+    - Any other ``RPCError`` is re-raised so a flaky Temporal blip surfaces as
+      ``session-summary-error`` rather than silently double-charging.
+    """
+    handle = client.get_workflow_handle(workflow_id)
+    try:
+        desc = await handle.describe()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.status == WorkflowExecutionStatus.RUNNING
 
 
 def _prepare_execution(
@@ -841,12 +855,70 @@ async def execute_summarize_session_video_stream(
     )
 
     client = await async_connect()
+
+    # The cap only fires on a fresh LLM run. If `_start_video_summary_workflow`
+    # is about to attach via USE_EXISTING to someone else's in-flight run, skip
+    # the cap so we don't 402 a teammate reading already-paid-for work.
+    # `force_restart` always preempts via TERMINATE_EXISTING — counts as fresh.
+    will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
+
+    quota_reserved = False
+    if will_start_fresh_run:
+        # Reserve a slot atomically (INCR + revert if over cap). One round-trip
+        # closes the TOCTOU window where concurrent requests can all read the
+        # same `used` and then collectively overshoot. Redis failures fail open
+        # — a flaky counter must not break the summarize path.
+        try:
+            cap_decision = await database_sync_to_async(atomic_check_and_consume, thread_sensitive=False)(team.id)
+        except Exception as e:
+            logger.warning(
+                "video summary cap reservation failed (fail-open)",
+                team_id=team.id,
+                session_id=session_id,
+                error=str(e),
+                signals_type="session-summaries",
+            )
+            cap_decision = None
+
+        if cap_decision is not None and not cap_decision.allowed:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="replay summary quota blocked",
+                properties={
+                    "team_id": team.id,
+                    "used": cap_decision.used,
+                    "cap": cap_decision.cap,
+                    "source": "dock",
+                },
+                groups=groups(None, team),
+            )
+            yield serialize_to_sse_event(
+                event_label="session-summary-error",
+                event_data=(
+                    "You've reached this team's monthly limit for AI session summaries "
+                    f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
+                ),
+            )
+            return
+
+        quota_reserved = cap_decision is not None and cap_decision.allowed
+
     try:
         handle = await _start_video_summary_workflow(
             inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
         )
     except WorkflowAlreadyStartedError:
+        # Race: someone else started the same workflow between our describe and
+        # start call. Attach to theirs and refund the slot we reserved.
         handle = client.get_workflow_handle(workflow_id)
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+            quota_reserved = False
+    except Exception:
+        # Any other start failure: never went to the LLM, give the slot back.
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+        raise
 
     logger.info(
         "video summary polling loop starting",

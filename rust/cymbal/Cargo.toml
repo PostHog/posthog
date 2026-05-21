@@ -40,6 +40,7 @@ moka = { workspace = true }
 rdkafka = { workspace = true }
 posthog-rs = { workspace = true }
 base64 = { workspace = true }
+bytes = { workspace = true }
 regex = { workspace = true }
 futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

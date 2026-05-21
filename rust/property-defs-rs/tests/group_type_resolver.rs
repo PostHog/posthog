@@ -194,6 +194,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn list_groups(
+        &self,
+        _: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mappings_by_team_id(
         &self,
         _: Request<GetGroupTypeMappingsByTeamIdRequest>,
