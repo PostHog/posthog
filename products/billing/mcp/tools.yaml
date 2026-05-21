@@ -1,0 +1,29 @@
+# MCP tool definition for the billing namespace.
+#
+# Unlike most other products, billing tools do not call PostHog directly — they
+# proxy through `BillingManager` to the billing service, which is the source of
+# truth for role-based authorization. The JWT built by `BillingManager.get_auth_headers`
+# carries the caller's organization_role, and billing's `IsOrgMember` /
+# `IsOrgAdmin` / `IsOrgOwner` permission classes enforce it per tool.
+#
+# Adding a new read tool: see
+# `products/billing/skills/adding-billing-mcp-read-tool/SKILL.md`.
+category: Billing
+feature: billing
+url_prefix: /organization/billing
+ui_apps: {}
+tools:
+    billing-summary:
+        operation: environment_billing_mcp_billing_summary
+        enabled: true
+        scopes:
+            - billing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get billing summary
+        description: >
+            Get a high-level summary of the organization's billing status — current plan, subscription state,
+            and headline usage. Use this to answer "what plan am I on?", "am I subscribed?", or "how is my
+            billing looking?" without pulling the full billing payload.

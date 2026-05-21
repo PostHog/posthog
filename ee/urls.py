@@ -46,7 +46,7 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import max_tools, session_summaries
+    from ee.api import billing_mcp, max_tools, session_summaries
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -97,6 +97,13 @@ def extend_api_router() -> None:
     )
 
     environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
+
+    environments_router.register(
+        r"billing_mcp",
+        billing_mcp.BillingMCPViewset,
+        "environment_billing_mcp",
+        ["team_id"],
+    )
 
     environments_router.register(
         r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]

@@ -725,6 +725,21 @@ class BillingManager:
                 result[k] = v
         return result
 
+    def get_mcp_billing_summary(self, organization: Organization) -> dict[str, Any]:
+        """
+        Proxy to billing's MCP `billing-summary` read tool.
+
+        The JWT built by `get_auth_headers` embeds the caller's organization_role,
+        so billing's role-based permission classes are the source of truth.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/mcp/tools/billing-summary/",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+        return res.json()
+
     def handle_billing_provider_webhook(
         self,
         event_type: str,
