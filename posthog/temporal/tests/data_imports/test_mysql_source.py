@@ -249,8 +249,8 @@ async def test_mysql_source_incremental(
         external_data_source=external_data_source,
         external_data_schema=external_data_schema_incremental,
         table_name=table_name,
-        # We use a GTE, so the last id will be re-synced.
-        expected_rows_synced=expected_num_rows + 1,
+        # Integer cursors use `>` (only Date uses `>=`), so only the newly inserted rows are synced.
+        expected_rows_synced=len(NEW_TEST_DATA),
         expected_total_rows=expected_total_num_rows,
         expected_columns=["id", "name", "email", "created_at", "unsigned_int"],
     )
