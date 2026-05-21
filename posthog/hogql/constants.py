@@ -124,6 +124,10 @@ class HogQLQuerySettings(BaseModel):
     optimize_skip_unused_shards: Optional[bool] = None
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None
+    # Read-in-order's default read-ahead buffering over-reads under a LIMIT (it keeps reading
+    # granules past the point the LIMIT is satisfied) and inflates peak memory. Disabling it lets
+    # an ORDER-BY-sort-key-prefix + LIMIT query early-terminate. See timestamp_order_by.py.
+    read_in_order_use_buffering: Optional[bool] = None
 
 
 # Settings applied on top of all HogQL queries.

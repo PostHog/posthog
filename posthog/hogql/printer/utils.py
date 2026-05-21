@@ -19,6 +19,7 @@ from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_co
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.transforms.timestamp_order_by import optimize_timestamp_order_by
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -155,6 +156,12 @@ def prepare_ast_for_printing(
                 context=context,
                 setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
+
+        # Align leading `ORDER BY timestamp` with the events sort key so a LIMIT can read in
+        # primary-key order and early-terminate. Runs after swap_properties so the timestamp is
+        # already wrapped in toTimeZone (which this rewrite peels back off).
+        with context.timings.measure("optimize_timestamp_order_by"):
+            optimize_timestamp_order_by(node, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
