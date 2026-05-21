@@ -58,9 +58,24 @@ describe('Hono Constants', () => {
     })
 
     describe('getAuthorizationServerUrl', () => {
-        it('should return custom URL when POSTHOG_API_BASE_URL is set', () => {
-            process.env.POSTHOG_API_BASE_URL = 'https://custom.posthog.com'
-            expect(getAuthorizationServerUrl()).toBe('https://custom.posthog.com')
+        it('should return localhost URL when POSTHOG_API_BASE_URL is localhost', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://localhost:8010'
+            expect(getAuthorizationServerUrl()).toBe('http://localhost:8010')
+        })
+
+        it('should return oauth proxy URL when POSTHOG_API_BASE_URL is a cloud URL', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
+            expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
+        })
+
+        it('should return oauth proxy URL when POSTHOG_API_BASE_URL is an internal cluster URL', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
+        })
+
+        it('should return self-hosted URL when POSTHOG_API_BASE_URL is a custom domain', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://posthog.example.com'
+            expect(getAuthorizationServerUrl()).toBe('https://posthog.example.com')
         })
 
         it('should return oauth proxy URL when no custom URL', () => {

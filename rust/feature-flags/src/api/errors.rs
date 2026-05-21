@@ -316,48 +316,7 @@ impl FlagError {
     }
 
     pub fn is_5xx(&self) -> bool {
-        let status = match self {
-            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable) => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
-            FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
-            FlagError::Internal(_)
-            | FlagError::DeserializeFiltersError
-            | FlagError::DatabaseError(_, _)
-            | FlagError::NoGroupTypeMappings
-            | FlagError::GroupTypeMappingFetchFailed
-            | FlagError::RowNotFound
-            | FlagError::DependencyNotFound(_, _)
-            | FlagError::CohortFiltersParsingError
-            | FlagError::DependencyCycle(_, _)
-            | FlagError::DataParsingError
-            | FlagError::BatchEvaluationPanicked
-            | FlagError::DataParsingErrorWithContext(_)
-            | FlagError::HashKeyOverrideError => StatusCode::INTERNAL_SERVER_ERROR,
-
-            FlagError::RayonSemaphoreTimeout(_) => StatusCode::GATEWAY_TIMEOUT,
-
-            FlagError::RedisUnavailable
-            | FlagError::DatabaseUnavailable
-            | FlagError::TimeoutError(_)
-            | FlagError::CacheMiss
-            | FlagError::PersonNotFound
-            | FlagError::PropertiesNotInCache
-            | FlagError::StaticCohortMatchesNotCached => StatusCode::SERVICE_UNAVAILABLE,
-
-            FlagError::CookielessError(
-                CookielessManagerError::HashError(_)
-                | CookielessManagerError::ChronoError(_)
-                | CookielessManagerError::RedisError(_, _)
-                | CookielessManagerError::SaltCacheError(
-                    SaltCacheError::RedisError(_) | SaltCacheError::SaltRetrievalFailed,
-                )
-                | CookielessManagerError::InvalidIdentifyCount(_),
-            ) => StatusCode::INTERNAL_SERVER_ERROR,
-            FlagError::CookielessError(_) => return false, // Other CookielessErrors are 4XX
-            _ => return false,                             // Everything else is 4XX
-        };
-        status.is_server_error()
+        self.status_code() >= 500
     }
 }
 

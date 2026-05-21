@@ -13,6 +13,14 @@ config:
         - mprocs-test.yaml
         - sandbox-entrypoint.py
         - lint-feature-flag-sorting.mjs
+    env:
+        files:
+            - .env.development
+            - .env.services
+        secrets:
+            file: .env.local
+            marker: 'op://'
+            wrap: [op, run, --env-file, '{file}', --]
     telemetry:
         # Write-only project token for PostHog's internal hogli project.
         # It cannot read data; safe to commit. Standalone hogli users get a blank
@@ -283,6 +291,7 @@ start:
     start:
         bin_script: start
         description: Launch all dev services via phrocs (interactive TUI, or `-d` for detached mode)
+        needs_secrets: true
         services:
             - phrocs
             - mprocs
@@ -298,7 +307,7 @@ start:
             - clickhouse
             - temporal
     up:
-        bin_script: start
+        extends: start
         description: Alias for `hogli start`; use `-d` for optional detached mode
     wait:
         cmd: phrocs wait
@@ -315,6 +324,9 @@ start:
     start:backend:
         bin_script: start-backend
         description: Run Django development server on port 8000 with auto-reload
+        # Django runtime — Max / AI features / Stripe billing all read keys
+        # from .env.local at request time.
+        needs_secrets: true
         services:
             - django
             - postgresql
@@ -323,6 +335,8 @@ start:
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
+        # Celery jobs hit AI providers (session summaries, batch exports, ...).
+        needs_secrets: true
         services:
             - celery
             - redis
@@ -342,6 +356,9 @@ start:
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, nodejs, ingestion)
+        # Workers run AI / billing / ingestion code paths that touch external
+        # providers — they need the runtime keys resolved.
+        needs_secrets: true
         services:
             - celery
             - nodejs
@@ -353,10 +370,14 @@ start:
     start:rust-service:
         bin_script: start-rust-service
         description: Build and run live Rust microservice with auto-restart on crash
+        # Rust services include batch-import-worker etc. that talk to Stripe
+        # and other external endpoints.
+        needs_secrets: true
         hidden: true
     start:go:service:
         bin_script: start-go-service
         description: Build and run Go microservices with auto-restart on crash
+        needs_secrets: true
         hidden: true
 deploy:
     deploy:hobby:
@@ -808,6 +829,18 @@ tools:
         bin_script: clickhouse-metrics-init
         description: Initialize ClickHouse metrics schema (temporary, pre-migration)
         hidden: true
+    clickhouse:multinode:start:
+        cmd: tools/infra-scripts/clickhouse-multinode/start-multinode-clickhouse
+        description: Boot the multinode ClickHouse smoke-test stack (one server per logical cluster) for local migration verification
+        hidden: true
+    clickhouse:multinode:verify:
+        cmd: python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
+        description: Assert that the multinode ClickHouse stack ended up with the expected per-node table layout
+        hidden: true
+    clickhouse:multinode:test:
+        cmd: tools/infra-scripts/clickhouse-multinode/multinode-migration-smoke
+        description: Boot a per-cluster ClickHouse stack and smoke-test migrations against it
+        hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
         description: Create a new NotebookNode file and update types and editor references
@@ -823,18 +856,22 @@ tools:
     start:llm:gateway:
         bin_script: start-llm-gateway
         description: Start the LLM gateway service
+        needs_secrets: true
         hidden: true
     posthog:node:
         bin_script: posthog-node
         description: Start the posthog-node service (old plugin-server)
+        needs_secrets: true
         hidden: true
     start:mcp:server:
         bin_script: start-mcp-server
         description: Start the MCP server
+        needs_secrets: true
         hidden: true
     start:stripe:app:
         bin_script: start-stripe-app
         description: Start the Stripe app dev server (requires Stripe CLI)
+        needs_secrets: true
     generate_personhog_proto:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'

@@ -264,9 +264,11 @@ const SupportResponseTimesTable = ({
 function SupportFormBlock({
     onCancel,
     billing,
+    isSubmitting,
 }: {
     onCancel: () => void
     billing: BillingType | null | undefined
+    isSubmitting: boolean
 }): JSX.Element {
     return (
         <Section title="Email an engineer">
@@ -279,6 +281,7 @@ function SupportFormBlock({
                 fullWidth
                 center
                 className="mt-4"
+                loading={isSubmitting}
             >
                 Submit
             </LemonButton>
@@ -307,7 +310,12 @@ export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
+    const {
+        isEmailFormOpen,
+        title: supportPanelTitle,
+        targetArea,
+        isSendSupportRequestSubmitting,
+    } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
@@ -344,6 +352,7 @@ export function SidePanelSupport(): JSX.Element {
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             billing={billing}
+                            isSubmitting={isSendSupportRequestSubmitting}
                             onCancel={() => {
                                 closeEmailForm()
                                 closeSupportForm()

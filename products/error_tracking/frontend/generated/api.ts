@@ -22,6 +22,7 @@ import type {
     ErrorTrackingGroupingRuleApi,
     ErrorTrackingGroupingRuleCreateRequestApi,
     ErrorTrackingGroupingRuleListResponseApi,
+    ErrorTrackingGroupingRuleUpdateRequestApi,
     ErrorTrackingIssueDetailApi,
     ErrorTrackingIssueEventsQueryRequestApi,
     ErrorTrackingIssueEventsResponseApi,
@@ -67,6 +68,7 @@ import type {
     PatchedErrorTrackingAssignmentRuleApi,
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleApi,
+    PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueFullApi,
     PatchedErrorTrackingReleaseApi,
     PatchedErrorTrackingSettingsApi,
@@ -497,14 +499,14 @@ export const getErrorTrackingGroupingRulesUpdateUrl = (projectId: string, id: st
 export const errorTrackingGroupingRulesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
+    errorTrackingGroupingRuleUpdateRequestApi?: ErrorTrackingGroupingRuleUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingGroupingRuleApi> => {
-    return apiMutator<ErrorTrackingGroupingRuleApi>(getErrorTrackingGroupingRulesUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingGroupingRulesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingGroupingRuleApi),
+        body: JSON.stringify(errorTrackingGroupingRuleUpdateRequestApi),
     })
 }
 
@@ -515,14 +517,14 @@ export const getErrorTrackingGroupingRulesPartialUpdateUrl = (projectId: string,
 export const errorTrackingGroupingRulesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingGroupingRuleApi?: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
+    patchedErrorTrackingGroupingRuleUpdateRequestApi?: PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingGroupingRuleApi> => {
-    return apiMutator<ErrorTrackingGroupingRuleApi>(getErrorTrackingGroupingRulesPartialUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingGroupingRulesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
+        body: JSON.stringify(patchedErrorTrackingGroupingRuleUpdateRequestApi),
     })
 }
 

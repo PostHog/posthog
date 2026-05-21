@@ -6,6 +6,8 @@ import {
     ErrorTrackingAssignmentRulesCreateBody,
     ErrorTrackingAssignmentRulesListQueryParams,
     ErrorTrackingGroupingRulesCreateBody,
+    ErrorTrackingGroupingRulesUpdateBody,
+    ErrorTrackingGroupingRulesUpdateParams,
     ErrorTrackingIssuesMergeCreateBody,
     ErrorTrackingIssuesMergeCreateParams,
     ErrorTrackingIssuesPartialUpdateBody,
@@ -118,6 +120,28 @@ const errorTrackingGroupingRulesList = (): ToolBase<
         const result = await context.api.request<Schemas.ErrorTrackingGroupingRuleListResponse>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/`,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingGroupingRulesUpdateSchema = ErrorTrackingGroupingRulesUpdateParams.omit({ project_id: true }).extend(
+    ErrorTrackingGroupingRulesUpdateBody.shape
+)
+
+const errorTrackingGroupingRulesUpdate = (): ToolBase<typeof ErrorTrackingGroupingRulesUpdateSchema, unknown> => ({
+    name: 'error-tracking-grouping-rules-update',
+    schema: ErrorTrackingGroupingRulesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingGroupingRulesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        const result = await context.api.request<unknown>({
+            method: 'PUT',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/grouping_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
         return result
     },
@@ -571,6 +595,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-assignment-rules-list': errorTrackingAssignmentRulesList,
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
+    'error-tracking-grouping-rules-update': errorTrackingGroupingRulesUpdate,
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,

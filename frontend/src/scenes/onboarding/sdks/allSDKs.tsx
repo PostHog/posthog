@@ -16,6 +16,7 @@ import { AstroLogo } from './logos/AstroLogo'
 import { BubbleLogo } from './logos/BubbleLogo'
 import djangoImage from './logos/django.svg'
 import docusaurusImage from './logos/docusaurus.svg'
+import dotnetImage from './logos/dotnet.svg'
 import elixirImage from './logos/elixir.svg'
 import flutterImage from './logos/flutter.svg'
 import { FramerLogo } from './logos/FramerLogo'
@@ -139,6 +140,13 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.SERVER],
         image: djangoImage,
         docsLink: 'https://posthog.com/docs/libraries/django',
+    },
+    {
+        name: '.NET',
+        key: SDKKey.DOTNET,
+        tags: [SDKTag.SERVER],
+        image: dotnetImage,
+        docsLink: 'https://posthog.com/docs/libraries/dotnet',
     },
     {
         name: 'Elixir',

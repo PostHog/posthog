@@ -12,16 +12,20 @@ message with no tool calls, or on budget exhaustion.
 from __future__ import annotations
 
 import json
+import uuid
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+import posthoganalytics
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
-from posthog.models.alert import AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
@@ -32,6 +36,8 @@ from posthog.temporal.ai.anomaly_investigation.tools import (
     SimulateDetectorArgs,
     TopBreakdownArgs,
 )
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +142,7 @@ async def run_investigation(
         max_retries=2,
         temperature=0,
         default_request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+        posthog_properties={"ai_product": "alert_investigation_agent"},
     )
     llm_with_tools = llm.bind_tools(
         [
@@ -151,6 +158,13 @@ async def run_investigation(
         ]
     )
     llm_with_final_report = llm.bind_tools([final_report_tool], tool_choice=FINAL_REPORT_TOOL_NAME)
+
+    # Without a langchain CallbackHandler attached, MaxChatAnthropic's posthog_properties
+    # never reach LLM analytics — langchain-anthropic itself doesn't emit $ai_* events.
+    # Attach one here so every generation/span this agent makes shows up under
+    # ai_product=alert_investigation_agent, matching the convention used by other
+    # Temporal-driven agents (see llma_eval_reports/report_agent/graph.py).
+    config: RunnableConfig = {"callbacks": _build_callbacks(team=team, alert=alert)}
 
     messages: list[Any] = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -177,7 +191,7 @@ async def run_investigation(
             if heartbeat is not None:
                 heartbeat()
             try:
-                final = await llm_with_final_report.ainvoke(messages)
+                final = await llm_with_final_report.ainvoke(messages, config=config)
             except Exception as err:
                 # Swallow final-turn failures and return an inconclusive report rather than
                 # bouncing off Temporal retries — MaxChatAnthropic already exhausted its
@@ -196,7 +210,7 @@ async def run_investigation(
             break
 
         try:
-            response = await llm_with_tools.ainvoke(messages)
+            response = await llm_with_tools.ainvoke(messages, config=config)
         except Exception as err:
             logger.warning("anomaly_investigation.llm_invoke_error", extra={"error": str(err)})
             return InvestigationRunResult(
@@ -246,6 +260,28 @@ async def run_investigation(
     report = _parse_report(getattr(final_message, "content", ""))
     report.tool_calls_used = tool_calls_used
     return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+
+
+def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[BaseCallbackHandler]:
+    callbacks: list[BaseCallbackHandler] = []
+    client = posthoganalytics.default_client
+    if client is None:
+        return callbacks
+    properties: dict[str, Any] = {
+        "ai_product": "alert_investigation_agent",
+        "team_id": team.id,
+    }
+    if alert is not None:
+        properties["alert_id"] = str(alert.id)
+    callbacks.append(
+        CallbackHandler(
+            client,
+            distinct_id=str(team.id),
+            trace_id=f"alert-investigation-{uuid.uuid4()}",
+            properties=properties,
+        )
+    )
+    return callbacks
 
 
 def _parse_report_message(message: Any) -> InvestigationReport | None:
