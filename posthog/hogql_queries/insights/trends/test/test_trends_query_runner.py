@@ -18,7 +18,9 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from pydantic import ValidationError
@@ -2391,9 +2393,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # per breakdown row, fanning out into N `PropertyDefinition.objects.get(...)`
         # round-trips and amplifying PgBouncer pool pressure under load.
         # The lookup is now memoized on the runner instance.
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
         PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
 
         for value in range(20):
@@ -2419,15 +2418,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Sanity check that the breakdown actually produced many rows — otherwise the
         # regression invariant is vacuous.
-        assert len(response.results) > 1
+        self.assertGreater(len(response.results), 1)
 
         # `_event_property` issues a `PropertyDefinition.objects.get(...)` for the
         # breakdown key. After memoization this should fire at most once per runner,
         # regardless of breakdown cardinality.
         property_definition_queries = [q for q in ctx.captured_queries if "posthog_propertydefinition" in q["sql"]]
-        assert len(property_definition_queries) <= 1, (
+        self.assertLessEqual(
+            len(property_definition_queries),
+            1,
             f"expected at most 1 posthog_propertydefinition lookup, got {len(property_definition_queries)}: "
-            f"{[q['sql'] for q in property_definition_queries]}"
+            f"{[q['sql'] for q in property_definition_queries]}",
         )
 
     def test_breakdown_values_limit(self):
