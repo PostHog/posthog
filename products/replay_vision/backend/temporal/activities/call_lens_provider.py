@@ -87,7 +87,8 @@ def _resolve_citations(
             if hex_hash not in mapping:
                 return ""  # drop dead citation rather than leaving a parenthetical the FE can't resolve
             cited_hashes.add(hex_hash)
-            return match.group(0)
+            # Rewrite with canonical lowercase hex so persisted text matches the mapping keys.
+            return f"(event_id {hex_hash})"
 
         new_text = _EVENT_ID_CITATION_RE.sub(_filter, text)
         if new_text != text:
