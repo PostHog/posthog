@@ -78,6 +78,9 @@ export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval)
     return interval === AlertCalculationInterval.HOURLY || interval === AlertCalculationInterval.EVERY_15_MINUTES
 }
 
+const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
+    '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
+
 export function blockSubmitWithoutHighFrequencyAlertsEntitlement(
     interval: AlertCalculationInterval,
     hasHighFrequencyAlertsEntitlement: boolean
@@ -284,7 +287,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         userLogic.values.hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
                     )
                 ) {
-                    throw new Error('15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.')
+                    lemonToast.error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                    throw new Error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
                 }
 
                 const payload: AlertTypeWrite = {

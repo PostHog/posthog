@@ -240,7 +240,7 @@ describe('alertFormLogic', () => {
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
     })
 
-    it('blocks save without opening upgrade modal for 15-minute interval without entitlement', async () => {
+    it('blocks save with error toast for 15-minute interval without entitlement', async () => {
         userLogic.mount()
         upgradeModalLogic.mount()
         const logic = mountForm()
@@ -256,14 +256,22 @@ describe('alertFormLogic', () => {
 
         expect(createSpy).not.toHaveBeenCalled()
         expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBeNull()
-        expect(errorToastSpy).not.toHaveBeenCalled()
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
+        )
         expect(successToastSpy).not.toHaveBeenCalled()
     })
 })
 
 describe('getDefaultSimulationRange', () => {
-    it('returns 12 hours for 15-minute intervals', () => {
-        expect(getDefaultSimulationRange(AlertCalculationInterval.EVERY_15_MINUTES)).toBe('-12h')
+    it.each([
+        [AlertCalculationInterval.EVERY_15_MINUTES, '-12h'],
+        [AlertCalculationInterval.HOURLY, '-48h'],
+        [AlertCalculationInterval.DAILY, '-30d'],
+        [AlertCalculationInterval.WEEKLY, '-12w'],
+        [AlertCalculationInterval.MONTHLY, '-12m'],
+    ])('%s returns %s', (interval, expected) => {
+        expect(getDefaultSimulationRange(interval)).toBe(expected)
     })
 })
 
@@ -322,14 +330,13 @@ describe('selectAlertCalculationInterval', () => {
 })
 
 describe('isHighFrequencyAlertInterval', () => {
-    it('returns true for 15-minute and hourly intervals', () => {
-        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.EVERY_15_MINUTES)).toBe(true)
-        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.HOURLY)).toBe(true)
-    })
-
-    it('returns false for daily, weekly, and monthly intervals', () => {
-        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.DAILY)).toBe(false)
-        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.WEEKLY)).toBe(false)
-        expect(isHighFrequencyAlertInterval(AlertCalculationInterval.MONTHLY)).toBe(false)
+    it.each([
+        [AlertCalculationInterval.EVERY_15_MINUTES, true],
+        [AlertCalculationInterval.HOURLY, true],
+        [AlertCalculationInterval.DAILY, false],
+        [AlertCalculationInterval.WEEKLY, false],
+        [AlertCalculationInterval.MONTHLY, false],
+    ])('%s → %s', (interval, expected) => {
+        expect(isHighFrequencyAlertInterval(interval)).toBe(expected)
     })
 })
