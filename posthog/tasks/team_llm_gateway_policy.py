@@ -37,14 +37,14 @@ def update_team_llm_gateway_policy_cache_task(team_id: int) -> None:
     except Team.DoesNotExist:
         logger.debug("Team does not exist for llm-gateway policy cache update", team_id=team_id)
         HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-            namespace="team_metadata", operation="update_llm_gateway", result="failure"
+            namespace="team_llm_gateway_policy", operation="update", result="failure"
         ).inc()
         return
 
     success = update_team_llm_gateway_policy_cache(team)
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-        namespace="team_metadata",
-        operation="update_llm_gateway",
+        namespace="team_llm_gateway_policy",
+        operation="update",
         result="success" if success else "failure",
     ).inc()
 
@@ -95,7 +95,7 @@ def update_team_llm_gateway_policy_cache_on_save(
                 clear_team_llm_gateway_policy_cache(old_api_token, kinds=kinds)
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-                namespace="team_metadata", operation="enqueue_llm_gateway", result="failure"
+                namespace="team_llm_gateway_policy", operation="enqueue", result="failure"
             ).inc()
             logger.exception(
                 "Failed to enqueue llm-gateway policy cache update",

@@ -24,7 +24,7 @@ import os
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
+from django.db import OperationalError
 
 import structlog
 
@@ -67,16 +67,20 @@ def _batch_load_llm_gateway_policy(teams: list[Team]) -> dict[int, dict[str, Any
 
 
 def _load_llm_gateway_policy(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
+    # Narrow except clause: catching Exception would turn any bug (TypeError,
+    # AttributeError, etc.) into a 24h negative-cache entry that 401s every
+    # gateway request for the team. Only Team.DoesNotExist (genuine miss) and
+    # OperationalError (expected transient DB failure) soft-fail. Anything
+    # else propagates so the cache can retry on the next request.
     try:
-        with transaction.atomic():
-            team = HyperCache.team_from_key(team_key)
-            return _serialize_team_to_llm_gateway_policy(team)
+        team = HyperCache.team_from_key(team_key)
+        return _serialize_team_to_llm_gateway_policy(team)
     except Team.DoesNotExist:
         logger.debug("Team not found for llm-gateway policy lookup")
         return HyperCacheStoreMissing()
-    except Exception as e:
+    except OperationalError as e:
         logger.exception(
-            "Error loading llm-gateway policy",
+            "Database error loading llm-gateway policy",
             error_type=type(e).__name__,
             team_key_type=type(team_key).__name__,
         )
