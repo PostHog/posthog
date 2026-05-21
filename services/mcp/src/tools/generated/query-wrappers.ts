@@ -548,6 +548,8 @@ const AssistantTrendsFilter = z.object({
         .default(false)
         .optional(),
     smoothingIntervals: integer.describe('Smoothing intervals for the trend line.').default(1).optional(),
+    xAxisLabel: z.string().describe('Custom label rendered under the X axis.').optional(),
+    yAxisLabel: z.string().describe('Custom label rendered alongside the Y axis.').optional(),
     yAxisScaleType: z.enum(['log10', 'linear']).describe('Whether to scale the y-axis.').default('linear').optional(),
 })
 

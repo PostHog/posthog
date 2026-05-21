@@ -2045,6 +2045,10 @@ export namespace Schemas {
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
       smoothingIntervals?: number | null;
+      /** Custom label rendered under the X axis. */
+      xAxisLabel?: string | null;
+      /** Custom label rendered alongside the Y axis. */
+      yAxisLabel?: string | null;
       yAxisScaleType?: YAxisScaleType | null;
     }
 
