@@ -1,4 +1,4 @@
-"""Evaluation-level clustering for LLM Analytics.
+"""Evaluation-level clustering for AI observability.
 
 Two-stage pipeline:
   Stage A (hourly): sample $ai_evaluation events per ClusteringJob, compose a short

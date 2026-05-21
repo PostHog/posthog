@@ -44,12 +44,12 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
 
     -- temporary columns for materialized views, these expire immediately after initially created but
     -- are around for materialized views which pull off from this table
-    `_partition` UInt32 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-    `_topic` String TTL created_at + interval 1 second,
-    `_offset` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-    `_bytes_uncompressed` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-    `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-    `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
+    `_partition` UInt32 CODEC(DoubleDelta, ZSTD(1)),
+    `_topic` String,
+    `_offset` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+    `_bytes_uncompressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+    `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+    `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
 
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,

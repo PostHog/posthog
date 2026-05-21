@@ -2027,6 +2027,12 @@ class TestPrinter(BaseTest):
             f"SELECT count(DISTINCT events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_count_distinct_function(self):
+        self.assertEqual(
+            self._select("SELECT countDistinct(event) as count FROM events"),
+            f"SELECT countDistinct(events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_count_star(self):
         self.assertEqual(
             self._select("SELECT count(*) as count FROM events"),
@@ -2987,12 +2993,13 @@ class TestPrinter(BaseTest):
             """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
+        strict_regex = "^\\\\s*v?((0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*))(?:[-+][^\\\\s]*)?\\\\s*$"
         self.assertEqual(
             (
-                f"SELECT arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_0)s), '(\\d+(\\.\\d+)+)'))) AS semver1, "
-                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
-                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
-                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
+                f"SELECT arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_0)s), '{strict_regex}'), ''), '_'))) AS semver1, "
+                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_1)s), '{strict_regex}'), ''), '_'))) AS semver2, "
+                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_2)s), '{strict_regex}'), ''), '_'))) AS semver3, "
+                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_3)s), '{strict_regex}'), ''), '_'))) AS semver4 "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,

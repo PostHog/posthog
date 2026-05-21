@@ -17260,7 +17260,13 @@
             "type": "object"
         },
         "ExperimentFunnelMetricStep": {
-            "anyOf": [
+            "$ref": "#/definitions/ExperimentFunnelMetricStepUnion"
+        },
+        "ExperimentFunnelMetricStepUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -17270,7 +17276,9 @@
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
@@ -17656,7 +17664,13 @@
             "type": "object"
         },
         "ExperimentMetricSource": {
-            "anyOf": [
+            "$ref": "#/definitions/ExperimentMetricSourceUnion"
+        },
+        "ExperimentMetricSourceUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -17666,7 +17680,9 @@
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "ExperimentMetricTimeseries": {
             "additionalProperties": false,

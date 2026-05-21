@@ -1,4 +1,4 @@
-# LLM analytics reviews
+# AI observability reviews
 
 ## Trace review (`system.trace_reviews`)
 

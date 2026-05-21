@@ -58,7 +58,7 @@ function parseSeverityActions(raw: unknown): [SeverityAction, SeverityAction, Se
 }
 
 const MAX_LOGS_PER_SECOND = 1_000_000
-const MAX_BURST_LOGS = 60_000_000
+const MAX_BURST_LOGS = 10_000_000
 
 function parseRateLimitFromConfig(
     config: Record<string, unknown>

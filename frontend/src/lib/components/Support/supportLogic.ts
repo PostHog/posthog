@@ -245,7 +245,7 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
         value: 'llm-analytics',
         'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'LLM analytics',
+        label: 'AI observability',
     },
     {
         value: 'logs',

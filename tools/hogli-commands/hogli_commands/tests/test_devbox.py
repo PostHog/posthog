@@ -2205,6 +2205,29 @@ class TestResolveLocalIdentityAgent:
         assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
 
 
+class TestConfigSshArgs:
+    """Test the `coder config-ssh` arg assembly."""
+
+    def test_omits_identity_agent_when_socket_missing(self) -> None:
+        args = coder._config_ssh_args(identity_agent_socket=None)
+        assert "ForwardAgent yes" in args
+        assert not any("IdentityAgent" in a for a in args)
+
+    @pytest.mark.parametrize(
+        "socket",
+        [
+            # 1Password's default path contains spaces; without quoting,
+            # OpenSSH parses the trailing path components as "extra arguments"
+            # and refuses to load the config file.
+            "/Users/me/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
+            "/tmp/agent.sock",
+        ],
+    )
+    def test_quotes_identity_agent_socket(self, socket: str) -> None:
+        args = coder._config_ssh_args(identity_agent_socket=socket)
+        assert f'IdentityAgent "{socket}"' in args
+
+
 class TestSetupGitSigning:
     """Test the Git commit signing step in devbox:setup.
 
