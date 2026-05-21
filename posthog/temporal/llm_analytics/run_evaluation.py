@@ -298,12 +298,10 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int, status_r
     """
 
     def _disable():
-        # We bypass save() by using .update() to avoid triggering bytecode recompilation on every run,
-        # so we must explicitly write all three fields of the status trio together.
         reason = status_reason or "trial_limit_reached"
-        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(
-            enabled=False, status="error", status_reason=reason
-        )
+        evaluation = Evaluation.objects.filter(id=evaluation_id, team_id=team_id).first()
+        if evaluation is not None:
+            evaluation.set_status("error", reason)
 
     await database_sync_to_async(_disable)()
 

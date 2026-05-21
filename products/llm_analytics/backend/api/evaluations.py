@@ -278,19 +278,25 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         model_config_data = validated_data.pop("model_configuration", None)
+        old_config = None
 
         if model_config_data is not None:
-            # Delete old model configuration if it exists
+            # Defer the cascade until after super().update(): SET_NULL would otherwise null
+            # Evaluation.model_configuration_id before ModelActivityMixin.save() snapshots
+            # before_update from the DB, producing a `null -> new` diff instead of `old -> new`.
             if instance.model_configuration:
                 old_config = instance.model_configuration
-                instance.model_configuration = None
-                old_config.delete()
 
             validated_data["model_configuration"] = self._create_or_update_model_configuration(
                 model_config_data, instance.team_id
             )
 
-        return super().update(instance, validated_data)
+        result = super().update(instance, validated_data)
+
+        if old_config is not None:
+            old_config.delete()
+
+        return result
 
 
 class EvaluationFilter(django_filters.FilterSet):

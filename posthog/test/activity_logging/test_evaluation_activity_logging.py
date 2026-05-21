@@ -5,6 +5,8 @@ from rest_framework import status
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 from products.llm_analytics.backend.models.evaluations import Evaluation
+from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
+from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 
 def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:
@@ -136,3 +138,108 @@ class TestEvaluationActivityLogging(ActivityLogTestHelper):
         logs = self.get_activity_logs_for_item("Evaluation", evaluation["id"])
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0].activity, "deleted")
+
+    def test_replacing_model_configuration_logs_old_to_new_diff(self):
+        # The SET_NULL cascade from deleting the old LLMModelConfiguration would null
+        # Evaluation.model_configuration_id before ModelActivityMixin snapshots before_update.
+        # The serializer must defer the cascade until after save() so the diff is correct.
+        evaluation = self._create_evaluation(
+            model_configuration={"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None}
+        )
+        old_config_id = Evaluation.objects.get(id=evaluation["id"]).model_configuration_id
+        self.assertIsNotNone(old_config_id)
+        self.clear_activity_logs()
+
+        self._update_evaluation(
+            evaluation["id"],
+            {"model_configuration": {"provider": "openai", "model": "gpt-5", "provider_key_id": None}},
+        )
+
+        new_config_id = Evaluation.objects.get(id=evaluation["id"]).model_configuration_id
+        self.assertIsNotNone(new_config_id)
+        self.assertNotEqual(new_config_id, old_config_id)
+
+        logs = self.get_activity_logs_for_item("Evaluation", evaluation["id"])
+        self.assertEqual(len(logs), 1)
+        changes = logs[0].detail.get("changes", [])
+        model_config_change = next((c for c in changes if c.get("field") == "model_configuration"), None)
+        self.assertIsNotNone(model_config_change, f"Expected model_configuration change in {changes}")
+        assert model_config_change is not None
+        self.assertEqual(model_config_change["before"]["id"], str(old_config_id))
+        self.assertEqual(model_config_change["before"]["model"], "gpt-5-mini")
+        self.assertEqual(model_config_change["after"]["id"], str(new_config_id))
+        self.assertEqual(model_config_change["after"]["model"], "gpt-5")
+
+    def _create_provider_key(self, **overrides: Any) -> LLMProviderKey:
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "provider": "openai",
+            "name": "Key",
+            "state": LLMProviderKey.State.OK,
+            "encrypted_config": {"api_key": "sk-test"},
+            "created_by": self.user,
+        }
+        defaults.update(overrides)
+        return LLMProviderKey.objects.create(**defaults)
+
+    def _create_evaluation_orm(self, **overrides: Any) -> Evaluation:
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "name": "Eval",
+            "evaluation_type": "llm_judge",
+            "output_type": "boolean",
+        }
+        defaults.update(overrides)
+        return Evaluation.objects.create(**defaults)
+
+    def test_assigning_provider_key_clears_error_status_in_activity_log(self):
+        # An errored eval cleared via provider-key assignment goes through QuerySet.update(), which
+        # bypasses ModelActivityMixin.save(). The viewset must log the status transition explicitly.
+        key = self._create_provider_key()
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        evaluation = self._create_evaluation_orm(
+            model_configuration=mc,
+            enabled=False,
+            status="error",
+            status_reason="provider_key_deleted",
+        )
+        self.clear_activity_logs()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
+            {"evaluation_ids": [str(evaluation.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        logs = self.get_activity_logs_for_item("Evaluation", str(evaluation.id))
+        self.assertEqual(len(logs), 1)
+        fields = {c["field"]: c for c in logs[0].detail["changes"]}
+        self.assertEqual(fields["status"]["before"], "error")
+        self.assertEqual(fields["status"]["after"], "paused")
+        self.assertEqual(fields["status_reason"]["before"], "provider_key_deleted")
+        self.assertIsNone(fields["status_reason"]["after"])
+        self.assertNotIn("enabled", fields)  # error -> paused both have enabled=False
+
+    def test_deleting_provider_key_logs_active_to_error_transition(self):
+        key = self._create_provider_key()
+        mc = LLMModelConfiguration.objects.create(
+            team=self.team, provider="openai", model="gpt-5-mini", provider_key=key
+        )
+        evaluation = self._create_evaluation_orm(model_configuration=mc, enabled=True)
+        self.assertEqual(evaluation.status, "active")
+        self.clear_activity_logs()
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        logs = self.get_activity_logs_for_item("Evaluation", str(evaluation.id))
+        self.assertEqual(len(logs), 1)
+        fields = {c["field"]: c for c in logs[0].detail["changes"]}
+        self.assertEqual(
+            fields["enabled"],
+            {"type": "Evaluation", "action": "changed", "field": "enabled", "before": True, "after": False},
+        )
+        self.assertEqual(fields["status"]["before"], "active")
+        self.assertEqual(fields["status"]["after"], "error")
+        self.assertEqual(fields["status_reason"]["after"], "provider_key_deleted")

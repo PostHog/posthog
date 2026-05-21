@@ -594,6 +594,8 @@ class TestRunEvaluationWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_disable_evaluation_activity(self, setup_data):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
@@ -605,6 +607,16 @@ class TestRunEvaluationWorkflow:
         assert not evaluation.enabled
         assert evaluation.status == "error"
         assert evaluation.status_reason == "trial_limit_reached"
+
+        logs = await sync_to_async(list)(
+            ActivityLog.objects.filter(scope="Evaluation", item_id=str(evaluation.id), activity="updated")
+        )
+        assert len(logs) == 1
+        fields = {c["field"]: c for c in logs[0].detail["changes"]}
+        assert fields["status"]["before"] == "active"
+        assert fields["status"]["after"] == "error"
+        assert fields["status_reason"]["after"] == "trial_limit_reached"
+        assert logs[0].is_system is True
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
