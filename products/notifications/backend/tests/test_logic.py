@@ -235,7 +235,7 @@ class TestAccessControlFiltering(BaseTest):
         self.user2 = User.objects.create_and_join(self.organization, "ac2@test.com", "password")
         self.resolver = RecipientsResolver()
 
-    def test_passthrough_when_org_lacks_advanced_permissions(self):
+    def test_passthrough_when_org_lacks_access_control(self):
         self.organization.available_product_features = []
         self.organization.save()
 
@@ -261,7 +261,7 @@ class TestAccessControlFiltering(BaseTest):
 
     @patch("products.notifications.backend.resolvers.UserAccessControl")
     def test_excludes_users_without_access(self, mock_uac_cls):
-        self.organization.available_product_features = [{"key": AvailableFeature.ADVANCED_PERMISSIONS}]
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save()
 
         allowed_user_id = self.user.id

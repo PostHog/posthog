@@ -1164,7 +1164,7 @@ describe('experimentLogic', () => {
             expect(keyed.values.experiment.status).toBe('running')
 
             await expectLogic(keyed, () => {
-                keyed.actions.finishExperiment({ selectedVariantKey: 'test' })
+                keyed.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             })
                 .toDispatchActions(['finishExperiment', 'setExperiment'])
                 .toFinishAllListeners()
@@ -1173,6 +1173,7 @@ describe('experimentLogic', () => {
                 expect.stringContaining(`/experiments/${experiment.id}/ship_variant`),
                 {
                     variant_key: 'test',
+                    release_to_everyone: false,
                     conclusion: 'won',
                     conclusion_comment: 'Test variant won clearly',
                 }
@@ -1200,7 +1201,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(experiment)
 
             await expectLogic(logic, () => {
-                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+                logic.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             }).toFinishAllListeners()
 
             expect(errorMock).toHaveBeenCalledWith('Experiment has not been launched yet.')
@@ -1215,7 +1216,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(experiment)
 
             await expectLogic(logic, () => {
-                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+                logic.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             }).toFinishAllListeners()
 
             expect(errorMock).toHaveBeenCalledWith('Failed to ship variant')
@@ -1238,7 +1239,7 @@ describe('experimentLogic', () => {
             logic.actions.setExperiment(expWithFlag)
 
             await expectLogic(logic, () => {
-                logic.actions.finishExperiment({ selectedVariantKey: 'test' })
+                logic.actions.finishExperiment({ selectedVariantKey: 'test', releaseToEveryone: false })
             }).toFinishAllListeners()
 
             // Should show approval required toast with change request ID

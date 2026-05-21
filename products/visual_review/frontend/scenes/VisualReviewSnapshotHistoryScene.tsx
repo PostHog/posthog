@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -192,11 +192,12 @@ function QuarantineSection({
     label?: string | null
     quarantineEntry: QuarantinedIdentifierEntryApi | null
     isQuarantined: boolean
-    onQuarantine: (reason: string, identifiers: string[], expiresAt: string | null) => void
+    onQuarantine: (reason: string, identifiers: string[], expiresAt: string | null, sourceRunId: string | null) => void
     onUnquarantine: () => void
 }): JSX.Element {
     if (isQuarantined && quarantineEntry) {
         const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
+        const sourceRun = quarantineEntry.source_run ?? null
         const openConfirmation = (): void => {
             LemonDialog.open({
                 title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
@@ -214,28 +215,78 @@ function QuarantineSection({
         return (
             <LemonBanner
                 type="warning"
-                action={{
-                    children: 'Unquarantine',
-                    status: 'danger',
-                    'data-attr': 'visual-review-history-unquarantine',
-                    onClick: openConfirmation,
-                }}
+                // No `action` here — extend lives inline below so the user can
+                // see "what was wrong" first (the source-run link) before
+                // choosing to extend or unquarantine.
             >
-                <div className="text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="font-semibold">Quarantined{label && ` (${label})`}</span>
-                    <span>— {quarantineEntry.reason || 'no reason given'}</span>
-                    {expires && (
-                        <>
+                <div className="text-sm flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-semibold">Quarantined{label && ` (${label})`}</span>
+                        <span>— {quarantineEntry.reason || 'no reason given'}</span>
+                        {expires && (
+                            <>
+                                <span aria-hidden>·</span>
+                                <span>
+                                    until {expires.toLocaleDateString()}{' '}
+                                    <span className="text-muted">({dayjs(expires).fromNow()})</span>
+                                </span>
+                            </>
+                        )}
+                        {!expires && (
+                            <>
+                                <span aria-hidden>·</span>
+                                <span className="text-muted">no expiry set</span>
+                            </>
+                        )}
+                        {quarantineEntry.created_by && (
+                            <>
+                                <span aria-hidden>·</span>
+                                <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
+                            </>
+                        )}
+                    </div>
+                    {sourceRun && (
+                        <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span>Originally failed on</span>
+                            <Link
+                                to={urls.visualReviewRun(sourceRun.id)}
+                                className="font-mono text-default"
+                                data-attr="visual-review-quarantine-source-run"
+                            >
+                                {sourceRun.commit_sha.slice(0, 8)}
+                            </Link>
                             <span aria-hidden>·</span>
-                            <span>until {expires.toLocaleDateString()}</span>
-                        </>
-                    )}
-                    {quarantineEntry.created_by && (
-                        <>
+                            <span className="font-mono">{sourceRun.branch}</span>
+                            {sourceRun.pr_number && (
+                                <>
+                                    <span aria-hidden>·</span>
+                                    <span className="font-mono">PR #{sourceRun.pr_number}</span>
+                                </>
+                            )}
                             <span aria-hidden>·</span>
-                            <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
-                        </>
+                            <TZLabel time={sourceRun.created_at} />
+                        </div>
                     )}
+                    <div className="flex items-center gap-2 pt-1">
+                        <QuarantineAction
+                            identifier={identifier}
+                            onQuarantine={onQuarantine}
+                            mode="extend"
+                            triggerLabel={label ? `Extend (${label})` : 'Extend quarantine'}
+                            initialReason={quarantineEntry.reason}
+                            initialExpiresAt={quarantineEntry.expires_at}
+                            sourceRunId={sourceRun?.id ?? null}
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            status="danger"
+                            onClick={openConfirmation}
+                            data-attr="visual-review-history-unquarantine"
+                        >
+                            Unquarantine
+                        </LemonButton>
+                    </div>
                 </div>
             </LemonBanner>
         )

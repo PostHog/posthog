@@ -10,7 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { toParams } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -145,6 +145,7 @@ export const personsLogic = kea<personsLogicType>([
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
         setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
+        resetEventsQuery: true,
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -407,8 +408,23 @@ export const personsLogic = kea<personsLogicType>([
                 return person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
             },
         ],
+        eventsQueryIsDirty: [
+            (s) => [s.eventsQuery, s.person],
+            (eventsQuery, person): boolean => {
+                if (!eventsQuery || !person?.id) {
+                    return false
+                }
+                return !objectsEqual(eventsQuery, createInitialEventsPayload(person.id))
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
+        resetEventsQuery: () => {
+            const person = values.person
+            if (person?.id != null) {
+                actions.setEventsQuery(createInitialEventsPayload(person.id))
+            }
+        },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 

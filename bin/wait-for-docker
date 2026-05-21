@@ -166,7 +166,13 @@ while true; do
         last_progress_log=$SECONDS
     fi
 
-    sleep 1
+    # Poll faster than 1 Hz so the convergence cost summed across the
+    # ~10 phrocs procs that all block on this script is bounded by docker
+    # daemon health-check cadence, not the polling cadence. Five times
+    # the poll rate trims ~3-5s off the slowest proc's ready-pattern wait
+    # without measurably loading dockerd (each iteration is a handful of
+    # cheap docker compose ps + docker inspect calls).
+    sleep 0.2
 done
 
 if [ "${#timed_out_services[@]}" -gt 0 ]; then
