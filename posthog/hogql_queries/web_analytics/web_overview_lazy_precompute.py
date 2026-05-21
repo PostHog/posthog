@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.schema import EventPropertyFilter, PropertyOperator
@@ -16,7 +17,6 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.instance_setting import get_instance_setting
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -67,7 +67,7 @@ class LazyPrecomputeIneligible(Exception):
     """
 
 
-class TeamNotInAllowlist(LazyPrecomputeIneligible):
+class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
     pass
 
 
@@ -150,14 +150,20 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     the lazy path. Returns None on success."""
     query = runner.query
 
-    # Rollout gate: instance allowlist AND per-query opt-in.
-    #   - `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` (admin-controlled instance
-    #     setting): scope of teams eligible to opt in.
+    # Rollout gate: org-level PostHog feature flag AND per-query opt-in.
+    #   - `web-analytics-lazy-precompute` (PostHog feature flag, evaluated at
+    #     the organization level): rollout lever. Flip orgs on/off without a
+    #     deploy; supports percent rollouts and targeted overrides.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
     #     "Allow precompute" toggle in the Web Analytics ScenePanel).
-    enabled_team_ids = get_instance_setting("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS") or []
-    if runner.team.pk not in enabled_team_ids:
-        raise TeamNotInAllowlist()
+    if not posthoganalytics.feature_enabled(
+        "web-analytics-lazy-precompute",
+        str(runner.team.id),
+        groups={"organization": str(runner.team.organization_id)},
+        group_properties={"organization": {"id": str(runner.team.organization_id)}},
+        send_feature_flag_events=False,
+    ):
+        raise OrgFeatureFlagDisabled()
 
     if query.useWebAnalyticsPrecompute is not True:
         raise PerQueryOptInNotSet()

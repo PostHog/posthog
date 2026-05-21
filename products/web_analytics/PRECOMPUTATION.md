@@ -15,12 +15,12 @@ DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bo
 
 ### Lazy computation
 
-The newer general-purpose framework at `products/analytics_platform/backend/lazy_computation/`. Computes precomputed buckets on first read, caches them in a dedicated CH table per query family, and serves subsequent reads from the cache. Gated per-team by `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` instance setting (defaults to empty).
+The newer general-purpose framework at `products/analytics_platform/backend/lazy_computation/`. Computes precomputed buckets on first read, caches them in a dedicated CH table per query family, and serves subsequent reads from the cache. Gated per-org by the `web-analytics-lazy-precompute` PostHog feature flag (evaluated against the team's organization).
 
 - **Owned by**: web analytics team, riding on the analytics_platform framework
 - **Population**: synchronous, on first read miss; subsequent reads hit the cache
 - **Coverage** (today): `web_overview_query` only — see `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py`
-- **Adoption** (as of 2026-05): freshly enabled, allowlist gates further rollout
+- **Adoption** (as of 2026-05): freshly enabled, org feature flag gates further rollout
 
 ## When to use which
 
@@ -75,7 +75,7 @@ The pad value is the maximum realistic session duration. PostHog sessions cap at
 
 `can_use_lazy_precompute(runner)` in `web_overview_lazy_precompute.py`. Refuses when any of:
 
-- Team is not in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`
+- The `web-analytics-lazy-precompute` PostHog feature flag is off for the team's organization
 - Team timezone has a non-whole-hour UTC offset
 - `query.conversionGoal` is set
 - `query.sampling.enabled` is True
