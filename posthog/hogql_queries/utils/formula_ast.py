@@ -75,7 +75,9 @@ class FormulaAST:
                 return operand
             raise ValueError(f"Operator {unary_op.__class__.__name__} not supported")
 
-        elif isinstance(node, ast.Constant) and isinstance(node.value, int | float):
+        elif (
+            isinstance(node, ast.Constant) and isinstance(node.value, int | float) and not isinstance(node.value, bool)
+        ):
             return node.value
 
         elif isinstance(node, ast.Name):
