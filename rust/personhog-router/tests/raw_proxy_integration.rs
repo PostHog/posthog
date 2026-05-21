@@ -1,8 +1,8 @@
 mod common;
 
 use common::{
-    create_client, create_test_person, start_test_leader, start_test_replica,
-    start_test_router_raw, start_test_router_raw_with_leader,
+    create_client, create_compressed_client, create_test_person, start_test_leader,
+    start_test_replica, start_test_router_raw, start_test_router_raw_with_leader,
     start_test_router_raw_with_leader_and_max_recv, start_test_router_raw_with_max_recv,
     TestLeaderService, TestReplicaService,
 };
@@ -893,4 +893,70 @@ async fn raw_proxy_accepts_request_within_limit() {
         .unwrap();
 
     assert_eq!(response.into_inner().person.unwrap().id, test_person.id);
+}
+
+// ============================================================
+// 7. Compression through raw proxy
+// ============================================================
+
+#[tokio::test]
+async fn raw_proxy_compressed_request_matches_uncompressed() {
+    let person = Person {
+        properties: complex_properties(),
+        ..create_test_person()
+    };
+    let replica_service = TestReplicaService::with_person(person.clone());
+    let replica_addr = start_test_replica(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let mut plain = create_client(router_addr).await;
+    let mut compressed = create_compressed_client(router_addr).await;
+
+    let req = || GetPersonRequest {
+        team_id: 1,
+        person_id: 42,
+        read_options: None,
+    };
+
+    let plain_resp = plain.get_person(req()).await.unwrap().into_inner();
+    let compressed_resp = compressed.get_person(req()).await.unwrap().into_inner();
+    assert_eq!(plain_resp, compressed_resp);
+}
+
+#[tokio::test]
+async fn raw_proxy_compressed_get_persons_by_distinct_ids() {
+    let persons = vec![
+        PersonWithDistinctIds {
+            distinct_id: "user-1".to_string(),
+            person: Some(create_test_person()),
+        },
+        PersonWithDistinctIds {
+            distinct_id: "user-2".to_string(),
+            person: None,
+        },
+    ];
+    let replica_service = TestReplicaService::new().with_persons_by_distinct_id(persons);
+    let replica_addr = start_test_replica(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let mut plain = create_client(router_addr).await;
+    let mut compressed = create_compressed_client(router_addr).await;
+
+    let req = || GetPersonsByDistinctIdsInTeamRequest {
+        team_id: 1,
+        distinct_ids: vec!["user-1".to_string(), "user-2".to_string()],
+        read_options: None,
+    };
+
+    let plain_resp = plain
+        .get_persons_by_distinct_ids_in_team(req())
+        .await
+        .unwrap()
+        .into_inner();
+    let compressed_resp = compressed
+        .get_persons_by_distinct_ids_in_team(req())
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(plain_resp, compressed_resp);
 }
