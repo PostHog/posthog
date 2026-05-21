@@ -1132,8 +1132,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         destination = BatchExportDestination(**destination_data)
         batch_export = BatchExport(team_id=team_id, destination=destination, **validated_data)
 
-        if self.context.get("temporal_schedule", True):
-            sync_batch_export(batch_export, created=True)
+        sync_batch_export(batch_export, created=True)
 
         with transaction.atomic():
             destination.save()
