@@ -60,10 +60,15 @@ export const AccountsCreateBody = /* @__PURE__ */ zod.object({
                     email: zod.string(),
                 })
                 .nullish(),
+            stripe_customer_id: zod.string().nullish(),
+            hubspot_deal_id: zod.string().nullish(),
+            billing_id: zod.string().nullish(),
+            sfdc_id: zod.string().nullish(),
+            zendesk_id: zod.string().nullish(),
         })
         .nullish()
         .describe(
-            'Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.'
+            'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
         ),
 })
 
@@ -116,10 +121,15 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     email: zod.string(),
                 })
                 .nullish(),
+            stripe_customer_id: zod.string().nullish(),
+            hubspot_deal_id: zod.string().nullish(),
+            billing_id: zod.string().nullish(),
+            sfdc_id: zod.string().nullish(),
+            zendesk_id: zod.string().nullish(),
         })
         .nullish()
         .describe(
-            'Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.'
+            'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
         ),
 })
 

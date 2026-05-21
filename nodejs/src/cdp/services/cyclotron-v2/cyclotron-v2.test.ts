@@ -265,22 +265,22 @@ describe('Cyclotron V2', () => {
             }
         })
 
-        it('createJob coerces non-UUID personId to null', async () => {
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'not-a-uuid' as any })
+        it('createJob accepts a non-UUID personId (column is TEXT)', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' })
             const row = await queryJob(id)
-            expect(row.person_id).toBeNull()
+            expect(row.person_id).toBe('group-key-not-a-uuid')
         })
 
-        it('bulkCreateJobs coerces non-UUID personIds to null instead of failing the batch', async () => {
+        it('bulkCreateJobs accepts mixed UUID and non-UUID personIds', async () => {
             const validPersonId = uuidv7()
             const ids = await manager.bulkCreateJobs([
                 { teamId: 1, queueName: QUEUE, personId: validPersonId },
-                { teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' as any },
+                { teamId: 1, queueName: QUEUE, personId: 'group-key-not-a-uuid' },
             ])
             expect(ids).toHaveLength(2)
             const rows = await Promise.all(ids.map(queryJob))
             expect(rows[0].person_id).toBe(validPersonId)
-            expect(rows[1].person_id).toBeNull()
+            expect(rows[1].person_id).toBe('group-key-not-a-uuid')
         })
 
         describe('overwriteExisting (rerun re-enqueue)', () => {
@@ -579,12 +579,12 @@ describe('Cyclotron V2', () => {
             expect(job.actionId).toBe('a-on-job')
         })
 
-        it('reschedule coerces non-UUID personId to null instead of failing', async () => {
+        it('reschedule accepts a non-UUID personId', async () => {
             const { id, job } = await seedAndDequeue({ personId: uuidv7() })
-            await job.reschedule({ personId: 'bad-uuid' as any })
+            await job.reschedule({ personId: 'group-key-not-a-uuid' })
 
             const row = await queryJob(id)
-            expect(row.person_id).toBeNull()
+            expect(row.person_id).toBe('group-key-not-a-uuid')
         })
 
         it('reschedule({ distinctId }) updates distinct_id column', async () => {

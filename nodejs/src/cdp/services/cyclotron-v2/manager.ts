@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { v7 as uuidv7, validate as validateUuid } from 'uuid'
+import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '../../../utils/logger'
 import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig } from './types'
@@ -19,30 +19,6 @@ export class CyclotronJobConflictError extends Error {
             } are in an active state`
         )
         this.name = 'CyclotronJobConflictError'
-    }
-}
-
-// Diagnostic helper: surface non-UUID personId values arriving at the queue so we can trace
-// which producer is sending them. The schema silently coerces these to null; this log gives
-// us the value plus job context (team, function, queue) we need to root-cause the source.
-// The whole body is wrapped in try/catch so diagnostic logging can never break the job-create path.
-function logNonUuidPersonId(input: CyclotronV2JobInit): void {
-    try {
-        if (typeof input.personId !== 'string') {
-            return
-        }
-        if (validateUuid(input.personId)) {
-            return
-        }
-        logger.warn('Non-UUID personId on cyclotron-v2 job, will be coerced to null', {
-            teamId: input.teamId,
-            functionId: input.functionId ?? null,
-            queueName: input.queueName,
-            parentRunId: input.parentRunId ?? null,
-            personId: input.personId,
-        })
-    } catch {
-        // Diagnostic logging must never break the job-create path.
     }
 }
 
@@ -69,7 +45,6 @@ export class CyclotronV2Manager {
     }
 
     async createJob(input: CyclotronV2JobInit): Promise<string> {
-        logNonUuidPersonId(input)
         const job = CyclotronV2JobInitSchema.parse(input)
         await this.insertGuard()
 
@@ -145,10 +120,6 @@ export class CyclotronV2Manager {
             return []
         }
 
-        for (const input of inputs) {
-            logNonUuidPersonId(input)
-        }
-
         const jobs = inputs.map((input) => CyclotronV2JobInitSchema.parse(input))
         const overwriteExisting = jobs.some((j) => j.overwriteExisting)
 
@@ -222,7 +193,7 @@ export class CyclotronV2Manager {
                 unnest($7::text[]),
                 unnest($8::bytea[]),
                 unnest($9::text[]),
-                unnest($10::uuid[]),
+                unnest($10::text[]),
                 unnest($11::text[])
              ${upsertClause}`,
             [

@@ -1262,6 +1262,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-sdk-s3",
+ "aws-smithy-http-client",
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
@@ -1297,6 +1298,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "url",
  "urlencoding",
  "uuid",
  "zip 4.6.1",
@@ -2137,6 +2139,7 @@ dependencies = [
 name = "common-dns"
 version = "0.1.0"
 dependencies = [
+ "aws-smithy-runtime-api",
  "futures",
  "reqwest 0.12.28",
  "tokio",

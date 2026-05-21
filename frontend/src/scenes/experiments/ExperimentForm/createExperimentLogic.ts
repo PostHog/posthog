@@ -2,6 +2,7 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -382,6 +383,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.createExperimentSuccess()
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
                     lemonToast.success('Experiment created successfully!')
+                    tryShowMCPHint('experiments.create')
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()
