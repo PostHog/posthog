@@ -15,6 +15,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    SchemaColumnTypeChangedException,
     _evolve_pyarrow_schema,
     _get_max_decimal_type,
     append_partition_key_to_table,
@@ -491,6 +492,53 @@ def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_wide
     evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
 
     assert evolved_table.schema.field("amount").type == expected_type
+
+
+@pytest.mark.parametrize(
+    "delta_type, incoming_type, overflowing_value",
+    [
+        (pa.int32(), pa.int64(), 6178466636),  # > int32 max (2147483647)
+        (pa.int16(), pa.int64(), 6178466636),  # > int16 max, fits int64
+        (pa.int16(), pa.int32(), 100000),  # > int16 max (32767), fits int32
+    ],
+)
+def test_evolve_pyarrow_schema_integer_overflow_raises_actionable_error(
+    delta_type: pa.DataType, incoming_type: pa.DataType, overflowing_value: int
+):
+    """An incoming integer value that overflows the stored (narrower) Delta type raises a
+    clear, actionable error instructing the user to reset and re-sync — rather than a raw
+    pyarrow ArrowInvalid."""
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array([10, overflowing_value], type=incoming_type),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", delta_type, nullable=True)])  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="Source column type changed"):
+        _evolve_pyarrow_schema(arrow_table, delta_schema)
+
+
+def test_evolve_pyarrow_schema_integer_narrowing_within_range_is_preserved():
+    """A wider incoming integer column whose values still fit the stored narrower type is
+    narrowed without error (existing behaviour must not regress)."""
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "val": pa.array([10, 20], type=pa.int64()),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("val", pa.int32(), nullable=True)])  # type: ignore[arg-type]
+    )
+
+    evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("val").type == pa.int32()
+    assert evolved_table.column("val").to_pylist() == [10, 20]
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
