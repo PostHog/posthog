@@ -608,6 +608,7 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         ]
 
     @extend_schema(
+        operation_id="llm_analytics_personal_spend_list",
         parameters=[_SpendQueryParamsSerializer],
         responses={
             200: PersonalSpendAnalysisResponseSerializer,
