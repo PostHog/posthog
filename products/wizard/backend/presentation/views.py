@@ -6,8 +6,9 @@ returns DTO-shaped responses. No model imports.
 """
 
 import time
+import asyncio
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -16,6 +17,7 @@ from django.http import StreamingHttpResponse
 
 import orjson
 import structlog
+from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -260,7 +262,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
 
-def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str | None = None) -> Iterator[bytes]:
+async def _wizard_session_event_stream(
+    team_id: int, workflow_id: str, skill_id: str | None = None
+) -> AsyncIterator[bytes]:
     """Yield SSE-formatted bytes for a wizard session subscription.
 
     If `skill_id` is provided, scope to that exact pair. Otherwise pattern-
@@ -270,20 +274,31 @@ def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str |
     pub/sub messages. Yields heartbeat comments roughly every
     SSE_HEARTBEAT_INTERVAL_SECONDS so proxies don't time the connection out.
 
-    Note: streaming generators run after the view returns, on a sync worker
-    thread that no longer has the request's team-scope thread-local set.
-    The fail-closed manager on `WizardSession` would refuse any DB query
-    here, so we re-establish team_scope explicitly for any DB access.
+    Async-iterator on purpose: Django's ASGI handler collects sync iterators
+    into a list before serving (see StreamingHttpResponse.__aiter__'s sync
+    fallback). With our infinite loop that never completes, so no bytes ever
+    reach the client. An async generator lets Django stream chunk-by-chunk.
+
+    Blocking Redis calls are dispatched through sync_to_async so the event
+    loop stays responsive. The fail-closed `TeamScopedManager` is re-entered
+    inside each sync helper because team_scope is a thread-local that doesn't
+    survive the request boundary.
     """
-    with team_scope(team_id):
-        latest = wizard_facade.get_latest(team_id, workflow_id, skill_id)
+
+    def _get_initial() -> WizardSessionDTO | None:
+        with team_scope(team_id):
+            return wizard_facade.get_latest(team_id, workflow_id, skill_id)
+
+    latest = await sync_to_async(_get_initial, thread_sensitive=False)()
     if latest is not None:
         yield _format_event(latest)
 
-    with subscribe(team_id, workflow_id, skill_id) as pubsub:
+    pubsub_cm = subscribe(team_id, workflow_id, skill_id)
+    pubsub = await sync_to_async(pubsub_cm.__enter__, thread_sensitive=False)()
+    try:
         last_heartbeat = time.monotonic()
         while True:
-            message = pubsub.get_message(timeout=SSE_POLL_TIMEOUT_SECONDS)
+            message = await sync_to_async(pubsub.get_message, thread_sensitive=False)(timeout=SSE_POLL_TIMEOUT_SECONDS)
             now = time.monotonic()
 
             # `message` type is direct-channel; `pmessage` is pattern subscribe.
@@ -295,6 +310,11 @@ def _wizard_session_event_stream(team_id: int, workflow_id: str, skill_id: str |
             if now - last_heartbeat >= SSE_HEARTBEAT_INTERVAL_SECONDS:
                 yield b": ping\n\n"
                 last_heartbeat = now
+
+            # Cooperate with the event loop so other ASGI work can progress.
+            await asyncio.sleep(0)
+    finally:
+        await sync_to_async(pubsub_cm.__exit__, thread_sensitive=False)(None, None, None)
 
 
 def _format_event(dto: WizardSessionDTO) -> bytes:
