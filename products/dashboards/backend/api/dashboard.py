@@ -79,6 +79,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
+from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -1037,7 +1038,10 @@ class DashboardsViewSet(
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
-    TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
+    TEMPLATE_MAP = {
+        "llm-analytics": get_llm_analytics_default_template,
+        "mcp-analytics": get_mcp_analytics_default_template,
+    }
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
