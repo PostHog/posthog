@@ -275,9 +275,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const dismiss = useDismiss(context, {
         enabled: visible,
-        // Default outsidePress (pointerdown) fixes the scrollbar-drag bug. We override to
-        // function form only to exempt additionalRefs (non-popover refs consumers register)
-        // and deeper-nested popovers (portaled, so DOM-sibling to us — not auto-detected).
+        // useDismiss only treats the floating + reference elements as "inside". Two things
+        // need explicit exemption: additionalRefs (consumer-registered companion elements)
+        // and deeper-nested popovers (portaled, so DOM-siblings rather than descendants).
         outsidePress: (event) => {
             const target = event.target as Node | null
             if (!target) {
