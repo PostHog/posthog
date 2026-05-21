@@ -932,9 +932,7 @@ class TestInvestigationAgentValidation(APIBaseTest):
     def test_investigation_agent_enabled_persists_on_threshold_alert(self) -> None:
         body = self._base_alert_body(detector_config=None, enabled=True)
         body["investigation_gates_notifications"] = True
-        body["threshold"] = {
-            "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}
-        }
+        body["threshold"] = {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}}
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", body)
         assert response.status_code == status.HTTP_201_CREATED, response.content
         data = response.json()
