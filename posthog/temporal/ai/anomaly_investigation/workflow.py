@@ -1,7 +1,7 @@
 """Temporal workflow that kicks off the anomaly investigation agent and persists
 its findings as a Notebook linked to the AlertCheck.
 
-Triggered from posthog/tasks/alerts/checks.py when an alert transitions to FIRING.
+Triggered from posthog/temporal/alerts/workflows.py when an alert transitions to FIRING.
 """
 
 from __future__ import annotations
