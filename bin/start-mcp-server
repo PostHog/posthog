@@ -14,6 +14,21 @@ if [ "$RUNTIME" = "hono" ]; then
 else
     if [ ! -f .dev.vars ]; then
         cp .dev.vars.example .dev.vars
+
+        # On devboxes (Coder workspaces), the agent exports SITE_URL as the
+        # per-workspace subdomain that the laptop browser actually reaches.
+        # Rewrite the PostHog-pointing URLs in .dev.vars to match, so the
+        # OAuth metadata MCP advertises lands on a host the browser can load
+        # — otherwise Claude Code hands the browser http://localhost:8010,
+        # which on the laptop is not PostHog.
+        if [ -n "${SITE_URL:-}" ] && [[ ! "${SITE_URL}" =~ ^https?://(localhost|127\.0\.0\.1) ]]; then
+            sed -i.bak \
+                -e "s|^POSTHOG_API_BASE_URL=.*|POSTHOG_API_BASE_URL=${SITE_URL}|" \
+                -e "s|^POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=.*|POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${SITE_URL}|" \
+                -e "s|^POSTHOG_ANALYTICS_HOST=.*|POSTHOG_ANALYTICS_HOST=${SITE_URL}|" \
+                .dev.vars
+            rm -f .dev.vars.bak
+        fi
     fi
     exec pnpm run dev
 fi
