@@ -52,7 +52,6 @@ const STATUS_CODE_OPTIONS: { key: number; label: string }[] = [
 ]
 
 // OTel severity level (https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber).
-// Ordered low → high for display; only equals / not-equals operators are supported.
 const SEVERITY_LEVEL_OPTIONS: { key: string; label: string }[] = [
     { key: 'trace', label: 'trace' },
     { key: 'debug', label: 'debug' },
@@ -267,18 +266,13 @@ export function OperatorValueSelect({
             )
         }
 
-        // Restrict trace_id and span_id to only equals/not equals
-        if ((propertyKey === 'trace_id' || propertyKey === 'span_id') && type === PropertyFilterType.Span) {
+        // Restrict trace_id, span_id, kind, and status_code to only equals/not equals
+        if (['trace_id', 'span_id', 'kind', 'status_code'].includes(propertyKey) && type === PropertyFilterType.Span) {
             operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
-        // Restrict log trace_id and span_id to only equals/not equals
-        if ((propertyKey === 'trace_id' || propertyKey === 'span_id') && type === PropertyFilterType.Log) {
-            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
-        }
-
-        // Restrict log severity_level to equality only
-        if (propertyKey === 'severity_level' && type === PropertyFilterType.Log) {
+        // Restrict log trace_id, span_id and severity_level to only equals/not equals
+        if (['trace_id', 'span_id', 'severity_level'].includes(propertyKey) && type === PropertyFilterType.Log) {
             operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
@@ -308,11 +302,6 @@ export function OperatorValueSelect({
                     PropertyOperator.NotRegex,
                 ].includes(op)
             )
-        }
-
-        // Restrict span kind and status_code (fixed int enums) to equality operators
-        if ((propertyKey === 'kind' || propertyKey === 'status_code') && type === PropertyFilterType.Span) {
-            operators = operators.filter((op) => [PropertyOperator.Exact, PropertyOperator.IsNot].includes(op))
         }
 
         setOperators(operators)
