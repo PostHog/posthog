@@ -40,6 +40,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    _attribute_query_timeout,
     _build_count_query,
     _build_query,
     _get_estimated_row_count_for_partitioned_table,
@@ -52,6 +53,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
+    _reraise_with_incremental_field_hint,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -136,6 +138,85 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
+
+
+class TestAttributeQueryTimeout:
+    def test_passes_through_when_no_exception(self):
+        with _attribute_query_timeout("doing something"):
+            value = 42
+        assert value == 42
+
+    def test_passes_through_unrelated_exceptions(self):
+        with pytest.raises(ValueError, match="not a timeout"):
+            with _attribute_query_timeout("doing something"):
+                raise ValueError("not a timeout")
+
+    def test_converts_query_canceled_to_attributed_timeout(self):
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            with _attribute_query_timeout("reading primary keys from pg_catalog for public.orders"):
+                raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+
+        message = str(exc_info.value)
+        assert "10 min timeout statement reached" in message
+        # Must name the actual failing step rather than blanket-blaming the incremental field.
+        assert "reading primary keys from pg_catalog for public.orders" in message
+        # And it must NOT carry the misleading incremental-field-index hint.
+        assert "incremental field" not in message
+
+    def test_preserves_original_exception_as_cause(self):
+        original = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            with _attribute_query_timeout("step description"):
+                raise original
+
+        assert exc_info.value.__cause__ is original
+
+
+class TestReraiseWithIncrementalFieldHint:
+    def test_appends_hint_when_incremental_field_set(self):
+        original = QueryTimeoutException(
+            "10 min timeout statement reached while counting rows to sync from public.orders"
+        )
+
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            _reraise_with_incremental_field_hint(
+                original,
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+            )
+
+        message = str(exc_info.value)
+        assert "counting rows to sync from public.orders" in message
+        assert "Please ensure your incremental field (updated_at) has an appropriate index created" in message
+        assert exc_info.value.__cause__ is original
+
+    def test_passes_through_unchanged_when_not_using_incremental_field(self):
+        original = QueryTimeoutException(
+            "10 min timeout statement reached while reading primary keys from pg_catalog for public.orders"
+        )
+
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            _reraise_with_incremental_field_hint(
+                original,
+                should_use_incremental_field=False,
+                incremental_field=None,
+            )
+
+        # Same instance — no rewrite, no misleading index hint.
+        assert exc_info.value is original
+        assert "incremental field" not in str(exc_info.value)
+
+    def test_passes_through_unchanged_when_incremental_field_missing(self):
+        original = QueryTimeoutException("10 min timeout statement reached while sampling rows")
+
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            _reraise_with_incremental_field_hint(
+                original,
+                should_use_incremental_field=True,
+                incremental_field=None,
+            )
+
+        assert exc_info.value is original
 
 
 class TestPostgresSourceForPipelineSchemaResolution:

@@ -8,7 +8,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, LiteralString, NoReturn, Optional, cast
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import ExternalDataSource
@@ -89,6 +89,42 @@ class SSLRequiredError(Exception):
     """Raised when SSL/TLS is required but the database does not support it."""
 
     pass
+
+
+@contextmanager
+def _attribute_query_timeout(description: str) -> Iterator[None]:
+    """Re-raise psycopg `QueryCanceled` as a `QueryTimeoutException` attributed to `description`.
+
+    The bare `QueryCanceled` from psycopg has no context about which query timed out, which
+    sends users debugging stuck syncs to the wrong remediation. Wrapping each named step in
+    the postgres source setup gives the user a message naming the actual failing step
+    instead of a generic "incremental field index" hint that may not apply.
+    """
+    try:
+        yield
+    except psycopg.errors.QueryCanceled as e:
+        raise QueryTimeoutException(f"10 min timeout statement reached while {description}") from e
+
+
+def _reraise_with_incremental_field_hint(
+    error: QueryTimeoutException,
+    should_use_incremental_field: bool,
+    incremental_field: str | None,
+) -> NoReturn:
+    """Re-raise a data-scan timeout with the incremental-field-index remediation appended.
+
+    Only the actual data-scan queries (chunk-size sampling, row count, partition settings,
+    duplicate PK check) get this hint — a missing index on the incremental field can
+    genuinely cause them to time out. Catalog lookups don't benefit from such an index, so
+    they stay with the attributed message produced by `_attribute_query_timeout`.
+    """
+    if not should_use_incremental_field or not incremental_field:
+        raise error
+
+    base_message = error.args[0] if error.args else "10 min timeout statement reached"
+    raise QueryTimeoutException(
+        f"{base_message}. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
+    ) from error
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1544,34 +1580,48 @@ def postgres_source(
 
         with connection:
             with connection.cursor() as cursor:
-                logger.debug("Getting table types...")
-                # Only probe the actual data for numeric scale when a fresh delta column is
-                # about to be created — either a first-ever sync or a post-reset full scan
-                # (watermark cleared). On normal incremental syncs the delta column already
-                # exists, so probing would be a wasted full-table aggregation. Mirrors the
-                # `is_initial_sync or full_table_scan` gating used a few lines below for
-                # partitioned-table row estimation.
-                fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
-                full_table = _get_table(
-                    cursor,
-                    schema,
-                    table_name,
-                    logger,
-                    probe_unconstrained_numeric_scale=fresh_schema_being_created,
-                )
-
-                cursor.execute(
-                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                        timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
-                    )
-                )
-
+                # Each metadata query below is wrapped with `_attribute_query_timeout` so a
+                # statement_timeout fires a `QueryTimeoutException` naming the actual failing
+                # step (catalog lookup, replica probe, count query, etc.) instead of bubbling
+                # up a bare psycopg `QueryCanceled` or being blanket-rewritten to a misleading
+                # "incremental field index" hint. The bare psycopg backstop at the bottom is
+                # kept as a safety net for any new query that lands inside the block without
+                # its own attribution.
                 try:
+                    logger.debug("Getting table types...")
+                    # Only probe the actual data for numeric scale when a fresh delta column is
+                    # about to be created — either a first-ever sync or a post-reset full scan
+                    # (watermark cleared). On normal incremental syncs the delta column already
+                    # exists, so probing would be a wasted full-table aggregation. Mirrors the
+                    # `is_initial_sync or full_table_scan` gating used a few lines below for
+                    # partitioned-table row estimation.
+                    fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
+                    with _attribute_query_timeout(f"reading column metadata for {schema}.{table_name}"):
+                        full_table = _get_table(
+                            cursor,
+                            schema,
+                            table_name,
+                            logger,
+                            probe_unconstrained_numeric_scale=fresh_schema_being_created,
+                        )
+
+                    # Setting the 10 min statement_timeout itself sits outside the previous
+                    # try block, which let a timeout here leak as a raw psycopg error. Now
+                    # attributed so the user sees what step actually failed.
+                    with _attribute_query_timeout("setting 10 min statement_timeout on source connection"):
+                        cursor.execute(
+                            sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                                timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                            )
+                        )
+
                     logger.debug("Checking if source is a read replica...")
-                    using_read_replica = _is_read_replica(cursor)
+                    with _attribute_query_timeout("checking pg_is_in_recovery on the source"):
+                        using_read_replica = _is_read_replica(cursor)
                     logger.debug(f"using_read_replica = {using_read_replica}")
                     logger.debug("Getting primary keys...")
-                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                    with _attribute_query_timeout(f"reading primary keys from pg_catalog for {schema}.{table_name}"):
+                        primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
                     if primary_keys:
                         logger.debug(f"Found primary keys: {primary_keys}")
 
@@ -1628,9 +1678,16 @@ def postgres_source(
                     is_partitioned = False
                     child_partitions: list = []
                     try:
-                        is_partitioned = _is_partitioned_table(cursor, schema, table_name)
+                        with _attribute_query_timeout(f"detecting whether {schema}.{table_name} is partitioned"):
+                            is_partitioned = _is_partitioned_table(cursor, schema, table_name)
                         if is_partitioned:
-                            child_partitions = list_child_partitions(cursor, schema, table_name)
+                            with _attribute_query_timeout(f"listing child partitions of {schema}.{table_name}"):
+                                child_partitions = list_child_partitions(cursor, schema, table_name)
+                    except QueryTimeoutException:
+                        # Bubble up — once the catalog has hit statement_timeout the
+                        # transaction is poisoned and subsequent queries will fail with
+                        # `current transaction is aborted` anyway.
+                        raise
                     except Exception as e:
                         logger.debug(f"Partition detection failed: {e}")
                     logger.debug("Getting table chunk size...")
@@ -1638,7 +1695,15 @@ def postgres_source(
                         chunk_size = chunk_size_override
                         logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                     else:
-                        chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                        try:
+                            with _attribute_query_timeout(
+                                f"sampling row sizes from {schema}.{table_name} to compute chunk size"
+                            ):
+                                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+                        except QueryTimeoutException as e:
+                            # The chunk-size probe scans the actual data, so a missing index
+                            # on the incremental field is a plausible remediation here.
+                            _reraise_with_incremental_field_hint(e, should_use_incremental_field, incremental_field)
 
                     logger.debug("Getting rows to sync...")
                     # For partitioned tables without an incremental cursor (initial
@@ -1656,19 +1721,36 @@ def postgres_source(
                                 f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
                                 f"full_table_scan={full_table_scan}), using estimated row count"
                             )
-                            rows_to_sync = _get_estimated_row_count_for_partitioned_table(
-                                cursor, schema, table_name, logger
-                            )
+                            with _attribute_query_timeout(
+                                f"reading reltuples row estimate for partitioned {schema}.{table_name}"
+                            ):
+                                rows_to_sync = _get_estimated_row_count_for_partitioned_table(
+                                    cursor, schema, table_name, logger
+                                )
+                        except QueryTimeoutException:
+                            raise
                         except Exception as e:
                             logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
                     if rows_to_sync is None:
-                        rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+                        try:
+                            with _attribute_query_timeout(f"counting rows to sync from {schema}.{table_name}"):
+                                rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+                        except QueryTimeoutException as e:
+                            # The count query scans actual rows (filtered by the incremental
+                            # predicate when set), so the index hint is genuinely actionable.
+                            _reraise_with_incremental_field_hint(e, should_use_incremental_field, incremental_field)
                     logger.debug("Getting partition settings...")
-                    partition_settings = (
-                        _get_partition_settings(cursor, schema, table_name, logger)
-                        if should_use_incremental_field
-                        else None
-                    )
+                    if should_use_incremental_field:
+                        try:
+                            with _attribute_query_timeout(f"computing partition settings for {schema}.{table_name}"):
+                                partition_settings = _get_partition_settings(cursor, schema, table_name, logger)
+                        except QueryTimeoutException as e:
+                            # The partition-settings query runs `count(*)` and `pg_table_size`
+                            # over the data, so the index hint is meaningful for incremental
+                            # syncs.
+                            _reraise_with_incremental_field_hint(e, should_use_incremental_field, incremental_field)
+                    else:
+                        partition_settings = None
 
                     # Bounded date/numeric window chunking for partitioned parents keeps
                     # each query small so statement_timeout stays comfortable and partition
@@ -1687,7 +1769,10 @@ def postgres_source(
                     use_per_partition_chunking = False
                     if use_window_chunking and child_partitions:
                         try:
-                            partition_strategy = get_partition_strategy(cursor, schema, table_name)
+                            with _attribute_query_timeout(f"detecting partition strategy for {schema}.{table_name}"):
+                                partition_strategy = get_partition_strategy(cursor, schema, table_name)
+                        except QueryTimeoutException:
+                            raise
                         except Exception as e:
                             partition_strategy = None
                             logger.debug(f"Partition strategy detection failed: {e}")
@@ -1706,17 +1791,26 @@ def postgres_source(
                     has_duplicate_primary_keys = False
                     if used_id_pk_fallback:
                         logger.debug("Checking duplicate primary keys...")
-                        has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                            cursor, schema, table_name, primary_keys, logger
-                        )
-                except psycopg.errors.QueryCanceled:
-                    if should_use_incremental_field:
-                        raise QueryTimeoutException(
-                            f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
-                        )
-                    raise
-                except Exception:
-                    raise
+                        try:
+                            with _attribute_query_timeout(
+                                f"checking for duplicate primary keys in {schema}.{table_name}"
+                            ):
+                                has_duplicate_primary_keys = _has_duplicate_primary_keys(
+                                    cursor, schema, table_name, primary_keys, logger
+                                )
+                        except QueryTimeoutException as e:
+                            # Duplicate-PK check is a `GROUP BY ... HAVING COUNT(*) > 1` over
+                            # the table — a PK index covers the same columns, so the index
+                            # hint is reasonable here too.
+                            _reraise_with_incremental_field_hint(e, should_use_incremental_field, incremental_field)
+                except psycopg.errors.QueryCanceled as e:
+                    # Safety net for any QueryCanceled that escaped a per-query
+                    # attribution (e.g. a new query added later that wasn't wrapped).
+                    # Better than leaking raw psycopg to Temporal.
+                    raise QueryTimeoutException(
+                        "10 min statement timeout reached during Postgres source setup (unattributed step). "
+                        "The source may be under heavy contention or running on slow storage."
+                    ) from e
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
