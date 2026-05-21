@@ -67,6 +67,9 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         if (disabledReason) {
             disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
             tooltipContent = <span className="italic">{disabledReason}</span>
+        } else if (loading) {
+            // Surface a visible reason while the switch is busy, so clicks don't get silently swallowed
+            tooltipContent = <span className="italic">Saving…</span>
         } else if (tooltip) {
             tooltipContent = <span>{tooltip}</span>
         }
