@@ -78,6 +78,9 @@ class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
         fields = ["id", "status", "name", "description", "first_seen", "assignee"]
 
 
+DEPRECATED_ISSUE_STATUSES = frozenset({ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE})
+
+
 class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
     first_seen = serializers.DateTimeField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
@@ -87,6 +90,12 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingIssue
         fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
+
+    def validate_status(self, value: str) -> str:
+        # Reads of legacy archived/pending_release rows still pass through; only block new writes.
+        if value in DEPRECATED_ISSUE_STATUSES:
+            raise serializers.ValidationError(f"Status '{value}' is no longer supported. Use 'resolved' instead.")
+        return value
 
     @extend_schema_field(
         {
