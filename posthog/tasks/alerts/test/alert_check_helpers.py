@@ -2,8 +2,9 @@ import traceback
 
 from django.db import transaction
 
-from posthog.models import AlertConfiguration
 from posthog.tasks.alerts import utils as alert_utils
+
+from products.alerts.backend.models import AlertConfiguration
 
 
 def run_alert_check(alert_id: str) -> None:

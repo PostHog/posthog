@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::{body::Body, http::Request};
 
+use bytes::Bytes;
 use common_redis::MockRedisClient;
 use cymbal::{
     app_context::AppContext, config::Config, error::UnhandledError, router::get_router,
@@ -21,8 +22,8 @@ mock! {
 
     #[async_trait]
     impl BlobClient for S3Client {
-        async fn get(&self, bucket: &str, key: &str) -> Result<Option<Vec<u8>>, UnhandledError>;
-        async fn put(&self, bucket: &str, key: &str, data: Vec<u8>) -> Result<(), UnhandledError>;
+        async fn get(&self, bucket: &str, key: &str) -> Result<Option<Bytes>, UnhandledError>;
+        async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError>;
         async fn ping_bucket(&self, bucket: &str) -> Result<(), UnhandledError>;
     }
 }

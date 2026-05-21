@@ -11,12 +11,12 @@ from rest_framework import status
 
 from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -305,7 +305,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert 4.0 not in values
 
     def test_alert_limit(self) -> None:
-        with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER") as alert_limit:
+        with mock.patch(
+            "products.alerts.backend.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER"
+        ) as alert_limit:
             alert_limit.__get__ = mock.Mock(return_value=1)
 
             creation_request = {

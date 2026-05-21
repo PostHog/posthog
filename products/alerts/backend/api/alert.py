@@ -21,7 +21,6 @@ from posthog.schema import (
     TrendsAlertConfig,
 )
 
-from posthog.api.alert_schedule_restriction import AlertScheduleRestriction
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -30,7 +29,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -38,6 +36,9 @@ from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, validate_alert_config
 from posthog.utils import relative_date_parse
+
+from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 
 
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
@@ -855,7 +856,7 @@ class AlertSubscriptionContext(AlertConfigurationContext):
 @mutable_receiver(model_activity_signal, sender=AlertConfiguration)
 def handle_alert_configuration_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
+) -> None:
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -879,7 +880,7 @@ def handle_alert_configuration_change(
 @mutable_receiver(model_activity_signal, sender=Threshold)
 def handle_threshold_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
+) -> None:
     alert_config = None
     if hasattr(after_update, "alertconfiguration_set"):
         alert_config = after_update.alertconfiguration_set.first()
@@ -907,7 +908,9 @@ def handle_threshold_change(
 
 
 @mutable_receiver(model_activity_signal, sender=AlertSubscription)
-def handle_alert_subscription_change(before_update, after_update, activity, user, was_impersonated=False, **kwargs):
+def handle_alert_subscription_change(
+    before_update, after_update, activity, user, was_impersonated=False, **kwargs
+) -> None:
     alert_config = after_update.alert_configuration
 
     if alert_config:
@@ -935,7 +938,7 @@ def handle_alert_subscription_change(before_update, after_update, activity, user
 
 
 @receiver(pre_delete, sender=AlertConfiguration)
-def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs):
+def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
     from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
     for hog_function in HogFunction.objects.filter(
@@ -950,7 +953,7 @@ def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs):
 
 
 @receiver(pre_delete, sender=AlertSubscription)
-def handle_alert_subscription_delete(sender, instance, **kwargs):
+def handle_alert_subscription_delete(sender, instance, **kwargs) -> None:
     from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 
     alert_config = instance.alert_configuration
