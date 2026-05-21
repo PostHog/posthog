@@ -217,7 +217,7 @@ def test_existing_incremental_table_merges_after_first_sync() -> None:
 
 
 def test_schema_evolution_merge_and_apply_marker_are_one_transaction() -> None:
-    conn = _RecordingConn()
+    conn: Any = _RecordingConn()
     batch = _make_batch(
         batch_index=1,
         sync_type="incremental",
