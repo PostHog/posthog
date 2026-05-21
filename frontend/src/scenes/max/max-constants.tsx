@@ -529,6 +529,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return ['Filtering recordings...', widgetDef]
         },
     },
+    get_session_recording: {
+        name: 'Look up recording',
+        description: 'Look up metadata for a single session recording by its session ID',
+        product: Scene.Replay,
+        icon: iconForType('session_replay'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Looked up recording'
+            }
+            return 'Looking up recording...'
+        },
+    },
     analyze_user_interviews: {
         name: 'Analyze user interviews',
         description: 'Analyze user interviews, summarizing pages of feedback, and extracting learnings',
