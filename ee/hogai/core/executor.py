@@ -338,7 +338,7 @@ class AgentExecutor:
     async def _cancel_queue_workflows(self, client) -> None:
         """Cancel all running queued message workflows for this conversation."""
         try:
-            async for workflow in client.list_workflows(query=_queued_workflow_query(self._conversation.id)):
+            async for workflow in client.list_workflows(query=_queued_workflow_query(str(self._conversation.id))):
                 try:
                     queue_handle = client.get_workflow_handle(workflow_id=workflow.id)
                     await queue_handle.cancel()
@@ -357,7 +357,7 @@ class AgentExecutor:
             )
 
 
-def _queued_workflow_query(conversation_id: Any) -> str:
+def _queued_workflow_query(conversation_id: str) -> str:
     queue_prefix = f"conversation-{conversation_id}-queued-"
     return f'WorkflowId STARTS_WITH "{queue_prefix}" AND ExecutionStatus = "Running"'
 

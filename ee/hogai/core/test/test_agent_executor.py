@@ -68,6 +68,7 @@ class TestAgentExecutor(BaseTest):
                 conversation_id=self.conversation.id,
                 stream_key=get_conversation_stream_key(self.conversation.id),
                 trace_id=str(uuid4()),
+                message=HumanMessage(content="hello").model_dump(),
             )
 
             # Call the method
@@ -135,22 +136,19 @@ class TestAgentExecutor(BaseTest):
         """
         self.conversation.status = Conversation.Status.IDLE
 
-        async def unexpected_stream():
-            yield ("message", {"content": "should-not-be-yielded"})
-            raise AssertionError("stream_conversation should not be called when nothing is pending")
-
-        async def unexpected_start():
-            yield ("message", {"content": "should-not-be-yielded"})
-            raise AssertionError("start_workflow should not be called on a pure reconnect")
-
         with (
-            patch.object(self.manager, "stream_conversation") as mock_stream,
-            patch.object(self.manager, "start_workflow") as mock_start,
+            patch.object(
+                self.manager,
+                "stream_conversation",
+                side_effect=AssertionError("stream_conversation should not be called when nothing is pending"),
+            ) as mock_stream,
+            patch.object(
+                self.manager,
+                "start_workflow",
+                side_effect=AssertionError("start_workflow should not be called on a pure reconnect"),
+            ) as mock_start,
             patch("ee.hogai.core.executor.has_pending_queue_work", new=AsyncMock(return_value=False)),
         ):
-            mock_stream.return_value = unexpected_stream()
-            mock_start.return_value = unexpected_start()
-
             workflow_inputs = ChatAgentWorkflowInputs(
                 team_id=self.team_id,
                 user_id=self.user_id,
@@ -265,6 +263,7 @@ class TestAgentExecutor(BaseTest):
             conversation_id=self.conversation.id,
             stream_key=get_conversation_stream_key(self.conversation.id),
             trace_id=str(uuid4()),
+            message=HumanMessage(content="hello").model_dump(),
         )
 
         # Call the method
