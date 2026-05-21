@@ -3,6 +3,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { capitalizeFirstLetter } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -55,12 +56,12 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
     listeners(({ values }) => ({
         async selectSetting({ setting }) {
-            const url = urls.absolute(
-                urls.currentProject(
-                    urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
-                )
-            )
-            await copyToClipboard(url)
+            const settingsPath = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
+            // Fall back to the unscoped settings path when no team is loaded — `urls.currentProject`
+            // would otherwise throw `Project ID is not known.` and break the copy-link button.
+            const teamId = getCurrentTeamIdOrNone()
+            const path = teamId !== null ? urls.project(teamId, settingsPath) : settingsPath
+            await copyToClipboard(urls.absolute(path))
         },
     })),
 
