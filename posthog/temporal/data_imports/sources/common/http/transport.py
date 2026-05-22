@@ -23,6 +23,8 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
+from django.conf import settings
+
 import requests
 from requests import PreparedRequest, Response
 from requests.adapters import DEFAULT_POOLBLOCK, HTTPAdapter
@@ -103,6 +105,18 @@ class BlockedHostError(Exception):
     """
 
 
+def _ssrf_guard_enforced() -> bool:
+    """Whether an SSRF block fails the request (enforce) or is logged only (monitor).
+
+    Defaults to monitor mode (`DATA_IMPORTS_SSRF_GUARD_ENFORCED=False`): the
+    guard still evaluates every host and emits `data_imports.http.blocked`, so
+    would-be blocks are visible in Grafana, but the request is allowed through.
+    Flip the setting once the monitor data confirms no legitimate source is
+    caught. Read per call so the toggle takes effect without a code change.
+    """
+    return bool(getattr(settings, "DATA_IMPORTS_SSRF_GUARD_ENFORCED", False))
+
+
 def _enforce_peer_ip_safe(hostname: str, sock: socket.socket | None, team_id: int | None) -> None:
     """Block the connection if the socket's actual peer IP is internal/private.
 
@@ -112,19 +126,35 @@ def _enforce_peer_ip_safe(hostname: str, sock: socket.socket | None, team_id: in
     resolved again to connect, but it cannot change the IP of a socket that
     is already open. `hostname` is passed through so hostname-based
     exemptions (`.postwh.com`) and the team allowlist still apply.
+
+    In monitor mode (`DATA_IMPORTS_SSRF_GUARD_ENFORCED=False`) a would-be block
+    is logged but the connection is allowed to proceed.
     """
+    enforced = _ssrf_guard_enforced()
     if sock is None:
         record_blocked_request(
-            host=hostname, team_id=team_id, reason="connection has no socket to validate", layer="postconnect"
+            host=hostname,
+            team_id=team_id,
+            reason="connection has no socket to validate",
+            layer="postconnect",
+            enforced=enforced,
         )
-        raise BlockedHostError("Connection has no socket to validate against")
+        if enforced:
+            raise BlockedHostError("Connection has no socket to validate against")
+        return
     try:
         peer_ip = str(sock.getpeername()[0])
     except (OSError, IndexError) as exc:
         record_blocked_request(
-            host=hostname, team_id=team_id, reason=f"could not determine peer address: {exc}", layer="postconnect"
+            host=hostname,
+            team_id=team_id,
+            reason=f"could not determine peer address: {exc}",
+            layer="postconnect",
+            enforced=enforced,
         )
-        raise BlockedHostError(f"Could not determine the connected peer address: {exc}") from exc
+        if enforced:
+            raise BlockedHostError(f"Could not determine the connected peer address: {exc}") from exc
+        return
     ok, _err = _is_host_safe(hostname, team_id, resolved_ip=peer_ip)
     if not ok:
         record_blocked_request(
@@ -132,8 +162,10 @@ def _enforce_peer_ip_safe(hostname: str, sock: socket.socket | None, team_id: in
             team_id=team_id,
             reason=f"connected peer {peer_ip} is an internal address",
             layer="postconnect",
+            enforced=enforced,
         )
-        raise BlockedHostError(f"Blocked connection to {hostname!r}: peer {peer_ip!r} is an internal address")
+        if enforced:
+            raise BlockedHostError(f"Blocked connection to {hostname!r}: peer {peer_ip!r} is an internal address")
 
 
 class _SSRFGuardedHTTPConnection(HTTPConnection):
@@ -229,6 +261,13 @@ class SSRFGuardedHTTPAdapter(TrackedHTTPAdapter):
     means no team context, so no allowlist exemption is granted and the host
     is checked unconditionally.
 
+    Monitor vs enforce: by default (`DATA_IMPORTS_SSRF_GUARD_ENFORCED=False`)
+    the guard runs in *monitor* mode — both layers evaluate every host and log
+    would-be blocks (`data_imports.http.blocked`, `enforced=false`) but let the
+    request through. Flipping the setting makes a block raise `BlockedHostError`
+    and fail the request. The split lets the guard be observed in Grafana
+    before it starts failing syncs.
+
     Known limitation: if an HTTP proxy is configured, requests routes through
     a separate proxy pool manager, so only the pre-flight URL check runs —
     the post-connect peer check is bypassed. `make_tracked_session` sets
@@ -271,20 +310,30 @@ class SSRFGuardedHTTPAdapter(TrackedHTTPAdapter):
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
+        enforced = _ssrf_guard_enforced()
         host = urlparse(request.url or "").hostname
         if not host:
             record_blocked_request(
-                host=request.url or "", team_id=self._team_id, reason="request URL has no hostname", layer="preflight"
+                host=request.url or "",
+                team_id=self._team_id,
+                reason="request URL has no hostname",
+                layer="preflight",
+                enforced=enforced,
             )
-            raise BlockedHostError(f"Request URL {request.url!r} is missing a hostname")
-        # Cheap, no-DNS pre-flight: catches literal private IPs / localhost
-        # fast. Hostname targets pass here and are vetted authoritatively by
-        # the post-connect peer check (see `SSRFGuardedHTTPAdapter`).
-        ok, err = _is_host_safe(host, self._team_id, resolve=False)
-        if not ok:
-            reason = err or "host is not allowed"
-            record_blocked_request(host=host, team_id=self._team_id, reason=reason, layer="preflight")
-            raise BlockedHostError(f"Blocked request to host {host!r}: {reason}")
+            if enforced:
+                raise BlockedHostError(f"Request URL {request.url!r} is missing a hostname")
+        else:
+            # Cheap, no-DNS pre-flight: catches literal private IPs / localhost
+            # fast. Hostname targets pass here and are vetted authoritatively by
+            # the post-connect peer check (see `SSRFGuardedHTTPAdapter`).
+            ok, err = _is_host_safe(host, self._team_id, resolve=False)
+            if not ok:
+                reason = err or "host is not allowed"
+                record_blocked_request(
+                    host=host, team_id=self._team_id, reason=reason, layer="preflight", enforced=enforced
+                )
+                if enforced:
+                    raise BlockedHostError(f"Blocked request to host {host!r}: {reason}")
         return super().send(
             request,
             stream=stream,
