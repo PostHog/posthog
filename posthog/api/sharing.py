@@ -52,7 +52,7 @@ from products.dashboards.backend.api.dashboard import DashboardSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.api.notebook import NotebookSerializer
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.util import extract_inline_query_nodes
+from products.notebooks.backend.util import extract_inline_query_nodes, filter_notebook_content_for_sharing
 
 logger = structlog.get_logger(__name__)
 
@@ -781,10 +781,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not resource:
             return custom_404_response(self.request)
 
-        # Check if organization allows publicly shared resources
         if (
-            isinstance(resource, SharingConfiguration)
-            and resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+            resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
             and not resource.team.organization.allow_publicly_shared_resources
         ):
             return custom_404_response(self.request)
@@ -1077,6 +1075,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             asset_title = resource.notebook.title or "Notebook"
             asset_description = ""
             notebook_data = NotebookSerializer(resource.notebook, context=context).data
+            # Strip unsupported `ph-*` widget attrs before the document leaves the server — the
+            # frontend `UnsupportedNodePlaceholder` is UI-only and the raw attrs would otherwise
+            # ship to anonymous viewers.
+            if isinstance(notebook_data.get("content"), dict):
+                notebook_data["content"] = filter_notebook_content_for_sharing(notebook_data["content"])
+            # `text_content` is a search-only plain-text projection that may include fragments of
+            # the now-stripped nodes.
+            notebook_data["text_content"] = None
             exported_data.update({"notebook": notebook_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
 

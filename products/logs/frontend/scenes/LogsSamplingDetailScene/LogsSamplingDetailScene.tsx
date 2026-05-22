@@ -5,7 +5,7 @@ import { IconInfo, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
-import { compactNumber } from 'lib/utils'
+import { compactNumber, humanizeBytes } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -102,10 +102,16 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
                             ) : (
                                 <>
                                     {/* Keep the last known number visible during a manual refresh so
-                                        users can compare before / after rather than seeing it disappear. */}
+                                        users can compare before / after rather than seeing it disappear.
+                                        Bytes are reported alongside records once the per-row bytes_uncompressed
+                                        signal lands on each row at ingest — older drops attribute 0 bytes and
+                                        the byte clause is hidden. */}
                                     <span>
-                                        ~{compactNumber(ruleDropImpact24h)} log lines dropped in the last 24 hours
-                                        (ingestion).
+                                        ~{compactNumber(ruleDropImpact24h.records)} log lines
+                                        {ruleDropImpact24h.bytes > 0 && (
+                                            <> (~{humanizeBytes(ruleDropImpact24h.bytes)})</>
+                                        )}{' '}
+                                        dropped in the last 24 hours (ingestion).
                                     </span>
                                     <Tooltip
                                         title={

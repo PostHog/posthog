@@ -8,7 +8,7 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type AccountApiProperties = {
@@ -27,8 +27,21 @@ export type AccountApiProperties = {
         id: number
         email: string
     } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
 } | null
 
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
 export interface AccountApi {
     readonly id: string
     /**
@@ -43,10 +56,12 @@ export interface AccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: AccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -64,7 +79,7 @@ export interface PaginatedAccountListApi {
 }
 
 /**
- * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
  * @nullable
  */
 export type PatchedAccountApiProperties = {
@@ -83,8 +98,21 @@ export type PatchedAccountApiProperties = {
         id: number
         email: string
     } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
 } | null
 
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
 export interface PatchedAccountApi {
     readonly id?: string
     /**
@@ -99,10 +127,12 @@ export interface PatchedAccountApi {
      */
     external_id?: string | null
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     properties?: PatchedAccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -319,6 +349,10 @@ export type AccountsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     */
+    tags?: string
 }
 
 export type CustomerJourneysListParams = {

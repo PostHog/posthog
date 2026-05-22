@@ -33,7 +33,9 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer import K
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
 from posthog.temporal.data_imports.workflow_activities.create_job_model import _build_schema_snapshot
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

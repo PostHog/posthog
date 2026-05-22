@@ -1,6 +1,7 @@
 import datetime
 import dataclasses
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from freezegun import freeze_time
@@ -206,10 +207,11 @@ class TestEmail(BaseTest):
         self.assertEqual(sanitized["name"], "Test User&quot;&gt;&lt;img src=1 onerror=alert(1)&gt;")
         self.assertEqual(sanitized["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
 
-        # Check that nested dictionaries are sanitized
+        # Check that nested dictionaries are sanitized — `javascript:` is defanged so
+        # mail clients don't auto-link / treat it as a clickable scheme.
         self.assertEqual(
             sanitized["nested"]["html_content"],
-            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;",
+            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
         )
 
         # Check that numbers and booleans are preserved
@@ -225,6 +227,75 @@ class TestEmail(BaseTest):
 
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
         self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
+
+    def test_sanitize_email_properties_preserves_trusted_url_keys(self) -> None:
+        # Clean PostHog-built URLs survive sanitization unchanged: html.escape is a
+        # no-op on URL-shape characters (`:` `/` `.`), and trusted URL keys skip the
+        # defang step so the link stays clickable.
+        section: dict[str, str] = {"team_url": "https://app.posthog.com/project/3", "team_name": "Acme.com"}
+        properties: dict[str, Any] = {
+            "href": "http://localhost:8010/replay/test#panel=discussion",
+            "url": "https://app.posthog.com/project/1/insights",
+            "site_url": "https://app.posthog.com",
+            "link": "/reset/uuid/token",
+            "next_url": "https://app.posthog.com/dashboard",
+            "dashboard_url": "https://app.posthog.com/dashboard/2",
+            "error_tracking_url": "https://app.posthog.com/error_tracking",
+            "verify_link": "/verify/abc",
+            "section": section,
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        for key in [
+            "href",
+            "url",
+            "site_url",
+            "link",
+            "next_url",
+            "dashboard_url",
+            "error_tracking_url",
+            "verify_link",
+        ]:
+            self.assertEqual(sanitized[key], properties[key], f"trusted URL key {key} should pass through")
+        self.assertEqual(sanitized["section"]["team_url"], section["team_url"])
+        # ...but a user-controlled name nested under a non-URL key still gets defanged.
+        self.assertEqual(sanitized["section"]["team_name"], "Acme.​com")
+
+    def test_sanitize_email_properties_html_escapes_trusted_url_keys(self) -> None:
+        # When a user-controlled fragment leaks into a trusted URL key (e.g. the
+        # comment `slug` appended to settings.SITE_URL in build_comment_item_url),
+        # attribute-injection characters are still escaped — the link works, but
+        # the attacker can't break out of `<a href="...">`. URL-shape chars
+        # (`:` `/` `.`) survive because we don't defang trusted keys.
+        properties = {
+            "href": 'https://app.posthog.com/x"><script>alert(1)</script>',
+            "verify_link": "https://app.posthog.com/x?a=1&b=2",
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(
+            sanitized["href"],
+            "https://app.posthog.com/x&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;",
+        )
+        # `&` becomes `&amp;` — correct HTML attribute encoding for query strings.
+        self.assertEqual(sanitized["verify_link"], "https://app.posthog.com/x?a=1&amp;b=2")
+
+    def test_sanitize_email_properties_defangs_urls_embedded_in_user_content(self) -> None:
+        # Realistic phishing-by-display-name: attacker sets first_name to a URL.
+        # Mail clients should not auto-link this.
+        properties = {
+            "commenter": {"first_name": "Visit https://evil.com NOW"},
+            "team": {"name": "evil.com"},
+            "organization_name": "ｈｔｔｐ：／／phish.io",  # fullwidth bypass attempt
+        }
+
+        sanitized = sanitize_email_properties(properties)
+
+        self.assertEqual(sanitized["commenter"]["first_name"], "Visit https:​//evil.​com NOW")
+        self.assertEqual(sanitized["team"]["name"], "evil.​com")
+        self.assertEqual(sanitized["organization_name"], "http:​//phish.​io")
 
     def test_sanitize_email_properties_handles_dataclasses(self) -> None:
         # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,

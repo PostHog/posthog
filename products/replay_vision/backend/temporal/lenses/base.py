@@ -16,7 +16,12 @@ class BaseLensOutput(BaseModel, frozen=True):
     confidence: float = Field(
         ge=0,
         le=1,
-        description="Your confidence in this answer, 0 to 1. 0.5 means uncertain; 1.0 means absolutely sure.",
+        description=(
+            "Calibrated confidence, 0.0 to 1.0 with one decimal; use the full range — most answers fall in 0.6-0.9. "
+            "Ask: could a reasonable alternative answer be defended on the same evidence? If yes, cap at 0.7. "
+            "Reserve 0.9+ for unambiguous evidence with no plausible alternative. "
+            "1.0 should be exceedingly rare — pick 0.95 instead."
+        ),
     )
 
     def to_event_properties(self) -> dict[str, Any]:
@@ -25,13 +30,16 @@ class BaseLensOutput(BaseModel, frozen=True):
 
 
 class BaseLens(BaseModel, frozen=True):
-    """Common shape for every concrete lens; subclasses bind a `Literal` `lens_type` discriminator, a `prompt_template`, and an `llm_response_schema`."""
+    """Common shape for every concrete lens; subclasses bind `lens_type`, `prompt_template`, and `llm_response_schema`."""
 
-    prompt: str
     emits_signals: bool = False
 
     # Per-lens-type Jinja2 template under `prompts/`. Subclasses set this.
     prompt_template: ClassVar[str] = ""
+    # Names of free-text fields on the LLM response that may contain `(event_id <hash>)` citations.
+    citation_fields: ClassVar[tuple[str, ...]] = ()
+    # Persisted output class — subclasses override to stamp their `lens_type` discriminator.
+    output_cls: ClassVar[type["BaseLensOutput"] | None] = None
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:
@@ -43,10 +51,10 @@ class BaseLens(BaseModel, frozen=True):
         return {}
 
     def finalize(self, llm_response: BaseModel) -> BaseLensOutput:
-        """Build the final `BaseLensOutput` from the validated LLM response; default returns it unchanged."""
-        if not isinstance(llm_response, BaseLensOutput):
-            raise TypeError(f"Expected BaseLensOutput, got {type(llm_response).__name__}")
-        return llm_response
+        """Stamp `output_cls` (with its `lens_type` discriminator) onto the validated LLM response."""
+        if self.output_cls is None:
+            raise NotImplementedError(f"{type(self).__name__} must set `output_cls`")
+        return self.output_cls(**llm_response.model_dump())
 
     def validate_semantics(self, output: BaseLensOutput) -> str | None:
         """Lens-specific checks beyond Pydantic schema validation; return `None` when valid, otherwise an error string suitable to feed back into a re-prompt."""
@@ -66,7 +74,8 @@ class BaseLens(BaseModel, frozen=True):
         return render_prompt(
             self.prompt_template,
             team_name=team_name,
-            user_prompt=self.prompt,
+            # `prompt` lives on the four lenses that accept it; the indexer doesn't declare one.
+            user_prompt=getattr(self, "prompt", None),
             events=events,
             url_mapping=url_mapping or {},
             window_mapping=window_mapping or {},

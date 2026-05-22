@@ -144,6 +144,12 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             "password authentication failed connection": None,
             "connection timeout expired": None,
             "Connection refused": None,
+            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `INTEGER` → `BIGINT`)
+            # after the destination table was created with the narrower type. Delta Lake can't
+            # widen an existing column in place, so retrying won't help — the table must be
+            # reset and fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def get_schemas(
@@ -268,7 +274,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
         return True, None
 
     def source_for_pipeline(self, config: RedshiftSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

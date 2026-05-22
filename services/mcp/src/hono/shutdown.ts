@@ -4,8 +4,8 @@ import type Redis from 'ioredis'
 import type { Lifecycle } from './app'
 import { shuttingDown as shuttingDownMetric } from './metrics'
 
-const SHUTDOWN_GRACE_MS = parseInt(process.env.SHUTDOWN_GRACE_MS || '30000', 10)
-const SHUTDOWN_PRESTOP_DELAY_MS = parseInt(process.env.SHUTDOWN_PRESTOP_DELAY_MS || '5000', 10)
+const SHUTDOWN_GRACE_MS = parseInt(process.env.SHUTDOWN_GRACE_MS || '300000', 10)
+const SHUTDOWN_PRESTOP_DELAY_MS = parseInt(process.env.SHUTDOWN_PRESTOP_DELAY_MS || '0', 10)
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 

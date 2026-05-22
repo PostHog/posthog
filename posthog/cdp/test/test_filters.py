@@ -11,8 +11,9 @@ from posthog.cdp.filters import (
     compile_filters_bytecode,
     hog_function_filters_to_expr,
 )
-from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
+
+from products.actions.backend.models.action import Action
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION

@@ -1,5 +1,5 @@
 """
-Text representation formatters for LLM Analytics events.
+Text representation formatters for AI observability events.
 
 Pure Python implementation for formatting $ai_generation, $ai_span, and $ai_trace events
 into human-readable text representations.
