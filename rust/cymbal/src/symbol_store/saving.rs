@@ -17,7 +17,7 @@ use crate::{
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
     posthog_utils::{capture_symbol_set_deleted, capture_symbol_set_saved},
-    symbol_store::BlobClient,
+    symbol_store::{chunk_id::SymbolSetKey, BlobClient},
 };
 
 use super::{Fetcher, Parser};
@@ -67,11 +67,15 @@ pub struct SymbolSetRecord {
 // pass the information necessary to store the underlying data between the fetch and parse stages,
 // (to avoid saving data we can't parse). The payload is held as `Bytes` so it can be cheaply
 // cloned (refcount bump) when the parse and save paths both need a reference.
+//
+// `save_ref` is the DB key to insert under when persisting a fresh fetch. It is `None` when
+// the original ref had no save target (a bare `OrChunkId::ChunkId`, which has no URL to
+// fetch from). When `storage_ptr` is `Some`, `save_ref` is irrelevant — parse won't persist.
 pub struct Saveable {
     pub data: Bytes,
     pub storage_ptr: Option<String>, // This is None if we still need to save this data
     pub team_id: i32,
-    pub set_ref: String,
+    pub save_ref: Option<String>,
 }
 
 impl<F> Saving<F> {
@@ -185,28 +189,43 @@ impl<F> Saving<F> {
 impl<F> Fetcher for Saving<F>
 where
     F: Fetcher<Fetched = Bytes, Err = ResolveError>,
-    F::Ref: ToString + Send,
+    F::Ref: SymbolSetKey + Send,
 {
     type Ref = F::Ref;
     type Fetched = Saveable;
     type Err = F::Err;
 
     async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
-        let set_ref = r.to_string();
-        info!("Fetching symbol set data for {}", set_ref);
+        let lookup_refs = r.lookup_refs();
+        let save_ref = r.save_ref();
         metrics::counter!(SYMBOL_SET_DB_FETCHES).increment(1);
 
-        if let Some(mut record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
-            metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
+        // Try lookup keys in priority order — for an `OrChunkId::Both`, this means the chunk
+        // id (authoritative, upload-API namespace) wins over the URL (capture-cached). A stale
+        // failure under one key falls through to the next; a fresh failure or data short-circuits.
+        // `DB_HITS` is bumped at most once per fetch (on the first row found) regardless of
+        // how many lookup refs we probe — multi-ref lookups must not inflate the counter.
+        let mut hit_counted = false;
+        for lookup_ref in &lookup_refs {
+            info!("Fetching symbol set data for {}", lookup_ref);
+            let Some(mut record) = SymbolSetRecord::load(&self.pool, team_id, lookup_ref).await?
+            else {
+                continue;
+            };
+            if !hit_counted {
+                metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
+                hit_counted = true;
+            }
+
             if let Some(storage_ptr) = record.storage_ptr.clone() {
-                info!("Found s3 saved symbol set data for {}", set_ref);
+                info!("Found s3 saved symbol set data for {}", lookup_ref);
                 record.set_last_used(&self.pool).await?;
                 let data = match self.s3_client.get(&self.bucket, &storage_ptr).await {
                     Ok(Some(data)) => data,
                     Ok(None) => {
                         warn!("Storage pointer points to a record that doesn't exist");
                         record.delete(&self.pool).await?;
-                        return Err(FrameError::MissingChunkIdData(set_ref).into());
+                        return Err(FrameError::MissingChunkIdData(lookup_ref.clone()).into());
                     }
                     // Otherwise, if we just failed to talk to s3 for some reason, treat it as an unhandled error, and die
                     Err(err) => return Err(err.into()),
@@ -216,13 +235,15 @@ where
                     data,
                     storage_ptr: Some(storage_ptr),
                     team_id,
-                    set_ref,
+                    save_ref: save_ref.clone(),
                 });
-            } else if record
+            }
+
+            if record
                 .last_used
                 .is_some_and(|l| Utc::now() - l < chrono::Duration::days(1))
             {
-                info!("Found recent symbol set error for {}", set_ref);
+                info!("Found recent symbol set error for {}", lookup_ref);
                 // We tried less than a day ago to get the set data, and failed, so bail out
                 // with the stored error. We unwrap here because we should never store a "no set"
                 // row without also storing the error, and if we do, we want to panic, but we
@@ -240,7 +261,8 @@ where
                     .map_err(UnhandledError::from)?;
                 return Err(ResolveError::ResolutionError(error));
             }
-            info!("Found stale symbol set error for {}", set_ref);
+
+            info!("Found stale symbol set error for {}", lookup_ref);
             // We last tried to get the symbol set more than a day ago, so we should try again
             metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
@@ -250,18 +272,22 @@ where
         match self.inner.fetch(team_id, r).await {
             // NOTE: We don't save the data here, because we want to save it only after parsing
             Ok(data) => {
-                info!("Inner fetched symbol set data for {}", set_ref);
+                info!("Inner fetched symbol set data");
                 Ok(Saveable {
                     data,
                     storage_ptr: None,
                     team_id,
-                    set_ref,
+                    save_ref,
                 })
             }
             Err(ResolveError::ResolutionError(e)) => {
-                // But if we failed to get any data, we save that fact
-                self.save_no_data(team_id, set_ref, &e).await?;
-                return Err(ResolveError::ResolutionError(e));
+                // Only record a failure when we actually have a save key — bare chunk-id refs
+                // never write to the DB (otherwise capture traffic could squat the upload-API
+                // namespace with failure rows).
+                if let Some(save_ref) = save_ref {
+                    self.save_no_data(team_id, save_ref, &e).await?;
+                }
+                Err(ResolveError::ResolutionError(e))
             }
             Err(e) => Err(e), // If some non-resolution error occurred, we just bail out
         }
@@ -283,7 +309,7 @@ where
             data: bytes,
             storage_ptr,
             team_id,
-            set_ref,
+            save_ref,
         } = data;
 
         // On the loaded-from-S3 path we never need to save the bytes back, so we hand them
@@ -297,18 +323,22 @@ where
 
         match self.inner.parse(bytes).await {
             Ok(s) => {
-                info!("Parsed symbol set data for {}", set_ref);
-                if let Some(bytes_to_save) = bytes_to_save {
-                    self.save_data(team_id, set_ref, bytes_to_save).await?;
+                info!("Parsed symbol set data");
+                if let (Some(bytes_to_save), Some(save_ref)) = (bytes_to_save, &save_ref) {
+                    self.save_data(team_id, save_ref.clone(), bytes_to_save)
+                        .await?;
                 }
                 Ok(s)
             }
             Err(ResolveError::ResolutionError(e)) => {
-                info!("Failed to parse symbol set data for {}", set_ref);
+                info!("Failed to parse symbol set data");
                 if storage_ptr.is_none() {
-                    // Save fresh parse failures to prevent refetching for a day, but never
-                    // replace an existing uploaded blob with a parser error.
-                    self.save_no_data(team_id, set_ref, &e).await?;
+                    if let Some(save_ref) = save_ref {
+                        // Save fresh parse failures to prevent refetching for a day, but never
+                        // replace an existing uploaded blob with a parser error, and never
+                        // write to a namespace we don't own (bare chunk-id refs have no save key).
+                        self.save_no_data(team_id, save_ref, &e).await?;
+                    }
                 }
                 Err(ResolveError::ResolutionError(e))
             }
