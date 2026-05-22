@@ -12,6 +12,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.parser import parse_select
@@ -19,7 +20,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 
 def _print(
-    self_: BaseTest, query: ast.SelectQuery | ast.SelectSetQuery, *, dialect: str = "clickhouse"
+    self_: BaseTest, query: ast.SelectQuery | ast.SelectSetQuery, *, dialect: HogQLDialect = "clickhouse"
 ) -> tuple[str, HogQLContext]:
     """Resolve + print, return (sql, context). Inspect `context.values` for parameterized string content."""
     context = HogQLContext(team_id=self_.team.pk, enable_select_queries=True)
@@ -68,7 +69,8 @@ class TestVerbatimFieldConstructionRejection(BaseTest):
     )
     def test_order_rejects_invalid(self, _name: str, value: str):
         with self.assertRaises(ValueError):
-            ast.OrderExpr(expr=ast.Constant(value=1), order=value)
+            # The whole point: pass an out-of-Literal value and verify `__post_init__` rejects it.
+            ast.OrderExpr(expr=ast.Constant(value=1), order=value)  # type: ignore[arg-type]
 
     @parameterized.expand(
         [
@@ -80,7 +82,7 @@ class TestVerbatimFieldConstructionRejection(BaseTest):
     )
     def test_constraint_type_rejects_invalid(self, _name: str, value: str):
         with self.assertRaises(ValueError):
-            ast.JoinConstraint(expr=ast.Constant(value=True), constraint_type=value)
+            ast.JoinConstraint(expr=ast.Constant(value=True), constraint_type=value)  # type: ignore[arg-type]
 
     @parameterized.expand(
         [
@@ -94,7 +96,7 @@ class TestVerbatimFieldConstructionRejection(BaseTest):
         with self.assertRaises(ValueError):
             ast.SelectSetNode(
                 select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
-                set_operator=value,
+                set_operator=value,  # type: ignore[arg-type]
             )
 
 
@@ -118,7 +120,7 @@ class TestVerbatimFieldPrinterDefenseInDepth(BaseTest):
         def mutate(node: ast.SelectQuery) -> None:
             assert node.order_by is not None
             # Deliberate bypass of the `Literal["ASC", "DESC"]` type; the printer's allowlist is what this test exercises.
-            node.order_by[0].order = "ASC; DROP TABLE events --"  # ty: ignore[invalid-assignment]
+            node.order_by[0].order = "ASC; DROP TABLE events --"  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         with self.assertRaises(QueryError):
             _select_parse_resolve_mutate_print(self, "SELECT 1 FROM events ORDER BY 1 ASC", mutate)
@@ -128,7 +130,7 @@ class TestVerbatimFieldPrinterDefenseInDepth(BaseTest):
             assert node.select_from is not None and node.select_from.next_join is not None
             assert node.select_from.next_join.constraint is not None
             # Deliberate bypass of the `Literal["ON", "USING"]` type.
-            node.select_from.next_join.constraint.constraint_type = "ON; DROP TABLE events --"  # ty: ignore[invalid-assignment]
+            node.select_from.next_join.constraint.constraint_type = "ON; DROP TABLE events --"  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         with self.assertRaises(QueryError):
             _select_parse_resolve_mutate_print(
@@ -140,7 +142,8 @@ class TestVerbatimFieldPrinterDefenseInDepth(BaseTest):
     def test_set_operator_setattr_bypass_rejected_by_printer(self):
         def mutate(node) -> None:
             assert isinstance(node, ast.SelectSetQuery)  # `... UNION ALL ...` parses to a SelectSetQuery
-            node.subsequent_select_queries[0].set_operator = "UNION ALL; DROP TABLE events --"
+            # Deliberate bypass of the `SetOperator` Literal type.
+            node.subsequent_select_queries[0].set_operator = "UNION ALL; DROP TABLE events --"  # type: ignore[assignment]
 
         with self.assertRaises(QueryError):
             _select_parse_resolve_mutate_print(
@@ -167,7 +170,7 @@ class TestPrintTimeOnlyAllowlists(BaseTest):
             call = node.select[0]
             assert isinstance(call, ast.WindowFunction) and call.over_expr is not None
             assert call.over_expr.frame_start is not None
-            call.over_expr.frame_start.frame_type = "FOLLOWING; DROP TABLE--"  # ty: ignore[invalid-assignment]
+            call.over_expr.frame_start.frame_type = "FOLLOWING; DROP TABLE--"  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         with self.assertRaises(ImpossibleASTError):
             _select_parse_resolve_mutate_print(
