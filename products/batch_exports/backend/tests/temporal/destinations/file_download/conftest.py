@@ -90,26 +90,29 @@ async def aws_role_arn(session, bucket_name, role_name):
     async with session.client("iam") as iam, session.client("sts") as sts:
         identity = await sts.get_caller_identity()
         identity_role_name = identity["Arn"].split("/")[-2]
-        resp = await iam.create_role(
-            RoleName=role_name,
-            MaxSessionDuration=3600,
-            # Allow the current account to assume the role
-            AssumeRolePolicyDocument=json.dumps(
-                {
-                    "Version": "2012-10-17",
-                    "Statement": [
-                        {
-                            "Effect": "Allow",
-                            "Principal": {
-                                "AWS": f"arn:aws:iam::{identity['Account']}:role/aws-reserved/sso.amazonaws.com/{identity_role_name}",
-                            },
-                            "Action": "sts:AssumeRole",
-                        }
-                    ],
-                }
-            ),
-            Description="Role assumed by the file download batch export during testing",
-        )
+        try:
+            resp = await iam.create_role(
+                RoleName=role_name,
+                MaxSessionDuration=3600,
+                # Allow the current account to assume the role
+                AssumeRolePolicyDocument=json.dumps(
+                    {
+                        "Version": "2012-10-17",
+                        "Statement": [
+                            {
+                                "Effect": "Allow",
+                                "Principal": {
+                                    "AWS": f"arn:aws:iam::{identity['Account']}:role/aws-reserved/sso.amazonaws.com/{identity_role_name}",
+                                },
+                                "Action": "sts:AssumeRole",
+                            }
+                        ],
+                    }
+                ),
+                Description="Role assumed by the file download batch export during testing",
+            )
+        except botocore.exceptions.ClientError:
+            raise pytest.skip("Could not create test role")
 
         s3_policy = {
             "Version": "2012-10-17",

@@ -8194,6 +8194,86 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Typed configuration for a FileDownload batch-export destination.
+     */
+    export interface FileDownloadDestinationFileConfig {
+      /** File format
+
+      * `Parquet` - Parquet
+      * `JSONLines` - JSONLines */
+      format?: FileFormatEnum;
+      /** Compress the file with a supported compression format
+
+      * `zstd` - zstd
+      * `gzip` - gzip
+      * `brotli` - brotli
+      * `lz4` - lz4
+      * `snappy` - snappy */
+      compression?: CompressionEnum | null;
+      /**
+         * Split download into multiple files of at most this size in MB
+         * @minimum 0
+         * @nullable
+         */
+      max_size_mb?: number | null;
+    }
+
+    export type FileDownloadEventsRequestModel = typeof FileDownloadEventsRequestModel[keyof typeof FileDownloadEventsRequestModel];
+
+
+    export const FileDownloadEventsRequestModel = {
+      Events: 'events',
+    } as const;
+
+    /**
+     * Typed configuration for the events model.
+     */
+    export interface FileDownloadEventsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadEventsRequestModel;
+      include?: string[];
+      exclude?: string[];
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type FileDownloadPersonsRequestModel = typeof FileDownloadPersonsRequestModel[keyof typeof FileDownloadPersonsRequestModel];
+
+
+    export const FileDownloadPersonsRequestModel = {
+      Persons: 'persons',
+    } as const;
+
+    /**
+     * Typed configuration for the persons model.
+     */
+    export interface FileDownloadPersonsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadPersonsRequestModel;
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type FileDownloadSessionsRequestModel = typeof FileDownloadSessionsRequestModel[keyof typeof FileDownloadSessionsRequestModel];
+
+
+    export const FileDownloadSessionsRequestModel = {
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * Typed configuration for the sessions model.
+     */
+    export interface FileDownloadSessionsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadSessionsRequestModel;
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
+
+    /**
      * * `cost` - cost
     * `latency` - latency
     * `eval_pass_rate` - eval_pass_rate
@@ -8276,6 +8356,13 @@ export namespace Schemas {
       company_address: string;
       /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
+    }
+
+    /**
+     * Typed output for view set `create`.
+     */
+    export interface CreateOutput {
+      id: string;
     }
 
     /**
@@ -16936,6 +17023,36 @@ export namespace Schemas {
          */
       readonly modified_by: number | null;
     }
+
+    /**
+     * * `events` - events
+     */
+    export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
+
+
+    export const FileDownloadEventsRequestModelEnum = {
+      Events: 'events',
+    } as const;
+
+    /**
+     * * `persons` - persons
+     */
+    export type FileDownloadPersonsRequestModelEnum = typeof FileDownloadPersonsRequestModelEnum[keyof typeof FileDownloadPersonsRequestModelEnum];
+
+
+    export const FileDownloadPersonsRequestModelEnum = {
+      Persons: 'persons',
+    } as const;
+
+    /**
+     * * `sessions` - sessions
+     */
+    export type FileDownloadSessionsRequestModelEnum = typeof FileDownloadSessionsRequestModelEnum[keyof typeof FileDownloadSessionsRequestModelEnum];
+
+
+    export const FileDownloadSessionsRequestModelEnum = {
+      Sessions: 'sessions',
+    } as const;
 
     export interface FileSystem {
       readonly id: string;
@@ -34523,6 +34640,100 @@ export namespace Schemas {
       password: string;
     }
 
+    export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
+
+
+    export const RetrieveBasicOutputStatus = {
+      Starting: 'Starting',
+      Running: 'Running',
+      Cancelled: 'Cancelled',
+    } as const;
+
+    /**
+     * Typed output for view set `retrieve` with any of the statuses without extra output.
+     */
+    export interface RetrieveBasicOutput {
+      status: RetrieveBasicOutputStatus;
+    }
+
+    /**
+     * * `Starting` - Starting
+    * `Running` - Running
+    * `Cancelled` - Cancelled
+     */
+    export type RetrieveBasicOutputStatusEnum = typeof RetrieveBasicOutputStatusEnum[keyof typeof RetrieveBasicOutputStatusEnum];
+
+
+    export const RetrieveBasicOutputStatusEnum = {
+      Starting: 'Starting',
+      Running: 'Running',
+      Cancelled: 'Cancelled',
+    } as const;
+
+    export type RetrieveCompletedOutputStatus = typeof RetrieveCompletedOutputStatus[keyof typeof RetrieveCompletedOutputStatus];
+
+
+    export const RetrieveCompletedOutputStatus = {
+      Completed: 'Completed',
+    } as const;
+
+    /**
+     * Typed output for view set `retrieve` with completed status.
+     */
+    export interface RetrieveCompletedOutput {
+      status: RetrieveCompletedOutputStatus;
+      files: string[];
+    }
+
+    /**
+     * * `Completed` - Completed
+     */
+    export type RetrieveCompletedOutputStatusEnum = typeof RetrieveCompletedOutputStatusEnum[keyof typeof RetrieveCompletedOutputStatusEnum];
+
+
+    export const RetrieveCompletedOutputStatusEnum = {
+      Completed: 'Completed',
+    } as const;
+
+    export type RetrieveFailedOutputStatus = typeof RetrieveFailedOutputStatus[keyof typeof RetrieveFailedOutputStatus];
+
+
+    export const RetrieveFailedOutputStatus = {
+      Failed: 'Failed',
+      FailedRetryable: 'FailedRetryable',
+      FailedBilling: 'FailedBilling',
+      TimedOut: 'TimedOut',
+      Terminated: 'Terminated',
+    } as const;
+
+    /**
+     * Typed output for view set `retrieve` with any of the failed statuses.
+     */
+    export interface RetrieveFailedOutput {
+      status: RetrieveFailedOutputStatus;
+      error: string;
+    }
+
+    /**
+     * * `Failed` - Failed
+    * `FailedRetryable` - FailedRetryable
+    * `FailedBilling` - FailedBilling
+    * `Terminated` - Terminated
+    * `TimedOut` - TimedOut
+     */
+    export type RetrieveFailedOutputStatusEnum = typeof RetrieveFailedOutputStatusEnum[keyof typeof RetrieveFailedOutputStatusEnum];
+
+
+    export const RetrieveFailedOutputStatusEnum = {
+      Failed: 'Failed',
+      FailedRetryable: 'FailedRetryable',
+      FailedBilling: 'FailedBilling',
+      Terminated: 'Terminated',
+      TimedOut: 'TimedOut',
+    } as const;
+
+    export type RetrieveFileDownloadResponse = RetrieveBasicOutput | RetrieveCompletedOutput | RetrieveFailedOutput;
+
     export interface ReviewQueueCreate {
       /**
          * Human-readable queue name.
@@ -35569,6 +35780,14 @@ export namespace Schemas {
       stats: SurveyStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyStatsResponseRates;
+    }
+
+    export interface Synthesize {
+      /**
+         * The text the assistant should speak aloud.
+         * @maxLength 2000
+         */
+      text: string;
     }
 
     export interface TaggerCreate {
@@ -38116,6 +38335,38 @@ export namespace Schemas {
     offset?: number;
     /**
      * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsFileDownloadBatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
      */
     search?: string;
     };
@@ -40686,6 +40937,8 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
     export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
     export type McpAnalyticsFeedbackListParams = {
@@ -41714,6 +41967,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -41789,6 +42043,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -41850,6 +42105,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -41913,6 +42169,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -43292,6 +43549,38 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FileDownloadBatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type FileSystemListParams = {
