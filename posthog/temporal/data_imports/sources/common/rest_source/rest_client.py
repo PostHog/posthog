@@ -44,6 +44,7 @@ class RESTClient:
         auth: Optional[AuthBase] = None,
         paginator: Optional[BasePaginator] = None,
         session: Optional[Session] = None,
+        team_id: Optional[int] = None,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
@@ -51,9 +52,13 @@ class RESTClient:
         self.paginator = paginator
         # Default to the tracked session so every source built on top of
         # `RESTClient` participates in HTTP logging, metrics, and sample
-        # capture. Callers can pass a pre-built `Session` for tests or
-        # specialized auth (it should still be a tracked one in prod).
-        self.session = session or make_tracked_session()
+        # capture. The tracked session is always SSRF-guarded — it rejects
+        # internal hosts on every request, including pagination targets that
+        # only appear at runtime. `team_id` carries the team whose
+        # internal-host allowlist applies. Callers can pass a pre-built
+        # `Session` for tests or specialized auth (it should still be a
+        # tracked one in prod).
+        self.session = session or make_tracked_session(team_id=team_id)
         if self.headers:
             self.session.headers.update(self.headers)
 

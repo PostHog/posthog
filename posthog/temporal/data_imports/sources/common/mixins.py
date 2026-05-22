@@ -1,64 +1,16 @@
-import socket
 from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
 
-from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
-from posthog.utils import get_instance_region
+
+# Re-exported from its leaf module so existing `mixins._is_host_safe`
+# importers keep working; `mixins.py` itself still uses it below.
+from posthog.temporal.data_imports.host_safety import _is_host_safe
 
 from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
-from products.data_warehouse.backend.models.util import _is_safe_public_ip
 
-
-def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
-    """Validate that a host is not an internal/private IP address.
-
-    Only enforced on cloud deployments — self-hosted instances are allowed
-    to connect to any host.
-
-    Resolves hostnames via DNS and checks all resolved IPs against
-    _is_safe_public_ip to block private, loopback, link-local, multicast,
-    reserved, and IPv6-mapped internal addresses.
-
-    team whitelist: team_id 2 in US, team_id 1 in EU are allowed
-    to use internal IPs.
-    """
-    if not is_cloud():
-        return True, None
-
-    region = get_instance_region()
-    if region == "E2E":
-        return True, None
-
-    if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
-        return True, None
-
-    normalized = host.lower().strip().rstrip(".")
-
-    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe.
-    if normalized.endswith(".postwh.com"):
-        return True, None
-
-    if normalized in {"localhost"}:
-        return False, "Hosts with internal IP addresses are not allowed"
-
-    try:
-        if not _is_safe_public_ip(host):
-            return False, "Hosts with internal IP addresses are not allowed"
-    except ValueError:
-        pass
-
-    try:
-        addrinfo = socket.getaddrinfo(normalized, None, proto=socket.IPPROTO_TCP)
-        for _family, _type, _proto, _canonname, sockaddr in addrinfo:
-            resolved_ip = sockaddr[0]
-            if not _is_safe_public_ip(str(resolved_ip)):
-                return False, "Hosts with internal IP addresses are not allowed"
-    except socket.gaierror:
-        return False, "Host could not be resolved"
-
-    return True, None
+__all__ = ["OAuthMixin", "SSHTunnelMixin", "ValidateDatabaseHostMixin", "_is_host_safe"]
 
 
 class SSHTunnelMixin:

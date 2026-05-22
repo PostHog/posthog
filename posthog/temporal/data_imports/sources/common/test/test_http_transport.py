@@ -1,14 +1,24 @@
+import socket
+
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests
 from requests import Response
 from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPSConnection
 from urllib3.util.retry import Retry
 
+from posthog.temporal.data_imports.sources.common.http.observer import record_blocked_request
 from posthog.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
+    BlockedHostError,
+    SSRFGuardedHTTPAdapter,
     TrackedHTTPAdapter,
+    _enforce_peer_ip_safe,
+    _SSRFGuardedHTTPSConnection,
+    _SSRFGuardedHTTPSConnectionPool,
+    _SSRFGuardedPoolManager,
     make_tracked_adapter,
     make_tracked_session,
 )
@@ -17,6 +27,12 @@ from posthog.temporal.data_imports.sources.common.http.transport import (
 @pytest.fixture
 def mock_record():
     with patch("posthog.temporal.data_imports.sources.common.http.transport.record_request") as m:
+        yield m
+
+
+@pytest.fixture
+def mock_blocked():
+    with patch("posthog.temporal.data_imports.sources.common.http.transport.record_blocked_request") as m:
         yield m
 
 
@@ -154,3 +170,207 @@ def test_send_does_not_mask_real_exception_when_record_raises():
     ):
         with pytest.raises(requests.exceptions.RequestException):
             session.get("http://127.0.0.1:1/", timeout=2)
+
+
+def test_make_tracked_session_is_ssrf_guarded_by_default():
+    """The factory mounts the SSRF guard unless `allow_internal_ips` opts out."""
+    session = make_tracked_session()
+
+    https_adapter = session.get_adapter("https://example.com/")
+    http_adapter = session.get_adapter("http://example.com/")
+
+    assert isinstance(https_adapter, SSRFGuardedHTTPAdapter)
+    assert isinstance(http_adapter, SSRFGuardedHTTPAdapter)
+
+
+@pytest.mark.parametrize("team_id", [None, 42])
+def test_make_tracked_session_carries_team_id_onto_the_guard(team_id):
+    """team_id reaches the guard as the allowlist team; None means no exemption."""
+    session = make_tracked_session(team_id=team_id)
+    adapter = session.get_adapter("https://example.com/")
+
+    assert isinstance(adapter, SSRFGuardedHTTPAdapter)
+    assert adapter._team_id == team_id
+
+
+@pytest.mark.parametrize("factory_kwargs", [{}, {"team_id": 42}])
+def test_allow_internal_ips_opts_out_of_the_guard(factory_kwargs):
+    """`allow_internal_ips=True` yields a plain TrackedHTTPAdapter — no SSRF guard."""
+    session = make_tracked_session(allow_internal_ips=True, **factory_kwargs)
+    adapter = session.get_adapter("https://example.com/")
+    assert type(adapter) is TrackedHTTPAdapter
+
+
+def test_make_tracked_adapter_opt_out_returns_plain_adapter():
+    assert type(make_tracked_adapter(allow_internal_ips=True)) is TrackedHTTPAdapter
+    assert isinstance(make_tracked_adapter(), SSRFGuardedHTTPAdapter)
+
+
+@pytest.mark.parametrize("factory_kwargs", [{}, {"allow_internal_ips": True}])
+def test_make_tracked_session_disables_proxy_env(factory_kwargs):
+    """trust_env=False — HTTP(S)_PROXY env vars must not route around the guard."""
+    assert make_tracked_session(**factory_kwargs).trust_env is False
+
+
+def test_ssrf_guard_blocks_unsafe_host(mock_record, mock_blocked):
+    """When `_is_host_safe` rejects the host, `send()` raises before the
+    request goes out. Per-host classification — private ranges, the IMDS
+    address, etc. — is `_is_host_safe`'s job and is covered for real in
+    test_mixins.py; here it is stubbed, so this asserts only the wiring."""
+    adapter = SSRFGuardedHTTPAdapter(team_id=42)
+    prepared = requests.Request("GET", "https://internal.example.com/data").prepare()
+
+    with patch(
+        "posthog.temporal.data_imports.sources.common.http.transport._is_host_safe",
+        return_value=(False, "Hosts with internal IP addresses are not allowed"),
+    ):
+        with pytest.raises(BlockedHostError, match="internal IP"):
+            adapter.send(prepared)
+
+    # A blocked request never reaches the network, so the observer never sees it.
+    mock_record.assert_not_called()
+    # ...but the block itself must be logged for Grafana visibility.
+    mock_blocked.assert_called_once()
+    assert mock_blocked.call_args.kwargs["layer"] == "preflight"
+    assert mock_blocked.call_args.kwargs["team_id"] == 42
+
+
+def test_ssrf_guard_blocks_url_without_hostname(mock_record, mock_blocked):
+    adapter = SSRFGuardedHTTPAdapter(team_id=42)
+    prepared = requests.Request("GET", "https://api.example.com/").prepare()
+    prepared.url = "/relative/path"  # a URL with no host must not slip past the guard
+
+    with pytest.raises(BlockedHostError, match="missing a hostname"):
+        adapter.send(prepared)
+
+    mock_record.assert_not_called()
+    mock_blocked.assert_called_once()
+    assert mock_blocked.call_args.kwargs["layer"] == "preflight"
+
+
+def test_ssrf_guard_allows_safe_host(mock_record, fake_http_send):
+    adapter = SSRFGuardedHTTPAdapter(team_id=42)
+    prepared = requests.Request("GET", "https://api.example.com/data").prepare()
+
+    with (
+        patch(
+            "posthog.temporal.data_imports.sources.common.http.transport._is_host_safe",
+            return_value=(True, None),
+        ),
+        fake_http_send(_fake_response(status_code=200, body=b"ok")),
+    ):
+        response = adapter.send(prepared)
+
+    assert response.status_code == 200
+    mock_record.assert_called_once()
+
+
+def test_redirect_to_internal_host_is_blocked(mock_record):
+    """A 3xx Location pointing at an internal host is re-vetted: the guard runs
+    on the redirect target, not just the original request URL. `requests`
+    drives redirects itself (urllib3 gets redirect=False), so each hop is a
+    fresh adapter.send() — this is also the mechanism pagination relies on."""
+    session = make_tracked_session()
+
+    redirect = _fake_response(status_code=302)
+    redirect.headers["Location"] = "http://10.0.0.1/"
+    redirect.url = "https://api.example.com/start"
+    redirect._content_consumed = True  # no socket to drain
+
+    def _is_safe(host, team_id, **kwargs):
+        return (False, "internal address") if host == "10.0.0.1" else (True, None)
+
+    with (
+        patch.object(HTTPAdapter, "send", return_value=redirect),
+        patch(
+            "posthog.temporal.data_imports.sources.common.http.transport._is_host_safe",
+            side_effect=_is_safe,
+        ),
+    ):
+        with pytest.raises(BlockedHostError, match="10.0.0.1"):
+            session.get("https://api.example.com/start")
+
+
+# --- Post-connect peer-IP check (DNS-rebinding defense) ---
+
+
+def test_enforce_peer_ip_safe_rejects_missing_socket():
+    with pytest.raises(BlockedHostError, match="no socket"):
+        _enforce_peer_ip_safe("example.com", None, team_id=42)
+
+
+def test_enforce_peer_ip_safe_rejects_unconnected_socket():
+    """An unconnected socket has no peer — fail closed rather than skip the check."""
+    with socket.socket() as sock:
+        with pytest.raises(BlockedHostError, match="Could not determine"):
+            _enforce_peer_ip_safe("example.com", sock, team_id=42)
+
+
+def test_guarded_connection_blocks_internal_peer(mock_blocked):
+    """connect() re-checks the live socket — an internal peer is blocked post-connect,
+    even though the hostname that was dialed may have looked safe."""
+
+    def _fake_base_connect(self):
+        self.sock = MagicMock()
+        self.sock.getpeername.return_value = ("10.0.0.7", 443)
+
+    conn = _SSRFGuardedHTTPSConnection("example.com", ssrf_team_id=42)
+    with (
+        patch.object(HTTPSConnection, "connect", _fake_base_connect),
+        patch(
+            "posthog.temporal.data_imports.sources.common.http.transport._is_host_safe",
+            return_value=(False, "Hosts with internal IP addresses are not allowed"),
+        ) as is_safe,
+    ):
+        with pytest.raises(BlockedHostError, match="10.0.0.7"):
+            conn.connect()
+
+    # The hostname is passed for exemption checks; the actual connected peer
+    # IP is what gets vetted — `resolved_ip`, not a re-resolution of the name.
+    is_safe.assert_called_once_with("example.com", 42, resolved_ip="10.0.0.7")
+    # The block is logged under the postconnect layer for Grafana visibility.
+    mock_blocked.assert_called_once()
+    assert mock_blocked.call_args.kwargs["layer"] == "postconnect"
+    assert mock_blocked.call_args.kwargs["team_id"] == 42
+
+
+def test_guarded_connection_allows_public_peer():
+    def _fake_base_connect(self):
+        self.sock = MagicMock()
+        self.sock.getpeername.return_value = ("203.0.113.10", 443)
+
+    conn = _SSRFGuardedHTTPSConnection("example.com", ssrf_team_id=42)
+    with (
+        patch.object(HTTPSConnection, "connect", _fake_base_connect),
+        patch(
+            "posthog.temporal.data_imports.sources.common.http.transport._is_host_safe",
+            return_value=(True, None),
+        ),
+    ):
+        conn.connect()  # must not raise
+
+
+def test_record_blocked_request_never_raises():
+    """Block telemetry must never turn a block into a different failure — if it
+    raised, the BlockedHostError after it would never be reached."""
+    with patch(
+        "posthog.temporal.data_imports.sources.common.http.observer.current_job_context",
+        side_effect=RuntimeError("context broke"),
+    ):
+        record_blocked_request(host="example.com", team_id=1, reason="reason", layer="preflight")
+
+
+@pytest.mark.parametrize("team_id", [None, 77])
+def test_session_pool_manager_opens_peer_checking_connections(team_id):
+    """team_id rides urllib3's conn_kw down to the connection that opens sockets."""
+    session = make_tracked_session(team_id=team_id)
+    adapter = session.get_adapter("https://example.com/")
+
+    assert isinstance(adapter.poolmanager, _SSRFGuardedPoolManager)
+
+    pool = adapter.poolmanager.connection_from_url("https://example.com/")
+    assert isinstance(pool, _SSRFGuardedHTTPSConnectionPool)
+
+    conn = pool._new_conn()
+    assert isinstance(conn, _SSRFGuardedHTTPSConnection)
+    assert conn._ssrf_team_id == team_id

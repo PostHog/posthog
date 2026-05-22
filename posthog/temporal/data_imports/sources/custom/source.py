@@ -12,10 +12,10 @@ from posthog.schema import (
 )
 
 from posthog.cloud_utils import is_cloud
+from posthog.temporal.data_imports.host_safety import _is_host_safe
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
-from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
@@ -237,6 +237,12 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return {
             "401 Client Error": "The upstream API rejected the request with HTTP 401. Check that the configured auth credentials are correct.",
             "403 Client Error": "The upstream API rejected the request with HTTP 403. The configured credentials may lack the required permissions.",
+            # The SSRF guard raises BlockedHostError when a request — or a
+            # pagination/redirect target that only appears at runtime — resolves
+            # to an internal/private host. That is a deterministic policy
+            # denial, never a transient error, so retrying it can never succeed.
+            "Blocked request to host": "A request targeted an internal/private host, which is not allowed.",
+            "Blocked connection to": "A request connected to an internal/private host, which is not allowed.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -285,7 +291,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except (ValueError, TypeError) as exc:
             return False, f"Invalid auth configuration: {exc}"
 
-        session = make_tracked_session(headers=headers)
+        # The tracked session is always SSRF-guarded, so the probe itself
+        # can't be steered at an internal host — defence in depth alongside
+        # validate_manifest_urls. team_id carries the team's allowlist.
+        session = make_tracked_session(headers=headers, team_id=team_id)
 
         for resource in manifest["resources"]:
             endpoint = resource.get("endpoint", {})

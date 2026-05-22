@@ -1,6 +1,5 @@
 import re
 import socket
-from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, Union
 from urllib.parse import urlparse
 
@@ -20,6 +19,11 @@ from posthog.hogql.database.models import (
     StructDatabaseField,
     UnknownDatabaseField,
 )
+
+# `_is_safe_public_ip` now lives in a Django-free leaf module so low-level
+# HTTP transport code can reuse it without importing the ORM; re-exported
+# here for backwards compatibility.
+from posthog.temporal.data_imports.host_safety import _is_safe_public_ip
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
@@ -382,21 +386,6 @@ def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dic
         column_name: postgres_column_to_dwh_column(column_name, postgres_type, nullable)
         for column_name, postgres_type, nullable in columns
     }
-
-
-def _is_safe_public_ip(host: str) -> bool:
-    ip = ip_address(host)
-
-    # IPv6 can carry embedded IPv4 addresses that need the same SSRF checks.
-    if isinstance(ip, IPv6Address):
-        if ip.ipv4_mapped:
-            return _is_safe_public_ip(str(ip.ipv4_mapped))
-        if ip.sixtofour:
-            return _is_safe_public_ip(str(ip.sixtofour))
-
-    return not (
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-    )
 
 
 def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool, str]:
