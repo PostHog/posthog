@@ -2,6 +2,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
@@ -15,8 +17,10 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
+    SHARDED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.settings import DEBUG, TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -49,11 +53,23 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 # enough daily jobs that the first request burns INSERT slots for minutes.
 MAX_PRECOMPUTE_DAYS = 90
 
+# Hard cap on `SYSTEM SYNC REPLICA … LIGHTWEIGHT` before the read. Bounded so a
+# wedged replication queue doesn't turn a query into a hung HTTP request.
+# Empirically the fetch lag on `sharded_web_overview_preaggregated` is sub-second
+# for parts we just wrote; 10s is comfortably above p99.
+SYNC_REPLICA_TIMEOUT_SECONDS = 10
+
 
 WEB_OVERVIEW_LAZY_FAILED = Counter(
     "web_overview_lazy_precompute_failed_total",
     "Lazy precompute path failures, by error class",
     ["error_type"],
+)
+
+WEB_OVERVIEW_LAZY_SYNC_REPLICA = Counter(
+    "web_overview_lazy_precompute_sync_replica_total",
+    "SYSTEM SYNC REPLICA calls fired before the lazy precompute read, by outcome",
+    ["outcome"],
 )
 
 
@@ -377,18 +393,95 @@ WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
 
 
 _READ_SETTINGS = {
-    # Approach E from `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`:
-    # both INSERT (via `_get_insert_settings`) and SELECT use `in_order` so they
-    # deterministically prefer the same replica. Combined with the global
-    # `distributed_foreground_insert=1`, the SELECT sees data the INSERT just wrote.
+    # `load_balancing="in_order"` matches the INSERT side so a warm-cache read
+    # (no fresh INSERTs in this request) deterministically lands on the same
+    # replica that originally wrote the data — see Approach E in
+    # `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`.
     #
-    # `select_sequential_consistency=1` was tried here and is documented broken in
-    # CONSISTENCY.md when combined with `insert_quorum_parallel=1` (the default).
+    # For the cold-cache case where this read fires right after fresh INSERTs,
+    # `in_order` alone is not enough: a transient `errors_count` bump on the
+    # preferred replica can reroute either the INSERT coordination or the
+    # SELECT to a different replica, and parts may still be mid-fetch on the
+    # one we land on. `execute_lazy_precomputed_read` runs `SYSTEM SYNC REPLICA
+    # … LIGHTWEIGHT` before issuing this SELECT whenever any job was inserted
+    # during the request to close that race.
     "load_balancing": "in_order",
     # Shard pruning: sharding key is `sipHash64(job_id)`; `job_id IN (...)` matches
     # exactly the shards we wrote to.
     "optimize_skip_unused_shards": 1,
 }
+
+
+def _wait_for_replication(team_id: int) -> bool:
+    """Block until all replicas of `sharded_web_overview_preaggregated` have
+    pulled the parts we just INSERTed, so the downstream SELECT can't land on a
+    replica that's still mid-fetch.
+
+    Returns True on success, False on timeout / error / privilege issue — the
+    caller MUST treat False as "fall through to the live path" rather than
+    issue the read, since the whole point of this call is to avoid serving the
+    partial-data shape that triggered this fix.
+
+    `LIGHTWEIGHT` ignores merges/mutations and only waits for replication-queue
+    fetches (GET_PART / ATTACH_PART entries), so it returns quickly when the
+    queue is short — exactly the entries created by our INSERTs.
+
+    NOTE: this uses `ON CLUSTER` to broadcast to every shard's replicas (the
+    read goes through the Distributed table and can land anywhere). That
+    requires the SYSTEM SYNC REPLICA privilege on the runtime user, the aux
+    cluster name to match what's configured in CH, and adds 1 ZK round-trip
+    per shard. **This approach should be reviewed with the ClickHouse team
+    before deploying.**
+    """
+    # TEST/DEBUG run against a single-node ClickHouse without the `aux` cluster
+    # defined. The race we're guarding against can't happen there (no peer
+    # replicas to fall behind), and `ON CLUSTER aux` would raise on the
+    # missing cluster. Skip and report success so the read proceeds normally.
+    if TEST or DEBUG:
+        return True
+
+    table = SHARDED_WEB_OVERVIEW_PREAGGREGATED_TABLE()
+    cluster = settings.CLICKHOUSE_AUX_CLUSTER
+    tag_queries(
+        product=Product.WEB_ANALYTICS,
+        feature=Feature.QUERY,
+        query_type="web_overview_lazy_sync_replica",
+    )
+    started = time.perf_counter()
+    try:
+        # `readonly=0` because SYSTEM commands aren't allowed under the HogQL
+        # default `readonly=2`. `receive_timeout` bounds how long the local
+        # node waits for peer ACKs before failing the statement.
+        sync_execute(
+            f"SYSTEM SYNC REPLICA ON CLUSTER {cluster} {table} LIGHTWEIGHT",
+            {},
+            settings={
+                "receive_timeout": SYNC_REPLICA_TIMEOUT_SECONDS,
+                "readonly": 0,
+            },
+            team_id=team_id,
+        )
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        WEB_OVERVIEW_LAZY_SYNC_REPLICA.labels(outcome="success").inc()
+        logger.info(
+            "web_overview_lazy_precompute_sync_replica",
+            team_id=team_id,
+            outcome="success",
+            duration_ms=duration_ms,
+        )
+        return True
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        WEB_OVERVIEW_LAZY_SYNC_REPLICA.labels(outcome="failed").inc()
+        logger.warning(
+            "web_overview_lazy_precompute_sync_replica",
+            team_id=team_id,
+            outcome="failed",
+            duration_ms=duration_ms,
+            error_type=type(exc).__name__,
+            error=str(exc)[:200],
+        )
+        return False
 
 
 def execute_read_query(
@@ -520,6 +613,7 @@ def execute_lazy_precomputed_read(
             return None
 
         job_ids: list[str] = [str(jid) for jid in result.job_ids]
+        jobs_inserted = result.jobs_inserted
 
         previous_start_utc: Optional[datetime] = None
         previous_end_utc: Optional[datetime] = None
@@ -554,6 +648,17 @@ def execute_lazy_precomputed_read(
                         return None
 
                     job_ids.extend(str(jid) for jid in prev_result.job_ids)
+                    jobs_inserted += prev_result.jobs_inserted
+
+        # If anything was newly INSERTed during this request, wait for fresh
+        # parts to replicate before reading. Without this, the SELECT can hit
+        # a replica that's mid-fetch and silently under-count the period whose
+        # parts are still propagating — observed empirically as previous-period
+        # counts dropping to <1% of actual on first cold-cache load with
+        # compareFilter on (parts settle within a second or two on refresh).
+        if jobs_inserted > 0:
+            if not _wait_for_replication(team_id):
+                return None
 
         read_started = time.perf_counter()
         rows = execute_read_query(
@@ -571,6 +676,7 @@ def execute_lazy_precomputed_read(
             "web_overview_lazy_precompute_completed",
             team_id=team_id,
             job_count=len(result.job_ids),
+            jobs_inserted=jobs_inserted,
             rows_returned=len(rows) if rows else 0,
             ensure_duration_ms=ensure_duration_ms,
             read_duration_ms=read_duration_ms,

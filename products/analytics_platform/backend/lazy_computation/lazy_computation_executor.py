@@ -312,6 +312,12 @@ class LazyComputationResult:
     ready: bool
     job_ids: list[uuid.UUID]
     errors: list[str] = field(default_factory=list)
+    # Number of jobs this executor created+inserted during the call. Callers
+    # use this to decide whether to wait for ClickHouse replication before
+    # issuing the downstream SELECT — fresh INSERTs on Replicated*MergeTree
+    # tables may not be visible on a different read replica yet, even after
+    # the local executor sees the PG row flip to READY.
+    jobs_inserted: int = 0
 
 
 def compute_query_hash(query_info: QueryInfo) -> str:
@@ -858,7 +864,11 @@ class LazyComputationExecutor:
         final_jobs = find_existing_jobs(team, query_hash, start, end)
         final_fresh = self._filter_by_freshness(final_jobs)
         final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
-        result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
+        result = LazyComputationResult(
+            ready=True,
+            job_ids=[j.id for j in final_ready],
+            jobs_inserted=jobs_created,
+        )
         _log_execution("success", result)
         return result
 

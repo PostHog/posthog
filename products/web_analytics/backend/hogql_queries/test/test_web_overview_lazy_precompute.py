@@ -607,3 +607,122 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             result = execute_lazy_precomputed_read(runner)
 
         assert result is None, f"expected fall-back to raw when current precompute not ready, got {result!r}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_sync_replica_fires_when_jobs_were_inserted(self):
+        # When `ensure_*` reports it INSERTed something, the read must wait for
+        # those parts to replicate (`_wait_for_replication`) before issuing the
+        # SELECT — otherwise the SELECT can land on a replica mid-fetch and
+        # silently under-count, which is the bug this whole flow was added for.
+        from posthog.hogql_queries.web_analytics import web_overview_lazy_precompute as mod
+        from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
+
+        with (
+            self._enable_lazy(),
+            patch.object(
+                mod,
+                "ensure_web_overview_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=1),
+            ),
+            patch.object(mod, "_wait_for_replication", return_value=True) as wait_mock,
+            patch.object(mod, "execute_read_query", return_value=[[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]),
+        ):
+            runner = WebOverviewQueryRunner(team=self.team, query=self._build_query())
+            result = execute_lazy_precomputed_read(runner)
+
+        assert wait_mock.call_count == 1, f"_wait_for_replication should fire exactly once, got {wait_mock.call_count}"
+        assert result is not None, "successful sync should not fall back"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_sync_replica_skipped_on_warm_cache_hit(self):
+        # The warm-cache path (`ensure_*` returns ready=True, jobs_inserted=0)
+        # must skip `_wait_for_replication` so reads stay fast — every part is
+        # already on every replica from previous calls.
+        from posthog.hogql_queries.web_analytics import web_overview_lazy_precompute as mod
+        from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
+
+        with (
+            self._enable_lazy(),
+            patch.object(
+                mod,
+                "ensure_web_overview_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=0),
+            ),
+            patch.object(mod, "_wait_for_replication", return_value=True) as wait_mock,
+            patch.object(mod, "execute_read_query", return_value=[[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]),
+        ):
+            runner = WebOverviewQueryRunner(team=self.team, query=self._build_query())
+            result = execute_lazy_precomputed_read(runner)
+
+        assert wait_mock.call_count == 0, (
+            f"_wait_for_replication must not fire when no new INSERTs were made, got {wait_mock.call_count}"
+        )
+        assert result is not None, "warm-cache read should succeed"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_sync_replica_failure_falls_back(self):
+        # If `_wait_for_replication` returns False (timeout, missing privilege,
+        # cluster unreachable, etc.) we MUST NOT read the partial state — fall
+        # through to the live path so the caller gets correct numbers even if
+        # slow. Better to be slow once than to return wrong numbers.
+        from posthog.hogql_queries.web_analytics import web_overview_lazy_precompute as mod
+        from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
+
+        read_mock_called = {"n": 0}
+
+        def fake_read(**kwargs):
+            read_mock_called["n"] += 1
+            return [[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]
+
+        with (
+            self._enable_lazy(),
+            patch.object(
+                mod,
+                "ensure_web_overview_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=3),
+            ),
+            patch.object(mod, "_wait_for_replication", return_value=False),
+            patch.object(mod, "execute_read_query", side_effect=fake_read),
+        ):
+            runner = WebOverviewQueryRunner(team=self.team, query=self._build_query())
+            result = execute_lazy_precomputed_read(runner)
+
+        assert result is None, f"sync failure must fall back to live path, got {result!r}"
+        assert read_mock_called["n"] == 0, (
+            f"read query must NOT fire when sync failed, fired {read_mock_called['n']} time(s)"
+        )
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_sync_replica_fires_when_only_previous_period_inserted(self):
+        # Common compareFilter race: current period is warm (no INSERTs) but
+        # the previous period is cold (fresh INSERTs). We MUST sync before the
+        # read or the previous-period buckets won't be visible yet.
+        from posthog.hogql_queries.web_analytics import web_overview_lazy_precompute as mod
+        from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
+
+        call_count = {"n": 0}
+
+        def fake_ensure(runner, time_range_start, time_range_end):
+            call_count["n"] += 1
+            # First call (current period): warm cache, nothing inserted.
+            # Second call (previous period): cold, INSERTed 5 jobs.
+            return LazyComputationResult(
+                ready=True,
+                job_ids=[uuid.uuid4()],
+                jobs_inserted=0 if call_count["n"] == 1 else 5,
+            )
+
+        with (
+            self._enable_lazy(),
+            patch.object(mod, "ensure_web_overview_precomputed", side_effect=fake_ensure),
+            patch.object(mod, "_wait_for_replication", return_value=True) as wait_mock,
+            patch.object(mod, "execute_read_query", return_value=[[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]),
+        ):
+            runner = WebOverviewQueryRunner(team=self.team, query=self._build_query(compare=True))
+            result = execute_lazy_precomputed_read(runner)
+
+        assert call_count["n"] == 2, f"expected 2 ensure calls (current+previous), got {call_count['n']}"
+        assert wait_mock.call_count == 1, (
+            f"sync must still fire when only the previous-period call inserted, got {wait_mock.call_count}"
+        )
+        assert result is not None
