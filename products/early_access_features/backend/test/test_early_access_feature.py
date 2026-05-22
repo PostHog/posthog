@@ -10,6 +10,7 @@ from django.test.client import Client
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.models import FeatureFlag, Person
 from posthog.models.team.team_caching import set_team_in_cache
 
@@ -1221,3 +1222,125 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                     }
                 ],
             )
+
+
+class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
+    CREATE_PAYLOAD = {
+        "name": "Scope warning feature",
+        "description": "x",
+        "stage": "concept",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+
+    def _warning_events(self, mock_logger):
+        return [
+            call
+            for call in mock_logger.warning.call_args_list
+            if call.args and call.args[0] == "feature_flag_write_via_other_scope"
+        ]
+
+    def _create_feature(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={**self.CREATE_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def test_create_with_early_access_feature_write_only_logs_warning(self):
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_feature()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        extra = events[0].kwargs
+        assert extra["action"] == "early_access_feature.create"
+        assert extra["team_id"] == self.team.id
+        assert extra["scopes"] == ["early_access_feature:write"]
+        assert extra["auth_kind"] == "personal_api_key"
+        assert extra["auth_id"] == self.key.id
+
+    def test_create_with_feature_flag_write_does_not_log(self):
+        self.key.scopes = ["early_access_feature:write", "feature_flag:write"]
+        self.key.save()
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_feature()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []
+
+    def test_create_with_wildcard_scope_does_not_log(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_feature()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []
+
+    def test_update_with_stage_change_logs_warning(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        feature_id = self._create_feature().json()["id"]
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+                data={"stage": "beta"},
+                format="json",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        assert events[0].kwargs["action"] == "early_access_feature.stage_change"
+
+    def test_update_without_stage_change_does_not_log(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        feature_id = self._create_feature().json()["id"]
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+                data={"description": "updated"},
+                format="json",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._warning_events(mock_logger) == []
+
+    def test_destroy_logs_warning(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        feature_id = self._create_feature().json()["id"]
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+                headers=self.auth_headers,
+            )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = self._warning_events(mock_logger)
+        assert len(events) == 1
+        assert events[0].kwargs["action"] == "early_access_feature.destroy"
+
+    def test_session_auth_does_not_log(self):
+        self.client.force_login(self.user)
+        with patch("posthog.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/early_access_feature/",
+                data=self.CREATE_PAYLOAD,
+                format="json",
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []

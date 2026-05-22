@@ -237,6 +237,12 @@ export const CdcTableModeEnumApi = {
  */
 export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
+export type ExternalDataSchemaApiAvailableColumnsItem = {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+}
+
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
@@ -309,6 +315,13 @@ export interface ExternalDataSchemaApi {
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -324,6 +337,12 @@ export interface PaginatedExternalDataSchemaListApi {
  * @nullable
  */
 export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
+
+export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+}
 
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
@@ -397,6 +416,13 @@ export interface PatchedExternalDataSchemaApi {
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
+    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
 }
 
 /**
@@ -1068,6 +1094,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
   * `cdc_only` - cdc_only
   * `both` - both */
     cdc_table_mode?: CdcTableModeEnumApi | null
+    /**
+     * Columns to sync. Null means sync all columns.
+     * @nullable
+     */
+    enabled_columns?: string[] | null
 }
 
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
@@ -1550,6 +1581,21 @@ export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     results: DataWarehouseSavedQueryMinimalApi[]
 }
 
+export type DataWarehouseSavedQueryApiQueryKind =
+    (typeof DataWarehouseSavedQueryApiQueryKind)[keyof typeof DataWarehouseSavedQueryApiQueryKind]
+
+export const DataWarehouseSavedQueryApiQueryKind = {
+    HogQLQuery: 'HogQLQuery',
+} as const
+
+/**
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ */
+export type DataWarehouseSavedQueryApiQuery = {
+    kind?: DataWarehouseSavedQueryApiQueryKind
+    query: string
+}
+
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
@@ -1566,8 +1612,8 @@ export interface DataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-    query?: unknown
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    query: DataWarehouseSavedQueryApiQuery
     readonly created_by: UserBasicApi
     readonly created_at: string
     /** @nullable */
@@ -1636,6 +1682,21 @@ export interface DataWarehouseSavedQueryApi {
     readonly user_access_level: string | null
 }
 
+export type PatchedDataWarehouseSavedQueryApiQueryKind =
+    (typeof PatchedDataWarehouseSavedQueryApiQueryKind)[keyof typeof PatchedDataWarehouseSavedQueryApiQueryKind]
+
+export const PatchedDataWarehouseSavedQueryApiQueryKind = {
+    HogQLQuery: 'HogQLQuery',
+} as const
+
+/**
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ */
+export type PatchedDataWarehouseSavedQueryApiQuery = {
+    kind?: PatchedDataWarehouseSavedQueryApiQueryKind
+    query: string
+}
+
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
 /**
@@ -1652,8 +1713,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name?: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
-    query?: unknown
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    query?: PatchedDataWarehouseSavedQueryApiQuery
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @nullable */

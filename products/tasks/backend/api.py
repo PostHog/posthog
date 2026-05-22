@@ -445,6 +445,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             else:
                 qs = qs.filter(internal=False)
 
+            archived_param = getattr(self.request, "validated_query_data", {}).get("archived")
+            if archived_param == "true":
+                qs = qs.filter(archived=True)
+            elif archived_param == "all":
+                pass
+            else:
+                qs = qs.filter(archived=False)
+
         # select_related to avoid N+1 on created_by (UserBasicSerializer), team (slug property),
         # and GitHub integrations returned on task rows.
         qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").prefetch_related(
@@ -1453,7 +1461,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with timer("s3_append"):
             task_run.append_log(entries)
 
-        task_run.heartbeat_workflow()
+        task_run.heartbeat_workflow(agent_active=True)
 
         response = Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
         response["Server-Timing"] = timer.to_header_string()

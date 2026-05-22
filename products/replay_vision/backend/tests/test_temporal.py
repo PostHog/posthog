@@ -29,6 +29,10 @@ from products.replay_vision.backend.temporal import ApplyLensWorkflow
 from products.replay_vision.backend.temporal.activities.call_lens_provider import call_lens_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
+from products.replay_vision.backend.temporal.activities.embed_indexer_observation import (
+    embed_indexer_observation_activity,
+)
+from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
@@ -38,6 +42,8 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.lenses.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.lenses.indexer import IndexerOutput
 from products.replay_vision.backend.temporal.lenses.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
@@ -49,6 +55,8 @@ from products.replay_vision.backend.temporal.types import (
     ApplyLensInputs,
     CreateObservationInputs,
     CreateObservationOutput,
+    EmbedIndexerObservationInputs,
+    EmitClassifierTagsInputs,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
     EventTable,
@@ -59,6 +67,7 @@ from products.replay_vision.backend.temporal.types import (
     MarkObservationFailedInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    SessionMetadata,
     UploadedVideo,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
@@ -337,11 +346,13 @@ class TestFetchSessionEventsActivity:
     def _make_session_replay_events_mock(
         self,
         metadata: dict | None,
-        pages: list[tuple[list[str] | None, list[tuple] | None]],
+        pages: list[tuple],
     ) -> MagicMock:
+        """Pages may be 2-tuples (columns, rows) or 3-tuples (columns, rows, has_more); has_more defaults to False."""
+        normalized = [page if len(page) == 3 else (*page, False) for page in pages]
         mock_obj = MagicMock(spec=SessionReplayEvents)
         mock_obj.get_metadata.return_value = metadata
-        mock_obj.get_events.side_effect = pages
+        mock_obj.get_events.side_effect = normalized
         return mock_obj
 
     @pytest.mark.asyncio
@@ -375,18 +386,19 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert stored.session_id == "sess-1"
         assert stored.team_id == lens.team_id
-        assert stored.events.columns == ["event", "timestamp", "$session_id"]
-        assert stored.session_start_time == start
-        assert stored.session_end_time == end
-        assert stored.duration_seconds == 300.0
-        assert stored.events.rows == [["$pageview", "2026-05-12T10:00:00Z", "sess-1"]]
+        assert stored.events.columns == ["event_id", "event", "timestamp", "$session_id"]
+        assert stored.metadata.start_time == start
+        assert stored.metadata.end_time == end
+        assert stored.metadata.duration_seconds == 300.0
+        assert len(stored.events.rows) == 1
+        assert stored.events.rows[0][1:] == ["$pageview", "2026-05-12T10:00:00Z", "sess-1"]
 
     @pytest.mark.asyncio
     async def test_paginates_through_get_events_until_short_page(self) -> None:
         lens = await sync_to_async(_make_lens)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
-        metadata = {"start_time": start, "end_time": start, "duration": 0, "active_seconds": 0}
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
         page_size = 3000
 
         full_page_rows = [("$pageview", start, f"sess-{i}") for i in range(page_size)]
@@ -394,8 +406,9 @@ class TestFetchSessionEventsActivity:
         mock_obj = self._make_session_replay_events_mock(
             metadata,
             [
-                (["event", "timestamp", "$session_id"], full_page_rows),
-                (["event", "timestamp", "$session_id"], last_page_rows),
+                # First page reports more available; second page (short) reports no more, ending the loop.
+                (["event", "timestamp", "$session_id"], full_page_rows, True),
+                (["event", "timestamp", "$session_id"], last_page_rows, False),
             ],
         )
 
@@ -432,10 +445,12 @@ class TestFetchSessionEventsActivity:
         existing = LensLlmInputs(
             session_id="sess-1",
             team_id=lens.team_id,
-            session_start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
-            session_end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
-            duration_seconds=300.0,
             events=EventTable(columns=["event"], rows=[["$pageview"]]),
+            metadata=SessionMetadata(
+                start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
+                end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
+                duration_seconds=300.0,
+            ),
         )
         await store_data_in_redis(redis_client, key, existing.model_dump_json())
 
@@ -505,6 +520,278 @@ class TestFetchSessionEventsActivity:
                     )
                 )
             assert exc_info.value.non_retryable is True
+
+    @pytest.mark.asyncio
+    async def test_requests_extra_fields_and_event_blocklist(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        mock_obj = self._make_session_replay_events_mock(metadata, [(["event"], [("$pageview",)])])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        kwargs = mock_obj.get_events.call_args_list[0].kwargs
+        assert kwargs["events_to_ignore"] == ["$feature_flag_called"]
+        assert "elements_chain_ids" in kwargs["extra_fields"]
+        assert "properties.$exception_types" in kwargs["extra_fields"]
+        assert "properties.$exception_values" in kwargs["extra_fields"]
+
+    @pytest.mark.asyncio
+    async def test_simplifies_repeated_urls_and_window_ids(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        long_url = "https://app.example.com/very/long/path?with=querystring&that=repeats"
+        win = "01931abc-1234-7890-abcd-ef0123456789"
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [
+                (
+                    ["event", "$current_url", "$window_id"],
+                    [
+                        ("$pageview", long_url, win),
+                        ("button_click", long_url, win),
+                        ("$pageview", long_url + "/sub", win),
+                    ],
+                )
+            ],
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        # 2 unique URLs, 1 unique window — mappings are reverse (short -> actual).
+        assert stored.url_mapping == {"url_1": long_url, "url_2": long_url + "/sub"}
+        assert stored.window_mapping == {"window_1": win}
+        # Row values for $current_url and $window_id are now the short tokens.
+        url_col = stored.events.columns.index("$current_url")
+        window_col = stored.events.columns.index("$window_id")
+        assert [row[url_col] for row in stored.events.rows] == ["url_1", "url_1", "url_2"]
+        assert {row[window_col] for row in stored.events.rows} == {"window_1"}
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_identical_events_by_hash(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [
+                (
+                    ["event", "timestamp"],
+                    [
+                        ("rageclick", start),
+                        ("rageclick", start),  # exact dup, drops
+                        ("rageclick", start),  # exact dup, drops
+                        ("$pageview", start),
+                    ],
+                )
+            ],
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        assert len(stored.events.rows) == 2  # rageclick collapsed, plus the $pageview
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_identical_content_despite_distinct_uuids(self) -> None:
+        # `uuid` is fetched per event but excluded from the dedup hash — otherwise identical events never collapse.
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        mock_obj = self._make_session_replay_events_mock(
+            metadata,
+            [
+                (
+                    ["event", "timestamp", "uuid"],
+                    [
+                        ("rageclick", start, "00000000-0000-0000-0000-000000000001"),
+                        ("rageclick", start, "00000000-0000-0000-0000-000000000002"),  # distinct uuid, same content
+                        ("rageclick", start, "00000000-0000-0000-0000-000000000003"),
+                        ("$pageview", start, "00000000-0000-0000-0000-000000000004"),
+                    ],
+                )
+            ],
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        assert len(stored.events.rows) == 2  # rageclick collapsed, $pageview kept
+        assert "uuid" not in stored.events.columns  # not surfaced to the LLM
+        # The mapping records the FIRST uuid seen for each unique event_id.
+        assert len(stored.event_id_mapping) == 2
+        uuids = {c.uuid for c in stored.event_id_mapping.values()}
+        assert "00000000-0000-0000-0000-000000000001" in uuids
+        assert "00000000-0000-0000-0000-000000000004" in uuids
+
+    @pytest.mark.asyncio
+    async def test_session_metadata_round_trips_to_payload(self) -> None:
+        # `RecordingMetadata` uses `first_url` (not `start_url`) and has no `inactive_seconds` — we derive it from duration.
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {
+            "start_time": start,
+            "end_time": start,
+            "duration": 240,
+            "active_seconds": 180,
+            "click_count": 23,
+            "keypress_count": 41,
+            "mouse_activity_count": 156,
+            "first_url": "https://app.example.com/dashboard",
+            "console_error_count": 3,
+        }
+        mock_obj = self._make_session_replay_events_mock(metadata, [(["event"], [("$pageview",)])])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        m = stored.metadata
+        assert m.active_seconds == 180
+        assert m.inactive_seconds == 60  # derived: duration (240) − active (180)
+        assert m.click_count == 23
+        assert m.start_url == "https://app.example.com/dashboard"
+        assert m.console_error_count == 3
+        assert m.events_truncated is False
+
+    @pytest.mark.asyncio
+    async def test_marks_events_truncated_when_last_page_has_more(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        # All 5 pages report has_more=True — we've used the page budget but more events exist.
+        full_page = [("$pageview", start, f"sess-{i}") for i in range(3000)]
+        pages = [(["event", "timestamp", "$session_id"], full_page, True)] * 5
+        mock_obj = self._make_session_replay_events_mock(metadata, pages)
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        assert stored.metadata.events_truncated is True
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_truncated_when_last_page_exactly_fills_budget(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        # Four full pages with more available, then the fifth full page reports no more.
+        full_page = [("$pageview", start, f"sess-{i}") for i in range(3000)]
+        pages: list[tuple] = [(["event", "timestamp", "$session_id"], full_page, True)] * 4
+        pages.append((["event", "timestamp", "$session_id"], full_page, False))
+        mock_obj = self._make_session_replay_events_mock(metadata, pages)
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        assert stored is not None
+        assert stored.metadata.events_truncated is False
+
+    @pytest.mark.asyncio
+    async def test_raises_non_retryable_when_session_duration_below_min(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        # 5s is under the 15s minimum.
+        metadata = {"start_time": start, "end_time": start, "duration": 5, "active_seconds": 3}
+        mock_obj = self._make_session_replay_events_mock(metadata, [(["event"], [("$pageview",)])])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_events_activity(
+                    FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                )
+            assert exc_info.value.non_retryable is True
+            assert "5" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_raises_non_retryable_when_active_seconds_below_min(self) -> None:
+        lens = await sync_to_async(_make_lens)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        # 60s duration passes; 3s active is under the 10s minimum.
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 3}
+        mock_obj = self._make_session_replay_events_mock(metadata, [(["event"], [("$pageview",)])])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            with pytest.raises(ApplicationError) as exc_info:
+                await fetch_session_events_activity(
+                    FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                )
+            assert exc_info.value.non_retryable is True
+            assert "3" in str(exc_info.value)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -777,3 +1064,265 @@ async def test_apply_lens_workflow_propagates_workflow_id_to_create() -> None:
     assert create_input.triggered_by == ObservationTrigger.SCHEDULE
     assert create_input.triggered_by_user_id == 42
     assert create_input.workflow_id == "wf-from-info"
+
+
+def _indexer_output() -> IndexerOutput:
+    return IndexerOutput(
+        intent="Log in to the dashboard",
+        summary="User tried to authenticate but the form failed twice.",
+        outcome="Reached the password reset page after failed attempts.",
+        friction_points=["invalid password error"],
+        keywords=["login", "authentication", "reset"],
+        confidence=0.9,
+    )
+
+
+def _classifier_output() -> ClassifierOutput:
+    return ClassifierOutput(
+        tags=["support"],
+        tags_freeform=["billing"],
+        reasoning="user contacted support about billing",
+        confidence=0.85,
+    )
+
+
+@pytest.mark.asyncio
+async def test_embed_indexer_observation_emits_one_request_per_nonempty_facet() -> None:
+    out = IndexerOutput(
+        intent="Investigate slow query response",
+        summary="User browsed dashboards and clicked through several insights.",
+        outcome="No issue reproduced — user closed the tab.",
+        friction_points=[],
+        keywords=["dashboard", "insight"],
+        confidence=0.8,
+    )
+    inputs = EmbedIndexerObservationInputs(
+        team_id=99, session_id="sess-abc", observation_id=uuid.uuid4(), indexer_output=out
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.embed_indexer_observation.emit_embedding_request"
+    ) as mock_emit:
+        await embed_indexer_observation_activity(inputs)
+
+    renderings = [call.kwargs["rendering"] for call in mock_emit.call_args_list]
+    assert renderings == ["intent", "outcome", "keywords"]
+    for call in mock_emit.call_args_list:
+        assert call.kwargs["team_id"] == 99
+        assert call.kwargs["product"] == "replay-vision"
+        assert call.kwargs["document_type"] == "replay-observation"
+        assert call.kwargs["document_id"] == str(inputs.observation_id)
+        assert call.kwargs["models"] == ["text-embedding-3-large-3072"]
+        # session_id is carried in metadata so search results can map embeddings → sessions.
+        assert call.kwargs["metadata"]["session_id"] == "sess-abc"
+        assert call.kwargs["metadata"]["team_id"] == 99
+        assert call.kwargs["metadata"]["observation_id"] == str(inputs.observation_id)
+
+
+@pytest.mark.asyncio
+async def test_embed_indexer_observation_raises_propagates_failure() -> None:
+    inputs = EmbedIndexerObservationInputs(
+        team_id=99, session_id="sess-x", observation_id=uuid.uuid4(), indexer_output=_indexer_output()
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.embed_indexer_observation.emit_embedding_request",
+        side_effect=RuntimeError("kafka down"),
+    ):
+        with pytest.raises(RuntimeError, match="kafka down"):
+            await embed_indexer_observation_activity(inputs)
+
+
+@pytest.mark.asyncio
+async def test_emit_classifier_tags_produces_kafka_payload() -> None:
+    inputs = EmitClassifierTagsInputs(
+        team_id=99, session_id="sess-classify", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
+    )
+    session_start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+    fake_metadata = {"distinct_id": "user-77", "start_time": session_start}
+
+    with (
+        patch(
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
+        ) as mock_se_cls,
+        patch(
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.get_producer"
+        ) as mock_producer_factory,
+    ):
+        mock_se_cls.return_value.get_metadata.return_value = fake_metadata
+        producer = MagicMock()
+        mock_producer_factory.return_value = producer
+
+        await emit_classifier_tags_activity(inputs)
+
+    producer.produce.assert_called_once()
+    payload = producer.produce.call_args.kwargs["data"]
+    assert payload["session_id"] == "sess-classify"
+    assert payload["team_id"] == 99
+    assert payload["distinct_id"] == "user-77"
+    assert payload["ai_tags_fixed"] == ["support"]
+    assert payload["ai_tags_freeform"] == ["billing"]
+    assert "ai_highlighted" not in payload
+    assert payload["click_count"] == 0
+    assert payload["keypress_count"] == 0
+    assert payload["urls"] == []
+    assert payload["first_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_emit_classifier_tags_raises_when_metadata_missing() -> None:
+    inputs = EmitClassifierTagsInputs(
+        team_id=99, session_id="sess-missing", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
+    ) as mock_se_cls:
+        mock_se_cls.return_value.get_metadata.return_value = None
+        with pytest.raises(ApplicationError, match="No replay metadata"):
+            await emit_classifier_tags_activity(inputs)
+
+
+@pytest.mark.asyncio
+async def test_embed_indexer_observation_raises_when_kafka_delivery_fails() -> None:
+    inputs = EmbedIndexerObservationInputs(
+        team_id=99, session_id="sess-x", observation_id=uuid.uuid4(), indexer_output=_indexer_output()
+    )
+    failed_result = MagicMock()
+    failed_result.get.side_effect = RuntimeError("broker timeout")
+    with patch(
+        "products.replay_vision.backend.temporal.activities.embed_indexer_observation.emit_embedding_request",
+        return_value=failed_result,
+    ):
+        with pytest.raises(RuntimeError, match="broker timeout"):
+            await embed_indexer_observation_activity(inputs)
+
+
+@pytest.mark.asyncio
+async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
+    inputs = EmitClassifierTagsInputs(
+        team_id=99, session_id="sess-classify", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
+    )
+    session_start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+    fake_metadata = {"distinct_id": "user-77", "start_time": session_start}
+    failed_result = MagicMock()
+    failed_result.get.side_effect = RuntimeError("broker timeout")
+
+    with (
+        patch(
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
+        ) as mock_se_cls,
+        patch(
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.get_producer"
+        ) as mock_producer_factory,
+    ):
+        mock_se_cls.return_value.get_metadata.return_value = fake_metadata
+        producer = MagicMock()
+        producer.produce.return_value = failed_result
+        mock_producer_factory.return_value = producer
+
+        with pytest.raises(RuntimeError, match="broker timeout"):
+            await emit_classifier_tags_activity(inputs)
+
+
+@pytest.mark.asyncio
+async def test_apply_lens_workflow_dispatches_indexer_side_effect() -> None:
+    new_observation_id = uuid.uuid4()
+    model_output = _indexer_output()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_lens_provider_activity: LensCallOutput(model_output=model_output),
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-idx", team_id=99), mocks, workflow_id="wf-idx")
+
+    activity_order = [fn for fn, _ in mocks.activity_calls]
+    call_idx = activity_order.index(call_lens_provider_activity)
+    assert activity_order[call_idx + 1] == embed_indexer_observation_activity
+    assert activity_order[call_idx + 2] == emit_observation_event_activity
+    assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
+    assert emit_classifier_tags_activity not in activity_order
+
+    embed_input = next(arg for fn, arg in mocks.activity_calls if fn is embed_indexer_observation_activity)
+    assert embed_input.session_id == "sess-idx"
+    assert embed_input.team_id == 99
+    assert embed_input.indexer_output == model_output
+
+
+@pytest.mark.asyncio
+async def test_apply_lens_workflow_dispatches_classifier_side_effect() -> None:
+    new_observation_id = uuid.uuid4()
+    model_output = _classifier_output()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_lens_provider_activity: LensCallOutput(model_output=model_output),
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-cls", team_id=99), mocks, workflow_id="wf-cls")
+
+    activity_order = [fn for fn, _ in mocks.activity_calls]
+    call_idx = activity_order.index(call_lens_provider_activity)
+    assert activity_order[call_idx + 1] == emit_classifier_tags_activity
+    assert activity_order[call_idx + 2] == emit_observation_event_activity
+    assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
+    assert embed_indexer_observation_activity not in activity_order
+
+    tag_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_classifier_tags_activity)
+    assert tag_input.classifier_output == model_output
+
+
+@pytest.mark.asyncio
+async def test_apply_lens_workflow_skips_side_effects_for_monitor() -> None:
+    new_observation_id = uuid.uuid4()
+    model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_lens_provider_activity: LensCallOutput(model_output=model_output),
+        },
+    )
+
+    await _run_workflow(_build_inputs(session_id="sess-mon", team_id=99), mocks, workflow_id="wf-mon")
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert embed_indexer_observation_activity not in called
+    assert emit_classifier_tags_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_lens_workflow_marks_failed_when_side_effect_raises() -> None:
+    new_observation_id = uuid.uuid4()
+    side_effect_error = ApplicationError("embedding kafka down", non_retryable=True)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(observation_id=new_observation_id, was_created=True),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_lens_provider_activity: LensCallOutput(model_output=_indexer_output()),
+        },
+        activity_errors={embed_indexer_observation_activity: side_effect_error},
+    )
+
+    with pytest.raises(ApplicationError, match="embedding kafka down"):
+        await _run_workflow(_build_inputs(session_id="sess-idx-fail"), mocks)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert emit_observation_event_activity not in called
+    assert mark_observation_succeeded_activity not in called
+    assert mark_observation_failed_activity in called
+    assert cleanup_gemini_file_activity in called

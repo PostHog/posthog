@@ -28,7 +28,7 @@ import {
     McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { evaluateFeatureFlags, isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -47,7 +47,7 @@ export type RequestProperties = {
     apiToken: string
     // Wrapper-app-provided hint from `?sessionId=` query param. Resolved to a
     // UUID via `SessionManager.getSessionUuid()` and emitted as `$session_id`
-    // for Session Replay / LLM Analytics grouping. Only set by wrapping
+    // for Session Replay / AI observability grouping. Only set by wrapping
     // consumer apps (setup wizard, sandbox, etc.).
     sessionId?: string
     // Streamable-HTTP transport session id (`Mcp-Session-Id` HTTP header).
@@ -97,6 +97,9 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        mcpClientName: undefined,
+        mcpClientVersion: undefined,
+        mcpProtocolVersion: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -564,9 +567,9 @@ export class MCP extends McpAgent<Env> {
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
 
-        // Start feature flag resolution in parallel with cache seeding
+        // User-level flags resolve in parallel with cache seeding. Tool flags are
+        // deferred until orgId is known so org-group rollouts evaluate correctly.
         const flagPromise = this.resolveVersionFlag()
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion)
         const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
@@ -595,6 +598,12 @@ export class MCP extends McpAgent<Env> {
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
+
+        // Flag-eval groups mirror analytics `$groups` so per-organization and per-project
+        // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
+        const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
+        const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
+        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, flagGroups)
 
         const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             flagPromise,
@@ -912,7 +921,10 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async resolveToolFeatureFlags(version?: number): Promise<Record<string, boolean> | undefined> {
+    private async resolveToolFeatureFlags(
+        version?: number,
+        groups?: FlagGroups
+    ): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
             const flagKeys = getRequiredFeatureFlags(version)
@@ -920,7 +932,7 @@ export class MCP extends McpAgent<Env> {
                 return undefined
             }
             const distinctId = await this.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId)
+            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
         } catch {
             return undefined
         }

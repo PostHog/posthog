@@ -24,7 +24,6 @@ class NodeRole(StrEnum):
     # Roles of nodes for a particular NodeType. These are meant to
     # match the CH macro hostClusterRole
     ALL = "all"
-    COORDINATOR = "coordinator"
     DATA = "data"
     INGESTION_EVENTS = "events"
     INGESTION_SMALL = "small"
@@ -72,6 +71,7 @@ class ClickHouseUser(StrEnum):
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
     ENDPOINTS = "endpoints"
+    BILLING = "billing"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"

@@ -94,7 +94,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
 
     return (
         <>
-            {insightMode === ItemMode.Alerts && (
+            {insightMode === ItemMode.Alerts && !alertId && (
                 <ManageAlertsModal
                     onClose={() => push(urls.insightView(insight.short_id as InsightShortId))}
                     isOpen={insightMode === ItemMode.Alerts}

@@ -3,7 +3,7 @@ from types import MappingProxyType
 
 import dagster
 
-from posthog.dags.common.common import JobOwners, check_for_concurrent_runs
+from posthog.dags.common import JobOwners, check_for_concurrent_runs
 from posthog.dags.common.health.detectors import HealthDetector, resolve_execution_policy
 from posthog.dags.common.health.observability import push_health_check_metrics
 from posthog.dags.common.health.processing import _process_batch_detection

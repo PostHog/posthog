@@ -17,7 +17,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.data_imports.signals import get_signal_config
 from posthog.temporal.data_imports.signals.pipeline import run_signal_pipeline
 
-from products.data_warehouse.backend.models import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 

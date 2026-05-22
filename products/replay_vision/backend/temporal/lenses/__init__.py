@@ -8,10 +8,14 @@ from temporalio.exceptions import ApplicationError
 from products.replay_vision.backend.models.replay_lens import LensType, ReplayLens
 from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLensOutput
 from products.replay_vision.backend.temporal.lenses.classifier import ClassifierLens, ClassifierOutput
-from products.replay_vision.backend.temporal.lenses.indexer import IndexerLens, IndexerOutput
-from products.replay_vision.backend.temporal.lenses.monitor import MonitorLens, MonitorOutput
+from products.replay_vision.backend.temporal.lenses.indexer import IndexerLens, IndexerLlmResponse, IndexerOutput
+from products.replay_vision.backend.temporal.lenses.monitor import MonitorLens, MonitorLlmResponse, MonitorOutput
 from products.replay_vision.backend.temporal.lenses.scorer import ScorerLens, ScorerOutput, ScoreScale
-from products.replay_vision.backend.temporal.lenses.summarizer import SummarizerLens, SummarizerOutput
+from products.replay_vision.backend.temporal.lenses.summarizer import (
+    SummarizerLens,
+    SummarizerLlmResponse,
+    SummarizerOutput,
+)
 from products.replay_vision.backend.temporal.types import AnyLensOutput, LensSnapshot
 
 AnyLens = Annotated[
@@ -22,13 +26,7 @@ _LENS_ADAPTER: TypeAdapter[AnyLens] = TypeAdapter(AnyLens)
 
 
 def validate_lens_config(*, lens_config: Any, lens_type: LensType, emits_signals: bool = False) -> AnyLens:
-    """Validate `lens_config` against the per-`lens_type` Pydantic schema.
-
-    Raises `ValueError` if `lens_config` isn't a dict, or `pydantic.ValidationError`
-    on a type-specific schema failure. Callers in activity/workflow contexts wrap
-    these as `ApplicationError(non_retryable=True)`; callers in DRF contexts wrap
-    them as `serializers.ValidationError`.
-    """
+    """Validate `lens_config` against the per-`lens_type` Pydantic schema; raises `ValueError` or `pydantic.ValidationError`."""
     if not isinstance(lens_config, dict):
         raise ValueError(f"lens_config must be a JSON object, got {type(lens_config).__name__}")
     # Spread `lens_config` first so the trusted top-level columns override anything that leaked into the JSON.
@@ -70,13 +68,16 @@ __all__ = [
     "ClassifierLens",
     "ClassifierOutput",
     "IndexerLens",
+    "IndexerLlmResponse",
     "IndexerOutput",
     "MonitorLens",
+    "MonitorLlmResponse",
     "MonitorOutput",
     "ScoreScale",
     "ScorerLens",
     "ScorerOutput",
     "SummarizerLens",
+    "SummarizerLlmResponse",
     "SummarizerOutput",
     "lens_from_db",
     "lens_from_snapshot",

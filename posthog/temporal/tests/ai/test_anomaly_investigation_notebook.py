@@ -1,9 +1,10 @@
 from posthog.test.base import BaseTest
 
 from posthog.models import Insight
-from posthog.models.alert import AlertCheck, AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 
 class TestAnomalyInvestigationNotebook(BaseTest):

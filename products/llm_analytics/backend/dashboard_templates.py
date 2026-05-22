@@ -2,10 +2,10 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 
 
 def get_llm_analytics_default_template() -> DashboardTemplate:
-    """Default dashboard template for LLM Analytics."""
+    """Default dashboard template for AI observability."""
     return DashboardTemplate(
-        template_name="LLM Analytics Default",
-        dashboard_description="Overview of your LLM usage, costs, and performance",
+        template_name="AI observability default",
+        dashboard_description="Overview of your AI usage, costs, and performance",
         dashboard_filters={"date_from": "-7d"},
         tiles=[
             {

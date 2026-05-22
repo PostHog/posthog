@@ -158,8 +158,12 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
+        // updateEditor=true puts the historical doc into the editor so prosemirror-collab
+        // produces real steps for the delta. Without it, sendableSteps stays empty and the
+        // collab save is a no-op — revert would silently do nothing.
+        const content = previewContent
         clearPreviewContent()
-        setLocalContent(previewContent)
+        setLocalContent(content, true)
         setShowHistory(false)
     }
 

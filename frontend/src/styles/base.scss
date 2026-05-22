@@ -2076,3 +2076,62 @@
         box-shadow: 0 0 24px 8px var(--color-accent);
     }
 }
+
+// Rainbow brand gradient — animated horizontal scroll of PostHog brand colors.
+// Apply via `background-image: var(--rainbow-gradient)` or via the helper
+// classes below. The text variants use `background-clip: text` so the gradient
+// fills the glyphs; `*-fading` additionally plays a one-shot fade-in on mount,
+// useful for elements that swap content via a key change.
+:root {
+    --rainbow-gradient: linear-gradient(
+        90deg,
+        #0143cb 0%,
+        #2b6ff4 24%,
+        #d23401 47%,
+        #ff651f 66%,
+        #fba000 83%,
+        #0143cb 100%
+    );
+}
+
+.rainbow-text,
+.rainbow-text-fading {
+    color: transparent;
+    background-image: var(--rainbow-gradient);
+    background-clip: text;
+    background-size: 200% 100%;
+}
+
+.rainbow-text.rainbow-text-animating {
+    animation: rainbow-scroll 3s linear infinite;
+}
+
+.rainbow-text-fading.rainbow-text-animating {
+    animation:
+        rainbow-scroll 3s linear infinite,
+        rainbow-fade-in 300ms ease-out;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes rainbow-scroll {
+    0% {
+        background-position-x: 0%;
+    }
+
+    100% {
+        background-position-x: 200%;
+    }
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes rainbow-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
