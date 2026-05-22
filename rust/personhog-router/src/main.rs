@@ -117,6 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .install_recorder()
             .expect("Failed to install metrics recorder");
 
+        personhog_common::spawn_tcp_monitor(Duration::from_secs(10));
+
         let health_router = Router::new()
             .route(
                 "/_readiness",

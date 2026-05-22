@@ -222,7 +222,7 @@ impl RawProxyInner {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
 
         for attempt in 0..=self.retry_config.max_retries {
-            let channel = self.replica.next_raw_channel();
+            let (channel, channel_idx) = self.replica.next_raw_channel_indexed();
 
             let body = BoxBody::new(Full::new(body_bytes.clone()).map_err(|never| match never {}));
 
@@ -235,9 +235,37 @@ impl RawProxyInner {
             *req.version_mut() = parts.version;
             *req.headers_mut() = parts.headers.clone();
 
+            let start = std::time::Instant::now();
             match channel.oneshot(req).await {
-                Ok(response) => return response,
+                Ok(response) => {
+                    let ch_label = channel_idx.to_string();
+                    counter!(
+                        "personhog_router_channel_requests_total",
+                        "channel" => ch_label.clone(),
+                    )
+                    .increment(1);
+                    histogram!(
+                        "personhog_router_channel_duration_ms",
+                        "channel" => ch_label,
+                        "method" => method.to_string(),
+                    )
+                    .record(start.elapsed().as_secs_f64() * 1000.0);
+                    return response;
+                }
                 Err(e) => {
+                    let ch_label = channel_idx.to_string();
+                    counter!(
+                        "personhog_router_channel_requests_total",
+                        "channel" => ch_label.clone(),
+                    )
+                    .increment(1);
+                    histogram!(
+                        "personhog_router_channel_duration_ms",
+                        "channel" => ch_label,
+                        "method" => method.to_string(),
+                    )
+                    .record(start.elapsed().as_secs_f64() * 1000.0);
+
                     let is_last = attempt >= self.retry_config.max_retries;
                     if is_last {
                         return grpc_error_response(

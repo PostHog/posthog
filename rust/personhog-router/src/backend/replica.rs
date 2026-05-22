@@ -119,6 +119,9 @@ impl ReplicaBackend {
             "created replica backend channels"
         );
 
+        metrics::gauge!("personhog_router_replica_channels_configured")
+            .set(num_channels as f64);
+
         Self {
             clients,
             raw_channels,
@@ -127,15 +130,20 @@ impl ReplicaBackend {
         }
     }
 
-    fn next_client(&self) -> PersonHogReplicaClient<Channel> {
+    fn next_client_indexed(&self) -> (PersonHogReplicaClient<Channel>, usize) {
         let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.clients.len();
-        self.clients[idx].clone()
+        (self.clients[idx].clone(), idx)
     }
 
     /// Get the next raw channel for byte-level proxying.
     pub fn next_raw_channel(&self) -> Channel {
         let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.raw_channels.len();
         self.raw_channels[idx].clone()
+    }
+
+    pub fn next_raw_channel_indexed(&self) -> (Channel, usize) {
+        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.raw_channels.len();
+        (self.raw_channels[idx].clone(), idx)
     }
 
     pub fn retry_config(&self) -> &RetryConfig {
@@ -149,15 +157,30 @@ impl ReplicaBackend {
 macro_rules! retry_call {
     ($self:expr, $method:ident, $request:expr) => {{
         with_retry(&$self.retry_config, stringify!($method), || {
-            let mut client = $self.next_client();
+            let (mut client, channel_idx) = $self.next_client_indexed();
             let req = $request.clone();
             let client_name = current_client_name();
+            let method_name = stringify!($method);
             async move {
                 let mut request = Request::new(req);
                 if let Ok(val) = client_name.parse() {
                     request.metadata_mut().insert("x-client-name", val);
                 }
-                client.$method(request).await.map(|r| r.into_inner())
+                let start = std::time::Instant::now();
+                let result = client.$method(request).await.map(|r| r.into_inner());
+                let ch_label = channel_idx.to_string();
+                metrics::counter!(
+                    "personhog_router_channel_requests_total",
+                    "channel" => ch_label.clone(),
+                )
+                .increment(1);
+                metrics::histogram!(
+                    "personhog_router_channel_duration_ms",
+                    "channel" => ch_label,
+                    "method" => method_name,
+                )
+                .record(start.elapsed().as_secs_f64() * 1000.0);
+                result
             }
         })
         .await
@@ -443,7 +466,8 @@ mod tests {
         let backend = make_backend(4);
         for round in 0..3u64 {
             for ch in 0..4u64 {
-                backend.next_client();
+                let (_, idx) = backend.next_client_indexed();
+                assert_eq!(idx, (round * 4 + ch) as usize % 4);
                 let expected = round * 4 + ch + 1;
                 assert_eq!(backend.next_idx.load(Ordering::Relaxed), expected as usize);
             }
@@ -454,12 +478,12 @@ mod tests {
     async fn next_client_wraps_around() {
         let backend = make_backend(3);
         for _ in 0..3 {
-            backend.next_client();
+            backend.next_client_indexed();
         }
-        // 4th call uses counter=3, so index = 3 % 3 = 0 (wraps back to first channel)
         let idx_before = backend.next_idx.load(Ordering::Relaxed);
-        backend.next_client();
+        let (_, idx) = backend.next_client_indexed();
         assert_eq!(idx_before % backend.clients.len(), 0);
+        assert_eq!(idx, 0);
     }
 
     #[tokio::test]
