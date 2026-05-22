@@ -214,7 +214,7 @@ async def _spawn_and_run(
             "skill_name": skill.name,
             "skill_version": skill.version,
             "skill_id": skill.skill_id,
-            "allowed_tools": skill.allowed_tools_resolution.as_dict(),
+            "allowed_tools": skill.allowed_tools,
         },
     )
     session, result = await MultiTurnSession.start(

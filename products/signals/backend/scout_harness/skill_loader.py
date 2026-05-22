@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from posthog.models.team.team import Team
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
-from products.signals.backend.scout_harness.tool_registry import (
-    AllowedToolsResolution,
-    validate_and_partition_allowed_tools,
-)
 
 # Naming contract for skills that steer a Signals-agent run.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
@@ -31,19 +27,13 @@ class LoadedSkill:
     version: int
     body: str
     description: str
+    # Portable skill metadata — opaque to the harness. Logged on spawn for observability,
+    # not consulted at runtime. Downstream consumers (e.g. Claude Code) may read this list
+    # to narrow their own tool exposure; the scout harness itself gates via
+    # `posthog_mcp_scopes` at the OAuth/MCP boundary (scope-level), not tool-level.
     allowed_tools: list[str]
     files: list[LoadedSkillFile]
     skill_id: str
-    # Partition of `allowed_tools` into harness-internal vs MCP candidates, validated at
-    # load time. Defaults to the empty / not-declared resolution so existing callers don't
-    # need to construct it explicitly during incremental adoption.
-    allowed_tools_resolution: AllowedToolsResolution = field(
-        default_factory=lambda: AllowedToolsResolution(
-            declared=False,
-            harness_tools=frozenset(),
-            mcp_tool_candidates=frozenset(),
-        )
-    )
 
 
 def is_signals_scout_skill(skill: LLMSkill) -> bool:
@@ -68,22 +58,12 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
             + (f" (version {version})" if version is not None else "")
         )
     file_rows = LLMSkillFile.objects.filter(skill=skill).only("path", "content_type").order_by("path")
-    raw_allowed_tools = list(skill.allowed_tools or [])
-    # Validate at load time so a typo in a skill body fails the run before we spawn a
-    # sandbox: unknown harness-internal names raise (typo guard). MCP-shaped names pass
-    # through — `allowed_tools` is portable skill metadata that travels with the skill
-    # across consumers (scout harness, Claude Code, custom agents). The scout harness
-    # itself gates runtime tool access via `posthog_mcp_scopes` at the OAuth/MCP
-    # boundary (scope-level), not via this list (tool-level). Downstream consumers
-    # that want tool-level narrowing can read `allowed_tools` directly.
-    resolution = validate_and_partition_allowed_tools(raw_allowed_tools)
     return LoadedSkill(
         name=skill.name,
         version=skill.version,
         body=skill.body,
         description=skill.description,
-        allowed_tools=raw_allowed_tools,
+        allowed_tools=list(skill.allowed_tools or []),
         files=[LoadedSkillFile(path=f.path, content_type=f.content_type) for f in file_rows],
         skill_id=str(skill.id),
-        allowed_tools_resolution=resolution,
     )
