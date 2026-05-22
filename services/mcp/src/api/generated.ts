@@ -2911,6 +2911,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -2950,6 +2951,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -9252,6 +9255,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -33536,6 +33540,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -33911,6 +33916,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
