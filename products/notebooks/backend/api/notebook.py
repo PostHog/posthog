@@ -756,6 +756,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             client_id=data["client_id"],
             steps_json=data["steps"],
             last_seen_version=data["version"],
+            postgres_version=notebook.version,
             user_id=user.pk,
             user_name=user_name,
             cursor_head=data.get("cursor_head"),

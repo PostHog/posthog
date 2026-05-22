@@ -41,37 +41,49 @@ class StepEntry:
 class SubmitResult:
     # "accepted" - steps appended; `version` is the new top
     # "conflict" - caller is behind; `version` is the current top, `steps_since` is the missed range
-    # "stale"    - missed range was trimmed (MAXLEN/TTL); caller must reload from Postgres
+    # "stale"    - missed range was trimmed (MAXLEN/TTL) or the stream was lost and the client's
+    #              baseline no longer matches Postgres; caller must reload from Postgres
     status: Literal["accepted", "conflict", "stale"]
     version: int
     steps_since: list[StepEntry] | None = None
 
 
 # Atomically append N step entries if the latest stream version equals last_seen_version.
-# If the stream is empty we trust the caller's last_seen_version,
-# frontend always loads it from Postgres and seed the stream from there.
+#
+# When the stream is empty (TTL expired / evicted / never written) we cannot trust the caller's
+# last_seen_version on its own — a stale tab with an old baseline could otherwise be accepted
+# and silently downgrade Postgres on the subsequent update. Cross-check against the Postgres
+# version: only accept if they match exactly, otherwise force the client to reload.
 #
 # ARGV:
-#   1: last_seen_version (int)
-#   2: ttl_seconds (int)
-#   3: max_length (int)
-#   4..N: step entry JSON strings (one per prosemirror step)
+#   1: last_seen_version (int)         -- prosemirror confirmed version on the client
+#   2: postgres_version (int)          -- notebook.version from Postgres, fetched by the caller
+#   3: ttl_seconds (int)
+#   4: max_length (int)
+#   5..N: step entry JSON strings (one per prosemirror step)
 #
 # Returns:
 #   {0, current_version}     -- conflict, caller should fetch missed steps
 #   {1, new_version}         -- accepted
+#   {2, postgres_version}    -- stream lost + client baseline disagrees with Postgres → stale
 _APPEND_STEPS_LUA = """
 local stream_key = KEYS[1]
 local last_seen_version = tonumber(ARGV[1])
-local ttl = tonumber(ARGV[2])
-local max_length = tonumber(ARGV[3])
+local postgres_version = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+local max_length = tonumber(ARGV[4])
 
 local current_version = last_seen_version
 local last = redis.call('XREVRANGE', stream_key, '+', '-', 'COUNT', 1)
-if #last > 0 then
+local stream_empty = (#last == 0)
+if not stream_empty then
     local id_str = last[1][1]
     local dash = string.find(id_str, '-')
     current_version = tonumber(string.sub(id_str, 1, dash - 1))
+end
+
+if stream_empty and last_seen_version ~= postgres_version then
+    return {2, postgres_version}
 end
 
 if current_version ~= last_seen_version then
@@ -79,7 +91,7 @@ if current_version ~= last_seen_version then
 end
 
 local next_version = current_version
-for i = 4, #ARGV do
+for i = 5, #ARGV do
     next_version = next_version + 1
     redis.call('XADD', stream_key, 'MAXLEN', '~', max_length, next_version .. '-0', 'data', ARGV[i])
 end
@@ -96,6 +108,7 @@ def submit_steps(
     steps_json: list[dict],
     last_seen_version: int,
     *,
+    postgres_version: int,
     user_id: int | None = None,
     user_name: str | None = None,
     cursor_head: int | None = None,
@@ -113,11 +126,13 @@ def submit_steps(
     script = client.register_script(_APPEND_STEPS_LUA)
     accepted, version = script(
         keys=[stream_key],
-        args=[last_seen_version, STREAM_TTL_SECONDS, STREAM_MAX_LENGTH, *serialized],
+        args=[last_seen_version, postgres_version, STREAM_TTL_SECONDS, STREAM_MAX_LENGTH, *serialized],
     )
 
     if accepted == 1:
         return SubmitResult(status="accepted", version=version)
+    if accepted == 2:
+        return SubmitResult(status="stale", version=version)
 
     return _fetch_missed_steps(stream_key, last_seen_version=last_seen_version, current_version=version)
 
