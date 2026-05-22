@@ -118,7 +118,7 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         response = self.client.post(self._generate_links_csv_url(str(topic.id)))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(response["Content-Type"], "text/csv")
+        self.assertTrue(response["Content-Type"].startswith("text/csv"))
         self.assertIn("attachment", response["Content-Disposition"])
         self.assertIn(".csv", response["Content-Disposition"])
 

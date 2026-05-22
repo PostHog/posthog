@@ -9,7 +9,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files import File
 from django.db import models, transaction
 from django.db.models import QuerySet
-from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -23,6 +22,7 @@ from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework_csv import renderers as csvrenderers
@@ -51,6 +51,12 @@ from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInte
 logger = structlog.get_logger(__name__)
 
 elevenlabs_client = ElevenLabs()
+
+
+class _InterviewLinksCSVRenderer(csvrenderers.CSVRenderer):
+    """Lock the CSV column order for interview-links exports."""
+
+    header = ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"]
 
 
 class UserInterviewSerializer(serializers.ModelSerializer):
@@ -801,20 +807,20 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         url_path="links_csv",
+        renderer_classes=[_InterviewLinksCSVRenderer],
     )
-    def links_csv(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+    def links_csv(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         topic = self.get_object()
         results = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
 
         if not results:
-            return response.Response(
+            raise ValidationError(
                 {
                     "error": (
                         "Topic has no interviewee_emails or interviewee_distinct_ids set. "
                         "Add them before generating links."
                     )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                }
             )
 
         rows = [
@@ -826,14 +832,11 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
             for r in results
         ]
-        renderer = csvrenderers.CSVRenderer()
-        renderer.header = ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"]
-        body = renderer.render(rows)
-
         filename = f"{slugify(topic.topic or 'user-interview')}-links.csv"
-        http_response = HttpResponse(body, content_type="text/csv")
-        http_response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        return http_response
+        return response.Response(
+            rows,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @extend_schema(
         request=SendInvitesRequestSerializer,
