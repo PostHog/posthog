@@ -124,15 +124,21 @@ describe('FunnelLineChart', () => {
     })
 
     describe('trend lines overlay', () => {
-        it('adds a trend-line series when showTrendLines is enabled', async () => {
+        it('adds a trend-line overlay when showTrendLines is enabled', async () => {
             renderInsight({
-                query: buildFunnelsQuery({ funnelsFilter: { showTrendLines: true } }),
+                query: buildFunnelsQuery({ funnelsFilter: { showTrendLines: true, showValuesOnSeries: true } }),
                 featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
-            // main series + trend-line series = 2
+            // main series + trend-line series = 2 rendered series
             await waitFor(() => {
                 expect(getHogChart().seriesCount).toBe(2)
+            })
+
+            // the trend line is an overlay — excluded from value labels, so the 5 data
+            // points yield 5 labels, not 10 (a regular 2nd series would double them)
+            await waitFor(() => {
+                expect(getHogChart().valueLabels()).toHaveLength(5)
             })
         })
     })
