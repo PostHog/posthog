@@ -3,9 +3,10 @@ import React, { useMemo } from 'react'
 
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { AnomalyPointsLayer, ReferenceLines } from 'lib/hog-charts'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import type { InsightLogicProps } from '~/types'
+
+import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { buildAnomalyMarkers } from './anomalyPointsAdapter'
 import { alertThresholdsToReferenceLines } from './goalLinesAdapter'

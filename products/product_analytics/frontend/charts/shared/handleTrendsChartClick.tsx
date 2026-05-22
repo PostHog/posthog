@@ -1,11 +1,12 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
-import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
-import type { IndexedTrendResult } from 'scenes/trends/types'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
+
+import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
+import type { IndexedTrendResult } from 'scenes/trends/types'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 export interface TrendsChartClickDeps {
     context?: QueryContext<InsightVizNode>

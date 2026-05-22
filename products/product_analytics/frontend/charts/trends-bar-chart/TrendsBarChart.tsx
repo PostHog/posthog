@@ -17,14 +17,15 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
+
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
