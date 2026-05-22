@@ -279,14 +279,7 @@ intents:
     mcp_analytics:
         description: 'MCP analytics intent clustering and session summarisation'
         capabilities:
-            [
-                event_ingestion,
-                llm_gateway,
-                embedding_service,
-                property_definitions,
-                property_values,
-                temporal_workflows,
-            ]
+            [event_ingestion, llm_gateway, embedding_service, property_definitions, property_values, temporal_workflows]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
