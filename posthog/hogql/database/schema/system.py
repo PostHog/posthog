@@ -115,6 +115,42 @@ cohort_calculation_history: PostgresTable = PostgresTable(
     },
 )
 
+accounts: PostgresTable = PostgresTable(
+    name="accounts",
+    postgres_table_name="customer_analytics_account",
+    access_scope="customer_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "external_id": StringDatabaseField(name="external_id", nullable=True),
+        "name": StringDatabaseField(name="name"),
+        "properties": StringJSONDatabaseField(name="properties"),
+        "stripe_customer_id": ExpressionField(
+            name="stripe_customer_id",
+            expr=parse_expr("JSONExtractString(properties, 'stripe_customer_id')"),
+        ),
+        "hubspot_deal_id": ExpressionField(
+            name="hubspot_deal_id",
+            expr=parse_expr("JSONExtractString(properties, 'hubspot_deal_id')"),
+        ),
+        "billing_id": ExpressionField(
+            name="billing_id",
+            expr=parse_expr("JSONExtractString(properties, 'billing_id')"),
+        ),
+        "sfdc_id": ExpressionField(
+            name="sfdc_id",
+            expr=parse_expr("JSONExtractString(properties, 'sfdc_id')"),
+        ),
+        "zendesk_id": ExpressionField(
+            name="zendesk_id",
+            expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
+        ),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
     postgres_table_name="posthog_cohort",
@@ -1085,6 +1121,7 @@ sandbox_environments: PostgresTable = PostgresTable(
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "accounts": TableNode(name="accounts", table=accounts),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
