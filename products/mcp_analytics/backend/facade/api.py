@@ -72,17 +72,27 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
 
 def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
-    """Kick off the intent cluster recompute Celery task.
+    """Kick off the intent cluster recompute Temporal workflow.
 
-    Returns immediately. Use ``get_intent_cluster_snapshot`` to poll status.
+    Returns immediately. Use ``get_intent_cluster_snapshot`` to poll status —
+    the workflow's compute activity writes the snapshot status (COMPUTING →
+    IDLE/ERROR) as it runs.
     """
-    # Imports here to avoid loading Celery at module import time.
-    from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
-    from products.mcp_analytics.backend.tasks.tasks import compute_intent_clusters
+    import time
+    import uuid
+    import asyncio
 
-    # Flip to COMPUTING before enqueuing so the 202 response and any
-    # immediate poll see consistent state. The task re-asserts COMPUTING
-    # on pickup; both writes are idempotent.
+    from django.conf import settings
+
+    from posthog.temporal.common.client import sync_connect
+    from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
+    from posthog.temporal.mcp_analytics.intent_clustering.models import IntentClusteringWorkflowInputs
+
+    from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
+
+    # Flip to COMPUTING before dispatching so the 202 response and any
+    # immediate poll see consistent state. The workflow's activity
+    # re-asserts COMPUTING on pickup; both writes are idempotent.
     MCPIntentClusterSnapshot.objects.update_or_create(
         team=team,
         defaults={
@@ -91,4 +101,14 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
             "last_computed_by": user,
         },
     )
-    compute_intent_clusters.delay(team.id, user.id if user else None)
+
+    client = sync_connect()
+    workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    asyncio.run(
+        client.start_workflow(
+            WORKFLOW_NAME,
+            IntentClusteringWorkflowInputs(team_id=team.id, user_id=user.id if user else None),
+            id=workflow_id,
+            task_queue=settings.MCPA_TASK_QUEUE,
+        )
+    )
