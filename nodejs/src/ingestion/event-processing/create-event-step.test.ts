@@ -4,17 +4,12 @@ import { Message } from 'node-rdkafka'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
-import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { castTimestampOrNow } from '../../utils/utils'
 import { EVENTS_OUTPUT } from '../analytics/outputs'
 import { isOkResult } from '../pipelines/results'
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
 
-const slotManager: Pick<MaterializedColumnSlotManager, 'getSlots'> = {
-    getSlots: () => Promise.resolve([]),
-}
-
-const step = createCreateEventStep(EVENTS_OUTPUT, slotManager)
+const step = createCreateEventStep(EVENTS_OUTPUT)
 
 describe('create-event-step', () => {
     let mockPerson: Person
@@ -215,7 +210,7 @@ describe('create-event-step', () => {
                 lastStep: string
             }
 
-            const step = createCreateEventStep<typeof EVENTS_OUTPUT, CustomInput>(EVENTS_OUTPUT, slotManager)
+            const step = createCreateEventStep<typeof EVENTS_OUTPUT, CustomInput>(EVENTS_OUTPUT)
             const input: CustomInput = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,

@@ -13,6 +13,7 @@ import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { createExtractDmatColumnsStep } from '../event-processing/extract-dmat-columns-step'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
@@ -118,7 +119,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createPrepareEventStep())
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(createExtractHeatmapDataStep(outputs))
-        .pipe(createCreateEventStep(EVENTS_OUTPUT, materializedColumnSlotManager))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createExtractDmatColumnsStep(materializedColumnSlotManager))
         .pipe(
             topHog(
                 createEmitEventStep({

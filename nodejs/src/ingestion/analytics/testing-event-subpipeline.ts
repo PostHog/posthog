@@ -8,6 +8,7 @@ import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createDisablePersonProcessingWithFakePersonStep } from '../event-processing/disable-person-processing-with-fake-person-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { createExtractDmatColumnsStep } from '../event-processing/extract-dmat-columns-step'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
@@ -47,7 +48,8 @@ export function createTestingEventSubpipeline<TInput extends TestingEventSubpipe
         .pipe(createNormalizeEventStep())
         .pipe(createPrepareEventStep())
         .pipe(createExtractHeatmapDataStep(outputs))
-        .pipe(createCreateEventStep(EVENTS_OUTPUT, materializedColumnSlotManager))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createExtractDmatColumnsStep(materializedColumnSlotManager))
         .pipe(
             createEmitEventStep({
                 outputs,

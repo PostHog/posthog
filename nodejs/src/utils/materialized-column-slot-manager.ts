@@ -1,35 +1,72 @@
 import { MaterializedColumnSlot } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader, TEAM_AND_SLOTS_REFRESH_AGE_MS, TEAM_AND_SLOTS_REFRESH_JITTER_MS } from './lazy-loader'
+import { LazyLoader } from './lazy-loader'
 
 /**
- * Loads each team's dmat slot config for ingestion. Cache TTL is 2min ± 30s; the workflow's
- * 3-min wait before submitting mutations is calibrated against this.
+ * Cache TTL for a team's dmat slot config. Lives here rather than in the general-purpose
+ * LazyLoader because it's calibrated against the dmat backfill workflow: the workflow waits
+ * `cache_refresh_wait_seconds` (180s) after publishing a slot assignment before submitting the
+ * historical mutation, so ingestion must start populating dmat columns within that window.
+ * Worst-case refresh (age + jitter = 150s) stays below 180s.
+ */
+export const MATERIALIZED_COLUMN_SLOT_REFRESH_AGE_MS = 2 * 60 * 1000 // 2 minutes
+export const MATERIALIZED_COLUMN_SLOT_REFRESH_JITTER_MS = 30 * 1000 // 30 seconds
+
+/**
+ * Loads each team's dmat slot config for ingestion. Only READY / BACKFILL slots with a
+ * non-null `slot_index` are loaded.
  *
- * Only READY / BACKFILL slots with a non-null `slot_index` are loaded. To kill dmat
- * ingestion, transition slots to PENDING with `slot_index = NULL` — see `docs/internal/dmat-deployment.md`.
+ * The whole feature is gated by `INGESTION_DMAT_COLUMN_WRITES_ENABLED`. When disabled this
+ * manager short-circuits to "no slots" without touching Postgres, so the prefetch and extract
+ * steps become no-ops. The flag is a coarse fleet-wide lever, not a routine toggle: re-enabling
+ * after a disable leaves a gap that the historical backfill mutation must fill. Per-team rollout
+ * is driven by the slot config in Postgres (transition slots to PENDING with `slot_index = NULL`
+ * to stop populating a single team), not by this flag.
  */
 export class MaterializedColumnSlotManager {
     private lazyLoader: LazyLoader<MaterializedColumnSlot[]>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        private enabled: boolean
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'MaterializedColumnSlotManager',
-            refreshAgeMs: TEAM_AND_SLOTS_REFRESH_AGE_MS,
-            refreshJitterMs: TEAM_AND_SLOTS_REFRESH_JITTER_MS,
+            refreshAgeMs: MATERIALIZED_COLUMN_SLOT_REFRESH_AGE_MS,
+            refreshJitterMs: MATERIALIZED_COLUMN_SLOT_REFRESH_JITTER_MS,
             loader: async (teamIds: string[]) => {
                 return await this.fetchSlots(teamIds)
             },
         })
     }
 
-    /** Returns the team's slot config, or an empty array if none are configured. */
+    /**
+     * Returns the team's configured slots, or `[]` when the team has none configured or the
+     * feature is disabled.
+     *
+     * A Postgres load failure PROPAGATES — same as `TeamManager.getTeam`. dmat slot config is
+     * essential per-team config, not an optimization: once a slot is READY, HogQL reads the
+     * column with no JSON fallback, so silently emitting an event missing its dmat column would
+     * corrupt reads for that team. Failing closed lets the batch retry (absorbing transient
+     * Postgres blips) and DLQs only on a persistent failure, rather than writing a NULL the
+     * reader trusts.
+     */
     public async getSlots(teamId: number): Promise<MaterializedColumnSlot[]> {
+        if (!this.enabled) {
+            return []
+        }
         return (await this.lazyLoader.get(String(teamId))) ?? []
     }
 
-    /** Batched variant used by the prefetch step to warm the cache for a whole batch. */
+    /**
+     * Batched variant used by the prefetch step to warm the cache for a whole batch. Errors
+     * propagate; the prefetch step treats a failure as a best-effort warm miss, and the per-event
+     * `getSlots` re-attempts the load and fails closed if it still can't read the config.
+     */
     public async getSlotsForTeams(teamIds: number[]): Promise<Record<string, MaterializedColumnSlot[]>> {
+        if (!this.enabled || teamIds.length === 0) {
+            return {}
+        }
         const results = await this.lazyLoader.getMany(teamIds.map(String))
         const converted: Record<string, MaterializedColumnSlot[]> = {}
         for (const [key, value] of Object.entries(results)) {

@@ -68,7 +68,10 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     logger.info('👍', `Cookieless Redis ready`)
 
     const teamManager = new TeamManager(postgres)
-    const materializedColumnSlotManager = new MaterializedColumnSlotManager(postgres)
+    const materializedColumnSlotManager = new MaterializedColumnSlotManager(
+        postgres,
+        serverConfig.INGESTION_DMAT_COLUMN_WRITES_ENABLED
+    )
     logger.info('🤔', `Connecting to PostHog Redis...`)
     const posthogRedisPool = createRedisPoolFromConfig({
         connection: createPosthogRedisConnectionConfig(serverConfig),

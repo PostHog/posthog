@@ -16,6 +16,7 @@ import { IngestionWarningsOutput } from '../../common/outputs'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
 import { createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
+import { createExtractDmatColumnsStep } from '../../event-processing/extract-dmat-columns-step'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../../event-processing/normalize-process-person-flag-step'
@@ -70,83 +71,88 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         topHog,
     } = config
 
-    return builder
-        .pipe(createNormalizeProcessPersonFlagStep())
-        .pipe(
-            topHog(createHogTransformEventStep(hogTransformer), [
-                sumOk(
-                    'transformations_run',
-                    (output) => ({ team_id: String(output.team.id) }),
-                    (output) => output.transformationsRun
-                ),
-                sumOk(
-                    'transformations_run_per_partition',
-                    (output, input) => ({
-                        team_id: String(output.team.id),
-                        partition: String(input.message.partition),
-                    }),
-                    (output) => output.transformationsRun
-                ),
-                sumResult(
-                    'events_dropped_by_transformation',
-                    (_result, input) => ({ team_id: String(input.team.id) }),
-                    (result) => (isDropResult(result) ? 1 : 0)
-                ),
-                sumResult(
-                    'events_dropped_by_transformation_per_partition',
-                    (_result, input) => ({
-                        team_id: String(input.team.id),
-                        partition: String(input.message.partition),
-                    }),
-                    (result) => (isDropResult(result) ? 1 : 0)
-                ),
-            ])
-        )
-        .pipe(createNormalizeEventStep())
-        .pipe(createProcessAiEventStep())
-        .pipe(createProcessPersonlessStep(personsStore))
-        .pipe(
-            topHog(createProcessPersonsStep(options, outputs, personsStore), [
-                timer('process_persons_time', (input) => ({
-                    team_id: String(input.team.id),
-                    distinct_id: input.normalizedEvent.distinct_id,
-                })),
-            ])
-        )
-        .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
-        .pipe(createCreateEventStep(EVENTS_OUTPUT, materializedColumnSlotManager))
-        .pipe(createSplitAiEventsStep(splitAiEventsConfig))
-        .pipe(
-            topHog(
-                createEmitEventStep({
-                    outputs,
-                    groupId,
-                }),
-                [
-                    sum(
-                        'emitted_events',
-                        (input) => ({ team_id: String(input.teamId) }),
-                        (input) => input.eventsToEmit.length
+    return (
+        builder
+            .pipe(createNormalizeProcessPersonFlagStep())
+            .pipe(
+                topHog(createHogTransformEventStep(hogTransformer), [
+                    sumOk(
+                        'transformations_run',
+                        (output) => ({ team_id: String(output.team.id) }),
+                        (output) => output.transformationsRun
                     ),
-                    sum(
-                        'emitted_events_per_distinct_id',
-                        (input) => ({
-                            team_id: String(input.teamId),
-                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                    sumOk(
+                        'transformations_run_per_partition',
+                        (output, input) => ({
+                            team_id: String(output.team.id),
                             partition: String(input.message.partition),
                         }),
-                        (input) => input.eventsToEmit.length
+                        (output) => output.transformationsRun
                     ),
-                    sum(
-                        'emitted_events_per_partition',
-                        (input) => ({
-                            team_id: String(input.teamId),
+                    sumResult(
+                        'events_dropped_by_transformation',
+                        (_result, input) => ({ team_id: String(input.team.id) }),
+                        (result) => (isDropResult(result) ? 1 : 0)
+                    ),
+                    sumResult(
+                        'events_dropped_by_transformation_per_partition',
+                        (_result, input) => ({
+                            team_id: String(input.team.id),
                             partition: String(input.message.partition),
                         }),
-                        (input) => input.eventsToEmit.length
+                        (result) => (isDropResult(result) ? 1 : 0)
                     ),
-                ]
+                ])
             )
-        )
+            .pipe(createNormalizeEventStep())
+            .pipe(createProcessAiEventStep())
+            .pipe(createProcessPersonlessStep(personsStore))
+            .pipe(
+                topHog(createProcessPersonsStep(options, outputs, personsStore), [
+                    timer('process_persons_time', (input) => ({
+                        team_id: String(input.team.id),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                    })),
+                ])
+            )
+            .pipe(createPrepareEventStep())
+            .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
+            .pipe(createCreateEventStep(EVENTS_OUTPUT))
+            // Before the split so the events-table copy carries dmat columns. The ai_events copy
+            // also carries them, but the ai_events table has no dmat columns so they're ignored.
+            .pipe(createExtractDmatColumnsStep(materializedColumnSlotManager))
+            .pipe(createSplitAiEventsStep(splitAiEventsConfig))
+            .pipe(
+                topHog(
+                    createEmitEventStep({
+                        outputs,
+                        groupId,
+                    }),
+                    [
+                        sum(
+                            'emitted_events',
+                            (input) => ({ team_id: String(input.teamId) }),
+                            (input) => input.eventsToEmit.length
+                        ),
+                        sum(
+                            'emitted_events_per_distinct_id',
+                            (input) => ({
+                                team_id: String(input.teamId),
+                                distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                                partition: String(input.message.partition),
+                            }),
+                            (input) => input.eventsToEmit.length
+                        ),
+                        sum(
+                            'emitted_events_per_partition',
+                            (input) => ({
+                                team_id: String(input.teamId),
+                                partition: String(input.message.partition),
+                            }),
+                            (input) => input.eventsToEmit.length
+                        ),
+                    ]
+                )
+            )
+    )
 }

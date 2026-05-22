@@ -152,7 +152,10 @@ export class IngestionGeneralServer implements NodeServer {
         await this.pubsub.start()
 
         const teamManager = new TeamManager(this.postgres)
-        const materializedColumnSlotManager = new MaterializedColumnSlotManager(this.postgres)
+        const materializedColumnSlotManager = new MaterializedColumnSlotManager(
+            this.postgres,
+            this.config.INGESTION_DMAT_COLUMN_WRITES_ENABLED
+        )
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)

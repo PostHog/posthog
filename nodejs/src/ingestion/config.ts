@@ -162,6 +162,14 @@ export type IngestionConsumerConfig = {
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
 
+    /**
+     * Fleet-wide gate for writing dmat (`dmat_string_<index>`) columns at ingestion time. When
+     * false, the slot manager short-circuits and the prefetch/extract steps no-op. Per-team
+     * rollout is controlled by the Postgres slot config, not this flag — enable this once before
+     * any slot is assigned, then leave it on (disabling leaves a gap the backfill must fill).
+     */
+    INGESTION_DMAT_COLUMN_WRITES_ENABLED: boolean
+
     // AI event splitting config
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
     /** '*' for all teams, or comma-separated team IDs always routed to ai_events */
@@ -272,6 +280,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
+        INGESTION_DMAT_COLUMN_WRITES_ENABLED: false,
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,

@@ -28,7 +28,9 @@ import {
 } from '../event-preprocessing'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
+import { createExtractDmatColumnsStep } from '../event-processing/extract-dmat-columns-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
+import { createPrefetchDmatSlotsStep } from '../event-processing/prefetch-dmat-slots-step'
 import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -257,6 +259,10 @@ export function createErrorTrackingPipeline(
                                         // Enrich, prepare, create, and emit events
                                         // Batch fetch person (read-only, no updates)
                                         .pipeBatch(createFetchPersonBatchStep(personRepository))
+                                        // Warm the dmat slot cache for every team in the batch, so the
+                                        // per-event extract step below doesn't do a cold lookup each time.
+                                        // Matches the prefetch in the analytics/AI post-team preprocessing.
+                                        .pipeBatch(createPrefetchDmatSlotsStep(materializedColumnSlotManager))
                                         .sequentially((b) =>
                                             b
                                                 // Run Hog transformations (including GeoIP if team has it enabled)
@@ -265,9 +271,10 @@ export function createErrorTrackingPipeline(
                                                 .pipe(createErrorTrackingPrepareEventStep())
                                                 // Map group types to indexes (read-only, no new group types created)
                                                 .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
-                                                .pipe(
-                                                    createCreateEventStep(EVENTS_OUTPUT, materializedColumnSlotManager)
-                                                )
+                                                .pipe(createCreateEventStep(EVENTS_OUTPUT))
+                                                // $exception events land in the same events table as
+                                                // analytics, so they get dmat columns too.
+                                                .pipe(createExtractDmatColumnsStep(materializedColumnSlotManager))
                                                 .pipe(
                                                     topHogWrapper(
                                                         createEmitEventStep({

@@ -2,7 +2,7 @@ import { Counter } from 'prom-client'
 
 import { Properties } from '~/plugin-scaffold'
 
-import { Element, MaterializedColumnSlot, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '../../types'
+import { Element, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '../../types'
 import { elementsToString, extractElements } from '../../utils/elements-chain'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -46,8 +46,7 @@ export function createEvent(
     person: Person | undefined,
     processPerson: boolean,
     historicalMigration: boolean,
-    capturedAt: Date | null,
-    materializedColumnSlots: MaterializedColumnSlot[] = []
+    capturedAt: Date | null
 ): ProcessedEvent {
     const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -110,63 +109,5 @@ export function createEvent(
         ...(historicalMigration ? { historical_migration: true } : {}),
     }
 
-    if (materializedColumnSlots.length > 0) {
-        const dmatColumns = extractDynamicMaterializedColumns(properties ?? {}, materializedColumnSlots)
-        if (Object.keys(dmatColumns).length > 0) {
-            processedEvent.dmat_columns = dmatColumns
-        }
-    }
-
     return processedEvent
-}
-
-/**
- * Missing properties are left unset → ClickHouse stores NULL → HogQL falls back to JSON for
- * events that pre-date the slot. All dmat columns are `Nullable(String)`; HogQL casts at read.
- *
- * The string MUST be byte-identical to `_generate_property_extraction_sql`. Parity is pinned
- * by `posthog/temporal/backfill_materialized_property/coercion_fixtures.json`.
- */
-function extractDynamicMaterializedColumns(
-    properties: Properties,
-    slots: MaterializedColumnSlot[]
-): Record<string, string> {
-    const out: Record<string, string> = {}
-
-    for (const slot of slots) {
-        const propertyValue = properties[slot.property_name]
-        if (propertyValue === undefined || propertyValue === null) {
-            continue
-        }
-
-        const raw = jsonExtractRawAndTrimQuotes(propertyValue)
-        if (raw === null) {
-            continue
-        }
-
-        out[`dmat_string_${slot.slot_index}`] = raw
-    }
-
-    return out
-}
-
-/**
- * Mirrors SQL `replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, key), ''), 'null'), '^"|"$', '')`
- * on a parsed JS value. Plugin-server gets parsed values, not raw JSON text — without this
- * `String({a:1})` would write `[object Object]` while the SQL backfill writes `{"a":1}`, and
- * the same row would read differently before vs after backfill.
- */
-export function jsonExtractRawAndTrimQuotes(value: unknown): string | null {
-    if (value === null || value === undefined) {
-        return null
-    }
-    const json = JSON.stringify(value)
-    if (json === 'null') {
-        return null
-    }
-    // Mirrors SQL `^"|"$`: strip one leading and one trailing `"` if both present.
-    if (json.length >= 2 && json[0] === '"' && json[json.length - 1] === '"') {
-        return json.slice(1, -1)
-    }
-    return json
 }
