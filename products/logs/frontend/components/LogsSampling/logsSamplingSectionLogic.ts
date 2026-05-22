@@ -15,6 +15,12 @@ import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schema
 import type { logsSamplingSectionLogicType } from './logsSamplingSectionLogicType'
 import { fetchSamplingRuleDropTotalsLast24h } from './samplingRuleDropImpact'
 
+// Background refresh cadence for the per-rule 24h drop counts. The underlying
+// `app_metrics2` table flushes every ~1 min, so a 30s tick is fast enough that
+// the user sees the new numbers shortly after they arrive without spamming
+// HogQL. The disposables plugin pauses the timer while the tab is hidden.
+const IMPACT_POLL_INTERVAL_MS = 30_000
+
 export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsSampling', 'logsSamplingSectionLogic']),
 
@@ -155,7 +161,13 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadRules()
+        cache.disposables.add(() => {
+            const pollTimer = window.setInterval(() => {
+                actions.loadRuleDropImpact(undefined)
+            }, IMPACT_POLL_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'impactPoller')
     }),
 ])
