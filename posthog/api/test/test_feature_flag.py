@@ -3391,17 +3391,31 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         exp.refresh_from_db()
         assert exp.feature_flag_id == legacy_flag.id
 
-    def test_create_with_inconsistent_soft_deleted_flag_referenced_by_active_experiment(self):
+    @parameterized.expand(
+        [
+            ("create",),
+            ("rename",),
+        ]
+    )
+    def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_active_experiment(self, mode: str):
         # If a tombstone is still referenced by an active experiment (invariant
         # violation), renaming it would silently break the experiment. Error out.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="inconsistent-key")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=legacy_flag)
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {"name": "Inconsistent", "key": "inconsistent-key"},
-        )
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "Inconsistent", "key": "inconsistent-key"},
+            )
+        else:
+            other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="inconsistent-key-v2")
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+                {"key": "inconsistent-key"},
+            )
+
         assert response.status_code == 400
         assert f"active experiment(s) with ID(s): {exp.id}" in response.json()["detail"]
         assert "inconsistent-key" in response.json()["detail"]
