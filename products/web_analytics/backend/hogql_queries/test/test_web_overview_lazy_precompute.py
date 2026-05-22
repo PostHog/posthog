@@ -20,11 +20,11 @@ from posthog.schema import (
     WebOverviewQuery,
 )
 
-from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -471,7 +471,9 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 return LazyComputationResult(ready=True, job_ids=[uuid.uuid4()])
             return LazyComputationResult(ready=False, job_ids=[uuid.uuid4()])
 
-        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import execute_lazy_precomputed_read
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+            execute_lazy_precomputed_read,
+        )
 
         with (
             self._enable_lazy(),
@@ -570,7 +572,9 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_falls_back_when_current_period_not_ready(self):
         # Symmetric to the previous test: if the current-period precompute
         # hasn't reached READY, the read would scan empty buckets. Fall back.
-        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import execute_lazy_precomputed_read
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+            execute_lazy_precomputed_read,
+        )
 
         with (
             self._enable_lazy(),
