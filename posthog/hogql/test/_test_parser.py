@@ -2616,6 +2616,24 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        @parameterized.expand(
+            [
+                ("using_sample_before_group_by", "select 1 from events using sample 0.1"),
+                ("bare_sample_statement_level", "select 1 from events where 1 sample 0.1 group by 1"),
+                ("using_sample_after_qualify", "select 1 from events qualify 1 using sample 0.1"),
+                ("sample_after_unpivot", "select 1 from (a positional join b) unpivot (m for n in (o)) sample 0.5"),
+                ("table_and_statement_sample", "select 1 from events sample 0.1 using sample 0.2"),
+            ]
+        )
+        def test_statement_level_sample_rejected(self, _name: str, query: str):
+            # The selectStmt-level `(USING? sampleClause)?` slots (HogQLParser.g4:75/79) are
+            # DuckDB's `USING SAMPLE` (added with the duck/postgres syntax in #50353), distinct
+            # from ClickHouse's table-level `SAMPLE` (`JoinExprTable`, the only form that lands on
+            # `JoinExpr.sample`). HogQL has no AST representation for statement-level sampling, so
+            # every backend rejects it rather than silently dropping the sampling directive.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
+
             self.assertEqual(
                 self._select("select 1 from events sample 10 offset 1/2"),
                 ast.SelectQuery(
@@ -6653,12 +6671,15 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3 ON 4",
                 # Mixed CROSS in chain: constraint can't fall through.
                 "SELECT * FROM a JOIN b ON 1 CROSS JOIN c ON 2",
+                # Statement-level `USING SAMPLE` (the peel loop must not treat the `USING` as a join constraint): it's DuckDB's statement-level sample, which HogQL doesn't implement, so it's rejected rather than silently dropped.
+                "SELECT * FROM t USING SAMPLE 0.5",
+                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
             ):
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="cpp-json")
                 with self.assertRaises(ExposedHogQLError, msg=src):
                     parse_select(src, backend="rust-json")
-            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN, and statement-level `USING SAMPLE` (peel loop must not intercept).
+            # Guards: regular JOIN+constraint, stacked ON chains, bare CROSS JOIN.
             for src in (
                 "SELECT * FROM a JOIN b ON 1",
                 "SELECT * FROM a JOIN b USING (x)",
@@ -6666,8 +6687,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "SELECT * FROM a CROSS JOIN b",
                 "SELECT * FROM a JOIN b JOIN c ON 1 ON 2",
                 "SELECT * FROM a JOIN b JOIN c JOIN d ON 1 ON 2 ON 3",
-                "SELECT * FROM t USING SAMPLE 0.5",
-                "SELECT * FROM t USING SAMPLE 0.5 OFFSET 0.1",
                 # Outer JOIN around a parens-wrapped inner JoinExpr still attaches one constraint at the outer level.
                 "SELECT * FROM (a JOIN b) JOIN c ON 1",
                 "SELECT * FROM a JOIN (b JOIN c ON 1) ON 2",
