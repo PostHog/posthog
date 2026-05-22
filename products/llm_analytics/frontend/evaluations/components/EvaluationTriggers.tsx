@@ -104,7 +104,11 @@ export function EvaluationTriggers(): JSX.Element {
                                 <div className="flex-1">
                                     <LemonSlider
                                         value={percentageValue}
-                                        onChange={(value) => updateConditionSet(index, { rollout_percentage: value })}
+                                        onChange={(value) =>
+                                            updateConditionSet(index, {
+                                                rollout_percentage: Math.round(value * 100) / 100,
+                                            })
+                                        }
                                         min={0.1}
                                         max={100}
                                         step={0.1}
@@ -115,7 +119,9 @@ export function EvaluationTriggers(): JSX.Element {
                                         type="number"
                                         value={percentageValue}
                                         onChange={(value) =>
-                                            updateConditionSet(index, { rollout_percentage: Number(value) || 0 })
+                                            updateConditionSet(index, {
+                                                rollout_percentage: Math.round((Number(value) || 0) * 100) / 100,
+                                            })
                                         }
                                         min={0.1}
                                         max={100}
