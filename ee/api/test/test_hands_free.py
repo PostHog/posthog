@@ -128,3 +128,22 @@ class TestMaxHandsFreeAPI(APIBaseTest):
         self.client.logout()
         response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
         assert response.status_code in (401, 403)
+
+    @patch("ee.api.hands_free.StreamingHttpResponse")
+    @patch("ee.api.hands_free.requests.post")
+    def test_synthesize_closes_upstream_when_response_construction_fails(
+        self, mock_post: MagicMock, mock_streaming_response: MagicMock
+    ) -> None:
+        # Upstream returns 200 (so close isn't called on the error-status path) but the
+        # StreamingHttpResponse constructor blows up before we can return. Without the
+        # try/except in synthesize the upstream connection would leak — Django would
+        # surface a 500 to the client and the requests connection would only release on
+        # GC of the unconsumed iter_content generator.
+        upstream = MagicMock(status_code=200)
+        mock_post.return_value = upstream
+        mock_streaming_response.side_effect = RuntimeError("django blew up")
+
+        response = self.client.post(self._synthesize_url(), data={"text": "hello"}, format="json")
+
+        assert response.status_code == 500
+        upstream.close.assert_called_once()
