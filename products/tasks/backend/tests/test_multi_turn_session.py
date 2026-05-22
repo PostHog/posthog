@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -140,14 +141,16 @@ class TestRefreshTaskRunReconnect:
     poll loop survives transparently."""
 
     def test_returns_task_run_when_first_call_succeeds(self):
-        fake = FakeTaskRun()
+        # FakeTaskRun is a dataclass shim — cast to TaskRun so the identity check below
+        # type-checks (mypy 2.x narrows the unrelated dataclass to a non-overlapping type).
+        fake = cast(TaskRun, FakeTaskRun())
         with patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake) as mock_get:
             result = _refresh_task_run_sync("run-1")
-        assert result is fake  # type: ignore[comparison-overlap]
+        assert result is fake
         mock_get.assert_called_once_with(id="run-1")
 
     def test_retries_once_on_operational_error_and_returns(self):
-        fake = FakeTaskRun()
+        fake = cast(TaskRun, FakeTaskRun())
         with (
             patch(
                 "products.tasks.backend.models.TaskRun.objects.get",
@@ -156,7 +159,7 @@ class TestRefreshTaskRunReconnect:
             patch("products.tasks.backend.services.custom_prompt_internals.close_old_connections") as mock_close,
         ):
             result = _refresh_task_run_sync("run-1")
-        assert result is fake  # type: ignore[comparison-overlap]
+        assert result is fake
         assert mock_get.call_count == 2
         # Reconnects before each attempt: once preemptively, once after the failure.
         assert mock_close.call_count == 2
