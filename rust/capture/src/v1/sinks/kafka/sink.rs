@@ -23,6 +23,26 @@ use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
 
+/// Null the partition key when person processing is force-disabled for
+/// Main/Overflow destinations — spreads load across partitions instead of
+/// hotspotting on a single token:distinct_id pair.
+fn effective_partition_key<'a>(
+    key_buf: &'a str,
+    force_disable_person_processing: Option<bool>,
+    destination: &Destination,
+) -> Option<&'a str> {
+    if force_disable_person_processing.is_some()
+        && matches!(
+            destination,
+            Destination::AnalyticsMain | Destination::Overflow
+        )
+    {
+        None
+    } else {
+        Some(key_buf)
+    }
+}
+
 /// Shared label values for metrics emitted within a single `publish_batch` call.
 /// All fields are `&'static str` (zero-cost) or `SharedString` (Arc-based, so
 /// `.clone()` is a refcount bump rather than a heap allocation).
@@ -162,20 +182,11 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
             key_buf.clear();
             event.partition_key(ctx, &mut key_buf);
-
-            // Null partition key when person processing is disabled for Main/Overflow
-            // destinations -- spreads load across partitions instead of hotspotting.
-            // Set by: overflow stamping (ForceLimited / !preserve_locality) and
-            // global rate limiter (token:distinct_id budget exceeded).
-            let key: Option<&str> = if captured_headers.force_disable_person_processing.is_some()
-                && matches!(
-                    event.destination(),
-                    Destination::AnalyticsMain | Destination::Overflow
-                ) {
-                None
-            } else {
-                Some(key_buf.as_str())
-            };
+            let key = effective_partition_key(
+                &key_buf,
+                captured_headers.force_disable_person_processing,
+                event.destination(),
+            );
 
             let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
 
@@ -461,5 +472,26 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         })
         .await
         .map_err(|e| anyhow::anyhow!("flush task panicked: {e:#}"))?
+    }
+}
+
+#[cfg(test)]
+mod effective_partition_key_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::main_disabled(Some(true), Destination::AnalyticsMain, None)]
+    #[case::overflow_disabled(Some(true), Destination::Overflow, None)]
+    #[case::dlq_disabled(Some(true), Destination::Dlq, Some("k"))]
+    #[case::historical_disabled(Some(true), Destination::AnalyticsHistorical, Some("k"))]
+    #[case::custom_disabled(Some(true), Destination::Custom("t".into()), Some("k"))]
+    #[case::main_not_disabled(None, Destination::AnalyticsMain, Some("k"))]
+    fn policy(
+        #[case] force_disable: Option<bool>,
+        #[case] dest: Destination,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(effective_partition_key("k", force_disable, &dest), expected);
     }
 }
