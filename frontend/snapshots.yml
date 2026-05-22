@@ -1157,9 +1157,9 @@ snapshots:
     components-search--product-recents-and-starred--light:
         hash: v1.k794b7964.093365121259b79e33584b3e0042ad3813b0e77f2af285369ab7b2bf98bd9c79.-imuS481bcvyD7kDEeyJ4mfKoQcmD451n4Lxv2IrE3g
     components-search--searching--dark:
-        hash: v1.k794b7964.ad396839fe9f33932049672506634e20d59d18b3fadd0a777f40e83ac714698a.xmQ67eu1qjN6DIEu36qXgff2UHGSMhozO_-renm2CRw
+        hash: v1.k794b7964.5640d6ceda1c0c42d11d0830ce6f99d435ed755f675c7bcf189625c50c6fb77e.y1r9bx5WquHigHMTHREsnNCKkDLi0SluFC9L48L6NxM
     components-search--searching--light:
-        hash: v1.k794b7964.09f7821d34292ac6ae488cf6e77283ee604f033dbffd6c91bf7ae2b5ffe9c4f2.o44oJ2GJt3eMDzIWZJJDLpWSHM8fL3aR2hN22PD1UpU
+        hash: v1.k794b7964.00eec8365eb2b8e99781a485440555fdde5a1ed86e73254e927075b30d97a8cb.Vo_QisoIzatCT6K0G9D63ScY4y_-Y22PxQMJ4Kv64S4
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.9d72ed5224f75be3f53f1ba8edc2547978e519aa46a57cc97eef9087b403cb7d.3yHHiA7NW-p6vVSlM-2nPx7Nbk7wuTr5SA9Av2nW--g
     components-sentencelist--full-sentence--light:
@@ -1944,6 +1944,10 @@ snapshots:
         hash: v1.k794b7964.cceda34139de55690cb1f2f14761662ef08924c55ceca45ca8b5f5c6a0258205.ch26jJwCUwqT-mTrhgV1tD-q0vMD1-RudedDkXutxkk
     layout-project-tree-custom-products--narrow-size--light:
         hash: v1.k794b7964.3b389565f50c05f0b0da55364d924dc92588b1e8c2259aa03a32b45362d2ae87.tx2-aAbUAS1qgaJT0xhsY2gS7KTKYN0yMTGIsa6U5hk
+    layout-self-read-only-notice--read-only--dark:
+        hash: v1.k794b7964.aa0aa21d822475834eece4c6c6dad9c297226ae363d3e5afd94bdc50e1a4bfd2.X79V0CguV6lenAm3u3zau-mer7JRj8dpNFUkMh7Sazs
+    layout-self-read-only-notice--read-only--light:
+        hash: v1.k794b7964.307252675f3509cc07b81778815a7da674f5bb7b4cfb40770f1dd2dacb78bfde.6RCP91PpdJ_f7x7N2thEthlHQBlU4JH09NbnPkv7OWM
     lemon-ui-code-snippet--compact-with-long-text--dark:
         hash: v1.k794b7964.094aa56a38595b85e806267bd286c5ab883943297f2d3df19178ec6280b20140.9sOQ0vykr2nvS1UbyNuNp3JLZA3QLuJXlWktrtX2uyI
     lemon-ui-code-snippet--compact-with-long-text--light:
@@ -5322,6 +5326,14 @@ snapshots:
         hash: v1.k794b7964.1c953319963cc8cf02830f6a32d827a568450c7fb616e821d529680f6460580f.0sXugUKUJMaa2I1_M5Bm6Lyrwu1qp4WXn5ZP_VykSZs
     scenes-app-posthog-ai--welcome-with-latest-conversations--light:
         hash: v1.k794b7964.e748e62b24fe96ae9cd96facb3d679d9649615f7b092f31dc1e3a67aef15c490._-KVj3kzPaGvcu9N4RgpmLPK1ovZANsm4YM9t1s4IUc
+    scenes-app-posthog-ai-hands-free-surface--speaking--dark:
+        hash: v1.k794b7964.48aaf5c134a71a9785a39769a4e692844d4f65f8886a589cdcd839a477333aa0.4Cm1e9dqys5vNwnfcvQctrRtB7POvdHdQlL1UFxA4LA
+    scenes-app-posthog-ai-hands-free-surface--speaking--light:
+        hash: v1.k794b7964.a59ea311f928f55fd230493b29d54170a002d46170a9882a4602922da5819f90.LUh0Yr6hiwR3UTrmy6cqna9EYTalFuan6zEnwJ-h7ig
+    scenes-app-posthog-ai-hands-free-surface--with-error--dark:
+        hash: v1.k794b7964.38aeb671b882ed7442192a236a3c3e28f8a4ff0d860a83a50d2618b923ba708f.HNuM32DwEhnFE_3a1YNCx3XpKflFOOk-vdkvGTHb-gs
+    scenes-app-posthog-ai-hands-free-surface--with-error--light:
+        hash: v1.k794b7964.67f7224ae95951037f9dc1fdb139381cf660906a8aa74bf0b38d71ddafe32c36.jfQuDmVYqBzDD9CH64NSAlzaWkaNp8qhvPpvFZajfGc
     scenes-app-project-homepage--no-primary-dashboard--dark:
         hash: v1.k794b7964.83d267b40bfc2dca4b211cb28537f4b958822ee469c611e60535af2ab79e1621.2YhseEUdyiKAro1A2SILMNhqo09MkyLxq58IMRPK-E8
     scenes-app-project-homepage--no-primary-dashboard--light:

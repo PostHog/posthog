@@ -100,6 +100,21 @@ register_team_extension_signal(SignalTeamConfig, logger=logger)
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
     autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    # Slack notifications for new inbox items where the user is a suggested reviewer.
+    # All three fields are required together; a config row with any of them null
+    # disables notifications. Integration is team-scoped, so notifications are
+    # scoped to a single team via the integration's team.
+    slack_notification_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    # When null, all priorities (including reports with no priority) notify.
+    # When set, only reports with a priority at or above this value (P0 highest) notify.
+    slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
