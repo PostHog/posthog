@@ -1,7 +1,7 @@
+import type { IndexedTrendResult } from 'scenes/trends/types'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { EntityTypes } from '~/types'
-
-import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'

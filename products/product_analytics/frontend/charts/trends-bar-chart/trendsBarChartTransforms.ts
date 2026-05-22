@@ -1,10 +1,9 @@
 import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
 import { hexToRGBA } from 'lib/utils'
+import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
-
-import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
