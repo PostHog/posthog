@@ -4,9 +4,9 @@
 //! other module reads them through `pub(super)` re-exports rather than
 //! hard-coding numbers. Higher value = tighter binding.
 
-use serde_json::Value;
+use std::borrow::Cow;
 
-use crate::emit;
+use crate::emit::Emitter;
 use crate::lex::{Kw, TokenKind};
 
 pub(super) const BP_ALIAS: u8 = 10;
@@ -30,7 +30,6 @@ pub(super) const BP_IGNORE_NULLS: u8 = 87;
 pub(super) const BP_COMPARE: u8 = 90;
 pub(super) const BP_ADDITIVE: u8 = 100;
 pub(super) const BP_MULT: u8 = 110;
-#[allow(dead_code)]
 pub(super) const BP_UNARY_MINUS: u8 = 120;
 pub(super) const BP_POSTFIX: u8 = 130;
 
@@ -94,27 +93,32 @@ pub(super) fn postfix_bp(kind: TokenKind) -> Option<u8> {
     }
 }
 
-pub(super) fn build_infix(op: InfixOp, lhs: Value, rhs: Value) -> Value {
+pub(super) fn build_infix<E: Emitter>(
+    emit: &E,
+    op: InfixOp,
+    lhs: E::Value,
+    rhs: E::Value,
+) -> E::Value {
     match op {
-        InfixOp::Mul => emit::arith(lhs, "*", rhs),
-        InfixOp::Div => emit::arith(lhs, "/", rhs),
-        InfixOp::Mod => emit::arith(lhs, "%", rhs),
-        InfixOp::Add => emit::arith(lhs, "+", rhs),
-        InfixOp::Sub => emit::arith(lhs, "-", rhs),
-        InfixOp::Concat => merge_concat(lhs, rhs),
-        InfixOp::Eq => emit::compare(lhs, "==", rhs),
-        InfixOp::NotEq => emit::compare(lhs, "!=", rhs),
-        InfixOp::Lt => emit::compare(lhs, "<", rhs),
-        InfixOp::LtEq => emit::compare(lhs, "<=", rhs),
-        InfixOp::Gt => emit::compare(lhs, ">", rhs),
-        InfixOp::GtEq => emit::compare(lhs, ">=", rhs),
-        InfixOp::Regex => emit::compare(lhs, "=~", rhs),
-        InfixOp::IRegex => emit::compare(lhs, "=~*", rhs),
-        InfixOp::NotRegex => emit::compare(lhs, "!~", rhs),
-        InfixOp::NotIRegex => emit::compare(lhs, "!~*", rhs),
-        InfixOp::And => merge_and_or("And", lhs, rhs),
-        InfixOp::Or => merge_and_or("Or", lhs, rhs),
-        InfixOp::Nullish => emit::call("ifNull", vec![lhs, rhs]),
+        InfixOp::Mul => emit.arith(lhs, "*", rhs),
+        InfixOp::Div => emit.arith(lhs, "/", rhs),
+        InfixOp::Mod => emit.arith(lhs, "%", rhs),
+        InfixOp::Add => emit.arith(lhs, "+", rhs),
+        InfixOp::Sub => emit.arith(lhs, "-", rhs),
+        InfixOp::Concat => merge_concat(emit, lhs, rhs),
+        InfixOp::Eq => emit.compare(lhs, "==", rhs),
+        InfixOp::NotEq => emit.compare(lhs, "!=", rhs),
+        InfixOp::Lt => emit.compare(lhs, "<", rhs),
+        InfixOp::LtEq => emit.compare(lhs, "<=", rhs),
+        InfixOp::Gt => emit.compare(lhs, ">", rhs),
+        InfixOp::GtEq => emit.compare(lhs, ">=", rhs),
+        InfixOp::Regex => emit.compare(lhs, "=~", rhs),
+        InfixOp::IRegex => emit.compare(lhs, "=~*", rhs),
+        InfixOp::NotRegex => emit.compare(lhs, "!~", rhs),
+        InfixOp::NotIRegex => emit.compare(lhs, "!~*", rhs),
+        InfixOp::And => merge_and_or(emit, "And", lhs, rhs),
+        InfixOp::Or => merge_and_or(emit, "Or", lhs, rhs),
+        InfixOp::Nullish => emit.call("ifNull", vec![lhs, rhs]),
     }
 }
 
@@ -126,10 +130,10 @@ pub(super) fn build_infix(op: InfixOp, lhs: Value, rhs: Value) -> Value {
 /// for the CONCAT alt: `a || b || c` becomes `concat(a, b, c)` rather
 /// than `concat(concat(a, b), c)`. Either side that's already a
 /// `Call(name="concat", ...)` contributes its existing args.
-pub(super) fn merge_concat(lhs: Value, rhs: Value) -> Value {
-    let mut args: Vec<Value> = Vec::new();
-    if is_concat_call(&lhs) {
-        if let Some(left_args) = lhs.get("args").and_then(Value::as_array).cloned() {
+pub(super) fn merge_concat<E: Emitter>(emit: &E, lhs: E::Value, rhs: E::Value) -> E::Value {
+    let mut args: Vec<E::Value> = Vec::new();
+    if is_concat_call(emit, &lhs) {
+        if let Some(left_args) = emit.get_field(&lhs, "args").and_then(|v| emit.as_list(&v)) {
             args.extend(left_args);
         } else {
             args.push(lhs);
@@ -137,8 +141,8 @@ pub(super) fn merge_concat(lhs: Value, rhs: Value) -> Value {
     } else {
         args.push(lhs);
     }
-    if is_concat_call(&rhs) {
-        if let Some(right_args) = rhs.get("args").and_then(Value::as_array).cloned() {
+    if is_concat_call(emit, &rhs) {
+        if let Some(right_args) = emit.get_field(&rhs, "args").and_then(|v| emit.as_list(&v)) {
             args.extend(right_args);
         } else {
             args.push(rhs);
@@ -146,56 +150,50 @@ pub(super) fn merge_concat(lhs: Value, rhs: Value) -> Value {
     } else {
         args.push(rhs);
     }
-    emit::call("concat", args)
+    emit.call("concat", args)
 }
 
-fn is_concat_call(v: &Value) -> bool {
-    v.get("node").and_then(Value::as_str) == Some("Call")
-        && v.get("name").and_then(Value::as_str) == Some("concat")
-}
-
-pub(super) fn merge_and_or(node: &str, mut lhs: Value, rhs: Value) -> Value {
-    // cpp's `And` / `Or` visitor flattens BOTH operands, so `a AND b AND
-    // c` and `a AND (b AND c)` both produce a single flat `And` with
-    // three exprs — parenthesisation does not nest. Flatten the rhs's
-    // children in when it is the same node type.
-    let rhs_children: Vec<Value> = match rhs {
-        Value::Object(mut o) if o.get("node").and_then(Value::as_str) == Some(node) => {
-            match o.remove("exprs") {
-                Some(Value::Array(a)) => a,
-                other => {
-                    if let Some(v) = other {
-                        o.insert("exprs".into(), v);
-                    }
-                    vec![Value::Object(o)]
-                }
-            }
-        }
-        other => vec![other],
-    };
-    if let Some(obj) = lhs.as_object_mut() {
-        if obj.get("node").and_then(Value::as_str) == Some(node) {
-            if let Some(exprs) = obj.get_mut("exprs").and_then(Value::as_array_mut) {
-                exprs.extend(rhs_children);
-                // Clear positions so the pratt loop's outer `wrap_pos` can
-                // re-stamp them with the new span — without this the
-                // idempotent `with_pos` would keep the pre-merge `[start,
-                // end]` (end of the second operand only) and `a or b or c`
-                // would end at `b`'s position instead of `c`'s.
-                obj.remove("start");
-                obj.remove("end");
-                return lhs;
-            }
-        }
+fn is_concat_call<E: Emitter>(emit: &E, v: &E::Value) -> bool {
+    if emit.node_kind(v).as_deref() != Some("Call") {
+        return false;
     }
-    let mut exprs = Vec::with_capacity(rhs_children.len() + 1);
-    exprs.push(lhs);
-    exprs.extend(rhs_children);
+    emit.get_field(v, "name")
+        .and_then(|name| emit.as_str(&name).map(Cow::into_owned))
+        .as_deref()
+        == Some("concat")
+}
+
+/// Flatten And/Or chains. cpp's `And`/`Or` visitor flattens BOTH operands, so `a AND b AND c` and `a AND (b AND c)` both produce a single flat `And` with three exprs — parenthesisation does not nest. We rebuild a fresh node from the extracted exprs so the outer pratt loop's `wrap_pos` can stamp the merged span (without the rebuild, idempotent `with_pos` would keep the pre-merge `[start, end]` and `a or b or c` would end at `b`'s position).
+pub(super) fn merge_and_or<E: Emitter>(
+    emit: &E,
+    node: &str,
+    lhs: E::Value,
+    rhs: E::Value,
+) -> E::Value {
+    let mut exprs: Vec<E::Value> = Vec::new();
+    extend_with_node_children(emit, &mut exprs, lhs, node);
+    extend_with_node_children(emit, &mut exprs, rhs, node);
     if node == "And" {
-        emit::and_(exprs)
+        emit.and_(exprs)
     } else {
-        emit::or_(exprs)
+        emit.or_(exprs)
     }
+}
+
+/// If `v` is an `And`/`Or` node matching `node`, push its `exprs` children individually; otherwise push `v` itself.
+fn extend_with_node_children<E: Emitter>(
+    emit: &E,
+    out: &mut Vec<E::Value>,
+    v: E::Value,
+    node: &str,
+) {
+    if emit.node_kind(&v).as_deref() == Some(node) {
+        if let Some(children) = emit.get_field(&v, "exprs").and_then(|f| emit.as_list(&f)) {
+            out.extend(children);
+            return;
+        }
+    }
+    out.push(v);
 }
 
 /// Function-call postfix on an already-parsed `lhs`. The cpp grammar
@@ -216,24 +214,24 @@ pub(super) fn merge_and_or(node: &str, mut lhs: Value, rhs: Value) -> Value {
 /// cpp's `selectSetStmt` grammar admits a bare `{X}` placeholder as
 /// a set-stmt alternative, so `* ({x})` matches `ColumnExprCallSelect`
 /// even when there's no SELECT keyword.
-pub(super) fn fold_call_or_exprcall(lhs: Value, args: Vec<Value>) -> Value {
+pub(super) fn fold_call_or_exprcall<E: Emitter>(
+    emit: &E,
+    lhs: E::Value,
+    args: Vec<E::Value>,
+) -> E::Value {
     let is_select_call = args.len() == 1
         && matches!(
-            args[0].get("node").and_then(Value::as_str),
+            emit.node_kind(&args[0]).as_deref(),
             Some("SelectQuery") | Some("SelectSetQuery") | Some("Placeholder")
         );
-    if is_select_call {
-        if let Some(obj) = lhs.as_object() {
-            if obj.get("node").and_then(Value::as_str) == Some("Field") {
-                if let Some(chain) = obj.get("chain").and_then(Value::as_array) {
-                    if chain.len() == 1 {
-                        if let Some(name) = chain[0].as_str() {
-                            return emit::call(name, args);
-                        }
-                    }
+    if is_select_call && emit.node_kind(&lhs).as_deref() == Some("Field") {
+        if let Some(chain) = emit.get_field(&lhs, "chain").and_then(|c| emit.as_list(&c)) {
+            if chain.len() == 1 {
+                if let Some(name) = emit.as_str(&chain[0]).map(Cow::into_owned) {
+                    return emit.call(&name, args);
                 }
             }
         }
     }
-    serde_json::json!({"node": "ExprCall", "expr": lhs, "args": args})
+    emit.expr_call(lhs, args)
 }
