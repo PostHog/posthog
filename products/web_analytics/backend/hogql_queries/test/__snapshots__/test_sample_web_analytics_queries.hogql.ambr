@@ -475,7 +475,7 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING notEquals(tupleElement(`context.columns.breakdown_value`, 2), NULL)
+  HAVING notEquals(tupleElement(`context.columns.breakdown_value`, 1), NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
@@ -967,7 +967,7 @@
      GROUP BY session_id,
               breakdown_value)
   GROUP BY `context.columns.breakdown_value`
-  HAVING notEquals(tupleElement(`context.columns.breakdown_value`, 2), NULL)
+  HAVING notEquals(tupleElement(`context.columns.breakdown_value`, 1), NULL)
   ORDER BY `context.columns.visitors` DESC,
            `context.columns.views` DESC,
            `context.columns.breakdown_value` ASC
