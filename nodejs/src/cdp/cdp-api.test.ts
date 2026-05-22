@@ -1,4 +1,5 @@
-import '../../tests/helpers/mocks/producer.mock'
+import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -80,7 +81,10 @@ describe('CDP API', () => {
         team = await getFirstTeam(hub.postgres)
 
         cdpDeps = createCdpConsumerDeps(hub)
-        api = new CdpApi(hub, cdpDeps)
+        api = new CdpApi(hub, cdpDeps, {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -637,10 +641,14 @@ describe('CDP API', () => {
 
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
-        let originalKafkaProducer: any
+        let produceSpy: jest.SpyInstance
 
         beforeEach(async () => {
-            originalKafkaProducer = cdpDeps.kafkaProducer
+            // The batch hogflow route now goes through the outputs registry, which in
+            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
+            // on its `produce` intercepts the produced message without reconstructing
+            // the api.
+            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -666,7 +674,7 @@ describe('CDP API', () => {
         })
 
         afterEach(() => {
-            cdpDeps.kafkaProducer = originalKafkaProducer
+            produceSpy.mockRestore()
         })
 
         it('errors if missing team', async () => {
@@ -715,8 +723,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job request to kafka', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            cdpDeps.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
@@ -728,7 +735,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -746,8 +753,7 @@ describe('CDP API', () => {
         })
 
         it('queues batch job with filters from hog flow config when not provided', async () => {
-            const mockProduce = jest.fn().mockResolvedValue(undefined)
-            cdpDeps.kafkaProducer = { produce: mockProduce } as any
+            produceSpy.mockResolvedValue(undefined)
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
@@ -755,7 +761,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body).toEqual({ status: 'queued' })
-            expect(mockProduce).toHaveBeenCalledWith({
+            expect(produceSpy).toHaveBeenCalledWith({
                 topic: 'cdp_batch_hogflow_requests_test',
                 value: Buffer.from(
                     JSON.stringify({
@@ -771,17 +777,6 @@ describe('CDP API', () => {
                 key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
             })
         })
-
-        it('errors if kafka producer not available', async () => {
-            cdpDeps.kafkaProducer = undefined as any
-
-            const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
-                .send({})
-
-            expect(res.status).toEqual(500)
-            expect(res.body.error).toEqual('Kafka producer not available')
-        })
     })
 
     describe('scheduled hogflow invocations', () => {
@@ -790,7 +785,7 @@ describe('CDP API', () => {
 
         beforeEach(async () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
-            api['cyclotronJobQueue'] = { queueInvocations: mockQueueInvocations } as any
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
 
             scheduleHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),

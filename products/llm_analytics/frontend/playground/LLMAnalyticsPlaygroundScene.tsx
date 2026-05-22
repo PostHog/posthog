@@ -44,6 +44,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
@@ -126,6 +127,7 @@ export function LLMAnalyticsPlaygroundScene({ tabId }: { tabId?: string }): JSX.
                             }}
                             actions={<PlaygroundHeaderActions />}
                         />
+                        <AIObservabilityRenameBanner />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>
@@ -206,7 +208,7 @@ function RateLimitBanner(): JSX.Element | null {
             {!hasByokKeys && (
                 <>
                     {' '}
-                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                    <Link to={urls.settings('project-ai-observability', 'ai-observability-byok')}>
                         Add your own API key
                     </Link>{' '}
                     to get higher rate limits.
@@ -371,6 +373,15 @@ function hasUsage(usage: UsageSummary | undefined): boolean {
 
 function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
+    const { addResultToConversation } = useActions(llmPlaygroundPromptsLogic)
+    const canAddToConversation = !!item?.response && !item.error && !isStreaming
+
+    const handleAddToConversation = (): void => {
+        if (!item?.response) {
+            return
+        }
+        addResultToConversation(item.response, item.promptId)
+    }
 
     return (
         <div className="mb-4 border rounded p-4 bg-transparent h-[30vh] min-w-0 flex flex-col">
@@ -378,6 +389,27 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                 <LemonTag type="default" size="small">
                     Result
                 </LemonTag>
+                {item ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={handleAddToConversation}
+                        disabledReason={
+                            canAddToConversation
+                                ? undefined
+                                : isStreaming
+                                  ? 'Wait for the response to finish'
+                                  : item.error
+                                    ? 'Only successful responses can be added'
+                                    : 'No response to add'
+                        }
+                        tooltip="Adds this result as an assistant message and starts a blank user message for the next turn."
+                        data-attr="llma-playground-add-result-to-conversation"
+                    >
+                        Add to conversation
+                    </LemonButton>
+                ) : null}
             </div>
 
             {!item ? (

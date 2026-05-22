@@ -19,6 +19,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    BaseMathType,
     ChartDisplayType,
     FunnelVizType,
     InsightLogicProps,
@@ -349,6 +350,42 @@ describe('insightNavLogic', () => {
                 })
             })
 
+            it('keeps filterTestAccounts disabled when switching insight types after it was turned off', async () => {
+                // Mirrors the DW-series flow: the trends query had filterTestAccounts auto-disabled
+                // (set to explicit false). Switching to Funnels must not re-enable it from the team default.
+                const trendsQueryWithFilterDisabled: InsightVizNode<TrendsQuery> = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        filterTestAccounts: false,
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithFilterDisabled)
+                }).toMatchValues({
+                    queryPropertyCache: expect.objectContaining({
+                        filterTestAccounts: false,
+                    }),
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                expect((builtInsightDataLogic.values.query as InsightVizNode).source).toMatchObject({
+                    kind: NodeKind.FunnelsQuery,
+                    filterTestAccounts: false,
+                })
+            })
+
             it('keeps trends-only filters when switching away and back', async () => {
                 const trendsQueryWithTrendLine: InsightVizNode = {
                     kind: NodeKind.InsightVizNode,
@@ -386,6 +423,48 @@ describe('insightNavLogic', () => {
                         trendsFilter: expect.objectContaining({
                             showTrendLines: true,
                         }),
+                    },
+                })
+            })
+
+            it.each([
+                ['switching away from trends and back', [InsightType.FUNNELS]],
+                ['switching through multiple tabs', [InsightType.FUNNELS, InsightType.LIFECYCLE]],
+            ] as const)('preserves series math when %s', async (_, intermediateViews) => {
+                const trendsQueryWithUniqueUsers: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                                math: BaseMathType.UniqueUsers,
+                            },
+                        ],
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithUniqueUsers)
+                })
+
+                for (const view of intermediateViews) {
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(view)
+                    }).toFinishAllListeners()
+                }
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [expect.objectContaining({ math: BaseMathType.UniqueUsers })],
                     },
                 })
             })

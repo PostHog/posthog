@@ -106,7 +106,7 @@ class TestFetchAndFormatActivity:
     @pytest.mark.asyncio
     async def test_generation_not_found_returns_skipped(self, mock_team):
         with patch(
-            "posthog.temporal.llm_analytics.trace_summarization.fetch_and_format.execute_hogql_query"
+            "posthog.temporal.llm_analytics.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
         ) as mock_query:
             mock_query.return_value.results = []
 
@@ -179,7 +179,7 @@ class TestFetchAndFormatActivity:
 
         with (
             patch(
-                "posthog.temporal.llm_analytics.trace_summarization.fetch_and_format.execute_hogql_query"
+                "posthog.temporal.llm_analytics.trace_summarization.fetch_and_format.execute_with_ai_events_fallback"
             ) as mock_query,
             patch("posthog.temporal.llm_analytics.trace_summarization.fetch_and_format.get_async_client"),
             patch("posthog.temporal.llm_analytics.trace_summarization.fetch_and_format.store_text_repr") as mock_store,

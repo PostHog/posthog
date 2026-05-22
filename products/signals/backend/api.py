@@ -131,7 +131,7 @@ async def emit_signal(
         }
     )
 
-    # Fire a "started" marker so direct callers (error tracking, LLM analytics evals, etc.)
+    # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
     # that don't go through the data-source pipeline still have a top-of-funnel event. The
     # gap to `signal_emitted` surfaces Temporal/dispatch failures.
     try:

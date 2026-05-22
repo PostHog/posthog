@@ -7,7 +7,7 @@ use tracing::{info, warn};
 
 use crate::ai_s3::AiBlobStorage;
 use crate::config::{CaptureMode, Config};
-use crate::event_restrictions::{EventRestrictionService, RedisRestrictionsRepository};
+use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
@@ -246,7 +246,11 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         };
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
-        create_event_restriction_service(&config, handle)
+        create_event_restriction_service(
+            &config,
+            handle,
+            Pipeline::for_capture_mode(config.capture_mode),
+        )
     } else {
         None
     };
@@ -275,6 +279,8 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
+        config.capture_v1_max_compressed_body_bytes,
+        config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         replay_overflow_limiter,
     );
@@ -344,6 +350,7 @@ async fn create_sink(
 fn create_event_restriction_service(
     config: &Config,
     handle: lifecycle::Handle,
+    pipelines: Vec<Pipeline>,
 ) -> Option<EventRestrictionService> {
     if !config.event_restrictions_enabled {
         return None;
@@ -354,8 +361,9 @@ fn create_event_restriction_service(
         return None;
     };
 
+    let pipelines_for_log = pipelines.clone();
     let service = EventRestrictionService::new(
-        config.capture_mode,
+        pipelines,
         Duration::from_secs(config.event_restrictions_fail_open_after_secs),
     );
 
@@ -399,7 +407,7 @@ fn create_event_restriction_service(
     });
 
     info!(
-        pipeline = %config.capture_mode.as_pipeline_name(),
+        pipelines = ?pipelines_for_log,
         refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
         fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
         "Event restrictions enabled"

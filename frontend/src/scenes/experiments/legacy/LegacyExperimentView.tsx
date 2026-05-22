@@ -27,9 +27,10 @@ import { Experiment } from '~/types'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { LoadingState, PageHeaderCustom } from '../ExperimentView/components'
 import { DistributionModal, DistributionTable } from '../ExperimentView/DistributionTable'
 import { ExperimentWarningBanner } from '../ExperimentView/ExperimentWarningBanners'
+import { LoadingState } from '../ExperimentView/LoadingState'
+import { PageHeaderCustom } from '../ExperimentView/PageHeader'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from '../ExperimentView/ReleaseConditionsTable'
 
 const getFirstPrimaryMetric = (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | null => {
@@ -171,7 +172,7 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
         if (!experimentLoading && experiment) {
             refreshExperimentResults(false, 'page_load')
         }
-    }, [experimentLoading, experiment?.id])
+    }, [experimentLoading, experiment?.id, experiment, refreshExperimentResults])
 
     return (
         <BindLogic logic={legacyExperimentLogic} props={legacyLogicProps}>
@@ -230,7 +231,6 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
                           - SharedMetricModal (can't add shared metrics)
                           - SharedMetricDetailsModal (can't manage shared metrics)
                           - ExposureCriteriaModal (can't edit exposure)
-                          - RunningTimeCalculatorModal (modern feature)
                           - EditConclusionModal (uses legacy version instead)
                         */}
                     </>

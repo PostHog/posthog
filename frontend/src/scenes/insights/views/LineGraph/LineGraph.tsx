@@ -1,6 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
 
-import { type DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
@@ -8,7 +7,7 @@ import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     ActiveElement,
@@ -18,6 +17,7 @@ import {
     ChartOptions,
     ChartType,
     Color,
+    DeepPartial,
     GridLineOptions,
     InteractionItem,
     LegendOptions,
@@ -28,11 +28,11 @@ import {
     TooltipOptions,
 } from 'lib/Chart'
 import { resolveVariableColor } from 'lib/charts/utils/color'
-import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { createXAxisTickCallback } from 'lib/hog-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -64,7 +64,18 @@ function truncateString(str: string, num: number): string {
     return str
 }
 
+/** Generate per-bucket labels for stickiness ("Day 0", "Day 1", …). The API's own labels include
+ * a "X day(s)" suffix that's redundant when paired with the interval prefix, so we use the index. */
+function formatIntervalLabels(labels: string[], interval: string | null | undefined): string[] {
+    const unit = interval ?? 'day'
+    const prefix = `${unit.slice(0, 1).toUpperCase()}${unit.slice(1)}`
+    return labels.map((_, i) => `${prefix} ${i}`)
+}
+
 const INCOMPLETE_SEGMENT_BORDER_DASH = [10, 10]
+// Chart.js locks up the main thread when rendering too many series, effectively
+// freezing the browser. Cap the dataset count to keep the UI responsive.
+const MAX_CHART_DATASETS = 150
 
 export function onTooltipClick(
     datasetIndex: number,
@@ -340,6 +351,8 @@ export function LineGraph_({
     const { timezone, isTrends, isStickiness, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
+
+    const displayLabels = isStickiness ? formatIntervalLabels(labels, interval) : labels
     const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, currentPeriodResult } = useValues(
         trendsDataLogic(insightProps)
     )
@@ -365,6 +378,21 @@ export function LineGraph_({
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
     const hasMultipleSeries = new Set(_datasets.map((d) => d.action?.order).filter((o) => o !== undefined)).size > 1
     const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
+    const visibleDatasets = useMemo(
+        () => (!isHorizontal ? datasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult)) : datasets),
+        [datasets, getTrendsHidden, isHorizontal]
+    )
+    const chartDatasets = useMemo(
+        () =>
+            visibleDatasets.length > MAX_CHART_DATASETS
+                ? visibleDatasets.slice(0, MAX_CHART_DATASETS)
+                : visibleDatasets,
+        [visibleDatasets]
+    )
+    const currentPeriodDatasetIndex = chartDatasets.findIndex(
+        (dataset) => dataset.compare && dataset.compare_label === 'current'
+    )
+    const annotationDatasetIndex = isBar && currentPeriodDatasetIndex >= 0 ? currentPeriodDatasetIndex : 0
     const zoomPluginOptions = useChartZoom({
         datasets,
         onDateRangeZoom: effectiveZoomCallback,
@@ -616,22 +644,9 @@ export function LineGraph_({
     Chart.register(annotationPlugin)
     Chart.register(chartTrendline)
 
-    // Chart.js locks up the main thread when rendering too many series, effectively
-    // freezing the browser. Cap the dataset count to keep the UI responsive.
-    const MAX_CHART_DATASETS = 150
-
     const { canvasRef, chartRef } = useChart({
         getConfig: () => {
-            let filteredDatasets = datasets
-            if (!isHorizontal) {
-                filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
-            }
-
-            if (filteredDatasets.length > MAX_CHART_DATASETS) {
-                filteredDatasets = filteredDatasets.slice(0, MAX_CHART_DATASETS)
-            }
-
-            const processedDatasets = filteredDatasets.map(processDataset)
+            const processedDatasets = chartDatasets.map(processDataset)
             let seriesNonZeroMax = Number.NEGATIVE_INFINITY
             let seriesNonZeroMin = Number.POSITIVE_INFINITY
             for (const dataset of processedDatasets) {
@@ -685,9 +700,6 @@ export function LineGraph_({
                 interval: interval ?? 'day',
                 allDays: currentPeriodResult?.days ?? [],
                 timezone,
-                numericTickPrefix: isStickiness
-                    ? `${(interval ?? 'day').slice(0, 1).toUpperCase()}${(interval ?? 'day').slice(1)}`
-                    : undefined,
             })
 
             const gridOptions: Partial<GridLineOptions> = {
@@ -1258,13 +1270,13 @@ export function LineGraph_({
 
             return {
                 type: (isBar ? GraphType.Bar : type) as ChartType,
-                data: { labels, datasets: processedDatasets },
+                data: { labels: displayLabels, datasets: processedDatasets },
                 options,
                 plugins: [ChartDataLabels, ...(showTrendLines ? [chartTrendline as any] : [])],
             }
         },
         deps: [
-            datasets,
+            chartDatasets,
             isDarkModeOn,
             trendsFilter,
             formula,
@@ -1276,7 +1288,7 @@ export function LineGraph_({
             type,
             isArea,
             showTrendLines,
-            labels,
+            displayLabels,
             legend?.display,
             hideTooltip,
             showTooltip,
@@ -1304,10 +1316,11 @@ export function LineGraph_({
             {showAnnotations && chartRef.current && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={chartRef.current}
-                    dates={datasets[0]?.days || EMPTY_DATES}
+                    dates={currentPeriodResult?.days || datasets[0]?.days || EMPTY_DATES}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}
                     insightNumericId={insight.id || 'new'}
+                    datasetIndex={annotationDatasetIndex}
                 />
             ) : null}
         </div>

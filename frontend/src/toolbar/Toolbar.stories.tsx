@@ -71,7 +71,6 @@ const meta: Meta<StoryArgs> = {
                     isAuthenticated: props.unauthenticated ?? true,
                     supportedCompression: ['gzip', 'gzip-js', 'lz64'],
                     featureFlags: {
-                        'web-experiments': true,
                         'web-vitals': true,
                         'web-vitals-toolbar': true,
                     },

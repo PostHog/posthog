@@ -5,11 +5,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconSearch, IconX } from '@posthog/icons'
+import { IconFilter, IconList, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
@@ -22,10 +23,13 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
+import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
@@ -64,10 +68,12 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueId, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
     useEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -84,6 +90,57 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
+                                {sceneMenuBarEnabled && (
+                                    <SceneMenuBar>
+                                        <SceneMenuBarMenu label="File" dataAttr="issue-menubar-file">
+                                            <SceneMenuBarFileItems dataAttrKey="issue" />
+                                            {hasIssueSplitting && (
+                                                <SceneMenuBarItem
+                                                    onClick={() =>
+                                                        window.open(
+                                                            urls.errorTrackingIssueFingerprints(issue.id),
+                                                            '_self'
+                                                        )
+                                                    }
+                                                    data-attr="issue-menubar-fingerprints"
+                                                >
+                                                    Manage fingerprints
+                                                </SceneMenuBarItem>
+                                            )}
+                                        </SceneMenuBarMenu>
+                                        <SceneMenuBarMenu label="View" dataAttr="issue-menubar-view">
+                                            <SceneMenuBarItem
+                                                onClick={() => {
+                                                    const url = urls.replay(ReplayTabs.Home, {
+                                                        date_from: issue.first_seen ?? '-30d',
+                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
+                                                        filter_group: {
+                                                            type: FilterLogicalOperator.And,
+                                                            values: [
+                                                                {
+                                                                    type: FilterLogicalOperator.And,
+                                                                    values: [
+                                                                        {
+                                                                            key: '$exception_issue_id',
+                                                                            type: PropertyFilterType.Event,
+                                                                            operator: PropertyOperator.Exact,
+                                                                            value: [issue.id],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                            ],
+                                                        },
+                                                    })
+                                                    newInternalTab(url)
+                                                }}
+                                                data-attr="issue-menubar-view-recordings"
+                                            >
+                                                <IconRewindPlay />
+                                                View recordings
+                                            </SceneMenuBarItem>
+                                        </SceneMenuBarMenu>
+                                    </SceneMenuBar>
+                                )}
                                 <SceneTitleSection
                                     canEdit
                                     name={issue.name ?? undefined}
@@ -107,6 +164,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 />
                                                 <ViewRecordingsPlaylistButton
                                                     filters={{
+                                                        date_from: issue.first_seen ?? '-30d',
+                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [

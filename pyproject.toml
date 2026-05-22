@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake[pyarrow]==1.4.0",
     "dj-database-url~=3.0.0",
-    "django~=4.2.29",
+    "django~=5.2.0",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
@@ -67,7 +67,7 @@ dependencies = [
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.40",
+    "hogql-parser==1.3.53",
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -103,14 +103,16 @@ dependencies = [
     "psycopg[binary]==3.2.4",
     "pyarrow==18.1.0",
     "pydantic~=2.12.0",
+    "pypdf==6.10.2",
     "pyod==2.0.7",
-    "pyjwt~=2.10.0",
+    "pyjwt~=2.12.1",
     "pymssql==2.3.5",
     "pymysql==1.1.1",
     "pymongo==4.13.2",
     "pyroscope-io~=0.8.8",
     "croniter~=6.0.0",
     "python-dateutil~=2.9.0",
+    "python-docx==1.2.0",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
     "pytz==2023.3",
@@ -124,8 +126,8 @@ dependencies = [
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.39.0",
     "snowflake-connector-python==4.3.0",
-    "social-auth-app-django~=5.4.3",
-    "social-auth-core~=4.8.3",
+    "social-auth-app-django~=5.8.0",
+    "social-auth-core~=4.8.7",
     "django-scim2==0.19.0",
     "sqlparse==0.5.4",
     "sshtunnel==0.4.0",
@@ -136,6 +138,7 @@ dependencies = [
     "tenacity==9.1.2",
     "tiktoken==0.9.*",
     "tldextract~=5.1",
+    "trafilatura==2.0.0",
     "types-cachetools==5.5.0.20240820",
     "css-inline==0.18.0",
     "click~=8.0",
@@ -161,6 +164,7 @@ dependencies = [
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-instrumentation-psycopg==0.54b1",
     "opentelemetry-instrumentation-redis==0.54b1",
+    "opentelemetry-instrumentation-requests==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
     "asgiref==3.11.0",
     "user-agents~=2.2.0",
@@ -178,23 +182,26 @@ dependencies = [
     "pymediainfo~=7.0.1",
     "cachetools~=5.5.2",
     "gitpython~=3.1.44",
-    "duckdb~=1.5.1",
+    "duckdb~=1.5.2",
     "bingads~=13.0.26",
     "markdown-to-mrkdwn~=0.2.0",
     "webauthn>=2.1.0,<2.3.0",
     "botocore[crt]~=1.40.49",
-    "defusedxml>=0.7.1",
-    "confluent-kafka>=2.13.0",
-    "blake3>=1.0.8",
-    "pixelhog~=1.1.0",
-    "google-re2>=1.1.20251105",
+    "defusedxml~=0.7.1",
+    "confluent-kafka~=2.13",
+    "blake3>=1.0.8,<2",
+    "pixelhog~=1.2.0",
+    "google-re2>=1.1.20251105,<2",
+    "scrubadub~=2.0.1",
+    "braintrust-core>=0.0.59,<1",
 ]
 
 [dependency-groups]
 dev = [
     "aioresponses==0.7.6",
-    "autoevals==0.0.129",
+    "autoevals==0.2.0",
     "boto3-stubs[s3]~=1.38.30",
+    "browser-cookie3~=0.20",
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli~=1.10.18",
@@ -214,7 +221,7 @@ dev = [
     "grpcio-tools~=1.71.0",
     "protoletariat~=3.3.10",
     "ipython~=9.3.0",
-    "mypy~=1.19.1",
+    "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
     "ty==0.0.29",
     # openapi-spec-validator needed for prance as a validation backend
@@ -258,8 +265,10 @@ dev = [
     "types-requests==2.31.0.6",
     "types-retry==0.9.9.4",
     "types-tzlocal~=5.1.0.1",
-    "pywatchman>=2.0.0",
+    "pywatchman~=3.0",
     "watchdog==5.0.3",
+    # Developer CLI
+    "hogli",
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
@@ -268,13 +277,18 @@ sentiment = [
 
 [tool.uv]
 required-version = "~=0.10.2"
+add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false }
+exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false, django = false }
 constraint-dependencies = [
     "langgraph-checkpoint<3",
 ]
 
+[tool.uv.workspace]
+members = ["tools/hogli"]
+
 [tool.uv.sources]
+hogli = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 
 
@@ -303,7 +317,6 @@ ignore = [
     "E501",  # ~4697: line too long
     "E722",  # ~62: bare except
     "E731",  # ~185: lambda assignment
-    "F403",  # ~67: import * undefined
     "F541",  # ~1139: f-string missing placeholders
     "UP007",  # ~377: Union[X,Y] → X | Y (auto-fixable)
     "UP032",  # ~175: use f-string (auto-fixable)
@@ -319,6 +332,7 @@ select = [
     "E",
     "F",
     "I",
+    "PLC0415",
     "RUF005",
     "RUF013",
     "RUF015",
@@ -338,6 +352,21 @@ select = [
 # descriptors into the pool before AddSerializedFile() — ruff must not strip them.
 "posthog/personhog_client/proto/generated/**/*.pyi" = ["F401"]
 "posthog/personhog_client/proto/generated/**/*_pb2.py" = ["F401", "E402"]
+# Django settings aggregator: star imports are how settings modules merge into one namespace.
+# Not portable to explicit re-exports without losing the settings-loading semantics.
+"posthog/settings/**" = ["F403", "F405"]
+
+# PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
+# Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
+".github/**" = ["PLC0415"]
+"bin/**" = ["PLC0415"]
+"common/**" = ["PLC0415"]
+"ee/**" = ["PLC0415"]
+"manage.py" = ["PLC0415"]
+"posthog/**" = ["PLC0415"]
+"scripts/**" = ["PLC0415"]
+"services/stripe-mock/**" = ["PLC0415"]
+"tools/**" = ["PLC0415"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -393,7 +422,7 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|tools/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -456,6 +485,7 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
+    "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.models",
     "products.mcp_store.backend.presentation.views -> products.mcp_store.backend.oauth",
@@ -466,6 +496,8 @@ ignore_imports = [
     "products.notifications.backend.presentation.views -> products.notifications.backend.models",
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
     "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
+    "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
+    "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
 ]
 
 [tool.ty.rules]

@@ -1,7 +1,11 @@
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from time import perf_counter
 
+from opentelemetry import trace
+
 from posthog.schema import QueryTiming
+
+_tracer = trace.get_tracer(__name__)
 
 TIMING_DECIMAL_PLACES = 3  # round to milliseconds
 
@@ -28,13 +32,15 @@ class HogQLTimings:
         self.timings = {}
 
     @contextmanager
-    def measure(self, key: str):
+    def measure(self, key: str, emit_span: bool = False):
         last_key = self._timing_pointer
         full_key = f"{self._timing_pointer}/{key}"
         self._timing_pointer = full_key
         self._timing_starts[full_key] = perf_counter()
+        span_cm = _tracer.start_as_current_span(key) if emit_span else nullcontext()
         try:
-            yield
+            with span_cm:
+                yield
         finally:
             duration = perf_counter() - self._timing_starts[full_key]
             self.timings[full_key] = self.timings.get(full_key, 0.0) + duration

@@ -11,8 +11,7 @@ from typing import Optional, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.contrib.auth import logout
-from django.contrib.sessions.middleware import SessionMiddleware
+from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
@@ -22,22 +21,26 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
+from django.utils.deprecation import MiddlewareMixin
 
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
+from opentelemetry import trace
+from prometheus_client import Histogram
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
-from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.event_usage import get_event_source, get_mcp_properties
+from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
+from posthog.models import Cohort, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
@@ -49,6 +52,7 @@ from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import _is_valid_ip_address
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 
@@ -227,7 +231,7 @@ class AutoProjectMiddleware:
 
     def __call__(self, request: HttpRequest):
         # Skip project switching for CLI authorization page and account social-link confirmation scene
-        if request.path.startswith("/cli/authorize") or request.path.startswith("/account/social-connected"):
+        if request.path.startswith("/cli/authorize") or request.path.startswith("/account-connected"):
             return self.get_response(request)
 
         if request.user.is_authenticated:
@@ -362,6 +366,37 @@ class AutoProjectMiddleware:
         return True
 
 
+API_REQUESTS_LATENCY_SECONDS = Histogram(
+    "posthog_api_requests_latency_seconds",
+    "Latency of api/ requests, labelled to expose agent vs browser traffic.",
+    # `status_class` is "2xx" / "3xx" / "4xx" / "5xx" on a returned response,
+    # or "error" when the view raised before producing one — keeps error-path
+    # latency from polluting success buckets while still recording it.
+    labelnames=["view", "method", "source", "access_method", "status_class"],
+    # Same buckets as django_prometheus' default so we line up with
+    # django_http_requests_latency_seconds_by_view_method.
+    buckets=(
+        0.01,
+        0.025,
+        0.05,
+        0.075,
+        0.1,
+        0.25,
+        0.5,
+        0.75,
+        1.0,
+        2.5,
+        5.0,
+        7.5,
+        10.0,
+        25.0,
+        50.0,
+        75.0,
+        float("inf"),
+    ),
+)
+
+
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -374,6 +409,7 @@ class CHQueries:
         """
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
+        is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
 
@@ -395,10 +431,15 @@ class CHQueries:
             **get_mcp_properties(request),
         )
 
+        start = time.perf_counter()
+        # Stays "error" if get_response raises — observed in the finally below.
+        status_class = "error"
+
         try:
             response: HttpResponse = self.get_response(request)
+            status_class = f"{response.status_code // 100}xx"
 
-            if "api/" in request.path and "capture" not in request.path:
+            if is_api_request:
                 statsd.incr(
                     "http_api_request_response",
                     tags={"id": route_id, "status_code": response.status_code},
@@ -406,13 +447,30 @@ class CHQueries:
 
             return response
         finally:
+            if is_api_request:
+                API_REQUESTS_LATENCY_SECONDS.labels(
+                    # DRF viewset name (api:viewset-action) when set, view function name
+                    # otherwise. (Django builds view_name from url_name, so url_name as a
+                    # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
+                    view=route.view_name or route.func.__name__,
+                    method=request.method or "",
+                    # Read after get_response so view code that calls tag_queries(source=...)
+                    # wins — matches access_method semantics, where DRF auth tags during dispatch.
+                    source=get_query_tag_value("source") or "",
+                    access_method=get_query_tag_value("access_method") or "",
+                    status_class=status_class,
+                ).observe(time.perf_counter() - start)
             reset_query_tags()
 
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
             return request.GET[name]
-        if name in request.POST:
-            return request.POST[name]
+        try:
+            if name in request.POST:
+                return request.POST[name]
+        except (ValueError, RuntimeError):
+            # Django 5 ASGI: request stream may be closed when accessing POST
+            pass
         return None
 
 
@@ -429,11 +487,7 @@ class QueryTimeCountingMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        if not (
-            settings.CAPTURE_TIME_TO_SEE_DATA
-            and "api" in request.path
-            and any(key in request.path for key in self.ALLOW_LIST_ROUTES)
-        ):
+        if not settings.CAPTURE_TIME_TO_SEE_DATA or not self._should_instrument(request):
             return self.get_response(request)
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
@@ -442,14 +496,35 @@ class QueryTimeCountingMiddleware:
             response: HttpResponse = self.get_response(request)
 
         response.headers["Server-Timing"] = self._construct_header(
-            django=time.perf_counter() - start_time,
-            pg=pg_query_counter.query_time_ms,
-            ch=ch_query_counter.query_time_ms,
+            durations_ms={
+                "django": (time.perf_counter() - start_time) * 1000,
+                "pg": pg_query_counter.query_time_ms,
+                "pg_max": pg_query_counter.max_query_time_ms,
+                "ch": ch_query_counter.query_time_ms,
+                "ch_max": ch_query_counter.max_query_time_ms,
+            },
+            counts={
+                "pg_count": pg_query_counter.count,
+                "pg_slow": pg_query_counter.slow_count,
+                "ch_count": ch_query_counter.count,
+                "ch_slow": ch_query_counter.slow_count,
+            },
         )
         return response
 
-    def _construct_header(self, **kwargs):
-        return ", ".join(f"{key};dur={round(duration)}" for key, duration in kwargs.items())
+    def _construct_header(self, durations_ms: dict[str, float], counts: dict[str, int]) -> str:
+        parts = [f"{key};dur={round(value)}" for key, value in durations_ms.items()]
+        parts += [f'{key};desc="{value}"' for key, value in counts.items()]
+        return ", ".join(parts)
+
+    def _should_instrument(self, request: HttpRequest) -> bool:
+        path = request.path
+        if "api" in path and any(key in path for key in self.ALLOW_LIST_ROUTES):
+            return True
+        try:
+            return resolve(path).func.__name__ == "home"
+        except Exception:
+            return False
 
 
 def shortcircuitmiddleware(f):
@@ -498,6 +573,38 @@ def per_request_logging_context_middleware(
             x_forwarded_for=request.headers.get("x-forwarded-for", ""),
         )
 
+        # Forwarded by the PostHog MCP server (services/mcp) on every API call.
+        # Binding here lets backend log lines and OTLP spans correlate with the
+        # same MCP context that's stamped on events.
+        #
+        # These headers are caller-asserted on a public API surface — anyone can
+        # set them on a request, so treat the resulting fields in logs/traces
+        # as correlation hints, not authoritative identifiers.
+        #
+        # The OTLP span tagging below depends on `DjangoInstrumentor` having
+        # already pushed a request span into the OTel context. The
+        # instrumentation library installs itself at MIDDLEWARE position 0 by
+        # default (see `posthog/otel_instrumentation.py`), so the span is in
+        # scope here. If that invariant ever changes, `set_attribute` becomes a
+        # silent no-op on the non-recording span.
+        mcp_session_id = sanitize_header_value(request.headers.get("X-Posthog-Mcp-Session-Id"))
+        mcp_conversation_id = sanitize_header_value(request.headers.get("X-Posthog-Mcp-Conversation-Id"))
+        mcp_context_bindings = {
+            k: v
+            for k, v in (
+                ("mcp_session_id", mcp_session_id),
+                ("mcp_conversation_id", mcp_conversation_id),
+            )
+            if v
+        }
+        if mcp_context_bindings:
+            structlog.contextvars.bind_contextvars(**mcp_context_bindings)
+            span = trace.get_current_span()
+            if mcp_session_id:
+                span.set_attribute("mcp.session_id", mcp_session_id)
+            if mcp_conversation_id:
+                span.set_attribute("mcp.conversation_id", mcp_conversation_id)
+
         return get_response(request)
 
     return middleware
@@ -533,14 +640,20 @@ class CustomPrometheusMetrics(Metrics):
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
 
 
-class PostHogTokenCookieMiddleware(SessionMiddleware):
+class PostHogTokenCookieMiddleware(MiddlewareMixin):
     """
-    Adds two secure cookies to enable auto-filling the current project token on the docs.
+    Adds secure cookies that let the website auto-fill the current project token / login method on docs.
+
+    Note: this used to subclass SessionMiddleware, which had the side effect of running a second
+    SessionMiddleware.process_request mid-chain — replacing request.session with a fresh, unloaded
+    SessionStore. That caused two real problems: (1) downstream gates relying on request.session.accessed
+    became asymmetric across sync vs ASGI auth (Django keeps separate _cached_user / _acached_user),
+    and (2) any later code that read a session key (e.g. BACKEND_SESSION_KEY) paid a redundant DB load
+    against the fresh store, which N+1 query-count tests would catch. The session is already saved by
+    the SessionMiddleware higher in the stack; this middleware only needs to set response cookies.
     """
 
     def process_response(self, request, response):
-        response = super().process_response(request, response)
-
         if settings.TEST:
             pass
         elif is_dev_mode():
@@ -625,26 +738,33 @@ class SessionAgeMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
+        # Anonymous requests have no session-auth context — skipping avoids materializing a session
+        # row for every public/API-key-authenticated request. Previously this ran unconditionally,
+        # but the modifications were silently dropped by PostHogTokenCookieMiddleware's session
+        # reset; once that reset is removed, those modifications would persist and cause spurious
+        # session inserts on every anonymous request.
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
         get_or_set_session_cookie_created_at(request=request)
 
-        if request.user.is_authenticated:
-            # Get session creation time
-            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
-            if session_created_at:
-                # Get timeout from Redis cache first, fallback to settings
-                org_id = request.user.current_organization_id
-                session_age = None
-                if org_id:
-                    session_age = cache.get(f"org_session_age:{org_id}")
+        # Get session creation time
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        if session_created_at:
+            # Get timeout from Redis cache first, fallback to settings
+            org_id = request.user.current_organization_id
+            session_age = None
+            if org_id:
+                session_age = cache.get(f"org_session_age:{org_id}")
 
-                if session_age is None:
-                    session_age = settings.SESSION_COOKIE_AGE
+            if session_age is None:
+                session_age = settings.SESSION_COOKIE_AGE
 
-                current_time = time.time()
-                if current_time - session_created_at > session_age:
-                    logout(request)
-                    return redirect("/login?message=Your session has expired. Please log in again.")
+            current_time = time.time()
+            if current_time - session_created_at > session_age:
+                logout(request)
+                return redirect("/login?message=Your session has expired. Please log in again.")
 
         response = self.get_response(request)
         return response
@@ -658,7 +778,14 @@ class KnownLoginDeviceCookieMiddleware:
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        if request.session.accessed and request.user.is_authenticated and not is_impersonated_session(request):
+        # Gate on `BACKEND_SESSION_KEY` (set by `auth.login()`, removed by `auth.logout()`) rather than
+        # `request.session.accessed` — the latter flips True whenever any upstream middleware reads the
+        # session, which makes the gate dependent on middleware ordering and async/sync execution mode.
+        if (
+            isinstance(request.user, User)
+            and BACKEND_SESSION_KEY in request.session
+            and not is_impersonated_session(request)
+        ):
             set_known_device_cookie(response, request.user)
         return response
 
@@ -682,6 +809,47 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
 
     return min(idle_expiry_time, total_expiry_time)
+
+
+class AdminImpersonationMiddleware:
+    """
+    During impersonation, allow the original (staff) user to keep using the admin panel.
+
+    Without this, an impersonated session swaps `request.user` to the customer being
+    impersonated — who is not staff — locking the admin out of the admin panel and
+    every staff-only command. This middleware swaps `request.user` back to the
+    original staff user for `/admin/` routes so admin views, model permissions, and
+    `staff_member_required` decorators all see the real operator. The impersonation
+    session itself is left intact (the loginas session flag stays set), so
+    `is_impersonated_session` keeps returning True and `get_impersonated_user` still
+    returns the customer (looked up from the session).
+    """
+
+    # Endpoints that need to see the impersonated user as `request.user`.
+    EXEMPT_PATHS: tuple[str, ...] = (
+        # impersonated_session_logout reads request.user.pk to redirect back to the
+        # impersonated user's admin change page after restoring the original login.
+        "/admin/logout/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if self._should_swap_user(request):
+            original_user = get_original_user_from_session(request)
+            if original_user and original_user.is_active and original_user.is_staff:
+                request.user = original_user
+                # Keep the lazy auth-middleware cache in sync with the swapped user.
+                request._cached_user = original_user  # type: ignore[attr-defined]
+        return self.get_response(request)
+
+    def _should_swap_user(self, request: HttpRequest) -> bool:
+        if not request.path.startswith("/admin/"):
+            return False
+        if request.path in self.EXEMPT_PATHS:
+            return False
+        return is_impersonated_session(request)
 
 
 class AutoLogoutImpersonateMiddleware:
@@ -1015,6 +1183,16 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
+    # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
+    # while Django's URL config accepts both via opt_slash_path — match both forms.
+    re.compile(r"^/logout/?$"),
+    # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
+    # Scopes minted while read-only impersonation is active are filtered through
+    # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
+    # resulting tokens can't grant write access. Tokens minted here are also tagged with
+    # the impersonator and revoked when impersonation ends.
+    re.compile(r"^/oauth/authorize/?$"),
+    re.compile(r"^/oauth/token/?$"),
 ]
 
 
@@ -1035,6 +1213,11 @@ class ImpersonationReadOnlyMiddleware:
 
     def __call__(self, request: HttpRequest):
         if not is_read_only_impersonation(request):
+            return self.get_response(request)
+
+        # Admin paths run as the original staff user (see AdminImpersonationMiddleware),
+        # so impersonation read-only restrictions don't apply there.
+        if request.path.startswith("/admin/"):
             return self.get_response(request)
 
         if request.method in IMPERSONATION_SAFE_METHODS:
@@ -1123,7 +1306,11 @@ class ImpersonationBlockedPathsMiddleware:
         )
 
     def _is_path_blocked(self, path: str) -> bool:
-        return any(path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
+        # DefaultRouterPlusPlus accepts an optional trailing slash, so /api/personal_api_keys
+        # and /api/personal_api_keys/ both reach the same viewset. Normalize before matching
+        # so the slashless form cannot bypass the block list.
+        normalized_path = path if path.endswith("/") else f"{path}/"
+        return any(normalized_path.startswith(blocked_path) for blocked_path in IMPERSONATION_BLOCKED_PATHS)
 
     def _is_allowed_users_request(self, request: HttpRequest) -> bool:
         """

@@ -2,16 +2,10 @@ name: AI
 on:
     pull_request:
         types: [opened, synchronize, reopened, labeled, unlabeled]
-    push:
-        branches:
-            - master
-        paths:
-            - 'ee/hogai/**'
-            - '.github/workflows/ci-ai.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }} # We only want one AI CI run per PR concurrently
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: true # We only want one AI CI run per PR concurrently
 
 jobs:
     eval:
@@ -20,9 +14,7 @@ jobs:
         runs-on: ubuntu-latest
         # Skipping on forks as Braintrust credentials are not available there
         if: |
-            github.repository == 'PostHog/posthog' && (
-                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
-            )
+            github.repository == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'evals-ready')
 
         strategy:
             fail-fast: false
@@ -64,7 +56,7 @@ jobs:
             contents: read
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
@@ -107,7 +99,7 @@ jobs:
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -160,12 +152,12 @@ jobs:
             pull-requests: write
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/scripts
 
             - name: Download all eval results
-              uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: eval-results-*
                   path: eval-artifacts
@@ -184,7 +176,7 @@ jobs:
             - name: Post eval summary to PR
               # always() because we want to post even if some eval groups errored
               if: always() && github.event_name == 'pull_request'
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require("fs")

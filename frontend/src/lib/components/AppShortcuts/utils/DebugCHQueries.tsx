@@ -4,7 +4,7 @@ import { actions, afterMount, kea, path, reducers, selectors, useActions, useVal
 import { loaders } from 'kea-loaders'
 import { useMemo, useState } from 'react'
 
-import { IconCodeInsert, IconCopy, IconRefresh, IconSearch } from '@posthog/icons'
+import { IconCodeInsert, IconCopy, IconRefresh } from '@posthog/icons'
 
 import api from 'lib/api'
 import { Chart, ChartConfiguration, ChartDataset } from 'lib/Chart'
@@ -25,7 +25,6 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, Realm, Reg
 
 import { CodeSnippet, Language } from '../../CodeSnippet'
 import type { debugCHQueriesLogicType } from './DebugCHQueriesType'
-import { FlamegraphViewer } from './FlamegraphViewer'
 
 export function openCHQueriesDebugModal(): void {
     LemonDialog.open({
@@ -74,32 +73,16 @@ export interface DebugResponse {
     hourly_stats: DataPoint[]
 }
 
-export interface ProfilingResult {
-    folded_stacks: string[]
-    sample_count: number
-    execution_time_ms: number
-    _query: string
-}
-
 const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
     path(['lib', 'components', 'CommandPalette', 'DebugCHQueries']),
     actions({
         setPathFilter: (path: string | null) => ({ path }),
-        runProfile: (query: string) => ({ query }),
     }),
     reducers({
         pathFilter: [
             null as string | null,
             {
                 setPathFilter: (_, { path }) => path,
-            },
-        ],
-        profilingQuerySql: [
-            null as string | null,
-            {
-                runProfile: (_, { query }) => query,
-                runProfileSuccess: () => null,
-                runProfileFailure: () => null,
             },
         ],
     }),
@@ -115,30 +98,6 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
                         params.append('experiment_id', String(props.experimentId))
                     }
                     return await api.get(`api/debug_ch_queries/?${params.toString()}`)
-                },
-            },
-        ],
-        profilingResult: [
-            null as ProfilingResult | null,
-            {
-                runProfile: async ({ query }: { query: string }) => {
-                    const { profile_query_id, execution_time_ms } = await api.create('api/debug_ch_queries/profile/', {
-                        query,
-                    })
-
-                    const maxAttempts = 10
-                    const intervalMs = 2000
-                    for (let i = 0; i < maxAttempts; i++) {
-                        await new Promise((resolve) => setTimeout(resolve, intervalMs))
-                        const result = await api.get(
-                            `api/debug_ch_queries/profile_results/?profile_query_id=${profile_query_id}`
-                        )
-                        if (result.status === 'complete') {
-                            return { ...result, execution_time_ms, _query: query }
-                        }
-                    }
-
-                    throw new Error('No profiling samples collected. The query may have been too fast to sample.')
                 },
             },
         ],
@@ -274,17 +233,8 @@ interface DebugCHQueriesProps {
 
 export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps): JSX.Element {
     const logic = debugCHQueriesLogic({ insightId, experimentId: experimentId ?? undefined })
-    const {
-        debugResponseLoading,
-        filteredQueries,
-        pathFilter,
-        paths,
-        debugResponse,
-        profilingQuerySql,
-        profilingResult,
-        profilingResultLoading,
-    } = useValues(logic)
-    const { setPathFilter, loadDebugResponse, runProfile } = useActions(logic)
+    const { debugResponseLoading, filteredQueries, pathFilter, paths, debugResponse } = useValues(logic)
+    const { setPathFilter, loadDebugResponse } = useActions(logic)
 
     const errorTrackingLink = (key: string, value: string | number): string => {
         return urls.errorTracking({
@@ -526,31 +476,6 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
                                             </span>{' '}
                                             in new tab
                                         </LemonButton>
-                                    ) : null}
-                                    {item.status === 2 ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            fullWidth
-                                            center
-                                            icon={<IconSearch />}
-                                            loading={profilingResultLoading && profilingQuerySql === item.query}
-                                            onClick={() => runProfile(item.query)}
-                                            className="my-0"
-                                        >
-                                            Profile this query
-                                        </LemonButton>
-                                    ) : null}
-                                    {profilingResult && profilingResult._query === item.query ? (
-                                        <div className="mt-2 border rounded p-2">
-                                            <div className="flex items-center justify-between mb-1">
-                                                <span className="text-xs font-semibold">
-                                                    CPU profile: {profilingResult.sample_count} samples,{' '}
-                                                    {profilingResult.execution_time_ms}ms
-                                                </span>
-                                            </div>
-                                            <FlamegraphViewer foldedStacks={profilingResult.folded_stacks} />
-                                        </div>
                                     ) : null}
                                 </div>
                             )

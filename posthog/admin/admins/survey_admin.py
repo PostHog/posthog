@@ -5,6 +5,7 @@ from django.utils.html import format_html
 from products.surveys.backend.models import Survey
 
 
+@admin.register(Survey)
 class SurveyAdmin(admin.ModelAdmin):
     list_display = (
         "id",

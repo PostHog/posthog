@@ -85,10 +85,12 @@ export const McpAnalyticsFeedbackCreateBody = /* @__PURE__ */ zod.object({
         .describe('Concrete feedback about the MCP experience, tool result, or workflow friction.'),
     category: zod
         .enum(['results', 'usability', 'bug', 'docs', 'other'])
-        .describe('* `results` - Results\n* `usability` - Usability\n* `bug` - Bug\n* `docs` - Docs\n* `other` - Other')
+        .describe(
+            '\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
+        )
         .default(mcpAnalyticsFeedbackCreateBodyCategoryDefault)
         .describe(
-            'High-level category for the feedback.\n\n* `results` - Results\n* `usability` - Usability\n* `bug` - Bug\n* `docs` - Docs\n* `other` - Other'
+            'High-level category for the feedback.\n\n\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
         ),
 })
 

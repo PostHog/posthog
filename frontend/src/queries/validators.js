@@ -5881,12 +5881,15 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
 }
 export const ExperimentMetric = validate78
 const schema62 = {
-    anyOf: [
+    discriminator: { propertyName: 'metric_type' },
+    oneOf: [
         { $ref: '#/definitions/ExperimentMeanMetric' },
         { $ref: '#/definitions/ExperimentFunnelMetric' },
         { $ref: '#/definitions/ExperimentRatioMetric' },
         { $ref: '#/definitions/ExperimentRetentionMetric' },
     ],
+    required: ['metric_type'],
+    type: 'object',
 }
 const schema63 = {
     additionalProperties: false,
@@ -5967,15 +5970,16 @@ const schema71 = {
 }
 const schema75 = {
     enum: [
-        'cohort',
         'person',
         'event',
         'event_metadata',
         'group',
         'session',
         'hogql',
-        'data_warehouse_person_property',
+        'cohort',
         'revenue_analytics',
+        'data_warehouse',
+        'data_warehouse_person_property',
     ],
     type: 'string',
 }
@@ -6239,15 +6243,16 @@ function validate81(data, { instancePath = '', parentData, parentDataProperty, r
                                         }
                                         if (
                                             !(
-                                                data4 === 'cohort' ||
                                                 data4 === 'person' ||
                                                 data4 === 'event' ||
                                                 data4 === 'event_metadata' ||
                                                 data4 === 'group' ||
                                                 data4 === 'session' ||
                                                 data4 === 'hogql' ||
-                                                data4 === 'data_warehouse_person_property' ||
-                                                data4 === 'revenue_analytics'
+                                                data4 === 'cohort' ||
+                                                data4 === 'revenue_analytics' ||
+                                                data4 === 'data_warehouse' ||
+                                                data4 === 'data_warehouse_person_property'
                                             )
                                         ) {
                                             const err7 = {
@@ -6919,11 +6924,14 @@ function validate80(data, { instancePath = '', parentData, parentDataProperty, r
     return errors === 0
 }
 const schema79 = {
-    anyOf: [
+    discriminator: { propertyName: 'kind' },
+    oneOf: [
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
     ],
+    required: ['kind'],
+    type: 'object',
 }
 const schema80 = {
     additionalProperties: false,
@@ -9594,40 +9602,56 @@ function validate99(data, { instancePath = '', parentData, parentDataProperty, r
 function validate84(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
     if (!validate85(data, { instancePath, parentData, parentDataProperty, rootData })) {
         vErrors = vErrors === null ? validate85.errors : vErrors.concat(validate85.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
-        if (!valid0) {
-            const _errs3 = errors
-            if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
-                errors = vErrors.length
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
             }
-            var _valid0 = _errs3 === errors
-            valid0 = valid0 || _valid0
         }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -9638,13 +9662,41 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
         validate84.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
+        }
+    }
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.kind === undefined && (missing0 = 'kind')) {
+                validate84.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate84.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
         }
     }
     validate84.errors = vErrors
@@ -10187,49 +10239,68 @@ const schema96 = {
 }
 const schema99 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
 const schema101 = {
-    anyOf: [
+    discriminator: { propertyName: 'kind' },
+    oneOf: [
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
     ],
+    required: ['kind'],
+    type: 'object',
 }
 function validate109(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
     if (!validate85(data, { instancePath, parentData, parentDataProperty, rootData })) {
         vErrors = vErrors === null ? validate85.errors : vErrors.concat(validate85.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
-        if (!valid0) {
-            const _errs3 = errors
-            if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
-                errors = vErrors.length
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
             }
-            var _valid0 = _errs3 === errors
-            valid0 = valid0 || _valid0
         }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -10240,13 +10311,41 @@ function validate109(data, { instancePath = '', parentData, parentDataProperty, 
         validate109.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
+        }
+    }
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.kind === undefined && (missing0 = 'kind')) {
+                validate109.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate109.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
         }
     }
     validate109.errors = vErrors
@@ -11897,49 +11996,71 @@ function validate120(data, { instancePath = '', parentData, parentDataProperty, 
 function validate78(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
     if (!validate79(data, { instancePath, parentData, parentDataProperty, rootData })) {
         vErrors = vErrors === null ? validate79.errors : vErrors.concat(validate79.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate107(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate107.errors : vErrors.concat(validate107.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate107(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate107.errors : vErrors.concat(validate107.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate115(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate115.errors : vErrors.concat(validate115.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
-        if (!valid0) {
-            const _errs3 = errors
-            if (!validate115(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                vErrors = vErrors === null ? validate115.errors : vErrors.concat(validate115.errors)
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
+            }
+            const _errs5 = errors
+            if (!validate120(data, { instancePath, parentData, parentDataProperty, rootData })) {
+                vErrors = vErrors === null ? validate120.errors : vErrors.concat(validate120.errors)
                 errors = vErrors.length
             }
-            var _valid0 = _errs3 === errors
-            valid0 = valid0 || _valid0
-            if (!valid0) {
-                const _errs4 = errors
-                if (!validate120(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                    vErrors = vErrors === null ? validate120.errors : vErrors.concat(validate120.errors)
-                    errors = vErrors.length
+            var _valid0 = _errs5 === errors
+            if (_valid0 && valid0) {
+                valid0 = false
+                passing0 = [passing0, 3]
+            } else {
+                if (_valid0) {
+                    valid0 = true
+                    passing0 = 3
                 }
-                var _valid0 = _errs4 === errors
-                valid0 = valid0 || _valid0
             }
         }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -11950,13 +12071,41 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
         validate78.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
+        }
+    }
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.metric_type === undefined && (missing0 = 'metric_type')) {
+                validate78.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate78.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
         }
     }
     validate78.errors = vErrors

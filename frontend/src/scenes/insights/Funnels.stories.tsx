@@ -1,7 +1,8 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { userEvent, waitFor } from '@storybook/testing-library'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 

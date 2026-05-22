@@ -12,7 +12,9 @@ from products.tasks.backend.services.sandbox import (
     SandboxTemplate,
     get_sandbox_class,
     parse_sandbox_repo_mount_map,
+    redact_sandbox_command,
 )
+from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 
 
 def docker_available() -> bool:
@@ -70,6 +72,21 @@ class TestSandboxFactory:
 
 class TestDockerSandboxUnit:
     """Unit tests that don't require Docker."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token ./node_modules/.bin/agent-server",
+            "bash -c 'env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token ./node_modules/.bin/agent-server'",
+            "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN='secret token' ./node_modules/.bin/agent-server",
+        ],
+    )
+    def test_redact_sandbox_command_hides_event_ingest_token(self, command):
+        redacted = redact_sandbox_command(command)
+
+        assert "secret-token" not in redacted
+        assert "secret token" not in redacted
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>" in redacted
 
     @pytest.mark.parametrize(
         "input_url,expected_url",
@@ -151,6 +168,24 @@ class TestDockerSandboxUnit:
         assert result.exit_code == 0
         assert result.stdout == "hello world"
         assert result.stderr == ""
+
+    @patch("products.tasks.backend.services.docker_sandbox.DockerSandbox._run")
+    def test_execute_redacts_event_ingest_token_from_error_context(self, mock_run):
+        mock_run.side_effect = [
+            MagicMock(stdout="true", returncode=0),
+            RuntimeError("boom"),
+        ]
+
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with pytest.raises(SandboxExecutionError) as exc:
+            sandbox.execute("env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token agent-server")
+
+        assert exc.value.context["command"] == "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted> agent-server"
+        assert "secret-token" not in exc.value.context["command"]
 
     @pytest.mark.parametrize(
         "repository",
@@ -337,8 +372,7 @@ class TestDockerSandboxUnit:
         assert "nohup" in command
         assert "./node_modules/.bin/agent-server" in command
 
-    def test_start_agent_server_ignores_allowed_domains_in_docker(self):
-        """allowed_domains is intentionally ignored in Docker sandbox until agentsh works reliably."""
+    def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self):
         sandbox = DockerSandbox.__new__(DockerSandbox)
         sandbox._container_id = "abc123"
         sandbox.id = "abc123"
@@ -360,11 +394,67 @@ class TestDockerSandboxUnit:
                         allowed_domains=["example.com"],
                     )
 
-        mock_setup_agentsh.assert_not_called()
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
         command = mock_execute.call_args_list[0][0][0]
         assert "--createPr true" in command
+        assert "--allowedDomains example.com" in command
+        assert "agentsh exec" in command
+
+    def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._host_port = 12345
+
+        with patch.object(sandbox, "is_running", return_value=True):
+            with patch.object(sandbox, "execute") as mock_execute:
+                mock_execute.side_effect = [
+                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ]
+                with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
+                    sandbox.start_agent_server(
+                        "posthog/posthog",
+                        "task-123",
+                        "run-456",
+                        "background",
+                        allowed_domains=[],
+                    )
+
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", [])
+        command = mock_execute.call_args_list[0][0][0]
         assert "--allowedDomains" not in command
-        assert "agentsh exec" not in command
+        assert "agentsh exec" in command
+
+    def test_setup_agentsh_disables_ptrace_in_docker(self):
+        sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox._container_id = "abc123"
+        sandbox.id = "abc123"
+        sandbox.config = SandboxConfig(name="test")
+
+        with (
+            patch(
+                "products.tasks.backend.services.docker_sandbox.generate_config_yaml", return_value="config"
+            ) as mock_config,
+            patch("products.tasks.backend.services.docker_sandbox.generate_policy_yaml", return_value="policy"),
+            patch("products.tasks.backend.services.docker_sandbox.generate_env_wrapper", return_value="wrapper"),
+            patch("products.tasks.backend.services.docker_sandbox.build_setup_script", return_value="setup"),
+            patch.object(sandbox, "write_file") as mock_write_file,
+            patch.object(sandbox, "execute") as mock_execute,
+        ):
+            mock_execute.side_effect = [
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="session-123", stderr="", exit_code=0, error=None),
+            ]
+
+            sandbox._setup_agentsh("/tmp/workspace", ["example.com"])
+
+        mock_config.assert_called_once_with(enable_ptrace=False)
+        mock_write_file.assert_any_call("/etc/agentsh/config.yaml", b"config")
 
     @pytest.mark.parametrize(
         ("create_pr", "expected_flag"),
@@ -419,6 +509,7 @@ class TestDockerSandboxUnit:
                     provider="openai",
                     model="gpt-5.3-codex",
                     reasoning_effort="medium",
+                    event_ingest_token="ingest-token",
                 )
 
         command = mock_execute.call_args_list[0][0][0]
@@ -426,6 +517,7 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

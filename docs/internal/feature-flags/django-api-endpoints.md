@@ -121,13 +121,7 @@ Key things to know:
 
 ## Remote config endpoints
 
-Separate from the feature flag viewset, remote config is served by unauthenticated public views. The token in the URL is a public identifier, not a credential.
-
-| URL                        | View                         | Purpose                  |
-| -------------------------- | ---------------------------- | ------------------------ |
-| `/array/{token}/config`    | `RemoteConfigAPIView`        | JSON remote config       |
-| `/array/{token}/config.js` | `RemoteConfigJSAPIView`      | JavaScript remote config |
-| `/array/{token}/array.js`  | `RemoteConfigArrayJSAPIView` | Array.js bundle          |
+Remote config (`/array/{token}/config`, `/array/{token}/config.js`, `/array/{token}/array.js`) and the surveys config endpoint (`/api/surveys`) are no longer served by Django. They are served by the Rust hypercache service, which reads from the same `RemoteConfig` model populated by Django via post-save signals. See [HyperCache system](hypercache-system.md).
 
 ## See also
 

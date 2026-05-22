@@ -163,9 +163,9 @@ class TestPlainSourcePipeline:
 
 
 class TestValidateCredentials:
-    @mock.patch("posthog.temporal.data_imports.sources.plain.plain.requests.post")
+    @mock.patch("posthog.temporal.data_imports.sources.plain.plain.make_tracked_session")
     def test_success(self, mock_post):
-        mock_post.return_value = mock.MagicMock(
+        mock_post.return_value.post.return_value = mock.MagicMock(
             status_code=200,
             ok=True,
             json=lambda: {"data": {"myWorkspace": {"id": "w_1", "name": "Acme"}}},
@@ -176,9 +176,9 @@ class TestValidateCredentials:
         assert is_valid is True
         assert error is None
 
-    @mock.patch("posthog.temporal.data_imports.sources.plain.plain.requests.post")
+    @mock.patch("posthog.temporal.data_imports.sources.plain.plain.make_tracked_session")
     def test_returns_error_from_graphql_errors(self, mock_post):
-        mock_post.return_value = mock.MagicMock(
+        mock_post.return_value.post.return_value = mock.MagicMock(
             status_code=200,
             ok=True,
             json=lambda: {"errors": [{"message": "Unauthorized"}]},
@@ -190,9 +190,9 @@ class TestValidateCredentials:
         assert error is not None
         assert "Unauthorized" in error
 
-    @mock.patch("posthog.temporal.data_imports.sources.plain.plain.requests.post")
+    @mock.patch("posthog.temporal.data_imports.sources.plain.plain.make_tracked_session")
     def test_handles_request_exception(self, mock_post):
-        mock_post.side_effect = requests.ConnectionError("down")
+        mock_post.return_value.post.side_effect = requests.ConnectionError("down")
 
         is_valid, error = validate_credentials("any_key")
 

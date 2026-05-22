@@ -1,7 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonSkeleton, LemonTable, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconNotebook } from '@posthog/icons'
+import {
+    LemonSegmentedButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTag,
+    Link,
+    Spinner,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import type { LemonTableColumn } from '@posthog/lemon-ui'
 
 import { AlertHistoryChart } from 'lib/components/Alerts/views/AlertHistoryChart'
@@ -9,35 +19,109 @@ import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsMod
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../alertLogic'
-import type { AlertCheck, AlertType } from '../types'
+import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
+
+const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
+    true_positive: {
+        label: 'True positive',
+        className: 'text-danger',
+        tooltip: 'Agent thinks this is a real anomaly worth looking at.',
+    },
+    false_positive: {
+        label: 'False positive',
+        className: 'text-muted',
+        tooltip: 'Agent thinks this was a data/release artifact, not a real anomaly.',
+    },
+    inconclusive: {
+        label: 'Inconclusive',
+        className: 'text-warning',
+        tooltip: 'Agent could not reach a confident conclusion from the available data.',
+    },
+}
+
+function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
+    const status = check.investigation_status
+    const shortId = check.investigation_notebook_short_id
+    const summary = check.investigation_summary?.trim() || null
+    const verdict = check.investigation_verdict ?? null
+    const suppressed = !!check.notification_suppressed_by_agent
+
+    if (status === 'done') {
+        const verdictCfg = verdict ? VERDICT_CONFIG[verdict] : null
+        return (
+            <div className="flex flex-col gap-1 items-start max-w-md">
+                {suppressed && (
+                    <Tooltip title="The investigation agent concluded this fire wasn't worth notifying about, so the notification was suppressed.">
+                        <LemonTag type="muted" size="small">
+                            Notification suppressed
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                <Tooltip title={summary || undefined}>
+                    <div className="text-sm leading-normal line-clamp-2 text-muted">
+                        {verdictCfg && (
+                            <Tooltip title={verdictCfg.tooltip}>
+                                <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
+                            </Tooltip>
+                        )}
+                        {verdictCfg && summary && <span> — </span>}
+                        {summary && <span>{summary}</span>}
+                    </div>
+                </Tooltip>
+                {shortId && (
+                    <Link to={`/notebooks/${shortId}`} className="inline-flex items-center gap-1 text-sm">
+                        <IconNotebook /> View notebook <IconOpenInNew className="text-xs" />
+                    </Link>
+                )}
+            </div>
+        )
+    }
+    if (status === 'running' || status === 'pending') {
+        return (
+            <span className="inline-flex items-center gap-1 text-secondary">
+                <Spinner textColored /> Running
+            </span>
+        )
+    }
+    if (status === 'failed') {
+        return (
+            <Tooltip title="The investigation agent couldn't complete in time. The alert was still delivered. If this keeps happening, you can turn off the investigation agent in this alert's settings.">
+                <span className="text-danger">Failed</span>
+            </Tooltip>
+        )
+    }
+    if (status === 'skipped') {
+        return (
+            <Tooltip title="Skipped because another investigation ran for this alert within the last hour.">
+                <span className="text-secondary">Skipped</span>
+            </Tooltip>
+        )
+    }
+    return <span className="text-secondary">—</span>
+}
 
 /** Placeholder while alert detail (including check history) is loading; avoids an empty gap before `AlertHistorySection` mounts. */
-export function AlertHistorySectionSkeleton({ showChartArea = true }: { showChartArea?: boolean }): JSX.Element {
+export function AlertHistorySectionSkeleton(): JSX.Element {
     return (
         <div className="mt-10 space-y-2" aria-busy="true" aria-label="Loading alert history">
             <div className="flex flex-row gap-2 items-center">
                 <LemonSkeleton className="h-4 w-36" />
                 <LemonSkeleton className="h-6 w-28" />
             </div>
-            {showChartArea ? <LemonSkeleton className="h-8 w-44" /> : null}
-            {showChartArea ? (
-                <LemonSkeleton className="h-56 w-full min-h-56" />
-            ) : (
-                <LemonSkeleton className="h-72 w-full min-h-72" />
-            )}
-            {showChartArea ? <LemonSkeleton className="h-3 w-full max-w-xl" /> : null}
+            <LemonSkeleton className="h-8 w-44" />
+            <LemonSkeleton className="h-56 w-full min-h-56" />
+            <LemonSkeleton className="h-3 w-full max-w-xl" />
         </div>
     )
 }
 
-/** Check history in the alert modal: status, empty state, chart/table toggle (when enabled), and paginated table. */
+/** Check history in the alert modal: status, empty state, chart/table toggle, and paginated table. */
 export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): JSX.Element | null {
-    const historyChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
-    const logic = alertLogic({ alertId, historyChartEnabled })
+    const logic = alertLogic({ alertId })
     const {
         alert,
         alertLoading,
@@ -53,6 +137,8 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
         alertHistoryIsAnomalyDetection,
     } = useValues(logic)
     const { selectAlertHistoryView, alertHistoryTablePageForward, alertHistoryTablePageBackward } = useActions(logic)
+
+    const investigationAgentEnabled = alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [
@@ -85,6 +171,12 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
                 },
             })
         }
+        if (investigationAgentEnabled) {
+            columns.push({
+                title: 'Investigation',
+                render: (_value, check) => <InvestigationCell check={check} />,
+            })
+        }
         columns.push({
             title: 'Targets notified',
             key: 'targets_notified',
@@ -92,7 +184,7 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
             render: (_value, check) => (check.targets_notified ? 'Yes' : 'No'),
         })
         return columns
-    }, [alertHistoryIsAnomalyDetection])
+    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled])
 
     if (!alert) {
         return null
@@ -132,7 +224,7 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
                             ]}
                         />
                     ) : null}
-                    {historyChartEnabled && alertHistoryView === 'chart' && alertHistoryHasChartableHistory ? (
+                    {alertHistoryView === 'chart' && alertHistoryHasChartableHistory ? (
                         <div className="relative">
                             {alertLoading ? <SpinnerOverlay /> : null}
                             <AlertHistoryChart

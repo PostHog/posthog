@@ -1,23 +1,23 @@
 ---
 name: exploring-llm-clusters
-description: 'Investigate LLM analytics clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters.'
+description: 'Investigate AI observability clusters — understand usage patterns in AI/LLM traffic, compare cluster behavior, compute cost/latency metrics, and drill into individual traces within clusters.'
 ---
 
 # Exploring LLM clusters
 
-Use this skill when investigating LLM analytics clusters —
+Use this skill when investigating AI observability clusters —
 understanding what patterns exist in your AI/LLM traffic,
 comparing cluster behavior, and drilling into individual clusters.
 
 ## Tools
 
-| Tool                                             | Purpose                                         |
-| ------------------------------------------------ | ----------------------------------------------- |
-| `posthog:llm-analytics-clustering-jobs-list`     | List clustering job configurations for the team |
-| `posthog:llm-analytics-clustering-jobs-retrieve` | Get a specific clustering job by ID             |
-| `posthog:execute-sql`                            | Query cluster run events and compute metrics    |
-| `posthog:query-llm-traces-list`                  | Find traces belonging to a cluster              |
-| `posthog:query-llm-trace`                        | Inspect a specific trace in detail              |
+| Tool                               | Purpose                                         |
+| ---------------------------------- | ----------------------------------------------- |
+| `posthog:llma-clustering-job-list` | List clustering job configurations for the team |
+| `posthog:llma-clustering-job-get`  | Get a specific clustering job by ID             |
+| `posthog:execute-sql`              | Query cluster run events and compute metrics    |
+| `posthog:query-llm-traces-list`    | Find traces belonging to a cluster              |
+| `posthog:query-llm-trace`          | Inspect a specific trace in detail              |
 
 ## How clustering works
 
@@ -212,9 +212,9 @@ posthog:query-llm-trace
 
 ## Constructing UI links
 
-- **Clusters overview**: `https://app.posthog.com/llm-analytics/clusters`
-- **Specific run**: `https://app.posthog.com/llm-analytics/clusters/<url_encoded_run_id>`
-- **Cluster detail**: `https://app.posthog.com/llm-analytics/clusters/<url_encoded_run_id>/<cluster_id>`
+- **Clusters overview**: `https://app.posthog.com/ai-observability/clusters`
+- **Specific run**: `https://app.posthog.com/ai-observability/clusters/<url_encoded_run_id>`
+- **Cluster detail**: `https://app.posthog.com/ai-observability/clusters/<url_encoded_run_id>/<cluster_id>`
 
 Always surface these links so the user can verify visually in the PostHog UI.
 
@@ -224,6 +224,6 @@ Always surface these links so the user can verify visually in the PostHog UI.
 - Start with run listing to orient, then drill into specific clusters
 - Cluster titles and descriptions are AI-generated summaries — verify by inspecting traces
 - The noise cluster (`cluster_id: -1`) contains outliers that didn't fit any pattern
-- Use `llm-analytics-clustering-jobs-list` to understand what clustering configs are active
+- Use `llma-clustering-job-list` to understand what clustering configs are active
 - Trace IDs in clusters can be used directly with `query-llm-trace` for deep inspection
 - For large clusters, inspect the top-ranked traces (closest to centroid) for representative examples

@@ -1,16 +1,18 @@
 {
-    "docs-search": {
-        "description": "Use this tool to search the PostHog documentation for information that can help the user with their request. Use it as a fallback when you cannot answer the user's request using other tools in this MCP. Only use this tool for PostHog related questions.",
-        "category": "Documentation",
-        "feature": "docs",
-        "summary": "Search the PostHog documentation for information.",
-        "title": "Search docs",
+    "agent-feedback": {
+        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
+        "category": "Feedback",
+        "feature": "feedback",
+        "summary": "Optional: submit feedback about the PostHog MCP server.",
+        "title": "Submit agent feedback",
         "required_scopes": [],
         "new_mcp": true,
+        "always_available": true,
+        "feature_flag": "mcp-feedback-tool",
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
+            "idempotentHint": false,
+            "openWorldHint": false,
             "readOnlyHint": true
         }
     },
@@ -29,8 +31,23 @@
             "readOnlyHint": true
         }
     },
+    "experiment-get-all": {
+        "description": "DEPRECATED: renamed to experiment-list. This alias forwards to experiment-list and will be removed. Call experiment-list directly with the same arguments.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Deprecated alias for experiment-list.",
+        "title": "Get all experiments (deprecated)",
+        "required_scopes": ["experiment:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "insight-query": {
-        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results.",
+        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results. Optionally accepts `variables_override` and `filters_override` to run the insight with one-off overrides without mutating the saved definition.",
         "category": "Insights & analytics",
         "feature": "insights",
         "summary": "Run a saved insight's query and return results.",
@@ -45,7 +62,7 @@
         }
     },
     "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps.",
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps. To target a Postgres or DuckDB direct-query data warehouse source instead of ClickHouse, set 'connectionId' on a HogQLQuery (call external-data-sources-list to discover ids).",
         "category": "Insights & analytics",
         "summary": "Run a trend, funnel, paths or HogQL query.",
         "feature": "insights",
@@ -56,6 +73,36 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "query-validate": {
+        "description": "Dry-run a HogQL query: parse and type-check it without executing, so there is no ClickHouse cost and no 202 polling. Returns structured errors (with character positions), warnings, notices, and the list of tables the query references. Use this before 'query-run' on any non-trivial HogQL to catch column typos, missing tables, and syntax issues up front instead of iterating on opaque execution errors. Accepts the same language values as the HogQL editor: 'hogQL' (default, full SELECT), 'hogQLExpr' (bare expression), 'hog', or 'hogTemplate'. Pass 'connectionId' to validate against a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
+        "category": "Insights & analytics",
+        "summary": "Validate a HogQL query without executing it.",
+        "feature": "insights",
+        "title": "Validate query",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "hogql-schema": {
+        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost. Pass 'connectionId' to introspect a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
+        "category": "Insights & analytics",
+        "summary": "List tables and columns available to HogQL queries.",
+        "feature": "insights",
+        "title": "HogQL schema",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
             "readOnlyHint": true
         }
     },
@@ -76,10 +123,10 @@
         }
     },
     "evaluations-get": {
-        "description": "List LLM analytics evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
-        "category": "LLM analytics",
+        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "category": "AI observability",
         "feature": "llm_analytics",
-        "summary": "List LLM analytics evaluations.",
+        "summary": "List AI observability evaluations.",
         "title": "List evaluations",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
@@ -91,8 +138,8 @@
         }
     },
     "evaluation-get": {
-        "description": "Get a specific LLM analytics evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
-        "category": "LLM analytics",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get a specific evaluation by ID.",
         "title": "Get evaluation",
@@ -106,8 +153,8 @@
         }
     },
     "evaluation-create": {
-        "description": "Create a new LLM analytics evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
-        "category": "LLM analytics",
+        "description": "Create a new AI observability evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create a new evaluation.",
         "title": "Create evaluation",
@@ -121,8 +168,8 @@
         }
     },
     "evaluation-update": {
-        "description": "Update an existing LLM analytics evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
-        "category": "LLM analytics",
+        "description": "Update an existing AI observability evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update an evaluation.",
         "title": "Update evaluation",
@@ -136,8 +183,8 @@
         }
     },
     "evaluation-delete": {
-        "description": "Delete an LLM analytics evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
-        "category": "LLM analytics",
+        "description": "Delete an AI observability evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete an evaluation.",
         "title": "Delete evaluation",
@@ -152,7 +199,7 @@
     },
     "evaluation-run": {
         "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Run an evaluation on a specific event.",
         "title": "Run evaluation",
@@ -167,7 +214,7 @@
     },
     "evaluation-test-hog": {
         "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Dry-run Hog evaluation code against sample events.",
         "title": "Test Hog evaluation",
@@ -182,7 +229,7 @@
     },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
@@ -196,10 +243,10 @@
         }
     },
     "switch-organization": {
-        "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
+        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-list` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active organization from the default organization.",
+        "summary": "Switch the active PostHog organization for subsequent tool calls.",
         "title": "Switch active organization",
         "required_scopes": ["organization:read"],
         "new_mcp": true,
@@ -285,10 +332,10 @@
         }
     },
     "switch-project": {
-        "description": "Change the active project from the default project. You should only use this tool if the user asks you to change the project - otherwise, the default project will be used.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active project from the default project.",
+        "summary": "Switch the active PostHog project for subsequent tool calls.",
         "title": "Switch active project",
         "required_scopes": ["project:read"],
         "new_mcp": true,
@@ -300,7 +347,7 @@
         }
     },
     "survey-create": {
-        "description": "Creates a new survey in the project. Surveys can be popover or API-based and support various question types including open-ended, multiple choice, rating, and link questions. Once created, you should ask the user if they want to add the survey to their application code.",
+        "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",
         "category": "Surveys",
         "summary": "Creates a new survey in the project.",
         "required_scopes": ["survey:write"],
@@ -343,7 +390,7 @@
         }
     },
     "survey-update": {
-        "description": "Update an existing survey by ID. Can update name, description, questions, scheduling, and other survey properties.",
+        "description": "Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you provide may replace existing values. Before changing questions, conditions, appearance, targeting, translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do not send null to clear a field unless the user explicitly asked to remove it.",
         "category": "Surveys",
         "summary": "Update an existing survey by ID.",
         "required_scopes": ["survey:write"],
@@ -432,17 +479,18 @@
         }
     },
     "external-data-sources-db-schema": {
-        "description": "Validate source credentials and return the available tables from the remote database. Use this before creating a source to verify connectivity and discover tables. Pass source_type and credential fields in the payload object. The response includes per-table: available sync methods (incremental, full_refresh, append, cdc), available incremental fields with types, detected primary keys, available columns with types and nullability, and row counts. Present all of this to the user so they can configure each table before creation: which tables to sync, sync method, incremental field (and type), and primary key overrides.",
+        "description": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
-        "summary": "Preview remote database schema before creating a source.",
-        "title": "Preview remote database schema",
+        "summary": "Discover tables and sync methods for a source",
+        "title": "Discover tables and sync methods for a source",
         "required_scopes": ["external_data_source:write"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": false
+            "readOnlyHint": true
         }
     },
     "external-data-sources-jobs": {
@@ -470,6 +518,23 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "session-recording-summarize": {
+        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full recordings — it provides the key insights in seconds. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Generate AI-powered summaries of session recordings via streaming.",
+        "title": "Summarize session recording",
+        "required_scopes": ["session_recording:read"],
+        "new_mcp": true,
+        "requires_ai_consent": true,
+        "feature_flag": "replay-video-based-summarization",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
             "readOnlyHint": true
         }
     }

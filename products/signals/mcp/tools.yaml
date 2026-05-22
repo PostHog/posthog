@@ -1,0 +1,130 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Signals
+feature: signals
+url_prefix: /inbox
+ui_apps: {}
+tools:
+    inbox-processing-list:
+        operation: signals_processing_list
+        enabled: false
+    inbox-processing-pause-destroy:
+        operation: signals_processing_pause_destroy
+        enabled: false
+    inbox-processing-pause-update:
+        operation: signals_processing_pause_update
+        enabled: false
+    inbox-reports-list:
+        operation: signals_reports_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List signal reports
+        description: >
+            List signal reports for the current project. A signal report is a cluster of related observations (signals)
+            that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
+            by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search
+            across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers
+            (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by
+            default.
+        response:
+            include:
+                - id
+                - title
+                - summary
+                - status
+                - priority
+                - actionability
+                - already_addressed
+                - signal_count
+                - total_weight
+                - source_products
+                - is_suggested_reviewer
+                - implementation_pr_url
+                - created_at
+                - updated_at
+    inbox-reports-retrieve:
+        operation: signals_reports_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get signal report
+        description: >
+            Get a single signal report by ID. Returns the full report including title, summary, status, priority and
+            actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR
+            if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL
+            query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.
+    inbox-source-configs-create:
+        operation: signals_source_configs_create
+        enabled: false
+    inbox-source-configs-destroy:
+        operation: signals_source_configs_destroy
+        enabled: false
+    inbox-source-configs-list:
+        operation: signals_source_configs_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List signal source configs
+        description: >
+            List the configured signal sources for the current project. A signal source ties a product (e.g.
+            error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and
+            configuration. The 'status' field reflects the current state of the underlying data import or workflow
+            (running, completed, failed) when applicable.
+        response:
+            include:
+                - id
+                - source_product
+                - source_type
+                - enabled
+                - status
+                - created_at
+                - updated_at
+    inbox-source-configs-partial-update:
+        operation: signals_source_configs_partial_update
+        enabled: false
+    inbox-source-configs-retrieve:
+        operation: signals_source_configs_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get signal source config
+        description: >
+            Get a single signal source config by ID. Returns the full record including source_product, source_type,
+            enabled flag, configuration JSON, and current status of the underlying data import or workflow.
+    inbox-source-configs-update:
+        operation: signals_source_configs_update
+        enabled: false
+    users-signal-autonomy-create:
+        operation: users_signal_autonomy_create
+        enabled: false
+    users-signal-autonomy-destroy:
+        operation: users_signal_autonomy_destroy
+        enabled: false
+    users-signal-autonomy-retrieve:
+        operation: users_signal_autonomy_retrieve
+        enabled: false

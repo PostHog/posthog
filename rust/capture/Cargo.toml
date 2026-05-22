@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+test-utils = []
+
 [lints]
 workspace = true
 
@@ -59,6 +62,7 @@ futures = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+capture = { path = ".", features = ["test-utils"] }
 assert-json-diff = { workspace = true }
 brotli = "8"
 zstd = "0.13"

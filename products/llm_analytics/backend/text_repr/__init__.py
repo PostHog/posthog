@@ -1,5 +1,5 @@
 """
-LLM Analytics Text Representation Module
+AI observability text representation module.
 
 Provides formatters for converting LLM trace events to human-readable text.
 

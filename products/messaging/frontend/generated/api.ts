@@ -9,7 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddOptOutRequestApi,
     MessageCategoryApi,
+    MessagePreferencesApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
     MessagingTemplatesListParams,
@@ -78,15 +80,15 @@ export const messagingCategoriesCreate = async (
     })
 }
 
+export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/import_from_customerio/`
+}
+
 /**
  * Import subscription topics and globally unsubscribed users from Customer.io API.
 Persists the App API key in Integration(kind="customerio-app").
 If no app_api_key is provided, reuses the stored Integration key.
  */
-export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/import_from_customerio/`
-}
-
 export const messagingCategoriesImportFromCustomerioCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
@@ -100,14 +102,14 @@ export const messagingCategoriesImportFromCustomerioCreate = async (
     })
 }
 
-/**
- * Import customer preferences from CSV file
-Expected CSV columns: id, email, cio_subscription_preferences
- */
 export const getMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/import_preferences_csv/`
 }
 
+/**
+ * Import customer preferences from CSV file
+Expected CSV columns: id, email, cio_subscription_preferences
+ */
 export const messagingCategoriesImportPreferencesCsvCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
@@ -136,14 +138,14 @@ export const messagingCategoriesImportPreferencesCsvCreate = async (
     })
 }
 
-/**
- * Get the Customer.io sync configuration state for this team.
-Used by the frontend to derive step completion.
- */
 export const getMessagingCategoriesOptoutSyncConfigRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/optout_sync_config/`
 }
 
+/**
+ * Get the Customer.io sync configuration state for this team.
+Used by the frontend to derive step completion.
+ */
 export const messagingCategoriesOptoutSyncConfigRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -154,13 +156,13 @@ export const messagingCategoriesOptoutSyncConfigRetrieve = async (
     })
 }
 
-/**
- * Remove the Customer.io App API integration and reset import state.
- */
 export const getMessagingCategoriesRemoveCustomerioAppConfigDestroyUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/remove_customerio_app_config/`
 }
 
+/**
+ * Remove the Customer.io App API integration and reset import state.
+ */
 export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
     projectId: string,
     options?: RequestInit
@@ -171,13 +173,13 @@ export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
     })
 }
 
-/**
- * Remove the Customer.io Track API integration and reset outbound sync state.
- */
 export const getMessagingCategoriesRemoveTrackConfigDestroyUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/remove_track_config/`
 }
 
+/**
+ * Remove the Customer.io Track API integration and reset outbound sync state.
+ */
 export const messagingCategoriesRemoveTrackConfigDestroy = async (
     projectId: string,
     options?: RequestInit
@@ -188,13 +190,13 @@ export const messagingCategoriesRemoveTrackConfigDestroy = async (
     })
 }
 
-/**
- * Remove the Customer.io webhook integration and reset inbound sync state.
- */
 export const getMessagingCategoriesRemoveWebhookConfigDestroyUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_categories/remove_webhook_config/`
 }
 
+/**
+ * Remove the Customer.io webhook integration and reset inbound sync state.
+ */
 export const messagingCategoriesRemoveWebhookConfigDestroy = async (
     projectId: string,
     options?: RequestInit
@@ -203,6 +205,10 @@ export const messagingCategoriesRemoveWebhookConfigDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/save_track_config/`
 }
 
 /**
@@ -214,10 +220,6 @@ Accepts:
   - region (optional): "us" or "eu", set on first creation only
   - track_enabled (required): enable or disable outbound sync
  */
-export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/save_track_config/`
-}
-
 export const messagingCategoriesSaveTrackConfigCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
@@ -231,6 +233,10 @@ export const messagingCategoriesSaveTrackConfigCreate = async (
     })
 }
 
+export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_categories/save_webhook_config/`
+}
+
 /**
  * Save webhook signing secret and/or toggle the Customer.io webhook sync.
 
@@ -238,10 +244,6 @@ Accepts:
   - webhook_signing_secret (optional): set on first creation only
   - webhook_enabled (required): enable or disable the webhook
  */
-export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/save_webhook_config/`
-}
-
 export const messagingCategoriesSaveWebhookConfigCreate = async (
     projectId: string,
     messageCategoryApi: NonReadonly<MessageCategoryApi>,
@@ -255,13 +257,34 @@ export const messagingCategoriesSaveWebhookConfigCreate = async (
     })
 }
 
+export const getMessagingPreferencesAddOptOutCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/messaging_preferences/add_opt_out/`
+}
+
 /**
- * Generate an unsubscribe link for the current user's email address
+ * Manually add a recipient to the opt-out list for a specific category or all marketing messages.
+ * @summary Manually add a recipient to the opt-out list
  */
+export const messagingPreferencesAddOptOutCreate = async (
+    projectId: string,
+    addOptOutRequestApi: AddOptOutRequestApi,
+    options?: RequestInit
+): Promise<MessagePreferencesApi> => {
+    return apiMutator<MessagePreferencesApi>(getMessagingPreferencesAddOptOutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addOptOutRequestApi),
+    })
+}
+
 export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_preferences/generate_link/`
 }
 
+/**
+ * Generate an unsubscribe link for the current user's email address
+ */
 export const messagingPreferencesGenerateLinkCreate = async (
     projectId: string,
     options?: RequestInit
@@ -272,13 +295,13 @@ export const messagingPreferencesGenerateLinkCreate = async (
     })
 }
 
-/**
- * Get opt-outs filtered by category or overall opt-outs if no category specified
- */
 export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_preferences/opt_outs/`
 }
 
+/**
+ * Get opt-outs filtered by category or overall opt-outs if no category specified
+ */
 export const messagingPreferencesOptOutsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getMessagingPreferencesOptOutsRetrieveUrl(projectId), {
         ...options,
@@ -286,13 +309,13 @@ export const messagingPreferencesOptOutsRetrieve = async (projectId: string, opt
     })
 }
 
-/**
- * Return the webhook URL for Customer.io integration setup.
- */
 export const getMessagingPreferencesWebhookUrlRetrieveUrl = (projectId: string) => {
     return `/api/environments/${projectId}/messaging_preferences/webhook_url/`
 }
 
+/**
+ * Return the webhook URL for Customer.io integration setup.
+ */
 export const messagingPreferencesWebhookUrlRetrieve = async (
     projectId: string,
     options?: RequestInit

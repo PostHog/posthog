@@ -323,6 +323,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         const viewShortId = searchParams.view
         if (viewShortId) {
             const teamId = teamLogic.values.currentTeamId
+            // nosemgrep: prefer-codegen-api
             api.get(`api/environments/${teamId}/conversations/views/${viewShortId}`)
                 .then((view: SavedTicketView) => {
                     actions.applyViewFilters(view.filters || {})
