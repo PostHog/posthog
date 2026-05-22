@@ -517,22 +517,18 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         inner_query_args: Any,
         logger: FilteringBoundLogger,
     ) -> int | None:
-        """Sample `DATALENGTH(col)` across columns on a separate TOP 100 query.
+        """Sample `DATALENGTH(col)` across columns on a `SELECT TOP 100` query.
 
-        Unlike other drivers, MSSQL samples a separate `TOP 100` query
-        rather than the live `inner_query`, because MSSQL syntax for
-        wrapping the streaming query in a sub-select with a LIMIT is
-        awkward (no `LIMIT N` keyword). This preserves the historical
-        behaviour: `inner_query` is recomputed here with `add_limit=True`
-        so the probe gets `SELECT TOP 100 ...`. The streaming caller does
-        not need to pass the live query — the args are unused by this
-        override.
+        Unlike other drivers, MSSQL uses an unconditional `SELECT TOP 100 *`
+        rather than the live `inner_query`. MSSQL has no `LIMIT N` keyword,
+        and wrapping the incremental query in a sub-select for size sampling
+        adds complexity without meaningfully improving the estimate (row sizes
+        don't vary much across time windows). `inner_query` and
+        `inner_query_args` are accepted for API parity with the base class but
+        are intentionally ignored.
         """
         try:
-            # Recompute a TOP 100 variant of the query. The live `inner_query`
-            # is provided for parity with the base signature; we deliberately
-            # use a smaller sample to keep the probe cheap.
-            # `inner_query` is not used directly — preserved for API parity.
+            # `inner_query` / `inner_query_args` accepted for API parity only.
             del inner_query, inner_query_args
 
             # Get column names from the table
