@@ -42,6 +42,7 @@ POLL_INTERVAL_SECONDS = 2.0
 
 
 RECOVERY_INTERVAL_SECONDS = 30.0
+RETRY_BACKOFF_BASE_SECONDS = 15
 
 
 @dataclass
@@ -56,6 +57,12 @@ class ConsumerConfig:
     health_port: int = 8080
     health_timeout_seconds: float = 60.0
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
+    retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
+    recovery_grace_seconds: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.recovery_grace_seconds is None:
+            self.recovery_grace_seconds = int(self.recovery_interval_seconds * 2)
 
 
 class BatchConsumer:
@@ -113,6 +120,7 @@ class BatchConsumer:
                 batches = await BatchQueue.get_unprocessed_and_lock(
                     self._conn,
                     limit=self._config.poll_limit,
+                    retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
                 )
                 POLL_DURATION_SECONDS.observe(time.monotonic() - poll_start)
                 POLL_BATCHES_FETCHED.observe(len(batches))
@@ -282,7 +290,9 @@ class BatchConsumer:
         conn = self._recovery_conn or self._conn
         assert conn is not None
 
-        stale = await BatchQueue.get_stale_executing(conn)
+        grace_seconds = self._config.recovery_grace_seconds
+        assert grace_seconds is not None
+        stale = await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
         if not stale:
             RECOVERY_SWEEPS_TOTAL.labels(outcome="clean").inc()
             return
