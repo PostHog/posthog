@@ -218,15 +218,24 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             upstream.close()
             raise HandsFreeProviderError(f"Hands-free provider returned {upstream.status_code}.")
 
-        HANDS_FREE_SYNTHESIZE_COUNTER.labels(outcome="ok").inc()
-        HANDS_FREE_SYNTHESIZE_CHARS_COUNTER.inc(len(text))
+        # Anything between the upstream 200 and returning the StreamingHttpResponse can
+        # raise (a counter labels() call, the StreamingHttpResponse constructor, the
+        # header assignment). Without an explicit close on those paths the connection
+        # only releases when the unconsumed generator is garbage collected — which is
+        # not guaranteed to be prompt under load. Guard the whole block.
+        try:
+            HANDS_FREE_SYNTHESIZE_COUNTER.labels(outcome="ok").inc()
+            HANDS_FREE_SYNTHESIZE_CHARS_COUNTER.inc(len(text))
 
-        def stream_and_close() -> Any:
-            try:
-                yield from upstream.iter_content(chunk_size=4096)
-            finally:
-                upstream.close()
+            def stream_and_close() -> Any:
+                try:
+                    yield from upstream.iter_content(chunk_size=4096)
+                finally:
+                    upstream.close()
 
-        response = StreamingHttpResponse(stream_and_close(), content_type="audio/mpeg")
-        response["Cache-Control"] = "no-store"
+            response = StreamingHttpResponse(stream_and_close(), content_type="audio/mpeg")
+            response["Cache-Control"] = "no-store"
+        except Exception:
+            upstream.close()
+            raise
         return response

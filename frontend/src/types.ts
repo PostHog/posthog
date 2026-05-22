@@ -5369,6 +5369,7 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'personal_spend'
     | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
