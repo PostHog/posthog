@@ -27,7 +27,6 @@ from django.utils.timezone import now
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
-from parameterized import parameterized
 
 from posthog.schema import EventsQuery
 
@@ -3681,21 +3680,14 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 240)
 
-    @parameterized.expand(
-        [
-            ("none", None),
-            ("dev", "DEV"),
-            ("unknown", "ASIA"),
-        ]
-    )
     @patch("posthog.tasks.usage_report.sync_execute")
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_returns_empty_for_non_billing_region(
-        self, _name: str, region: str | None, mock_region: MagicMock, mock_sync_execute: MagicMock
+    def test_ai_credits_returns_empty_when_region_unset(
+        self, mock_region: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
-        mock_region.return_value = region
+        mock_region.return_value = None
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -3704,6 +3696,42 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertEqual(result, [])
         mock_sync_execute.assert_not_called()
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_runs_in_dev_region(self, mock_region: MagicMock) -> None:
+        """DEV self-captures into team 1 with the dev URL group, so the query must execute end-to-end."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "DEV"
+
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics DEV")
+        analytics_team_dev = Team.objects.create(pk=1, organization=analytics_org, name="Analytics DEV")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team_dev,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_dev",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "$group_1": "https://app.dev.posthog.dev",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
