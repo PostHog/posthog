@@ -4,6 +4,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -116,13 +117,9 @@ export const FunnelHistoricalTrendsCompare: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json')
 )
 FunnelHistoricalTrendsCompare.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
-}
-export const FunnelHistoricalTrendsCompareEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json'),
-    'edit'
-)
-FunnelHistoricalTrendsCompareEdit.parameters = {
+    // funnels-compare gates the Compare-to-previous toggle on funnel trends — without this the
+    // dual-period chart degrades back to the single-period rendering and the snapshot is wrong.
+    featureFlags: [FEATURE_FLAGS.FUNNELS_COMPARE],
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
 
