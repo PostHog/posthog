@@ -59,9 +59,6 @@ export function CustomSourceManifestBuilder({
                     value={manifestState.base_url}
                     onChange={(value) => updateState({ base_url: value })}
                 />
-                <p className="mt-1 text-xs text-secondary">
-                    Must use <code>https://</code> on PostHog Cloud. Internal/private hostnames are rejected.
-                </p>
             </LemonField.Pure>
 
             <AuthSection state={manifestState} update={updateState} />
