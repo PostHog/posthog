@@ -5,10 +5,14 @@ import structlog
 
 from posthog.hogql.ai import hit_openai
 
+from posthog.api.annotation_context import build_annotations_block, resolve_dashboard_date_range
+
+from products.dashboards.backend.models.dashboard import Dashboard
+
 logger = structlog.get_logger(__name__)
 
 
-def generate_refresh_analysis(before_results: dict, after_results: dict, team_id: int) -> Optional[str]:
+def generate_refresh_analysis(before_results: dict, after_results: dict, dashboard: Dashboard) -> Optional[str]:
     """
     Compare before/after dashboard refresh results and return an AI summary of what changed.
     Returns None if there are no significant changes or the AI call fails.
@@ -37,6 +41,12 @@ def generate_refresh_analysis(before_results: dict, after_results: dict, team_id
     if not changes:
         return None
 
+    annotations_block = build_annotations_block(
+        dashboard.team,
+        resolve_dashboard_date_range(dashboard.filters, dashboard.team),
+        dashboard_id=dashboard.id,
+    )
+
     # Limit verbosity for large dashboards
     prioritization_instruction = (
         "List ONLY the top 3-5 most significant changes." if len(changes) > 5 else "List the significant changes."
@@ -54,6 +64,7 @@ def generate_refresh_analysis(before_results: dict, after_results: dict, team_id
         "- Use concise bullet points.\n"
         "- Be direct and quantify changes when possible (e.g., '+15%', 'dropped by 30%').\n"
         "- Do NOT use markdown formatting (no bold, italics, etc). Use plain text.\n\n"
+        f"{annotations_block}"
         f"Changes:\n{json.dumps(changes, default=str)}"
     )
 
@@ -61,7 +72,7 @@ def generate_refresh_analysis(before_results: dict, after_results: dict, team_id
     try:
         content, _, _ = hit_openai(
             messages,
-            f"team/{team_id}/dashboard_refresh",
+            f"team/{dashboard.team_id}/dashboard_refresh",
             posthog_properties={
                 "ai_product": "product_analytics",
                 "ai_feature": "dashboard-refresh-analysis",

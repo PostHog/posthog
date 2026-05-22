@@ -47,7 +47,7 @@ formula to `(A + B) / C`. For breakdowns, add `breakdownFilter` with
 ## Add to a dashboard
 
 After saving the insights, use `posthog:dashboard-create` (or `-update`) to
-bundle them. The default `/llm-analytics/dashboard` already includes Cost,
+bundle them. The default `/ai-observability/dashboard` already includes Cost,
 Cost per user, and Cost by model tiles — mirror that structure when building
 a custom one.
 
