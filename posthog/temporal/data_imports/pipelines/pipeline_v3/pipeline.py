@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -55,22 +56,6 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
-
-
-def _current_workflow_id() -> str | None:
-    """Return the current Temporal workflow id, or None if not running inside an activity."""
-    try:
-        return activity.info().workflow_id
-    except RuntimeError:
-        return None
-
-
-def _current_workflow_run_id() -> str | None:
-    """Return the current Temporal workflow run id, or None if not running inside an activity."""
-    try:
-        return activity.info().workflow_run_id
-    except RuntimeError:
-        return None
 
 
 class PipelineV3(Generic[ResumableData]):
@@ -165,8 +150,8 @@ class PipelineV3(Generic[ResumableData]):
             partition_format=partition_format,
             partition_mode=partition_mode,
             is_first_ever_sync=is_first_ever_sync,
-            workflow_id=_current_workflow_id(),
-            workflow_run_id=_current_workflow_run_id(),
+            workflow_id=current_workflow_id(),
+            workflow_run_id=current_workflow_run_id(),
         )
 
         self._resumable_source_manager = resumable_source_manager

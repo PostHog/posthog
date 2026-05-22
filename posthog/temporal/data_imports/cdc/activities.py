@@ -23,6 +23,7 @@ import structlog
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
 from posthog.temporal.data_imports.cdc.batcher import (
     ChangeEventBatcher,
@@ -54,22 +55,6 @@ class CDCExtractInput:
             "team_id": self.team_id,
             "source_id": str(self.source_id),
         }
-
-
-def _activity_workflow_id() -> str | None:
-    """Current Temporal workflow id, or None if not inside an activity (tests, deferred-run repro)."""
-    try:
-        return activity.info().workflow_id
-    except RuntimeError:
-        return None
-
-
-def _activity_workflow_run_id() -> str | None:
-    """Current Temporal workflow run id, or None if not inside an activity."""
-    try:
-        return activity.info().workflow_run_id
-    except RuntimeError:
-        return None
 
 
 @dataclasses.dataclass
@@ -197,8 +182,8 @@ class CDCExtractActivity:
                 primary_keys=run_meta.get("primary_keys"),
                 cdc_write_mode=run_meta.get("cdc_write_mode", "incremental_merge"),
                 cdc_table_mode=run_meta.get("cdc_table_mode"),
-                workflow_id=_activity_workflow_id(),
-                workflow_run_id=_activity_workflow_run_id(),
+                workflow_id=current_workflow_id(),
+                workflow_run_id=current_workflow_run_id(),
             )
 
             from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
@@ -312,8 +297,8 @@ class CDCExtractActivity:
             primary_keys=tracker.key_columns or None,
             cdc_write_mode=tracker.cdc_write_mode,
             cdc_table_mode=tracker.cdc_table_mode,
-            workflow_id=_activity_workflow_id(),
-            workflow_run_id=_activity_workflow_run_id(),
+            workflow_id=current_workflow_id(),
+            workflow_run_id=current_workflow_run_id(),
         )
         try:
             producer.send_batch_notification(
