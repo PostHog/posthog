@@ -329,14 +329,13 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
 
         assert [r.intent_text for r in records] == expected_intents
 
-    @pytest.mark.parametrize(
-        "placeholder_text",
+    @parameterized.expand(
         [
-            NO_INTENT_RECORDED_FALLBACK,
-            f"  {NO_INTENT_RECORDED_FALLBACK}  ",
-        ],
+            ("raw", NO_INTENT_RECORDED_FALLBACK),
+            ("padded_whitespace", f"  {NO_INTENT_RECORDED_FALLBACK}  "),
+        ]
     )
-    def test_summariser_fallback_intent_is_excluded(self, placeholder_text: str) -> None:
+    def test_summariser_fallback_intent_is_excluded(self, _name: str, placeholder_text: str) -> None:
         # Session whose intent column holds the summariser's "nothing here"
         # placeholder — must be excluded so it doesn't form its own cluster.
         # Whitespace variants must also be excluded after .strip().
