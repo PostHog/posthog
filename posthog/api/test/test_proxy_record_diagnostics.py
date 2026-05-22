@@ -127,12 +127,20 @@ class TestCheckCloudflare(TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("certificate provider", result.detail.lower())
 
+    @parameterized.expand(
+        [
+            # ValueError from cloudflare._get_headers() when CLOUDFLARE_API_TOKEN is unset,
+            # or from cloudflare._parse_hostname() when Cloudflare returns an unknown enum
+            # status value.
+            ("value_error", ValueError("CLOUDFLARE_API_TOKEN must be configured")),
+            # KeyError from cloudflare._parse_hostname() if the response is missing a
+            # previously-guaranteed field like `id`, `hostname`, or `status`.
+            ("key_error", KeyError("status")),
+        ]
+    )
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
-    def test_warn_when_value_error_escapes(self, get_mock):
-        # ValueError comes from cloudflare._get_headers() when CLOUDFLARE_API_TOKEN is
-        # unset, or from cloudflare._parse_hostname() when Cloudflare returns an
-        # unknown enum status value.
-        get_mock.side_effect = ValueError("CLOUDFLARE_API_TOKEN must be configured")
+    def test_warn_when_unexpected_exception_escapes(self, _name, exc, get_mock):
+        get_mock.side_effect = exc
         with patch("posthog.api.proxy_record_diagnostics.capture_exception") as cap_mock:
             result, info = diagnostics._check_cloudflare(_record())
         self.assertEqual(result.status, "warned")
@@ -142,16 +150,6 @@ class TestCheckCloudflare(TestCase):
         _exc, props = cap_mock.call_args[0]
         self.assertIn("proxy_record_id", props)
         self.assertIn("domain", props)
-
-    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
-    def test_warn_when_key_error_escapes(self, get_mock):
-        # KeyError comes from cloudflare._parse_hostname() if the response is missing
-        # a previously-guaranteed field like `id`, `hostname`, or `status`.
-        get_mock.side_effect = KeyError("status")
-        with patch("posthog.api.proxy_record_diagnostics.capture_exception"):
-            result, info = diagnostics._check_cloudflare(_record())
-        self.assertEqual(result.status, "warned")
-        self.assertIsNone(info)
 
 
 class TestCheckCaa(TestCase):
