@@ -139,6 +139,17 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
     def test_returns_empty_list_when_no_sessions(self) -> None:
         assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []
 
+    def test_does_not_cache_empty_responses(self) -> None:
+        # An empty result must not be cached, so a session created moments later
+        # shows up immediately instead of being hidden by a cached empty list.
+        assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"])
+
+        sessions = api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        assert [s.session_id for s in sessions] == [session_id]
+
     def test_excludes_events_without_mcp_session_id(self) -> None:
         # Events with no $mcp_session_id (e.g. the bare-schema producers) must not
         # collapse into one empty-keyed "session".

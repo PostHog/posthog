@@ -158,7 +158,10 @@ def list_mcp_sessions(
         return cached
 
     sessions = _query_mcp_sessions(team, limit=limit, offset=offset, search=search, order_by=order_by)
-    cache.set(cache_key, sessions, SESSIONS_CACHE_TTL_SECONDS)
+    # Don't cache empty results: a newly set-up team's first sessions would
+    # otherwise stay hidden for the full TTL.
+    if sessions:
+        cache.set(cache_key, sessions, SESSIONS_CACHE_TTL_SECONDS)
     return sessions
 
 
