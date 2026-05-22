@@ -1507,6 +1507,18 @@ export const WebQuery = ({
         )
     }
 
+    if (!headerSlot) {
+        return (
+            <Query
+                uniqueKey={uniqueKey}
+                attachTo={attachTo}
+                query={query}
+                readOnly={true}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+            />
+        )
+    }
+
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {headerSlot}
