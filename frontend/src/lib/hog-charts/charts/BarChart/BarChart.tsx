@@ -1,8 +1,16 @@
 import * as d3 from 'd3'
 import React, { useCallback, useMemo } from 'react'
 
-import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../../core/bar-layout'
-import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } from '../../core/canvas-renderer'
+import { type BarChartPrivate, computeBarAtIndex, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
+import {
+    BAR_TRACK_HOVER_ALPHA,
+    type BarRect,
+    drawBarHighlight,
+    drawBars,
+    drawBarTracks,
+    drawGrid,
+    type DrawContext,
+} from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
@@ -29,7 +37,7 @@ import type {
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { BarTooltip } from './BarTooltip'
-import { seriesKeysAtCursor } from './utils/bars-under-cursor'
+import { cursorOutsideBarFillExtent, seriesKeysAtCursor } from './utils/bars-under-cursor'
 
 function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
     const start = scales.band(label)
@@ -86,6 +94,7 @@ function BarChartInner<Meta = unknown>({
         showGrid = false,
         barLayout = 'stacked',
         barCornerRadius = 0,
+        barTrack = false,
         axisOrientation = 'vertical',
         xTickFormatter,
     } = config ?? {}
@@ -218,31 +227,39 @@ function BarChartInner<Meta = unknown>({
                 })
             }
 
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded) {
-                    continue
-                }
-                const stackedBand = stackedData?.get(s.key)
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                const isTop = topStackedKeyByAxis.get(axisId) === s.key
-                const bars = computeSeriesBars({
-                    series: s,
-                    labels: drawLabels,
-                    scales: d3Scales,
-                    layout: barLayout,
-                    isHorizontal,
-                    stackedBand,
-                    isTopOfStack: isTop,
+            const seriesBars = coloredSeries
+                .filter((s) => !s.visibility?.excluded)
+                .map((s) => {
+                    const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                    const bars = computeSeriesBars({
+                        series: s,
+                        labels: drawLabels,
+                        scales: d3Scales,
+                        layout: barLayout,
+                        isHorizontal,
+                        stackedBand: stackedData?.get(s.key),
+                        isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+                    }).filter((b): b is BarRect => b !== null)
+                    return { series: s, bars }
                 })
-                drawBars(
-                    baseDrawCtx,
-                    s,
-                    bars.filter((b): b is BarRect => b !== null),
-                    barCornerRadius
-                )
+
+            // Tracks are a separate pass so a later series' full-height track can't paint
+            // over an earlier series' bar. Track is "share of a whole" semantics — only
+            // meaningful for grouped layouts; in stacked/percent every layer would paint
+            // a full-height track over the same band with the wrong corners.
+            if (barTrack && barLayout === 'grouped') {
+                const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
+                for (const { series: s, bars } of seriesBars) {
+                    const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
+                    drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
+                }
+            }
+
+            for (const { series: s, bars } of seriesBars) {
+                drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
         },
-        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, xTickFormatter]
+        [showGrid, stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, barTrack, xTickFormatter]
     )
 
     const drawHover = useCallback(
@@ -252,6 +269,9 @@ function BarChartInner<Meta = unknown>({
                 return
             }
             const hoveredLabel = drawLabels[hoverIndex]
+            // Hoisted out of the per-series loop below — the value-axis range doesn't
+            // depend on which series the cursor is over.
+            const [trackAxisStart = 0, trackAxisEnd = 0] = barTrack ? d3Scales.value.range() : []
             // Narrow to bars whose band-axis extent contains the cursor; an empty hit set
             // means the cursor is in a gap, so draw nothing.
             let hitKeys: Set<string> | null = null
@@ -292,13 +312,41 @@ function BarChartInner<Meta = unknown>({
                     stackedBand,
                     isTopOfStack: isTop,
                 })
-                if (bar) {
+                if (!bar) {
+                    continue
+                }
+                // Over the track region above the bar: highlight the track instead of the bar.
+                // A translucent series-color fill leaves the opaque bar unchanged but tints
+                // the faint hatched track.
+                if (
+                    barTrack &&
+                    barLayout === 'grouped' &&
+                    hoverPosition &&
+                    cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
+                ) {
+                    const parsed = d3.color(s.color)
+                    // Always translucent — falling back to `s.color` directly would paint
+                    // an opaque full-plot-height block if d3 can't parse the series color.
+                    let trackColor: string
+                    if (parsed) {
+                        parsed.opacity = BAR_TRACK_HOVER_ALPHA
+                        trackColor = parsed.toString()
+                    } else {
+                        trackColor = `rgba(0,0,0,${BAR_TRACK_HOVER_ALPHA})`
+                    }
+                    drawBarHighlight(
+                        ctx,
+                        computeBarTrackRect(bar, trackAxisStart, trackAxisEnd, isHorizontal),
+                        trackColor,
+                        barCornerRadius
+                    )
+                } else {
                     const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 }
             }
         },
-        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
+        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius, barTrack]
     )
 
     // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels
