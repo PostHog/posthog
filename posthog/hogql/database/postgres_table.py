@@ -49,6 +49,11 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
         # this table is in PERSONS_DB_MODELS. Hobby/self-hosted deployments without a
         # dedicated persons proxy fall back to the main one.
         model_name = postgres_table_name.replace("posthog_", "")
+        host_var: str | None
+        port_var: str | None
+        database_var: str | None
+        user_var: str | None
+        password_var: str | None
         if model_name in PERSONS_DB_MODELS and settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_HOST:
             host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_HOST
             port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_PERSONS_READ_PORT
