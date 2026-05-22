@@ -603,7 +603,9 @@ class TestUpsertDashboardTool(BaseTest):
         insights = tool._resolve_insights(artifacts)
 
         self.assertEqual(len(insights), 1)
-        self.assertEqual(insights[0].query["kind"], expected_kind.value)
+        stored_query = insights[0].query
+        assert isinstance(stored_query, dict)
+        self.assertEqual(stored_query["kind"], expected_kind.value)
 
     async def test_full_integration_positional_reordering(self):
         """
