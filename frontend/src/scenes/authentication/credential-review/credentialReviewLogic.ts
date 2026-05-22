@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { passkeySettingsLogic } from 'scenes/settings/user/passkeySettingsLogic'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -31,9 +32,9 @@ export const credentialReviewLogic = kea<credentialReviewLogicType>([
         },
     }),
     afterMount(() => {
-        // personalAPIKeysLogic only auto-loads teams (not keys) when it mounts; the
-        // settings page calls loadKeys() from its own useEffect. Trigger it here so the
-        // review table isn't dismissable while empty.
+        // Neither logic auto-loads its list on mount, so trigger both here. Otherwise
+        // the review screen would render empty until the user hit the settings page.
         personalAPIKeysLogic.actions.loadKeys()
+        passkeySettingsLogic.actions.loadPasskeys()
     }),
 ])
