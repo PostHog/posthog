@@ -120,6 +120,10 @@ def export_environment(uid: int, gid: int) -> None:
     """Write env vars to /etc/environment and /etc/profile.d for SSH sessions."""
     extra_vars = {
         "HOME": str(SANDBOX_HOME),
+        # flox sets VIRTUAL_ENV by sourcing the venv's activate; the sandbox
+        # never activates. bin/hogli and bin/ruff.sh prefer it over PATH. Equal
+        # to UV_PROJECT_ENVIRONMENT, so uv sync emits no mismatch warning.
+        "VIRTUAL_ENV": "/cache/python",
         "UV_CACHE_DIR": "/cache/uv",
         "UV_LINK_MODE": "copy",
         "XDG_CACHE_HOME": "/tmp/sandbox-cache",
@@ -597,6 +601,8 @@ def _setup_user_env() -> None:
     os.environ.update(
         {
             "HOME": str(SANDBOX_HOME),
+            # Mirror export_environment so the tmux/claude tree gets VIRTUAL_ENV.
+            "VIRTUAL_ENV": "/cache/python",
             "UV_CACHE_DIR": "/cache/uv",
             "UV_LINK_MODE": "copy",
             "XDG_CACHE_HOME": "/tmp/sandbox-cache",
