@@ -19,6 +19,7 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -122,8 +123,6 @@ def _make_cdc_source_and_schema(
     ],
 )
 def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, client: HttpClient, old_mode, new_mode):
-    from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-
     source, schema = _make_cdc_source_and_schema(
         team,
         cdc_table_mode=old_mode,
