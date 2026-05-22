@@ -48,6 +48,9 @@ pub(super) const CAPTURE_V1_EVENTS_DROPPED: &str = "capture_v1_events_dropped";
 /// Counter for events marked as quota-limited, labeled by resource bucket.
 pub(crate) const CAPTURE_V1_EVENTS_QUOTA_LIMITED: &str = "capture_v1_events_quota_limited";
 
+/// Counter for events rerouted to the overflow topic by the burst limiter.
+pub(super) const CAPTURE_V1_OVERFLOW_ROUTED: &str = "capture_v1_events_rerouted_overflow";
+
 /// Counter/gauge key for the per-token global rate limiter.
 pub(crate) const CAPTURE_V1_RATE_LIMITER: &str = "capture_v1_rate_limiter";
 
