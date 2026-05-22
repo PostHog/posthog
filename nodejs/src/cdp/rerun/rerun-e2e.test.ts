@@ -11,11 +11,13 @@ import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
 
 import { KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { UUIDT } from '../../utils/utils'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
@@ -160,6 +162,22 @@ describe('CDP hog invocation rerun e2e', () => {
         mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
 
         team = await getFirstTeam(hub.postgres)
+
+        // The rerun strips `person` from invocation_globals — the cyclotron
+        // worker reloads it via getCyclotronPerson(distinct_id). Seed a real
+        // person so the rerun can resolve `{person}` in the function's inputs.
+        await new PostgresPersonRepository(hub.postgres).createPerson(
+            DateTime.now(),
+            { email: 'rerun-e2e@posthog.com' },
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            new UUIDT().toString(),
+            { distinctId: 'distinct_id' }
+        )
+
         mockProducerObserver.resetKafkaProducer()
 
         hub.CDP_FETCH_RETRIES = 0

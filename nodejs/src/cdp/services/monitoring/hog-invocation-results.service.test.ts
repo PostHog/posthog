@@ -94,9 +94,9 @@ describe('HogInvocationResultsService', () => {
             expect(rows).toHaveLength(1)
             const globals = (await decodeInvocationGlobals(rows[0].invocation_globals)) as Record<string, any>
 
-            // The event/person context we care about is preserved.
+            // The event context we care about is preserved.
             expect(globals.event?.uuid).toBeDefined()
-            expect(globals.person?.id).toBeDefined()
+            expect(globals.project?.id).toBeDefined()
             // But `inputs` is gone entirely.
             expect(globals).not.toHaveProperty('inputs')
             // And the decoded payload does not mention the secret anywhere
@@ -107,7 +107,7 @@ describe('HogInvocationResultsService', () => {
             expect(decoded).not.toContain('abc123')
         })
 
-        it('strips groups from invocation_globals — large, rebuilt from the event on rerun', async () => {
+        it('strips groups and person from invocation_globals — rebuilt downstream on rerun', async () => {
             const invocation = createExampleInvocation({}, {
                 groups: {
                     organization: {
@@ -125,9 +125,10 @@ describe('HogInvocationResultsService', () => {
             const rows = parseProducedRows(outputs)
             const globals = (await decodeInvocationGlobals(rows[0].invocation_globals)) as Record<string, any>
             expect(globals).not.toHaveProperty('groups')
-            // event and person are kept — only groups is dropped.
+            expect(globals).not.toHaveProperty('person')
+            // The event — the rerun trigger — is kept.
             expect(globals.event?.uuid).toBeDefined()
-            expect(globals.person?.id).toBeDefined()
+            expect(globals.project?.id).toBeDefined()
         })
 
         it('marks is_retry=1 and attempts=N when state.rerunAttempts is set', async () => {

@@ -71,7 +71,7 @@ export interface HogInvocationResultRow {
     event_uuid: string
     distinct_id: string
     person_id: string
-    invocation_globals: string // globals JSON (inputs + groups stripped) — gzip+base64'd on produce
+    invocation_globals: string // globals JSON (inputs/groups/person stripped) — gzip+base64'd on produce
     version: string // microsecond-precision UInt64; serialized as string to dodge JS's 53-bit precision
     is_deleted: 0 | 1
 }
@@ -204,14 +204,15 @@ const stripInputs = <T>(value: T): T => {
     return out as T
 }
 
-// The payload the rerun path needs to rehydrate the invocation. `inputs` is
-// stripped for security (see `stripInputs`); `groups` is stripped for size —
-// it's large and the rerun paginator rebuilds it from the event via
-// `addGroupsToGlobals` before re-resolving inputs. `person` is kept (small,
-// and not always reloadable). Keep the paginator reload in sync with this.
+// The payload the rerun path needs to rehydrate the invocation, kept minimal.
+// `inputs`, `groups` and `person` are all dropped: the cyclotron worker
+// rehydrates `groups`/`person` (loadHogFunctions) and the executor rebuilds
+// `inputs` when an invocation arrives without them — so the rerun reconstructs
+// everything from the event against the latest config. `inputs` must be
+// dropped anyway for security (resolved secrets — see `stripInputs`).
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
     if (isHogFunctionInvocation(invocation)) {
-        const { groups: _groups, ...globals } = invocation.state.globals
+        const { groups: _groups, person: _person, ...globals } = invocation.state.globals
         return JSON.stringify(stripInputs(globals))
     }
     if (isHogFlowInvocation(invocation)) {

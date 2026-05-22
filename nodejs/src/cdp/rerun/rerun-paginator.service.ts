@@ -4,12 +4,10 @@ import { Counter } from 'prom-client'
 
 import { logger } from '../../utils/logger'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
-import { HogInputsService } from '../services/hog-inputs.service'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import {
@@ -21,7 +19,7 @@ import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     HogFunctionFilterGlobals,
-    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { RERUN_PAGE_SIZE, RerunFunctionKind, RerunJobProgress, RerunJobState } from './rerun-job.types'
@@ -108,10 +106,6 @@ export class RerunPaginatorService {
         private clickhouse: ClickHouseClient,
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
-        private hogInputsService: HogInputsService,
-        // Rebuilds `groups` (stripped from the persisted globals) before inputs
-        // are re-resolved on rehydration.
-        private groupsManager: GroupsManagerService,
         private invocationResultsRowsService: HogInvocationResultsService,
         // Re-enqueue targets keyed by function kind — see RerunJobQueues.
         private jobQueues: RerunJobQueues,
@@ -446,39 +440,56 @@ export class RerunPaginatorService {
         rows: InvocationRow[]
     ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[] }> {
         const maxAttempts = state.request.filter.max_attempts
-        const queuedInvocations: CyclotronJobInvocation[] = []
-        let skipped = 0
 
-        for (const row of rows) {
-            if (maxAttempts !== undefined && row.attempts >= maxAttempts) {
-                counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
-                skipped++
+        // Rehydrate the whole page concurrently — `addGroupsToGlobals` and the
+        // hog function manager are LazyLoader-backed and batch their DB lookups
+        // across concurrent callers, so a sequential loop would defeat that.
+        const rehydrated = await Promise.all(
+            rows.map(async (row): Promise<CyclotronJobInvocation | null> => {
+                if (maxAttempts !== undefined && row.attempts >= maxAttempts) {
+                    counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
+                    return null
+                }
+                try {
+                    const invocation = await this.rehydrateInvocation(
+                        teamId,
+                        state.function_kind,
+                        state.function_id,
+                        row
+                    )
+                    if (!invocation) {
+                        counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
+                    }
+                    return invocation
+                } catch (e) {
+                    logger.error('Rerun failed to rehydrate invocation', {
+                        error: e instanceof Error ? e.message : String(e),
+                        invocation_id: row.invocation_id,
+                    })
+                    counterRerunInvocationsSkipped.labels(state.function_kind, 'exception').inc()
+                    return null
+                }
+            })
+        )
+
+        const queuedInvocations: CyclotronJobInvocation[] = []
+        for (const invocation of rehydrated) {
+            if (!invocation) {
                 continue
             }
-            try {
-                const invocation = await this.rehydrateInvocation(teamId, state.function_kind, state.function_id, row)
-                if (!invocation) {
-                    counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
-                    skipped++
-                    continue
-                }
-                // Rerun-start lifecycle row. is_retry/attempts are derived from
-                // `state.rerunAttempts` (set by rehydrateInvocation above). The
-                // matching terminal row is written by the worker when the
-                // invocation finishes — same derivation, same is_retry=1.
-                this.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-                queuedInvocations.push(invocation)
-            } catch (e) {
-                logger.error('Rerun failed to rehydrate invocation', {
-                    error: e instanceof Error ? e.message : String(e),
-                    invocation_id: row.invocation_id,
-                })
-                counterRerunInvocationsSkipped.labels(state.function_kind, 'exception').inc()
-                skipped++
-            }
+            // Rerun-start lifecycle row. is_retry/attempts are derived from
+            // `state.rerunAttempts` (set by rehydrateInvocation). The matching
+            // terminal row is written by the worker when the invocation
+            // finishes — same derivation, same is_retry=1.
+            this.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+            queuedInvocations.push(invocation)
         }
 
-        return { queued: queuedInvocations.length, skipped, queuedInvocations }
+        return {
+            queued: queuedInvocations.length,
+            skipped: rows.length - queuedInvocations.length,
+            queuedInvocations,
+        }
     }
 
     private async rehydrateInvocation(
@@ -499,22 +510,18 @@ export class RerunPaginatorService {
             if (!hogFunction || hogFunction.team_id !== teamId) {
                 return null
             }
-            // The persisted globals have `inputs` stripped — secrets stay out
-            // of ClickHouse. Re-resolve inputs here from the current hog function
-            // config + integration store, which also gives the rerun run any
-            // input changes the user made since the original invocation.
-            const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobals
-            // `groups` is stripped from the persisted globals — rebuild it from
-            // the event before resolving inputs, since input templates can
-            // reference it and the cyclotron worker only reloads it later.
-            await this.groupsManager.addGroupsToGlobals(persistedGlobals)
-            const globalsWithInputs = await this.hogInputsService.buildInputsWithGlobals(hogFunction, persistedGlobals)
+            // The persisted globals are minimal — `inputs`, `groups` and
+            // `person` are all stripped. Re-enqueue as-is: the cyclotron worker
+            // rehydrates `groups`/`person` and the executor rebuilds `inputs`
+            // from the current hog function config, so the rerun runs against
+            // the latest config/secrets rather than a stored snapshot.
+            const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the
                 // ReplacingMergeTree on the same key.
                 id: row.invocation_id,
                 state: {
-                    globals: globalsWithInputs,
+                    globals: persistedGlobals,
                     timings: [],
                     // `attempts` is the fetch-retry counter and is reset to 0
                     // for the rerun run. `rerunAttempts` (read from the
