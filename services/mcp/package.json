@@ -57,7 +57,7 @@
         "posthog-node": "^5.25.0",
         "prom-client": "^14.2.0",
         "uuid": "^11.1.0",
-        "yaml": "^2.8.2",
+        "yaml": "^2.8.3",
         "zod": "^4.3.6"
     },
     "devDependencies": {
