@@ -117,6 +117,85 @@ export namespace Schemas {
     }
 
     /**
+     * * `engineering` - Engineering
+    * `data` - Data
+    * `product` - Product Management
+    * `founder` - Founder
+    * `leadership` - Leadership
+    * `marketing` - Marketing
+    * `sales` - Sales / Success
+    * `other` - Other
+     */
+    export type RoleAtOrganizationEnum = typeof RoleAtOrganizationEnum[keyof typeof RoleAtOrganizationEnum];
+
+
+    export const RoleAtOrganizationEnum = {
+      Engineering: 'engineering',
+      Data: 'data',
+      Product: 'product',
+      Founder: 'founder',
+      Leadership: 'leadership',
+      Marketing: 'marketing',
+      Sales: 'sales',
+      Other: 'other',
+    } as const;
+
+    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
+
+
+    export const BlankEnum = {
+      '': '',
+    } as const;
+
+    /**
+     * @nullable
+     */
+    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null;
+
+    export interface UserBasic {
+      readonly id: number;
+      readonly uuid: string;
+      /**
+         * @maxLength 200
+         * @nullable
+         */
+      distinct_id?: string | null;
+      /** @maxLength 150 */
+      first_name?: string;
+      /** @maxLength 150 */
+      last_name?: string;
+      /** @maxLength 254 */
+      email: string;
+      /** @nullable */
+      is_email_verified?: boolean | null;
+      /** @nullable */
+      readonly hedgehog_config: UserBasicHedgehogConfig;
+      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
+    }
+
+    export interface AccountNotebook {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable title of the account notebook.
+         * @maxLength 256
+         * @nullable
+         */
+      title?: string | null;
+      /** Notebook content as a ProseMirror JSON document structure. */
+      content?: unknown;
+      /**
+         * Plain text representation of the notebook content for search.
+         * @nullable
+         */
+      text_content?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly last_modified_at: string;
+      readonly last_modified_by: UserBasic;
+    }
+
+    /**
      * * `event` - event
     * `event_metadata` - event_metadata
     * `feature` - feature
@@ -566,63 +645,6 @@ export namespace Schemas {
       * `regex` - regex
       * `exact` - exact */
       url_matching?: ActionStepMatchingEnum | null;
-    }
-
-    /**
-     * * `engineering` - Engineering
-    * `data` - Data
-    * `product` - Product Management
-    * `founder` - Founder
-    * `leadership` - Leadership
-    * `marketing` - Marketing
-    * `sales` - Sales / Success
-    * `other` - Other
-     */
-    export type RoleAtOrganizationEnum = typeof RoleAtOrganizationEnum[keyof typeof RoleAtOrganizationEnum];
-
-
-    export const RoleAtOrganizationEnum = {
-      Engineering: 'engineering',
-      Data: 'data',
-      Product: 'product',
-      Founder: 'founder',
-      Leadership: 'leadership',
-      Marketing: 'marketing',
-      Sales: 'sales',
-      Other: 'other',
-    } as const;
-
-    export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
-
-
-    export const BlankEnum = {
-      '': '',
-    } as const;
-
-    /**
-     * @nullable
-     */
-    export type UserBasicHedgehogConfig = { [key: string]: unknown } | null;
-
-    export interface UserBasic {
-      readonly id: number;
-      readonly uuid: string;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      distinct_id?: string | null;
-      /** @maxLength 150 */
-      first_name?: string;
-      /** @maxLength 150 */
-      last_name?: string;
-      /** @maxLength 254 */
-      email: string;
-      /** @nullable */
-      is_email_verified?: boolean | null;
-      /** @nullable */
-      readonly hedgehog_config: UserBasicHedgehogConfig;
-      role_at_organization?: RoleAtOrganizationEnum | BlankEnum | null;
     }
 
     /**
@@ -21857,6 +21879,15 @@ export namespace Schemas {
       results: Account[];
     }
 
+    export interface PaginatedAccountNotebookList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountNotebook[];
+    }
+
     export interface PaginatedActionList {
       count: number;
       /** @nullable */
@@ -39887,6 +39918,17 @@ export namespace Schemas {
     };
 
     export type AccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsNotebooksListParams = {
     /**
      * Number of results to return per page.
      */
