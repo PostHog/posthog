@@ -600,14 +600,25 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
     ) -> int | None:
         """Sample `LENGTH(COALESCE(col, ''))` across columns on the first 1000 rows.
 
+        The sampling SQL is built directly from `schema` / `table_name`
+        rather than wrapping the sync's `inner_query`. On incremental
+        syncs `inner_query` ends in `ORDER BY <cursor> ASC`, and
+        MySQL / Vitess apply the inner `ORDER BY` before the outer
+        `LIMIT` — sorting every qualifying row, blowing past
+        `sort_buffer_size`, and raising errno 1038 ("Out of sort
+        memory"). Chunk-size tuning only needs a rough per-row byte
+        estimate, so dropping the incremental filter / ordering is
+        acceptable here. `inner_query` / `inner_query_args` are kept
+        for base-class signature compatibility but are intentionally
+        unused.
+
         Column names are pulled from `information_schema.COLUMNS`, then
         each name is passed through the identifier quoter before being
-        interpolated into the `LENGTH(...)` sum. `inner_query` is the
-        SELECT the sync is about to run — its identifiers were already
-        quoted by the shared `SelectQueryBuilder`, and its arguments are
-        rebound as parameters here. No untrusted value ever reaches raw
-        SQL.
+        interpolated into the `LENGTH(...)` sum. The qualified table
+        reference is quoted by the shared `SelectQueryBuilder`. No
+        untrusted value ever reaches raw SQL.
         """
+        del inner_query, inner_query_args  # see docstring
         try:
             cursor.execute(
                 """
@@ -626,11 +637,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
             columns = [row[0] for row in rows]
             length_sum = " + ".join(f"LENGTH(COALESCE({_IDENTIFIER_QUOTER.quote(col)}, ''))" for col in columns)
-            # length_sum and inner_query are built from sanitized identifiers;
+            sample_sql = _QUERY_BUILDER.select_all(schema=schema, table_name=table_name).sql
+            # length_sum and sample_sql are built from sanitized identifiers;
             # no user-supplied values are interpolated into the SQL itself.
-            size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + inner_query + " LIMIT 1000) as t"
+            size_query = "SELECT AVG(" + length_sum + ") as avg_row_size FROM (" + sample_sql + " LIMIT 1000) as t"
 
-            cursor.execute(size_query, inner_query_args)
+            cursor.execute(size_query)
             row = cursor.fetchone()
 
             if row is None or row[0] is None:

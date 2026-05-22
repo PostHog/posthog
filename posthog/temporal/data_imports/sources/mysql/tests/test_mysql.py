@@ -357,6 +357,49 @@ class TestFetchAverageRowSize:
         assert "`email`" in sql
         assert "LENGTH(COALESCE(`id`" in sql
 
+    def test_sample_query_targets_table_directly(self, impl, cursor, logger):
+        # The sampler must build its own bare `SELECT * FROM schema.table`
+        # rather than wrapping the sync's inner query — wrapping an
+        # incremental query forces MySQL/Vitess to sort the entire
+        # qualifying row set before applying LIMIT, blowing past
+        # `sort_buffer_size` (errno 1038).
+        cursor.fetchall.return_value = [("id",)]
+        cursor.fetchone.return_value = (10,)
+        impl.fetch_average_row_size(cursor, "mydb", "users", "SELECT 1", {}, logger)
+        second_call = cursor.execute.call_args_list[1]
+        sql = second_call.args[0]
+        assert "FROM (SELECT * FROM `mydb`.`users` LIMIT 1000) as t" in sql
+
+    def test_sample_query_ignores_inner_query_order_by(self, impl, cursor, logger):
+        # Regression: even if the caller supplies an inner_query containing
+        # an ORDER BY (which is what `_build_query` does for incremental
+        # syncs), the sampler must not splice it into the size query.
+        cursor.fetchall.return_value = [("id",)]
+        cursor.fetchone.return_value = (10,)
+        impl.fetch_average_row_size(
+            cursor,
+            "mydb",
+            "users",
+            "SELECT * FROM `mydb`.`users` WHERE `updated_at` > %(incremental_value)s ORDER BY `updated_at` ASC",
+            {"incremental_value": "2024-01-01"},
+            logger,
+        )
+        second_call = cursor.execute.call_args_list[1]
+        sql = second_call.args[0]
+        assert "ORDER BY" not in sql
+        assert "incremental_value" not in sql
+
+    def test_sample_query_passes_no_params(self, impl, cursor, logger):
+        # The sample query no longer references `inner_query_args` — it
+        # must be executed without rebinding parameters, otherwise pymysql
+        # raises when params are supplied but none are referenced.
+        cursor.fetchall.return_value = [("id",)]
+        cursor.fetchone.return_value = (10,)
+        impl.fetch_average_row_size(cursor, "mydb", "users", "SELECT 1", {"a": 1}, logger)
+        second_call = cursor.execute.call_args_list[1]
+        # Only the SQL is passed positionally — no second `params` argument.
+        assert len(second_call.args) == 1
+
     def test_rejects_malformed_column_names(self, impl, cursor, logger):
         # If INFORMATION_SCHEMA somehow returns a weird column name, we must
         # reject it rather than splice it into SQL. The quoter raises; the
