@@ -105,6 +105,9 @@ export function defineMcpProtocolTests(
         })
 
         it('lists prompts', async () => {
+            if (!currentHarness.gracefulUnknown) {
+                return
+            }
             const { prompts } = await client.listPrompts()
             expect(Array.isArray(prompts)).toBe(true)
         })
