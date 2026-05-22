@@ -55,6 +55,63 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 logger = structlog.get_logger(__name__)
 
 
+_CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
+    "consolidated": frozenset({"consolidated"}),
+    "cdc_only": frozenset({"cdc_history"}),
+    "both": frozenset({"consolidated", "cdc_history"}),
+}
+
+
+def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str | None) -> bool:
+    """True when the new mode adds a physical write target (consolidated and/or cdc history table)."""
+    if old_mode == new_mode:
+        return False
+    old_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(old_mode or "", frozenset())
+    new_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(new_mode or "", frozenset())
+    return bool(new_targets - old_targets)
+
+
+def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
+    """Cancel any running workflow and reset schema state so the next run does a full snapshot.
+
+    Must save before triggering: the workflow reloads the schema and bails via
+    `CDCHandledExternally` if it sees `cdc_mode='streaming'`.
+    """
+    latest_running_job = (
+        ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id).order_by("-created_at").first()
+    )
+    if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
+        try:
+            cancel_external_data_workflow(latest_running_job.workflow_id)
+        except temporalio.service.RPCError as e:
+            logger.exception(
+                "Could not cancel running workflow before re-snapshot",
+                schema_id=str(instance.id),
+                exc_info=e,
+            )
+
+    instance.sync_type_config["reset_pipeline"] = True
+    instance.sync_type_config["cdc_mode"] = "snapshot"
+    instance.sync_type_config.pop("cdc_last_log_position", None)
+    instance.sync_type_config.pop("cdc_deferred_runs", None)
+    instance.initial_sync_complete = False
+    instance.status = ExternalDataSchema.Status.RUNNING
+    instance.save()
+
+    try:
+        trigger_external_data_workflow(instance)
+    except temporalio.service.RPCError as e:
+        logger.exception(
+            "Could not trigger external data workflow after re-snapshot reset",
+            schema_id=str(instance.id),
+            exc_info=e,
+        )
+        # Roll the status back so the Syncs UI doesn't show RUNNING for a workflow that never started.
+        # The sync_type_config mutations stay — the schema's intent is still "do a re-snapshot next run".
+        instance.status = ExternalDataSchema.Status.FAILED
+        instance.save(update_fields=["status"])
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -242,6 +299,24 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
+
+        # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
+        # whether the change adds a new physical write target (and therefore needs a re-snapshot).
+        previous_cdc_table_mode = instance.cdc_table_mode
+
+        # Refuse cdc_table_mode transitions that would kick a re-snapshot when the team is over its
+        # monthly sync billing limit. Checked here (pre-save) so we don't end up with the new mode
+        # persisted but no resnapshot triggered. Mirrors the gate in `resync` / `reload`.
+        if (
+            instance.sync_type == ExternalDataSchema.SyncType.CDC
+            and "cdc_table_mode" in data
+            and _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, data.get("cdc_table_mode"))
+            and is_any_external_data_schema_paused(instance.team_id)
+        ):
+            raise ValidationError(
+                "Monthly sync limit reached. Please increase your billing limit before changing "
+                "the CDC table mode — a full re-snapshot would be required."
+            )
 
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
@@ -482,6 +557,20 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                     logger.exception("Failed to sync CDC extraction schedule", exc_info=e)
 
             self._run_temporal_side_effect(sync_cdc_schedule)
+
+        # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
+        # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
+        # automatically once the snapshot completes via `run_post_load_operations`.
+        if is_cdc and "cdc_table_mode" in data:
+            new_cdc_table_mode = data.get("cdc_table_mode")
+            if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
+                logger.info(
+                    "cdc_table_mode_changed_resnapshot_triggered",
+                    schema_id=str(updated_instance.id),
+                    old_cdc_table_mode=previous_cdc_table_mode,
+                    new_cdc_table_mode=new_cdc_table_mode,
+                )
+                self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
 
         return updated_instance
 

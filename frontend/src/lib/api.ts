@@ -6734,7 +6734,7 @@ const api = {
     ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly(method)
+        assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -6770,7 +6770,7 @@ const api = {
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('POST')
+        assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', () =>
@@ -6791,7 +6791,7 @@ const api = {
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('DELETE')
+        assertNotReadOnly('DELETE', url)
         return await handleFetch(url, 'DELETE', () =>
             fetch(url, {
                 method: 'DELETE',
