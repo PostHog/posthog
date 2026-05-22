@@ -34,6 +34,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
+from posthog.temporal.data_imports.util import NonRetryableException
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
@@ -41,7 +42,6 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
-from posthog.temporal.data_imports.util import NonRetryableException
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
